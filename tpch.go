@@ -64,7 +64,7 @@ func tpchQ2() *Ast {
 	w5 := equal(column("s_nationkey"), column("n_nationkey"))
 	w6 := equal(column("n_regionkey"), column("r_regionkey"))
 	w7 := equal(column("r_name"), sstring("MIDDLE"))
-	w8 := equal(column("ps_supplycost"), subquery(q1Subquery()))
+	w8 := equal(column("ps_supplycost"), subquery(q2Subquery()))
 
 	ret.Select.Where.Expr = and(
 		and(
@@ -92,7 +92,7 @@ func tpchQ2() *Ast {
 	return ret
 }
 
-func q1Subquery() *Ast {
+func q2Subquery() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
 	//1.select list
 	selectList := make([]*Ast, 1)
@@ -129,6 +129,7 @@ func tpchCatalog() *Catalog {
 	cat := &Catalog{
 		tpch: make(map[string]*CatalogTable),
 	}
+	// part
 	cat.tpch["part"] = &CatalogTable{
 		Db:    "tpch",
 		Table: "part",
@@ -143,7 +144,7 @@ func tpchCatalog() *Catalog {
 			"p_retailprice",
 			"p_comment",
 		},
-		Types: []*ExprDataType{
+		Types: []ExprDataType{
 			{Typ: DataTypeInteger, NotNull: true},
 			{Typ: DataTypeVarchar, NotNull: true, Width: 55},
 			{Typ: DataTypeVarchar, NotNull: true, Width: 25},
@@ -169,15 +170,110 @@ func tpchCatalog() *Catalog {
 			"p_comment":     8,
 		},
 	}
+	// supplier
 	cat.tpch["supplier"] = &CatalogTable{
 		Db:    "tpch",
 		Table: "supplier",
 		Columns: []string{
 			"s_suppkey",
+			"s_name",
+			"s_address",
+			"s_nationkey",
+			"s_phone",
+			"s_acctbal",
+			"s_comment",
 		},
-		Types:      []*ExprDataType{},
-		PK:         []int{},
-		Column2Idx: map[string]int{},
+		Types: []ExprDataType{
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 25},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 40},
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 15},
+			{Typ: DataTypeDecimal, NotNull: true, Width: 15, Scale: 2},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 101},
+		},
+		PK: []int{0},
+		Column2Idx: map[string]int{
+			"s_suppkey":   0,
+			"s_name":      1,
+			"s_address":   2,
+			"s_nationkey": 3,
+			"s_phone":     4,
+			"s_acctbal":   5,
+			"s_comment":   6,
+		},
+	}
+	// partsupp
+	cat.tpch["partsupp"] = &CatalogTable{
+		Db:    "tpch",
+		Table: "partsupp",
+		Columns: []string{
+			"ps_partkey",
+			"ps_suppkey",
+			"ps_availqty",
+			"ps_supplycost",
+			"ps_comment",
+		},
+		Types: []ExprDataType{
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeDecimal, NotNull: true, Width: 15, Scale: 2},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 199},
+		},
+		PK: []int{0, 1},
+		Column2Idx: map[string]int{
+			"ps_partkey":    0,
+			"ps_suppkey":    1,
+			"ps_availqty":   2,
+			"ps_supplycost": 3,
+			"ps_comment":    4,
+		},
+	}
+	// nation
+	cat.tpch["nation"] = &CatalogTable{
+		Db:    "tpch",
+		Table: "nation",
+		Columns: []string{
+			"n_nationkey",
+			"n_name",
+			"n_regionkey",
+			"n_comment",
+		},
+		Types: []ExprDataType{
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 25},
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 152},
+		},
+		PK: []int{0},
+		Column2Idx: map[string]int{
+			"n_nationkey": 0,
+			"n_name":      1,
+			"n_regionkey": 2,
+			"n_comment":   3,
+		},
+	}
+	// region
+	cat.tpch["region"] = &CatalogTable{
+		Db:    "tpch",
+		Table: "region",
+		Columns: []string{
+			"r_regionkey",
+			"r_name",
+			"r_comment",
+		},
+		Types: []ExprDataType{
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 25},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 152},
+		},
+		PK: []int{0},
+		Column2Idx: map[string]int{
+			"r_regionkey": 0,
+			"r_name":      1,
+			"r_comment":   2,
+		},
 	}
 	return cat
 }
