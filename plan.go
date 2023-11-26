@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/xlab/treeprint"
+	"strings"
+)
 
 type DataType int
 
@@ -121,97 +125,94 @@ type LogicalOperator struct {
 	Children []*LogicalOperator
 }
 
-func (lo *LogicalOperator) Format(ctx *FormatCtx) {
+func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	if lo == nil {
-		ctx.Write("")
 		return
 	}
 
+	bb := strings.Builder{}
+
 	switch lo.Typ {
 	case LOT_Project:
-		ctx.Write("Project: ")
+		bb.WriteString("Project: ")
 		for i, project := range lo.Projects {
 			if i > 0 {
-				ctx.Write(",")
+				bb.WriteString(",")
 			}
-			project.Format(ctx)
+			bb.WriteString(project.String())
 		}
-		ctx.Writeln()
-
+		tree = tree.AddBranch(bb.String())
 	case LOT_Filter:
-		ctx.Write("Filter: ")
+		bb.WriteString("Filter: ")
 		for i, filter := range lo.Filters {
 			if i > 0 {
-				ctx.Write(",")
+				bb.WriteString(",")
 			}
-			filter.Format(ctx)
+			bb.WriteString(filter.String())
 		}
-		ctx.Writeln()
+		tree = tree.AddBranch(bb.String())
 	case LOT_Scan:
-		ctx.Writefln("Scan: %v %v", lo.Database, lo.Table)
+		tree = tree.AddNode(fmt.Sprintf("Scan: %v.%v", lo.Database, lo.Table))
 	case LOT_JOIN:
-		ctx.Writefln("Join (%v): ", lo.JoinTyp)
+		bb.WriteString(fmt.Sprintf("Join (%v): ", lo.JoinTyp))
 		if len(lo.OnConds) > 0 {
 			for i, on := range lo.OnConds {
 				if i > 0 {
-					ctx.Write(",")
+					bb.WriteString(",")
 				}
-				on.Format(ctx)
+				bb.WriteString(on.String())
 			}
-			ctx.Writeln()
 		}
+		tree = tree.AddBranch(bb.String())
 	case LOT_AggGroup:
-		ctx.Write("Aggregate: ")
+		tree = tree.AddBranch("Aggregate: ")
 		if len(lo.GroupBys) > 0 {
-			ctx.AddOffset()
-			ctx.Write("GroupBy: ")
+			bb.Reset()
+			bb.WriteString("GroupBy: ")
 			for i, by := range lo.GroupBys {
 				if i > 0 {
-					ctx.Write(",")
+					bb.WriteString(",")
 				}
-				by.Format(ctx)
+				bb.WriteString(by.String())
 			}
-			ctx.Writeln()
-			ctx.RestoreOffset()
+			tree.AddNode(bb.String())
 		}
 		if len(lo.Aggs) > 0 {
-			ctx.AddOffset()
-			ctx.Write("Agg: ")
+			bb.Reset()
+			bb.WriteString("Agg: ")
 			for i, agg := range lo.Aggs {
 				if i > 0 {
-					ctx.Write(",")
+					bb.WriteString(",")
 				}
-				agg.Format(ctx)
+				bb.WriteString(agg.String())
 			}
-			ctx.Writeln()
-			ctx.RestoreOffset()
+			tree.AddNode(bb.String())
 		}
 	case LOT_Order:
-		ctx.Write("Order: ")
+		bb.WriteString("Order: ")
 		for i, by := range lo.OrderBys {
 			if i > 0 {
-				ctx.Write(",")
+				bb.WriteString(",")
 			}
-			by.Format(ctx)
+			bb.WriteString(by.String())
 		}
-		ctx.Writeln()
+		tree = tree.AddBranch(bb.String())
 	case LOT_Limit:
-		ctx.Writefln("Limit: %v", lo.Limit.String())
+		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", lo.Limit.String()))
 	default:
 		panic(fmt.Sprintf("usp %v", lo.Typ))
 	}
 
-	ctx.AddOffset()
 	for _, child := range lo.Children {
-		child.Format(ctx)
+		child.Print(tree)
 	}
-	ctx.RestoreOffset()
 }
 
+
 func (lo *LogicalOperator) String() string {
-	ctx := &FormatCtx{}
-	lo.Format(ctx)
-	return ctx.String()
+	tree := treeprint.New()
+	lo.Print(tree)
+	return tree.String()
 }
 
 type POT int

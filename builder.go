@@ -617,6 +617,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		//remove cor column
 		nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
 
+		//TODO: wrong!!!
 		newRoot := &LogicalOperator{
 			Typ:     LOT_JOIN,
 			JoinTyp: LOT_JoinTypeInner,
@@ -675,6 +676,8 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 	}
 }
 
+//TODO: wrong impl.
+//need add function: check LogicalOperator has cor column
 func (b *Builder) applyImpl(corrExprs []*Expr, corrCols []*Expr, root, subRoot *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	switch subRoot.Typ {
@@ -735,6 +738,7 @@ func collectCorrFilter(root *LogicalOperator) []*Expr {
 
 	switch root.Typ {
 	case LOT_Filter:
+		//TODO: wrong. do not remove filter that has cor column
 		var newFilters []*Expr
 		for _, filter := range root.Filters {
 			if hasCorrCol(filter) {
