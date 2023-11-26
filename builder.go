@@ -188,6 +188,7 @@ type Builder struct {
 	projectExprs []*Expr
 	fromExpr     *Expr
 	whereExpr    *Expr
+	aggs         []*Expr
 	groupbyExprs []*Expr
 	orderbyExprs []*Expr
 	limitCount   *Expr
@@ -330,7 +331,7 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	//select exprs
 	for _, expr := range sel.Select.SelectExprs {
 		var retExpr *Expr
-		retExpr, err = b.bindExpr(ctx, IWC_GROUP, expr, depth)
+		retExpr, err = b.bindExpr(ctx, IWC_SELECT, expr, depth)
 		if err != nil {
 			return err
 		}
@@ -444,6 +445,32 @@ func (b *Builder) CreatePlan(ctx *BindContext, root *LogicalOperator) (*LogicalO
 		root, err = b.createWhere(b.whereExpr, root)
 	}
 
+	//aggregates or group by
+	if len(b.aggs) > 0 || len(b.groupbyExprs) > 0 {
+		root, err = b.createAggGroup(root)
+	}
+
+	//having
+
+	//projects
+	if len(b.projectExprs) > 0 {
+		root, err = b.createProject(root)
+	}
+
+	//order bys
+	if len(b.orderbyExprs) > 0 {
+		root, err = b.createOrderby(root)
+	}
+
+	//limit
+	if b.limitCount != nil {
+		root = &LogicalOperator{
+			Typ:      LOT_Limit,
+			Limit:    b.limitCount,
+			Children: []*LogicalOperator{root},
+		}
+	}
+
 	return root, err
 }
 
@@ -487,20 +514,31 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 
 func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
+	var newFilter *Expr
 
 	//TODO:
 	//1. find subquery and flatten subquery
 	//1. all operators should be changed into (low priority)
+	filters := splitExprByAnd(expr)
+	var newFilters []*Expr
+	for _, filter := range filters {
+		newFilter, root, err = b.createSubquery(filter, root)
+		if err != nil {
+			return nil, err
+		}
+		newFilters = append(newFilters, newFilter)
+	}
 
 	return &LogicalOperator{
 		Typ:    LOT_Filter,
-		Filter: expr,
+		Filters:  newFilters,
+		Children: []*LogicalOperator{root},
 	}, err
 }
 
-// if the expr has subquery, it returns logical plan of the subquery
-// else, it returns nil
-func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*LogicalOperator, error) {
+// if the expr has subquery, it flattens the subquery and replaces
+// the expr.
+func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *LogicalOperator, error) {
 	var err error
 	var subRoot *LogicalOperator
 	switch expr.Typ {
@@ -509,11 +547,245 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*LogicalOpe
 		subCtx := expr.SubCtx
 		subRoot, err = subBuilder.CreatePlan(subCtx, nil)
 		if err != nil {
+			return nil, nil, err
+		}
+		//flatten subquery
+		return b.apply(expr, root, subRoot)
+	case ET_Equal, ET_And, ET_Like:
+		left, lroot, err := b.createSubquery(expr.Children[0], root)
+		if err != nil {
+			return nil, nil, err
+		}
+		right, rroot, err := b.createSubquery(expr.Children[1], lroot)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &Expr{
+			Typ:      expr.Typ,
+			DataTyp:  expr.DataTyp,
+			Children: []*Expr{left, right},
+		}, rroot, nil
+	case ET_Func:
+		var childExpr *Expr
+		args := make([]*Expr, 0)
+		for _, child := range expr.Children {
+			childExpr, root, err = b.createSubquery(child, root)
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, childExpr)
+		}
+		return &Expr{
+			Typ:      expr.Typ,
+			Svalue:   expr.Svalue,
+			FuncId:   expr.FuncId,
+			DataTyp:  expr.DataTyp,
+			Children: args,
+		}, root, nil
+	case ET_Column:
+		return expr, root, nil
+	case ET_IConst, ET_SConst:
+		return expr, root, nil
+	default:
+		panic(fmt.Sprintf("usp %v", expr.Typ))
+	}
+	return nil, nil, err
+}
+
+// apply flattens subquery
+//Based On Paper: Orthogonal Optimization of Subqueries and Aggregation
+//make APPLY(expr,root,subRoot) algorithm
+//expr: subquery expr
+//root: root of the query that subquery belongs to
+//subquery: root of the subquery
+func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *LogicalOperator, error) {
+	if expr.Typ != ET_Subquery {
+		panic("must be subquery")
+	}
+	corrExprs := collectCorrFilter(subRoot)
+	corrCols := make([]*Expr, 0)
+	for _, corr := range corrExprs {
+		corrCols = append(corrCols, collectCorrColumn(corr)...)
+	}
+	if len(corrExprs) > 0 {
+		//correlated subquery
+		newSub, err := b.applyImpl(corrExprs, corrCols, root, subRoot)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		//remove cor column
+		nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
+
+		newRoot := &LogicalOperator{
+			Typ:     LOT_JOIN,
+			JoinTyp: LOT_JoinTypeInner,
+			OnConds: nonCorrExprs,
+			Children: []*LogicalOperator{
+				root, newSub,
+			},
+		}
+
+		if len(newCorrExprs) > 0 {
+			newRoot = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  newCorrExprs,
+				Children: []*LogicalOperator{newRoot},
+			}
+		}
+
+		//TODO: may have multi columns
+		subBuilder := expr.SubBuilder
+		proj0 := subBuilder.projectExprs[0]
+		colRef := &Expr{
+			Typ:     ET_Column,
+			DataTyp: proj0.DataTyp,
+			Table:   proj0.Table,
+			Name:    proj0.Name,
+			ColRef: [2]uint64{
+				uint64(subBuilder.projectTag),
+				0,
+			},
+		}
+
+		return colRef, newRoot, nil
+	} else {
+		newRoot := &LogicalOperator{
+			Typ:     LOT_JOIN,
+			JoinTyp: LOT_JoinTypeInner,
+			OnConds: nil,
+			Children: []*LogicalOperator{
+				root, subRoot,
+			},
+		}
+		// TODO: may have multi columns
+		subBuilder := expr.SubBuilder
+		proj0 := subBuilder.projectExprs[0]
+		colRef := &Expr{
+			Typ:     ET_Column,
+			DataTyp: proj0.DataTyp,
+			Table:   proj0.Table,
+			Name:    proj0.Name,
+			ColRef: [2]uint64{
+				uint64(subBuilder.projectTag),
+				0,
+			},
+		}
+		return colRef, newRoot, nil
+	}
+}
+
+func (b *Builder) applyImpl(corrExprs []*Expr, corrCols []*Expr, root, subRoot *LogicalOperator) (*LogicalOperator, error) {
+	var err error
+	switch subRoot.Typ {
+	case LOT_Project:
+		subRoot.Projects = append(subRoot.Projects, corrCols...)
+		subRoot.Children[0], err = b.applyImpl(corrExprs, corrCols, root, subRoot.Children[0])
+		return subRoot, err
+	case LOT_AggGroup:
+		subRoot.GroupBys = append(subRoot.GroupBys, corrCols...)
+		subRoot.Children[0], err = b.applyImpl(corrExprs, corrCols, root, subRoot.Children[0])
+		return subRoot, err
+	}
+	return subRoot, nil
+}
+
+func (b *Builder) createAggGroup(root *LogicalOperator) (*LogicalOperator, error) {
+	return &LogicalOperator{
+		Typ:      LOT_AggGroup,
+		Aggs:     b.aggs,
+		GroupBys: b.groupbyExprs,
+		Children: []*LogicalOperator{root},
+	}, nil
+}
+
+func (b *Builder) createProject(root *LogicalOperator) (*LogicalOperator, error) {
+	var err error
+	var newExpr *Expr
+	projects := make([]*Expr, 0)
+	for _, expr := range b.projectExprs {
+		newExpr, root, err = b.createSubquery(expr, root)
+		if err != nil {
 			return nil, err
 		}
-		return subRoot, err
-	default:
-
+		projects = append(projects, newExpr)
 	}
-	return nil, err
+	return &LogicalOperator{
+		Typ:      LOT_Project,
+		Projects: projects,
+		Children: []*LogicalOperator{root},
+	}, nil
+}
+
+func (b *Builder) createOrderby(root *LogicalOperator) (*LogicalOperator, error) {
+	return &LogicalOperator{
+		Typ:      LOT_Order,
+		OrderBys: b.orderbyExprs,
+		Children: []*LogicalOperator{root},
+	}, nil
+}
+
+// collectCorrFilter collects all exprs that has correlated column
+func collectCorrFilter(root *LogicalOperator) []*Expr {
+	var ret, childRet []*Expr
+	for _, child := range root.Children {
+		childRet = collectCorrFilter(child)
+		ret = append(ret, childRet...)
+	}
+
+	switch root.Typ {
+	case LOT_Filter:
+		var newFilters []*Expr
+		for _, filter := range root.Filters {
+			if hasCorrCol(filter) {
+				ret = append(ret, filter)
+			} else {
+				newFilters = append(newFilters, filter)
+			}
+		}
+		root.Filters = newFilters
+	}
+	return ret
+}
+
+// collectCorrColumn collects all correlated columns
+func collectCorrColumn(expr *Expr) []*Expr {
+	var ret []*Expr
+	switch expr.Typ {
+	case ET_Column:
+		if expr.Depth > 0 {
+			return []*Expr{expr}
+		}
+	case ET_Equal, ET_And, ET_Like:
+		ret = append(ret, collectCorrColumn(expr.Children[0])...)
+		ret = append(ret, collectCorrColumn(expr.Children[1])...)
+	case ET_Func:
+		for _, child := range expr.Children {
+			ret = append(ret, collectCorrColumn(child)...)
+		}
+	default:
+		panic(fmt.Sprintf("usp %v", expr.Typ))
+	}
+	return ret
+}
+
+func hasCorrCol(expr *Expr) bool {
+	switch expr.Typ {
+	case ET_Column:
+		return expr.Depth > 0
+	case ET_Equal, ET_And, ET_Like:
+		return hasCorrCol(expr.Children[0]) || hasCorrCol(expr.Children[1])
+	case ET_Func:
+		for _, child := range expr.Children {
+			if hasCorrCol(child) {
+				return true
+			}
+		}
+		return false
+	case ET_IConst, ET_SConst:
+		return false
+	default:
+		panic(fmt.Sprintf("usp %v", expr.Typ))
+	}
+	return false
 }

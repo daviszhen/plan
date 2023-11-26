@@ -20,4 +20,5 @@ func TestBuildSelect(t *testing.T) {
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, lp)
+	fmt.Println(lp.String())
 }

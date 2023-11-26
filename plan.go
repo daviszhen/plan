@@ -60,23 +60,158 @@ const (
 	LOT_Limit
 )
 
+func (lt LOT) String() string {
+	switch lt {
+	case LOT_Project:
+		return "Project"
+	case LOT_Filter:
+		return "Filter"
+	case LOT_Scan:
+		return "Scan"
+	case LOT_JOIN:
+		return "Join"
+	case LOT_AggGroup:
+		return "Aggregate"
+	case LOT_Order:
+		return "Order"
+	case LOT_Limit:
+		return "Limit"
+	default:
+		panic(fmt.Sprintf("usp %d", lt))
+	}
+}
+
 type LOT_JoinType int
 
 const (
 	LOT_JoinTypeCross LOT_JoinType = iota
 	LOT_JoinTypeLeft
+	LOT_JoinTypeInner
 )
+
+func (lojt LOT_JoinType) String() string {
+	switch lojt {
+	case LOT_JoinTypeCross:
+		return "cross"
+	case LOT_JoinTypeLeft:
+		return "left"
+	case LOT_JoinTypeInner:
+		return "inner"
+	default:
+		panic(fmt.Sprintf("usp %d", lojt))
+	}
+}
 
 type LogicalOperator struct {
 	Typ LOT
 
+	Projects  []*Expr
 	Database  string
 	Table     string // table
-	Filter    *Expr
+	Filters   []*Expr
 	BelongCtx *BindContext //for table or join
 	JoinTyp   LOT_JoinType
+	OnConds   []*Expr //for innor join
+	Aggs      []*Expr
+	GroupBys  []*Expr
+	OrderBys  []*Expr
+	Limit     *Expr
+
 
 	Children []*LogicalOperator
+}
+
+func (lo *LogicalOperator) Format(ctx *FormatCtx) {
+	if lo == nil {
+		ctx.Write("")
+		return
+	}
+
+	switch lo.Typ {
+	case LOT_Project:
+		ctx.Write("Project: ")
+		for i, project := range lo.Projects {
+			if i > 0 {
+				ctx.Write(",")
+			}
+			project.Format(ctx)
+		}
+		ctx.Writeln()
+
+	case LOT_Filter:
+		ctx.Write("Filter: ")
+		for i, filter := range lo.Filters {
+			if i > 0 {
+				ctx.Write(",")
+			}
+			filter.Format(ctx)
+		}
+		ctx.Writeln()
+	case LOT_Scan:
+		ctx.Writefln("Scan: %v %v", lo.Database, lo.Table)
+	case LOT_JOIN:
+		ctx.Writefln("Join (%v): ", lo.JoinTyp)
+		if len(lo.OnConds) > 0 {
+			for i, on := range lo.OnConds {
+				if i > 0 {
+					ctx.Write(",")
+				}
+				on.Format(ctx)
+			}
+			ctx.Writeln()
+		}
+	case LOT_AggGroup:
+		ctx.Write("Aggregate: ")
+		if len(lo.GroupBys) > 0 {
+			ctx.AddOffset()
+			ctx.Write("GroupBy: ")
+			for i, by := range lo.GroupBys {
+				if i > 0 {
+					ctx.Write(",")
+				}
+				by.Format(ctx)
+			}
+			ctx.Writeln()
+			ctx.RestoreOffset()
+		}
+		if len(lo.Aggs) > 0 {
+			ctx.AddOffset()
+			ctx.Write("Agg: ")
+			for i, agg := range lo.Aggs {
+				if i > 0 {
+					ctx.Write(",")
+				}
+				agg.Format(ctx)
+			}
+			ctx.Writeln()
+			ctx.RestoreOffset()
+		}
+	case LOT_Order:
+		ctx.Write("Order: ")
+		for i, by := range lo.OrderBys {
+			if i > 0 {
+				ctx.Write(",")
+			}
+			by.Format(ctx)
+		}
+		ctx.Writeln()
+	case LOT_Limit:
+		ctx.Writefln("Limit: %v", lo.Limit.String())
+	default:
+		panic(fmt.Sprintf("usp %v", lo.Typ))
+	}
+
+	ctx.AddOffset()
+	for _, child := range lo.Children {
+		child.Format(ctx)
+	}
+	ctx.RestoreOffset()
+}
+
+func (lo *LogicalOperator) String() string {
+	ctx := &FormatCtx{}
+	lo.Format(ctx)
+	return ctx.String()
 }
 
 type POT int
@@ -271,4 +406,67 @@ type CatalogTable struct {
 	Types      []ExprDataType
 	PK         []int
 	Column2Idx map[string]int
+}
+
+func splitExprByAnd(expr *Expr) []*Expr {
+	if expr.Typ == ET_And {
+		return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
+	}
+	return []*Expr{expr}
+}
+
+// removeCorrExprs remove correlated columns from exprs
+// , returns non-correlated exprs and correlated exprs.
+func removeCorrExprs(exprs []*Expr) ([]*Expr, []*Expr) {
+	nonCorrExprs := make([]*Expr, 0)
+	corrExprs := make([]*Expr, 0)
+	for _, expr := range exprs {
+		newExpr, hasCorCol := deceaseDepth(expr)
+		if hasCorCol {
+			corrExprs = append(corrExprs, newExpr)
+		} else {
+			nonCorrExprs = append(nonCorrExprs, newExpr)
+		}
+	}
+	return nonCorrExprs, corrExprs
+}
+
+// deceaseDepth decrease depth of the column
+// , returns new column ref and returns it is correlated or not.
+func deceaseDepth(expr *Expr) (*Expr, bool) {
+	hasCorCol := false
+	switch expr.Typ {
+	case ET_Column:
+		if expr.Depth > 0 {
+			expr.Depth--
+			return expr, expr.Depth > 0
+		}
+		return expr, false
+	case ET_And, ET_Equal, ET_Like:
+		left, leftHasCorr := deceaseDepth(expr.Children[0])
+		hasCorCol = hasCorCol || leftHasCorr
+		right, rightHasCorr := deceaseDepth(expr.Children[1])
+		hasCorCol = hasCorCol || rightHasCorr
+		return &Expr{
+			Typ:      expr.Typ,
+			DataTyp:  expr.DataTyp,
+			Children: []*Expr{left, right},
+		}, hasCorCol
+	case ET_Func:
+		args := make([]*Expr, 0, len(expr.Children))
+		for _, child := range expr.Children {
+			newChild, yes := deceaseDepth(child)
+			hasCorCol = hasCorCol || yes
+			args = append(args, newChild)
+		}
+		return &Expr{
+			Typ:      expr.Typ,
+			Svalue:   expr.Svalue,
+			FuncId:   expr.FuncId,
+			DataTyp:  expr.DataTyp,
+			Children: args,
+		}, hasCorCol
+	default:
+		panic(fmt.Sprintf("usp %v", expr.Typ))
+	}
 }

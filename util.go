@@ -34,6 +34,7 @@ const (
 
 type FormatCtx struct {
 	buf    strings.Builder
+	line   strings.Builder
 	offset Padding
 	indent Padding
 }
@@ -60,14 +61,15 @@ func (fc *FormatCtx) fillIndent() {
 
 func (fc *FormatCtx) writeString(s string) {
 	for _, c := range s {
+		fc.line.WriteRune(c)
 		if c == '\n' {
-			fc.buf.WriteByte('\n')
+			fc.buf.WriteString(fc.line.String())
 			fc.fillOffset()
-		} else {
-			fc.fillIndent()
-			fc.buf.WriteRune(c)
+			fc.line.Reset()
 		}
 	}
+	fc.buf.WriteString(fc.line.String())
+	fc.line.Reset()
 }
 
 func (fc *FormatCtx) String() string {

@@ -36,6 +36,17 @@ var funcName2Id = map[string]FuncId{
 
 var allFunctions = map[FuncId]Function{}
 
+var aggFuncs = map[string]int{
+	"min": 1,
+}
+
+func IsAgg(name string) bool {
+	if _, ok := aggFuncs[name]; ok {
+		return ok
+	}
+	return false
+}
+
 func GetFunctionId(name string) (FuncId, error) {
 	if id, ok := funcName2Id[name]; ok {
 		return id, nil

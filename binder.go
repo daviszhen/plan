@@ -1,6 +1,8 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
 	var err error
@@ -49,6 +51,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				return b.bindToSelectList(nil, selIdx, colName), err
 			}
 		case IWC_GROUP:
+		case IWC_SELECT:
 		default:
 			panic(fmt.Sprintf("usp iwc %d", iwc))
 		}
@@ -90,13 +93,27 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		if err != nil {
 			return nil, err
 		}
-		return &Expr{
+
+		ret := &Expr{
 			Typ:      ET_Func,
 			Svalue:   name,
 			FuncId:   id,
 			DataTyp:  InvalidExprDataType,
 			Children: args,
-		}, err
+		}
+
+		if IsAgg(name) {
+			b.aggs = append(b.aggs, ret)
+			ret = &Expr{
+				Typ:     ET_Column,
+				DataTyp: ret.DataTyp,
+				Table:   fmt.Sprintf("agg+%v", b.groupTag),
+				Name:    expr.String(),
+				ColRef:  [2]uint64{uint64(b.groupTag), uint64(len(b.aggs) - 1)},
+				Depth:   0,
+			}
+		}
+		return ret, err
 	default:
 		panic(fmt.Sprintf("usp expr type %d", expr.Expr.ExprTyp))
 	}
