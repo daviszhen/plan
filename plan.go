@@ -159,7 +159,7 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		}
 		if len(lo.Aggs) > 0 {
 			bb.Reset()
-			tree.AddMetaNode("aggFuncs", listExprs(&bb, lo.Aggs).String())
+			tree.AddMetaNode("aggExprs", listExprs(&bb, lo.Aggs).String())
 		}
 	case LOT_Order:
 		tree = tree.AddBranch("Order:")
