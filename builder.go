@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+
+	"github.com/xlab/treeprint"
 )
 
 type BindingType int
@@ -46,6 +48,14 @@ func (b *Binding) Format(ctx *FormatCtx) {
 	}
 }
 
+func (b *Binding) Print(tree treeprint.Tree) {
+	tree = tree.AddMetaBranch(fmt.Sprintf("%s, %d", b.typ, b.index), fmt.Sprintf("%s.%s", b.database, b.alias))
+	sub := tree.AddBranch("columns")
+	for i, n := range b.names {
+		sub.AddNode(fmt.Sprintf("%d %s %s", i, n, b.typs[i]))
+	}
+}
+
 func (b *Binding) Bind(table, column string, depth int) (*Expr, error) {
 	if idx, ok := b.nameMap[column]; ok {
 		exp := &Expr{
@@ -84,6 +94,12 @@ func NewBindContext(parent *BindContext) *BindContext {
 func (bc *BindContext) Format(ctx *FormatCtx) {
 	for _, b := range bc.bindings {
 		b.Format(ctx)
+	}
+}
+
+func (bc *BindContext) Print(tree treeprint.Tree) {
+	for _, b := range bc.bindings {
+		b.Print(tree)
 	}
 }
 
@@ -251,10 +267,54 @@ func (b *Builder) Format(ctx *FormatCtx) {
 	ctx.Writefln("%d", b.columnCount)
 }
 
+func (b *Builder) Print(tree treeprint.Tree) {
+	if b == nil {
+		return
+	}
+	if b.rootCtx != nil {
+		sub := tree.AddBranch("bindings:")
+		b.rootCtx.Print(sub)
+	}
+
+	tree.AddNode(fmt.Sprintf("tag %d", b.tag))
+	tree.AddNode(fmt.Sprintf("projectTag %d", b.projectTag))
+	tree.AddNode(fmt.Sprintf("groupTag %d", b.groupTag))
+
+	sub := tree.AddBranch("aliasMap:")
+	WriteMapTree(sub, b.aliasMap)
+
+	sub = tree.AddBranch("projectMap:")
+	WriteMapTree(sub, b.projectMap)
+
+	sub = tree.AddBranch("projectExprs:")
+	WriteExprsTree(sub, b.projectExprs)
+
+	sub = tree.AddBranch("fromExpr:")
+	WriteExprTree(sub, b.fromExpr)
+
+	sub = tree.AddBranch("whereExpr:")
+	WriteExprTree(sub, b.whereExpr)
+
+	sub = tree.AddBranch("groupbyExprs:")
+	WriteExprsTree(sub, b.groupbyExprs)
+
+	sub = tree.AddBranch("orderbyExprs:")
+	WriteExprsTree(sub, b.orderbyExprs)
+
+	sub = tree.AddBranch("limitCount:")
+	WriteExprTree(sub, b.limitCount)
+
+	sub = tree.AddBranch("names:")
+	sub.AddNode(b.names)
+
+	sub = tree.AddBranch("columnCount:")
+	sub.AddNode(fmt.Sprintf("%d", b.columnCount))
+}
+
 func (b *Builder) String() string {
-	ctx := &FormatCtx{}
-	b.Format(ctx)
-	return ctx.String()
+	tree := treeprint.NewWithRoot("Builder:")
+	b.Print(tree)
+	return tree.String()
 }
 
 func (b *Builder) GetTag() int {
@@ -376,6 +436,7 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 
 			return &Expr{
 				Typ:       ET_TABLE,
+				Index:     b.index,
 				Database:  db,
 				Table:     table,
 				BelongCtx: ctx,
@@ -481,6 +542,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 	case ET_TABLE:
 		return &LogicalOperator{
 			Typ:       LOT_Scan,
+			Index:     expr.Index,
 			Database:  expr.Database,
 			Table:     expr.Table,
 			BelongCtx: expr.BelongCtx,
@@ -530,7 +592,7 @@ func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperat
 	}
 
 	return &LogicalOperator{
-		Typ:    LOT_Filter,
+		Typ:      LOT_Filter,
 		Filters:  newFilters,
 		Children: []*LogicalOperator{root},
 	}, err
@@ -593,16 +655,17 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 }
 
 // apply flattens subquery
-//Based On Paper: Orthogonal Optimization of Subqueries and Aggregation
-//make APPLY(expr,root,subRoot) algorithm
-//expr: subquery expr
-//root: root of the query that subquery belongs to
-//subquery: root of the subquery
+// Based On Paper: Orthogonal Optimization of Subqueries and Aggregation
+// make APPLY(expr,root,subRoot) algorithm
+// expr: subquery expr
+// root: root of the query that subquery belongs to
+// subquery: root of the subquery
 func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *LogicalOperator, error) {
 	if expr.Typ != ET_Subquery {
 		panic("must be subquery")
 	}
 	corrExprs := collectCorrFilter(subRoot)
+	//collect correlated columns
 	corrCols := make([]*Expr, 0)
 	for _, corr := range corrExprs {
 		corrCols = append(corrCols, collectCorrColumn(corr)...)
@@ -612,27 +675,6 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		newSub, err := b.applyImpl(corrExprs, corrCols, root, subRoot)
 		if err != nil {
 			return nil, nil, err
-		}
-
-		//remove cor column
-		nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
-
-		//TODO: wrong!!!
-		newRoot := &LogicalOperator{
-			Typ:     LOT_JOIN,
-			JoinTyp: LOT_JoinTypeInner,
-			OnConds: nonCorrExprs,
-			Children: []*LogicalOperator{
-				root, newSub,
-			},
-		}
-
-		if len(newCorrExprs) > 0 {
-			newRoot = &LogicalOperator{
-				Typ:      LOT_Filter,
-				Filters:  newCorrExprs,
-				Children: []*LogicalOperator{newRoot},
-			}
 		}
 
 		//TODO: may have multi columns
@@ -649,7 +691,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			},
 		}
 
-		return colRef, newRoot, nil
+		return colRef, newSub, nil
 	} else {
 		newRoot := &LogicalOperator{
 			Typ:     LOT_JOIN,
@@ -676,17 +718,68 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 	}
 }
 
-//TODO: wrong impl.
-//need add function: check LogicalOperator has cor column
+// TODO: wrong impl.
+// need add function: check LogicalOperator has cor column
 func (b *Builder) applyImpl(corrExprs []*Expr, corrCols []*Expr, root, subRoot *LogicalOperator) (*LogicalOperator, error) {
 	var err error
+	has := hasCorrColInRoot(subRoot)
+	if !has {
+		//remove cor column
+		nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
+
+		//TODO: wrong!!!
+		newRoot := &LogicalOperator{
+			Typ:     LOT_JOIN,
+			JoinTyp: LOT_JoinTypeInner,
+			OnConds: nonCorrExprs,
+			Children: []*LogicalOperator{
+				root, subRoot,
+			},
+		}
+
+		if len(newCorrExprs) > 0 {
+			newRoot = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  newCorrExprs,
+				Children: []*LogicalOperator{newRoot},
+			}
+		}
+		return newRoot, err
+	}
 	switch subRoot.Typ {
 	case LOT_Project:
-		subRoot.Projects = append(subRoot.Projects, corrCols...)
+		for _, proj := range subRoot.Projects {
+			if hasCorrCol(proj) {
+				panic("usp correlated column in project")
+			}
+		}
+		if has {
+			subRoot.Projects = append(subRoot.Projects, corrCols...)
+		}
 		subRoot.Children[0], err = b.applyImpl(corrExprs, corrCols, root, subRoot.Children[0])
 		return subRoot, err
 	case LOT_AggGroup:
-		subRoot.GroupBys = append(subRoot.GroupBys, corrCols...)
+		for _, by := range subRoot.GroupBys {
+			if hasCorrCol(by) {
+				panic("usp correlated column in agg")
+			}
+		}
+		if has {
+			subRoot.GroupBys = append(subRoot.GroupBys, corrCols...)
+		}
+		subRoot.Children[0], err = b.applyImpl(corrExprs, corrCols, root, subRoot.Children[0])
+		return subRoot, err
+	case LOT_Filter:
+		filterHasCorrCol := false
+		for _, filter := range subRoot.Filters {
+			if hasCorrCol(filter) {
+				filterHasCorrCol = true
+				break
+			}
+		}
+		if has && !filterHasCorrCol {
+			subRoot.Filters = append(subRoot.Filters, corrExprs...)
+		}
 		subRoot.Children[0], err = b.applyImpl(corrExprs, corrCols, root, subRoot.Children[0])
 		return subRoot, err
 	}
@@ -696,6 +789,7 @@ func (b *Builder) applyImpl(corrExprs []*Expr, corrCols []*Expr, root, subRoot *
 func (b *Builder) createAggGroup(root *LogicalOperator) (*LogicalOperator, error) {
 	return &LogicalOperator{
 		Typ:      LOT_AggGroup,
+		Index:    uint64(b.groupTag),
 		Aggs:     b.aggs,
 		GroupBys: b.groupbyExprs,
 		Children: []*LogicalOperator{root},
@@ -715,6 +809,7 @@ func (b *Builder) createProject(root *LogicalOperator) (*LogicalOperator, error)
 	}
 	return &LogicalOperator{
 		Typ:      LOT_Project,
+		Index:    uint64(b.projectTag),
 		Projects: projects,
 		Children: []*LogicalOperator{root},
 	}, nil
@@ -728,7 +823,8 @@ func (b *Builder) createOrderby(root *LogicalOperator) (*LogicalOperator, error)
 	}, nil
 }
 
-// collectCorrFilter collects all exprs that has correlated column
+// collectCorrFilter collects all exprs that has correlated column.
+// and does not remove these exprs.
 func collectCorrFilter(root *LogicalOperator) []*Expr {
 	var ret, childRet []*Expr
 	for _, child := range root.Children {
@@ -738,16 +834,12 @@ func collectCorrFilter(root *LogicalOperator) []*Expr {
 
 	switch root.Typ {
 	case LOT_Filter:
-		//TODO: wrong. do not remove filter that has cor column
-		var newFilters []*Expr
 		for _, filter := range root.Filters {
 			if hasCorrCol(filter) {
 				ret = append(ret, filter)
-			} else {
-				newFilters = append(newFilters, filter)
 			}
 		}
-		root.Filters = newFilters
+	default:
 	}
 	return ret
 }
@@ -790,6 +882,39 @@ func hasCorrCol(expr *Expr) bool {
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
+	}
+	return false
+}
+
+// hasCorrColInRoot checks if the plan with root has the correlated column.
+func hasCorrColInRoot(root *LogicalOperator) bool {
+	switch root.Typ {
+	case LOT_Project:
+		for _, proj := range root.Projects {
+			if hasCorrCol(proj) {
+				panic("usp correlated column in project")
+			}
+		}
+
+	case LOT_AggGroup:
+		for _, by := range root.GroupBys {
+			if hasCorrCol(by) {
+				panic("usp correlated column in agg")
+			}
+		}
+
+	case LOT_Filter:
+		for _, filter := range root.Filters {
+			if hasCorrCol(filter) {
+				return true
+			}
+		}
+	}
+
+	for _, child := range root.Children {
+		if hasCorrColInRoot(child) {
+			return true
+		}
 	}
 	return false
 }

@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/xlab/treeprint"
 	"strings"
+
+	"github.com/xlab/treeprint"
 )
 
 type DataType int
@@ -110,6 +111,7 @@ type LogicalOperator struct {
 	Typ LOT
 
 	Projects  []*Expr
+	Index     uint64
 	Database  string
 	Table     string // table
 	Filters   []*Expr
@@ -120,7 +122,6 @@ type LogicalOperator struct {
 	GroupBys  []*Expr
 	OrderBys  []*Expr
 	Limit     *Expr
-
 
 	Children []*LogicalOperator
 }
@@ -134,69 +135,35 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 
 	switch lo.Typ {
 	case LOT_Project:
-		bb.WriteString("Project: ")
-		for i, project := range lo.Projects {
-			if i > 0 {
-				bb.WriteString(",")
-			}
-			bb.WriteString(project.String())
-		}
-		tree = tree.AddBranch(bb.String())
+		tree = tree.AddBranch("Project:")
+		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
+		tree.AddMetaNode("exprs", listExprs(&bb, lo.Projects).String())
 	case LOT_Filter:
-		bb.WriteString("Filter: ")
-		for i, filter := range lo.Filters {
-			if i > 0 {
-				bb.WriteString(",")
-			}
-			bb.WriteString(filter.String())
-		}
-		tree = tree.AddBranch(bb.String())
+		tree = tree.AddBranch("Filter:")
+		tree.AddMetaNode("exprs", listExprs(&bb, lo.Filters).String())
 	case LOT_Scan:
-		tree = tree.AddNode(fmt.Sprintf("Scan: %v.%v", lo.Database, lo.Table))
+		tree = tree.AddBranch("Scan:")
+		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
+		tree.AddMetaNode("table", fmt.Sprintf("%v.%v", lo.Database, lo.Table))
 	case LOT_JOIN:
-		bb.WriteString(fmt.Sprintf("Join (%v): ", lo.JoinTyp))
+		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
 		if len(lo.OnConds) > 0 {
-			for i, on := range lo.OnConds {
-				if i > 0 {
-					bb.WriteString(",")
-				}
-				bb.WriteString(on.String())
-			}
+			tree.AddMetaNode("On", listExprs(&bb, lo.OnConds).String())
 		}
-		tree = tree.AddBranch(bb.String())
 	case LOT_AggGroup:
-		tree = tree.AddBranch("Aggregate: ")
+		tree = tree.AddBranch("Aggregate:")
+		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		if len(lo.GroupBys) > 0 {
 			bb.Reset()
-			bb.WriteString("GroupBy: ")
-			for i, by := range lo.GroupBys {
-				if i > 0 {
-					bb.WriteString(",")
-				}
-				bb.WriteString(by.String())
-			}
-			tree.AddNode(bb.String())
+			tree.AddMetaNode("exprs", listExprs(&bb, lo.GroupBys).String())
 		}
 		if len(lo.Aggs) > 0 {
 			bb.Reset()
-			bb.WriteString("Agg: ")
-			for i, agg := range lo.Aggs {
-				if i > 0 {
-					bb.WriteString(",")
-				}
-				bb.WriteString(agg.String())
-			}
-			tree.AddNode(bb.String())
+			tree.AddMetaNode("aggFuncs", listExprs(&bb, lo.Aggs).String())
 		}
 	case LOT_Order:
-		bb.WriteString("Order: ")
-		for i, by := range lo.OrderBys {
-			if i > 0 {
-				bb.WriteString(",")
-			}
-			bb.WriteString(by.String())
-		}
-		tree = tree.AddBranch(bb.String())
+		tree = tree.AddBranch("Order:")
+		tree.AddMetaNode("exprs", listExprs(&bb, lo.OrderBys).String())
 	case LOT_Limit:
 		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", lo.Limit.String()))
 	default:
@@ -208,9 +175,8 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	}
 }
 
-
 func (lo *LogicalOperator) String() string {
-	tree := treeprint.New()
+	tree := treeprint.NewWithRoot("LogicalOperator:")
 	lo.Print(tree)
 	return tree.String()
 }
@@ -266,6 +232,7 @@ type Expr struct {
 	Typ     ET
 	DataTyp ExprDataType
 
+	Index      uint64
 	Database   string
 	Table      string    // table
 	Name       string    // column
@@ -342,7 +309,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 	case ET_Subquery:
 		ctx.Write("subquery(")
 		ctx.AddOffset()
-		e.SubBuilder.Format(ctx)
+		// e.SubBuilder.Format(ctx)
+		ctx.writeString(e.SubBuilder.String())
 		ctx.RestoreOffset()
 		ctx.Write(")")
 	case ET_Orderby:
@@ -351,6 +319,70 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			ctx.Write(" desc")
 		}
 
+	default:
+		panic(fmt.Sprintf("usp expr type %d", e.Typ))
+	}
+}
+
+func (e *Expr) Print(tree treeprint.Tree) {
+	if e == nil {
+		return
+	}
+	switch e.Typ {
+	case ET_Column:
+		tree.AddNode(fmt.Sprintf("(%s.%s,%s,[%d,%d],%d)", e.Table, e.Name,
+			e.DataTyp,
+			e.ColRef[0], e.ColRef[1], e.Depth))
+	case ET_SConst:
+		tree.AddNode(e.Svalue)
+	case ET_IConst:
+		tree.AddNode(fmt.Sprintf("%d", e.Ivalue))
+	case ET_And, ET_Equal, ET_Like:
+		op := ""
+		switch e.Typ {
+		case ET_And:
+			op = "and"
+		case ET_Equal:
+			op = "="
+		case ET_Like:
+			op = "like"
+		default:
+			panic(fmt.Sprintf("usp binary expr type %d", e.Typ))
+		}
+		sub := tree.AddBranch(op)
+		e.Children[0].Print(sub)
+		e.Children[1].Print(sub)
+	case ET_TABLE:
+		tree.AddNode(fmt.Sprintf("%s.%s", e.Database, e.Table))
+	case ET_Join:
+		typStr := ""
+		switch e.JoinTyp {
+		case ET_JoinTypeCross:
+			typStr = "cross"
+		case ET_JoinTypeLeft:
+			typStr = "left"
+		default:
+			panic(fmt.Sprintf("usp join type %d", e.JoinTyp))
+		}
+		sub := tree.AddBranch(typStr)
+		e.Children[0].Print(sub)
+		e.Children[1].Print(sub)
+	case ET_Func:
+		sub := tree.AddBranch(fmt.Sprintf("%s_%d(", e.Svalue, e.FuncId))
+		for i, e := range e.Children {
+			p := sub.AddMetaNode("param", fmt.Sprintf("%d", i))
+			e.Print(p)
+		}
+		sub.AddNode(")")
+	case ET_Subquery:
+		sub := tree.AddBranch("subquery(")
+		e.SubBuilder.Print(sub)
+		sub.AddNode(")")
+	case ET_Orderby:
+		e.Children[0].Print(tree)
+		if e.Desc {
+			tree.AddNode(" desc")
+		}
 	default:
 		panic(fmt.Sprintf("usp expr type %d", e.Typ))
 	}

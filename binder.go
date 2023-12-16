@@ -107,7 +107,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			ret = &Expr{
 				Typ:     ET_Column,
 				DataTyp: ret.DataTyp,
-				Table:   fmt.Sprintf("agg+%v", b.groupTag),
+				Table:   fmt.Sprintf("AggNode_%v", b.groupTag),
 				Name:    expr.String(),
 				ColRef:  [2]uint64{uint64(b.groupTag), uint64(len(b.aggs) - 1)},
 				Depth:   0,

@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
-	_ "github.com/xlab/treeprint"
 	"strings"
+
+	"github.com/xlab/treeprint"
+	_ "github.com/xlab/treeprint"
 )
 
 func swap[T any](a []T, i, j int) {
@@ -117,6 +119,22 @@ func WriteExpr(ctx *FormatCtx, expr *Expr) {
 	ctx.Writeln()
 }
 
+func WriteMapTree[K comparable, V any](tree treeprint.Tree, m map[K]V) {
+	for k, v := range m {
+		tree.AddNode(fmt.Sprintf("%v : %v", k, v))
+	}
+}
+
+func WriteExprsTree(tree treeprint.Tree, exprs []*Expr) {
+	for i, e := range exprs {
+		tree.AddMetaNode(fmt.Sprintf("%d", i), e.String())
+	}
+}
+
+func WriteExprTree(tree treeprint.Tree, expr *Expr) {
+	expr.Print(tree)
+}
+
 type Format interface {
 	Format(*FormatCtx)
 }
@@ -146,4 +164,12 @@ func (fc *Padding) RestorePad() {
 	}
 	fc.pad = fc.lastPads[len(fc.lastPads)-1]
 	fc.lastPads = pop(fc.lastPads)
+}
+
+func listExprs(bb *strings.Builder, exprs []*Expr) *strings.Builder {
+	for i, expr := range exprs {
+		bb.WriteString(fmt.Sprintf("\n  %d: ", i))
+		bb.WriteString(expr.String())
+	}
+	return bb
 }
