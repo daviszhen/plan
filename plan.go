@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/huandu/go-clone"
 	"github.com/xlab/treeprint"
 )
 
@@ -92,6 +93,11 @@ const (
 	LOT_JoinTypeCross LOT_JoinType = iota
 	LOT_JoinTypeLeft
 	LOT_JoinTypeInner
+	LOT_JoinTypeSEMI
+	LOT_JoinTypeANTI
+	LOT_JoinTypeSINGLE
+	LOT_JoinTypeMARK
+	LOT_JoinTypeOUTER
 )
 
 func (lojt LOT_JoinType) String() string {
@@ -111,10 +117,11 @@ type LogicalOperator struct {
 	Typ LOT
 
 	Projects  []*Expr
-	Index     uint64
+	Index     uint64 //AggNode for groupTag. others in other Nodes
+	Index2    uint64 //AggNode for aggTag
 	Database  string
-	Table     string // table
-	Filters   []*Expr
+	Table     string       // table
+	Filters   []*Expr      //for FILTER or AGG
 	BelongCtx *BindContext //for table or join
 	JoinTyp   LOT_JoinType
 	OnConds   []*Expr //for innor join
@@ -145,6 +152,7 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		tree = tree.AddBranch("Scan:")
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		tree.AddMetaNode("table", fmt.Sprintf("%v.%v", lo.Database, lo.Table))
+		tree.AddMetaNode("filters", listExprs(&bb, lo.Filters).String())
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
 		if len(lo.OnConds) > 0 {
@@ -152,15 +160,19 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		}
 	case LOT_AggGroup:
 		tree = tree.AddBranch("Aggregate:")
-		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		if len(lo.GroupBys) > 0 {
 			bb.Reset()
-			tree.AddMetaNode("exprs", listExprs(&bb, lo.GroupBys).String())
+			tree.AddMetaNode(fmt.Sprintf("groupExprs, index %d", lo.Index), listExprs(&bb, lo.GroupBys).String())
 		}
 		if len(lo.Aggs) > 0 {
 			bb.Reset()
-			tree.AddMetaNode("aggExprs", listExprs(&bb, lo.Aggs).String())
+			tree.AddMetaNode(fmt.Sprintf("aggExprs, index %d", lo.Index2), listExprs(&bb, lo.Aggs).String())
 		}
+		if len(lo.Filters) > 0 {
+			bb.Reset()
+			tree.AddMetaNode("filters", listExprs(&bb, lo.Filters).String())
+		}
+
 	case LOT_Order:
 		tree = tree.AddBranch("Order:")
 		tree.AddMetaNode("exprs", listExprs(&bb, lo.OrderBys).String())
@@ -226,6 +238,7 @@ type ET_JoinType int
 const (
 	ET_JoinTypeCross = iota
 	ET_JoinTypeLeft
+	ET_JoinTypeInner
 )
 
 type Expr struct {
@@ -251,6 +264,99 @@ type Expr struct {
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
 	On        *Expr        //JoinOn
+}
+
+func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
+	if e == nil {
+		return nil
+	}
+	switch e.Typ {
+	case ET_Column:
+		if index == e.ColRef[0] {
+			e = realExprs[e.ColRef[1]]
+		}
+	case ET_And, ET_Equal, ET_Like:
+		for i, child := range e.Children {
+			e.Children[i] = restoreExpr(child, index, realExprs)
+		}
+	case ET_Func:
+		for i, child := range e.Children {
+			e.Children[i] = restoreExpr(child, index, realExprs)
+		}
+	}
+	return e
+}
+
+func referTo(e *Expr, index uint64) bool {
+	if e == nil {
+		return false
+	}
+	switch e.Typ {
+	case ET_Column:
+		return index == e.ColRef[0]
+	case ET_And, ET_Equal, ET_Like:
+		for _, child := range e.Children {
+			if referTo(child, index) {
+				return true
+			}
+		}
+	case ET_Func:
+		for _, child := range e.Children {
+			if referTo(child, index) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func onlyReferTo(e *Expr, index uint64) bool {
+	if e == nil {
+		return false
+	}
+	switch e.Typ {
+	case ET_Column:
+		return index == e.ColRef[0]
+	case ET_And, ET_Equal, ET_Like:
+		for _, child := range e.Children {
+			if !referTo(child, index) {
+				return false
+			}
+		}
+	case ET_Func:
+		for _, child := range e.Children {
+			if !referTo(child, index) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
+	var ret int
+	switch e.Typ {
+	case ET_Column:
+		if _, has := leftTags[e.ColRef[0]]; has {
+			ret |= LeftSide
+		}
+		if _, has := rightTags[e.ColRef[0]]; has {
+			ret |= RightSide
+		}
+	case ET_And, ET_Equal, ET_Like:
+		for _, child := range e.Children {
+			ret |= decideSide(child, leftTags, rightTags)
+		}
+	case ET_Func:
+		for _, child := range e.Children {
+			ret |= decideSide(child, leftTags, rightTags)
+		}
+	}
+	return ret
+}
+
+func copyExpr(e *Expr) *Expr {
+	return clone.Clone(e).(*Expr)
 }
 
 func (e *Expr) Format(ctx *FormatCtx) {
@@ -446,6 +552,14 @@ func splitExprByAnd(expr *Expr) []*Expr {
 		return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
 	}
 	return []*Expr{expr}
+}
+
+func splitExprsByAnd(exprs []*Expr) []*Expr {
+	ret := make([]*Expr, 0)
+	for _, e := range exprs {
+		ret = append(ret, splitExprByAnd(e)...)
+	}
+	return ret
 }
 
 // removeCorrExprs remove correlated columns from exprs

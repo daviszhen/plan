@@ -194,6 +194,7 @@ type Builder struct {
 	tag        int // relation tag
 	projectTag int
 	groupTag   int
+	aggTag     int
 	rootCtx    *BindContext
 
 	//alias of select expr -> idx of select expr
@@ -235,6 +236,7 @@ func (b *Builder) Format(ctx *FormatCtx) {
 	ctx.Writefln("tag %d", b.tag)
 	ctx.Writefln("projectTag %d", b.projectTag)
 	ctx.Writefln("groupTag %d", b.groupTag)
+	ctx.Writefln("aggTag %d", b.aggTag)
 
 	ctx.Writeln("aliasMap:")
 	WriteMap(ctx, b.aliasMap)
@@ -279,6 +281,7 @@ func (b *Builder) Print(tree treeprint.Tree) {
 	tree.AddNode(fmt.Sprintf("tag %d", b.tag))
 	tree.AddNode(fmt.Sprintf("projectTag %d", b.projectTag))
 	tree.AddNode(fmt.Sprintf("groupTag %d", b.groupTag))
+	tree.AddNode(fmt.Sprintf("aggTag %d", b.aggTag))
 
 	sub := tree.AddBranch("aliasMap:")
 	WriteMapTree(sub, b.aliasMap)
@@ -326,6 +329,7 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	var err error
 	b.projectTag = b.GetTag()
 	b.groupTag = b.GetTag()
+	b.aggTag = b.GetTag()
 
 	//from
 	b.fromExpr, err = b.buildTable(sel.Select.From.Tables, ctx)
@@ -558,8 +562,8 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 		}
 		jt := LOT_JoinTypeCross
 		switch expr.JoinTyp {
-		case ET_JoinTypeCross:
-			jt = LOT_JoinTypeCross
+		case ET_JoinTypeCross, ET_JoinTypeInner:
+			jt = LOT_JoinTypeInner
 		case ET_JoinTypeLeft:
 			jt = LOT_JoinTypeLeft
 		default:
@@ -790,6 +794,7 @@ func (b *Builder) createAggGroup(root *LogicalOperator) (*LogicalOperator, error
 	return &LogicalOperator{
 		Typ:      LOT_AggGroup,
 		Index:    uint64(b.groupTag),
+		Index2:   uint64(b.aggTag),
 		Aggs:     b.aggs,
 		GroupBys: b.groupbyExprs,
 		Children: []*LogicalOperator{root},
@@ -918,3 +923,227 @@ func hasCorrColInRoot(root *LogicalOperator) bool {
 	}
 	return false
 }
+
+// ==============
+// Optimize plan
+// ==============
+func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOperator, error) {
+	var err error
+	var left []*Expr
+	//1. pushdown filter
+	root, left, err = b.pushdownFilters(root, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(left) > 0 {
+		root = &LogicalOperator{
+			Typ:      LOT_Filter,
+			Filters:  left,
+			Children: []*LogicalOperator{root},
+		}
+	}
+
+	//2. join order
+	//3. column prune
+	return root, nil
+}
+
+// pushdownFilters pushes down filters to the lowest possible position.
+// It returns the new root and the filters that cannot be pushed down.
+func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*LogicalOperator, []*Expr, error) {
+	var err error
+	var left, childLeft []*Expr
+	var childRoot *LogicalOperator
+	var needs []*Expr
+
+	switch root.Typ {
+	case LOT_Scan:
+		for _, f := range filters {
+			if onlyReferTo(f, root.Index) {
+				//expr that only refer to the scan expr can be pushdown.
+				root.Filters = append(root.Filters, f)
+			} else {
+				left = append(left, f)
+			}
+		}
+	case LOT_JOIN:
+		needs = filters
+		leftTags := make(map[uint64]bool)
+		rightTags := make(map[uint64]bool)
+		collectTags(root.Children[0], leftTags)
+		collectTags(root.Children[1], rightTags)
+
+		root.OnConds = splitExprsByAnd(root.OnConds)
+		if root.JoinTyp == LOT_JoinTypeInner {
+			for _, on := range root.OnConds {
+				needs = append(needs, splitExprByAnd(on)...)
+			}
+			root.OnConds = nil
+		}
+
+		whichSides := make([]int, len(needs))
+		for i, nd := range needs {
+			whichSides[i] = decideSide(nd, leftTags, rightTags)
+		}
+
+		leftNeeds := make([]*Expr, 0)
+		rightNeeds := make([]*Expr, 0)
+		for i, nd := range needs {
+			switch whichSides[i] {
+			case NoneSide:
+				switch root.JoinTyp {
+				case LOT_JoinTypeInner:
+					leftNeeds = append(leftNeeds, copyExpr(nd))
+					rightNeeds = append(rightNeeds, nd)
+				case LOT_JoinTypeLeft:
+					leftNeeds = append(leftNeeds, nd)
+				default:
+					left = append(left, nd)
+				}
+			case LeftSide:
+				leftNeeds = append(leftNeeds, nd)
+			case RightSide:
+				rightNeeds = append(rightNeeds, nd)
+			case BothSide:
+				if root.JoinTyp == LOT_JoinTypeInner {
+					root.OnConds = append(root.OnConds, nd)
+					break
+				}
+				left = append(left, nd)
+			default:
+				panic(fmt.Sprintf("usp side %d", whichSides[i]))
+			}
+		}
+
+		childRoot, childLeft, err = b.pushdownFilters(root.Children[0], leftNeeds)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(childLeft) > 0 {
+			childRoot = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  childLeft,
+				Children: []*LogicalOperator{childRoot},
+			}
+		}
+		root.Children[0] = childRoot
+
+		childRoot, childLeft, err = b.pushdownFilters(root.Children[1], rightNeeds)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(childLeft) > 0 {
+			childRoot = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  childLeft,
+				Children: []*LogicalOperator{childRoot},
+			}
+		}
+		root.Children[1] = childRoot
+
+	case LOT_AggGroup:
+		for _, f := range filters {
+			if referTo(f, root.Index2) {
+				//expr that refer to the agg exprs can not be pushdown.
+				root.Filters = append(root.Filters, f)
+			} else {
+				//restore the real expr for the expr that refer to the expr in the group by.
+				needs = append(needs, restoreExpr(f, root.Index, root.GroupBys))
+			}
+		}
+
+		childRoot, childLeft, err = b.pushdownFilters(root.Children[0], needs)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(childLeft) > 0 {
+			childRoot = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  childLeft,
+				Children: []*LogicalOperator{childRoot},
+			}
+		}
+		root.Children[0] = childRoot
+	case LOT_Project:
+		//restore the real expr for the expr that refer to the expr in the project list.
+		for _, f := range filters {
+			needs = append(needs, restoreExpr(f, root.Index, root.Projects))
+		}
+
+		childRoot, childLeft, err = b.pushdownFilters(root.Children[0], needs)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(childLeft) > 0 {
+			childRoot = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  childLeft,
+				Children: []*LogicalOperator{childRoot},
+			}
+		}
+		root.Children[0] = childRoot
+	case LOT_Filter:
+		needs = filters
+		for _, e := range root.Filters {
+			needs = append(needs, splitExprByAnd(e)...)
+		}
+		childRoot, childLeft, err = b.pushdownFilters(root.Children[0], needs)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(childLeft) > 0 {
+			root.Children[0] = childRoot
+			root.Filters = childLeft
+		} else {
+			//remove this FILTER node
+			root = childRoot
+		}
+
+	default:
+		if root.Typ == LOT_Limit {
+			//can not pushdown filter through LIMIT
+			left, filters = filters, nil
+		}
+		if len(root.Children) > 0 {
+			if len(root.Children) > 1 {
+				panic("must be on child: " + root.Typ.String())
+			}
+			childRoot, childLeft, err = b.pushdownFilters(root.Children[0], filters)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(childLeft) > 0 {
+				childRoot = &LogicalOperator{
+					Typ:      LOT_Filter,
+					Filters:  childLeft,
+					Children: []*LogicalOperator{childRoot},
+				}
+			}
+			root.Children[0] = childRoot
+		} else {
+			left = filters
+		}
+	}
+
+	return root, left, err
+}
+
+func collectTags(root *LogicalOperator, set map[uint64]bool) {
+	if root.Index != 0 {
+		set[root.Index] = true
+	}
+	if root.Index2 != 0 {
+		set[root.Index2] = true
+	}
+	for _, child := range root.Children {
+		collectTags(child, set)
+	}
+}
+
+const (
+	NoneSide       = 0
+	LeftSide       = 1 << 1
+	RightSide      = 1 << 2
+	BothSide       = LeftSide | RightSide
+	CorrelatedSide = 1 << 3
+)

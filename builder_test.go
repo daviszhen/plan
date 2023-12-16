@@ -13,12 +13,16 @@ func TestBuildSelect(t *testing.T) {
 	err := builder.buildSelect(q2, builder.rootCtx, 0)
 	assert.NoError(t, err)
 
-	fmt.Println(builder.String())
+	// fmt.Println(builder.String())
 	assert.Greater(t, builder.tag, 0)
 	assert.NotNil(t, builder.whereExpr)
 
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, lp)
-	fmt.Println(lp.String())
+	fmt.Println("Before Optimize\n", lp.String())
+	lp, err = builder.Optimize(builder.rootCtx, lp)
+	assert.NoError(t, err)
+	assert.NotNil(t, lp)
+	fmt.Println("After Optimize\n", lp.String())
 }
