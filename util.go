@@ -127,7 +127,8 @@ func WriteMapTree[K comparable, V any](tree treeprint.Tree, m map[K]V) {
 
 func WriteExprsTree(tree treeprint.Tree, exprs []*Expr) {
 	for i, e := range exprs {
-		tree.AddMetaNode(fmt.Sprintf("%d", i), e.String())
+		p := tree.AddBranch(fmt.Sprintf("%d", i))
+		e.Print(p)
 	}
 }
 
