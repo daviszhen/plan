@@ -319,13 +319,13 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		return index == e.ColRef[0]
 	case ET_And, ET_Equal, ET_Like:
 		for _, child := range e.Children {
-			if !referTo(child, index) {
+			if !onlyReferTo(child, index) {
 				return false
 			}
 		}
 	case ET_Func:
 		for _, child := range e.Children {
-			if !referTo(child, index) {
+			if !onlyReferTo(child, index) {
 				return false
 			}
 		}

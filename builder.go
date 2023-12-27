@@ -944,6 +944,11 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	}
 
 	//2. join order
+	root, err = b.joinOrder(root)
+	if err != nil {
+		return nil, err
+	}
+
 	//3. column prune
 	return root, nil
 }
