@@ -355,6 +355,84 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 	return ret
 }
 
+/*
+dir
+	0 left
+	1 right
+*/
+func collectRelation(e *Expr, dir int) (map[uint64]map[*Expr]bool, map[uint64]map[*Expr]bool) {
+	left := make(map[uint64]map[*Expr]bool)
+	right := make(map[uint64]map[*Expr]bool)
+	switch e.Typ {
+	case ET_Column:
+		if dir <= 0 {
+			set := left[e.ColRef[0]]
+			if set == nil {
+				set = make(map[*Expr]bool)
+			}
+			set[e] = true
+			left[e.ColRef[0]] = set
+		} else {
+			set := right[e.ColRef[0]]
+			if set == nil {
+				set = make(map[*Expr]bool)
+			}
+			set[e] = true
+			right[e.ColRef[0]] = set
+		}
+	case ET_And, ET_Equal, ET_Like:
+		for i, child := range e.Children {
+			newDir := 0
+			if i > 0 {
+				newDir = 1
+			}
+			retl, retr := collectRelation(child, newDir)
+			if i == 0 {
+				mergeMap(left, retl)
+			} else {
+				mergeMap(right, retr)
+			}
+		}
+	case ET_Func:
+		for _, child := range e.Children {
+			retl, retr := collectRelation(child, dir)
+			if dir <= 0 {
+				mergeMap(left, retl)
+			} else {
+				mergeMap(right, retr)
+			}
+		}
+	}
+	return left, right
+}
+
+func mergeMap(a, b map[uint64]map[*Expr]bool) {
+	for k, v := range b {
+		set := a[k]
+		if set == nil {
+			a[k] = v
+		} else {
+			mergeSet(set, v)
+		}
+	}
+}
+
+func mergeSet(a, b map[*Expr]bool) {
+	for k, v := range b {
+		a[k] = v
+	}
+}
+
+func printRelations(info string, maps map[uint64]map[*Expr]bool) {
+	fmt.Println(info)
+	for k, v := range maps {
+		fmt.Printf("\trelation %d\n", k)
+		for e := range v {
+			fmt.Printf("\t\t%v\n", e)
+		}
+	}
+}
+
 func copyExpr(e *Expr) *Expr {
 	return clone.Clone(e).(*Expr)
 }

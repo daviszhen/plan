@@ -24,5 +24,5 @@ func TestBuildSelect(t *testing.T) {
 	lp, err = builder.Optimize(builder.rootCtx, lp)
 	assert.NoError(t, err)
 	assert.NotNil(t, lp)
-	fmt.Println("After Optimize\n", lp.String())
+	//fmt.Println("After Optimize\n", lp.String())
 }
