@@ -22,7 +22,7 @@ type Pgno uint32
 
 type PgHdr struct {
 	pPager               *Pager //which pager belongs to
-	pgno Pgno                   //page number
+	pgno                 Pgno   //page number
 	nRef                 int
 	pNextFree, pPrevFree *PgHdr //free list.
 	pNextAll, pRevAll    *PgHdr //all pages list.

@@ -544,12 +544,17 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 	var left, right *LogicalOperator
 	switch expr.Typ {
 	case ET_TABLE:
+		catalogOfTable, err := tpchCatalog().Table(expr.Database, expr.Table)
+		if err != nil {
+			return nil, err
+		}
 		return &LogicalOperator{
 			Typ:       LOT_Scan,
 			Index:     expr.Index,
 			Database:  expr.Database,
 			Table:     expr.Table,
 			BelongCtx: expr.BelongCtx,
+			Stats:     catalogOfTable.Stats.Copy(),
 		}, err
 	case ET_Join:
 		left, err = b.createFrom(expr.Children[0], root)
@@ -942,6 +947,8 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 			Children: []*LogicalOperator{root},
 		}
 	}
+
+	fmt.Println("After pushdown filter\n", root.String())
 
 	//2. join order
 	root, err = b.joinOrder(root)

@@ -126,6 +126,7 @@ func q2Subquery() *Ast {
 }
 
 func tpchCatalog() *Catalog {
+	//tpch 1g
 	cat := &Catalog{
 		tpch: make(map[string]*CatalogTable),
 	}
@@ -169,6 +170,9 @@ func tpchCatalog() *Catalog {
 			"p_retailprice": 7,
 			"p_comment":     8,
 		},
+		Stats: &Stats{
+			RowCount: 200000,
+		},
 	}
 	// supplier
 	cat.tpch["supplier"] = &CatalogTable{
@@ -202,6 +206,9 @@ func tpchCatalog() *Catalog {
 			"s_acctbal":   5,
 			"s_comment":   6,
 		},
+		Stats: &Stats{
+			RowCount: 10000,
+		},
 	}
 	// partsupp
 	cat.tpch["partsupp"] = &CatalogTable{
@@ -229,6 +236,9 @@ func tpchCatalog() *Catalog {
 			"ps_supplycost": 3,
 			"ps_comment":    4,
 		},
+		Stats: &Stats{
+			RowCount: 800000,
+		},
 	}
 	// nation
 	cat.tpch["nation"] = &CatalogTable{
@@ -253,6 +263,9 @@ func tpchCatalog() *Catalog {
 			"n_regionkey": 2,
 			"n_comment":   3,
 		},
+		Stats: &Stats{
+			RowCount: 25,
+		},
 	}
 	// region
 	cat.tpch["region"] = &CatalogTable{
@@ -273,6 +286,9 @@ func tpchCatalog() *Catalog {
 			"r_regionkey": 0,
 			"r_name":      1,
 			"r_comment":   2,
+		},
+		Stats: &Stats{
+			RowCount: 5,
 		},
 	}
 	return cat

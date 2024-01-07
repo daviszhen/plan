@@ -129,6 +129,7 @@ type LogicalOperator struct {
 	GroupBys  []*Expr
 	OrderBys  []*Expr
 	Limit     *Expr
+	Stats     *Stats
 
 	Children []*LogicalOperator
 }
@@ -153,10 +154,14 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		tree.AddMetaNode("table", fmt.Sprintf("%v.%v", lo.Database, lo.Table))
 		tree.AddMetaNode("filters", listExprs(&bb, lo.Filters).String())
+		tree.AddMetaNode("stats", lo.Stats.String())
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
 		if len(lo.OnConds) > 0 {
 			tree.AddMetaNode("On", listExprs(&bb, lo.OnConds).String())
+		}
+		if lo.Stats != nil {
+			tree.AddMetaNode("Stats", lo.Stats.String())
 		}
 	case LOT_AggGroup:
 		tree = tree.AddBranch("Aggregate:")
@@ -355,8 +360,22 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 	return ret
 }
 
+func getTableNameFromExprs(exprs map[*Expr]bool) (string, string) {
+	if len(exprs) == 0 {
+		panic("must have exprs")
+	}
+	for e := range exprs {
+		if e.Typ != ET_Column {
+			panic("must be column ref")
+		}
+		return "", e.Table
+	}
+	return "", ""
+}
+
 /*
 dir
+
 	0 left
 	1 right
 */
@@ -616,6 +635,23 @@ func (c *Catalog) Table(db, table string) (*CatalogTable, error) {
 	return nil, nil
 }
 
+type Stats struct {
+	RowCount float64
+}
+
+func (s *Stats) Copy() *Stats {
+	return &Stats{
+		RowCount: s.RowCount,
+	}
+}
+
+func (s *Stats) String() string {
+	if s == nil {
+		return ""
+	}
+	return fmt.Sprintf("rowcount %v", s.RowCount)
+}
+
 type CatalogTable struct {
 	Db         string
 	Table      string
@@ -623,6 +659,7 @@ type CatalogTable struct {
 	Types      []ExprDataType
 	PK         []int
 	Column2Idx map[string]int
+	Stats      *Stats
 }
 
 func splitExprByAnd(expr *Expr) []*Expr {
