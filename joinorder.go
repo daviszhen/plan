@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/tidwall/btree"
 	"github.com/xlab/treeprint"
 	"math"
 	"sort"
@@ -584,5 +585,424 @@ func (uf *UnionFind) find(n uint64) uint64 {
 			uf.parent[n] = pp
 		}
 		return pp
+	}
+}
+
+type SingleJoinRelation struct {
+	op *LogicalOperator
+}
+
+type JoinRelationSet struct {
+	relations []uint64
+}
+
+func (irs *JoinRelationSet) sort() {
+	sort.Slice(irs.relations, func(i, j int) bool {
+		return irs.relations[i] < irs.relations[j]
+	})
+}
+
+func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
+	ret := &JoinRelationSet{relations: copy(rels)}
+	ret.sort()
+	return ret
+}
+
+type Item[T uint64] struct {
+	vec []T
+	val *JoinRelationSet
+}
+
+func (item *Item[T]) append(v ...T) {
+	item.vec = append(item.vec, v...)
+	item.sort()
+}
+
+func (item *Item[T]) sort() {
+	sort.Slice(item.vec, func(i, j int) bool {
+		return item.vec[i] < item.vec[j]
+	})
+}
+
+func (item Item[T]) less(o *Item[T]) bool {
+	alen := len(item.vec)
+	blen := len(o.vec)
+	l := Min(alen, blen)
+	for i := 0; i < l; i++ {
+		if item.vec[i] < o.vec[i] {
+			return true
+		}
+	}
+	if alen < blen {
+		return true
+	}
+	return false
+}
+
+func itemLess[T uint64](a, b *Item[T]) bool {
+	return a.less(b)
+}
+
+type JoinRelationSetManager struct {
+	sets *btree.BTreeG[*Item[uint64]]
+}
+
+func NewJoinRelationSetManager() *JoinRelationSetManager {
+	ret := &JoinRelationSetManager{sets: btree.NewBTreeG[*Item[uint64]](itemLess[uint64])}
+	return ret
+}
+
+func (jrsm *JoinRelationSetManager) getRelation(relations map[uint64]bool) *JoinRelationSet {
+	if len(relations) == 0 {
+		return nil
+	}
+	item := &Item[uint64]{}
+	for key, _ := range relations {
+		item.append(key)
+	}
+	if v, ok := jrsm.sets.Get(item); ok {
+		return v.val
+	} else {
+		//create first
+		item.val = NewJoinRelationSet(item.vec)
+		jrsm.sets.Set(item)
+	}
+	return item.val
+}
+
+func (jrsm *JoinRelationSetManager) getRelation2(relation uint64) *JoinRelationSet {
+	set := make(map[uint64]bool)
+	set[relation] = true
+	return jrsm.getRelation(set)
+}
+
+type FilterInfo struct {
+	set         *JoinRelationSet
+	filterIndex int
+	leftSet     *JoinRelationSet
+	rightSet    *JoinRelationSet
+}
+
+type queryEdge struct {
+	from, to *Item[uint64]
+	info     *FilterInfo
+}
+
+func (e *queryEdge) less(o *queryEdge) bool {
+	if e.from.less(o.from) {
+		return true
+	}
+	if e.to.less(o.to) {
+		return true
+	}
+	return false
+}
+
+func qedgeLess(a, b *queryEdge) bool {
+	return a.less(b)
+}
+
+type QueryGraph struct {
+	nodes *btree.BTreeG[*Item[uint64]]
+	edges *btree.BTreeG[*queryEdge]
+}
+
+func NewQueryGraph() *QueryGraph {
+	return &QueryGraph{
+		nodes: btree.NewBTreeG[*Item[uint64]](itemLess[uint64]),
+		edges: btree.NewBTreeG[*queryEdge](qedgeLess),
+	}
+}
+
+func (graph *QueryGraph) AddEdge(left, right *JoinRelationSet, info *FilterInfo) {
+	leftItem := &Item[uint64]{}
+	leftItem.append(left.relations...)
+
+	rightItem := &Item[uint64]{}
+	rightItem.append(right.relations...)
+
+	if rightItem.less(leftItem) {
+		leftItem, rightItem = rightItem, leftItem
+	}
+	qe := &queryEdge{
+		from: leftItem,
+		to:   rightItem,
+		info: info,
+	}
+
+	graph.nodes.Set(qe.from)
+	graph.nodes.Set(qe.to)
+
+	if _, has := graph.edges.Get(qe); !has {
+		graph.edges.Set(qe)
+	} else {
+		panic("edge exists")
+	}
+}
+
+type JoinNode struct {
+	set *JoinRelationSet
+}
+
+type NodeOp struct {
+	node *JoinNode
+	op   *LogicalOperator
+}
+
+type planItem struct {
+	set  *Item[uint64]
+	node *JoinNode
+}
+
+func NewPlanItem(set *JoinRelationSet, node *JoinNode) *planItem {
+	item := &Item[uint64]{}
+	item.append(set.relations...)
+	return &planItem{
+		set:  item,
+		node: node,
+	}
+}
+
+func (item *planItem) less(o *planItem) bool {
+	return item.set.less(o.set)
+}
+
+func planLess(a, b *planItem) bool {
+	return a.less(b)
+}
+
+type JoinOrderOptimizer struct {
+	relations []*SingleJoinRelation
+	//table index -> relation number
+	relationMapping map[uint64]uint64
+	filters         []*Expr
+	filterInfos     []*FilterInfo
+	setManager      *JoinRelationSetManager
+	queryGraph      *QueryGraph
+	plans           *btree.BTreeG[*planItem]
+}
+
+func NewJoinOrderOptimizer() *JoinOrderOptimizer {
+	return &JoinOrderOptimizer{
+		relationMapping: make(map[uint64]uint64),
+		setManager:      NewJoinRelationSetManager(),
+		plans:           btree.NewBTreeG[*planItem](planLess),
+	}
+}
+
+func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOperator, error) {
+	noReorder, filterOps, err := joinOrder.extractRelations(root)
+	if err != nil {
+		return nil, err
+	}
+	if !noReorder {
+		return root, nil
+	}
+
+	if len(joinOrder.relations) <= 1 {
+		return root, nil
+	}
+
+	//extract filters and dedup them
+	for _, filterOp := range filterOps {
+		switch filterOp.Typ {
+		case LOT_JOIN:
+			if filterOp.JoinTyp != LOT_JoinTypeInner {
+				panic("usp join type")
+			}
+			joinOrder.filters = append(joinOrder.filters, filterOp.OnConds...)
+		case LOT_Filter:
+			joinOrder.filters = append(joinOrder.filters, filterOp.Filters...)
+		default:
+			panic(fmt.Sprintf("usp op type %d", filterOp.Typ))
+		}
+	}
+	//create join edge from filters
+	for i, filter := range joinOrder.filters {
+		filterRelations := make(map[uint64]bool)
+		joinOrder.collectRelation(filter, filterRelations)
+		filterSet := joinOrder.setManager.getRelation(filterRelations)
+		info := &FilterInfo{
+			set:         filterSet,
+			filterIndex: i,
+		}
+		joinOrder.filterInfos = append(joinOrder.filterInfos, info)
+		//comparison operator => join predicate
+		switch filter.Typ {
+		case ET_And, ET_Equal, ET_Like:
+			leftRelations := make(map[uint64]bool)
+			rightRelations := make(map[uint64]bool)
+			joinOrder.collectRelation(filter.Children[0], leftRelations)
+			joinOrder.collectRelation(filter.Children[1], rightRelations)
+			if len(leftRelations) != 0 && len(rightRelations) != 0 {
+				info.leftSet = joinOrder.setManager.getRelation(leftRelations)
+				info.rightSet = joinOrder.setManager.getRelation(rightRelations)
+				if info.leftSet != info.rightSet {
+					//disjoint or not
+					if !isDisjoint(leftRelations, rightRelations) {
+						//add edge into query graph
+						joinOrder.queryGraph.AddEdge(info.leftSet, info.rightSet, info)
+					}
+				}
+			}
+		default:
+			panic(fmt.Sprintf("usp operator type %d", filter.Typ))
+		}
+	}
+
+	//prepare for dp algorithm
+	var nodesOpts []*NodeOp
+	for i, relation := range joinOrder.relations {
+		set := joinOrder.setManager.getRelation2(uint64(i))
+		nodesOpts = append(nodesOpts, &NodeOp{
+			node: &JoinNode{set: set},
+			op:   relation.op,
+		})
+	}
+
+	for _, nodeOp := range nodesOpts {
+		joinOrder.plans.Set(NewPlanItem(nodeOp.node.set, nodeOp.node))
+	}
+	joinOrder.solveJoinOrder()
+	//get optimal plan
+	relations := make(map[uint64]bool, 0)
+	for i := 0; i < len(joinOrder.relations); i++ {
+		relations[uint64(i)] = true
+	}
+	set := joinOrder.setManager.getRelation(relations)
+	item := NewPlanItem(set, nil)
+	if final, has := joinOrder.plans.Get(item); !has {
+		panic("no final plan")
+	} else {
+		return joinOrder.rewritePlan(root, final.node), nil
+	}
+	return nil, nil
+}
+
+func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *JoinNode) *LogicalOperator {
+
+	return nil
+}
+
+func (joinOrder *JoinOrderOptimizer) solveJoinOrder() {
+	joinOrder.greedy()
+}
+
+func (joinOrder *JoinOrderOptimizer) greedy() {
+	var joinRelations []*JoinRelationSet
+	for i := 0; i < len(joinOrder.relations); i++ {
+		joinRelations = append(joinRelations, joinOrder.setManager.getRelation2(uint64(i)))
+	}
+
+	for len(joinRelations) > 1 {
+		bestLeft, bestRight := 0
+		var best *JoinNode
+		for i := 0; i < len(joinRelations); i++ {
+			left := joinRelations[i]
+			for j := i + 1; j < len(joinRelations); j++ {
+				right := joinRelations[j]
+
+			}
+		}
+	}
+}
+
+func (joinOrder *JoinOrderOptimizer) extractRelations(root *LogicalOperator) (nonReorder bool, filterOps []*LogicalOperator, err error) {
+	op := root
+	for len(op.Children) == 1 &&
+		op.Typ != LOT_Project &&
+		op.Typ != LOT_Scan {
+		if op.Typ == LOT_Filter {
+			filterOps = append(filterOps, op)
+		}
+
+		if op.Typ == LOT_AggGroup {
+			optimizer := NewJoinOrderOptimizer()
+			op.Children[0], err = optimizer.Optimize(op.Children[0])
+			if err != nil {
+				return false, nil, err
+			}
+			return false, filterOps, err
+		}
+		op = op.Children[0]
+	}
+
+	if op.Typ == LOT_JOIN {
+		if op.JoinTyp == LOT_JoinTypeInner {
+			filterOps = append(filterOps, op)
+		} else {
+			nonReorder = true
+		}
+	}
+
+	if nonReorder {
+		//setop or non-inner join
+		for i, child := range op.Children {
+			optimizer := NewJoinOrderOptimizer()
+			op.Children[i], err = optimizer.Optimize(child)
+			if err != nil {
+				return false, nil, err
+			}
+		}
+		//get all table
+		//TODO:
+		panic("usp yet")
+		return true, filterOps, err
+	}
+	switch op.Typ {
+	case LOT_JOIN:
+		leftReorder, leftFilters, err := joinOrder.extractRelations(op.Children[0])
+		if err != nil {
+			return false, nil, err
+		}
+		filterOps = append(filterOps, leftFilters...)
+		rightReorder, rightFilters, err := joinOrder.extractRelations(op.Children[1])
+		if err != nil {
+			return false, nil, err
+		}
+		filterOps = append(filterOps, rightFilters...)
+		return leftReorder && rightReorder, filterOps, err
+	case LOT_Scan:
+		tableIndex := op.Index
+		relation := &SingleJoinRelation{op: root}
+		relationId := len(joinOrder.relations)
+		joinOrder.relationMapping[tableIndex] = uint64(relationId)
+		joinOrder.relations = append(joinOrder.relations, relation)
+		return true, filterOps, err
+	case LOT_Project:
+		tableIndex := op.Index
+		relation := &SingleJoinRelation{op: root}
+		relationId := len(joinOrder.relations)
+		optimizer := NewJoinOrderOptimizer()
+		op.Children[0], err = optimizer.Optimize(op.Children[0])
+		if err != nil {
+			return false, nil, err
+		}
+		joinOrder.relationMapping[tableIndex] = uint64(relationId)
+		joinOrder.relations = append(joinOrder.relations, relation)
+		return true, filterOps, err
+	default:
+		panic(fmt.Sprintf("usp operator type %d", op.Typ))
+	}
+	return
+}
+
+func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]bool) {
+	switch e.Typ {
+	case ET_Column:
+		index := e.ColRef[0]
+		if relId, has := joinOrder.relationMapping[index]; !has {
+			panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
+		} else {
+			set[relId] = true
+		}
+	case ET_And, ET_Equal, ET_Like:
+		for _, child := range e.Children {
+			joinOrder.collectRelation(child, set)
+		}
+	case ET_Func:
+		for _, child := range e.Children {
+			joinOrder.collectRelation(child, set)
+		}
 	}
 }

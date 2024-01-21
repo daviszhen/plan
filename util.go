@@ -174,3 +174,19 @@ func listExprs(bb *strings.Builder, exprs []*Expr) *strings.Builder {
 	}
 	return bb
 }
+
+func Min[T int](a, b T) T {
+	if a > b {
+		return b
+	}
+	return a
+}
+
+func isDisjoint(a, b map[uint64]bool) bool {
+	for k, _ := range a {
+		if _, has := b[k]; has {
+			return false
+		}
+	}
+	return true
+}
