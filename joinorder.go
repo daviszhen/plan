@@ -6,6 +6,7 @@ import (
 	"github.com/xlab/treeprint"
 	"math"
 	"sort"
+	"strings"
 )
 
 func (b *Builder) joinOrder(root *LogicalOperator) (*LogicalOperator, error) {
@@ -602,6 +603,22 @@ func (irs *JoinRelationSet) sort() {
 	})
 }
 
+func (jrs *JoinRelationSet) String() string {
+	if jrs == nil {
+		return ""
+	}
+	bb := strings.Builder{}
+	bb.WriteString("")
+	for i, r := range jrs.relations {
+		if i > 0 {
+			bb.WriteString(", ")
+		}
+		bb.WriteString(fmt.Sprintf("%d", r))
+	}
+	bb.WriteString("")
+	return bb.String()
+}
+
 func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
 	ret := &JoinRelationSet{relations: copy(rels)}
 	ret.sort()
@@ -643,37 +660,87 @@ func itemLess[T uint64](a, b *Item[T]) bool {
 	return a.less(b)
 }
 
+type Set map[uint64]bool
+
+func (set Set) orderedKeys() []uint64 {
+	keys := make([]uint64, 0, len(set))
+	for key, _ := range set {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+func (set Set) insert(keys ...uint64) {
+	for _, key := range keys {
+		set[key] = true
+	}
+}
+
+type treeNode struct {
+	relation *JoinRelationSet
+	children map[uint64]*treeNode
+}
+
+func newTreeNode() *treeNode {
+	return &treeNode{children: make(map[uint64]*treeNode)}
+}
+
+func (node *treeNode) Print(tree treeprint.Tree) {
+	if node == nil {
+		return
+	}
+	tree = tree.AddMetaNode("relations", node.relation.String())
+	for key, child := range node.children {
+		child.Print(tree.AddMetaBranch("child", key))
+	}
+}
+
+func (node *treeNode) String() string {
+	tree := treeprint.New()
+	node.Print(tree)
+	return tree.String()
+}
+
 type JoinRelationSetManager struct {
-	sets *btree.BTreeG[*Item[uint64]]
+	root *treeNode
 }
 
 func NewJoinRelationSetManager() *JoinRelationSetManager {
-	ret := &JoinRelationSetManager{sets: btree.NewBTreeG[*Item[uint64]](itemLess[uint64])}
+	ret := &JoinRelationSetManager{
+		root: newTreeNode(),
+	}
 	return ret
 }
 
-func (jrsm *JoinRelationSetManager) getRelation(relations map[uint64]bool) *JoinRelationSet {
-	if len(relations) == 0 {
-		return nil
+func (jrsm *JoinRelationSetManager) getRelation(relations Set) *JoinRelationSet {
+	curNode := jrsm.root
+	keys := relations.orderedKeys()
+	for _, relId := range keys {
+		if next, has := curNode.children[relId]; !has {
+			next = newTreeNode()
+			curNode.children[relId] = next
+			curNode = next
+		} else {
+			curNode = next
+		}
 	}
-	item := &Item[uint64]{}
-	for key, _ := range relations {
-		item.append(key)
+	if curNode.relation == nil {
+		curNode.relation = NewJoinRelationSet(keys)
 	}
-	if v, ok := jrsm.sets.Get(item); ok {
-		return v.val
-	} else {
-		//create first
-		item.val = NewJoinRelationSet(item.vec)
-		jrsm.sets.Set(item)
-	}
-	return item.val
+	return curNode.relation
 }
 
 func (jrsm *JoinRelationSetManager) getRelation2(relation uint64) *JoinRelationSet {
-	set := make(map[uint64]bool)
+	set := make(Set)
 	set[relation] = true
 	return jrsm.getRelation(set)
+}
+
+func (jrsm *JoinRelationSetManager) String() string {
+	return jrsm.root.String()
 }
 
 type FilterInfo struct {
@@ -683,34 +750,33 @@ type FilterInfo struct {
 	rightSet    *JoinRelationSet
 }
 
+type neighborInfo struct {
+	neighbor *JoinRelationSet
+	filters  []*FilterInfo
+}
+
 type queryEdge struct {
-	from, to *Item[uint64]
-	info     *FilterInfo
+	neighbors []*neighborInfo
+	children  map[uint64]*queryEdge
 }
 
-func (e *queryEdge) less(o *queryEdge) bool {
-	if e.from.less(o.from) {
-		return true
-	}
-	if e.to.less(o.to) {
-		return true
-	}
-	return false
+func (edge *queryEdge) Print(tree treeprint.Tree) {
+	//TODO:
 }
 
-func qedgeLess(a, b *queryEdge) bool {
-	return a.less(b)
+func newQueryEdge() *queryEdge {
+	return &queryEdge{
+		children: make(map[uint64]*queryEdge),
+	}
 }
 
 type QueryGraph struct {
-	nodes *btree.BTreeG[*Item[uint64]]
-	edges *btree.BTreeG[*queryEdge]
+	root *queryEdge
 }
 
 func NewQueryGraph() *QueryGraph {
 	return &QueryGraph{
-		nodes: btree.NewBTreeG[*Item[uint64]](itemLess[uint64]),
-		edges: btree.NewBTreeG[*queryEdge](qedgeLess),
+		root: newQueryEdge(),
 	}
 }
 
@@ -895,15 +961,15 @@ func (joinOrder *JoinOrderOptimizer) greedy() {
 	}
 
 	for len(joinRelations) > 1 {
-		bestLeft, bestRight := 0
-		var best *JoinNode
-		for i := 0; i < len(joinRelations); i++ {
-			left := joinRelations[i]
-			for j := i + 1; j < len(joinRelations); j++ {
-				right := joinRelations[j]
-
-			}
-		}
+		//bestLeft, bestRight := 0
+		//var best *JoinNode
+		//for i := 0; i < len(joinRelations); i++ {
+		//	left := joinRelations[i]
+		//	for j := i + 1; j < len(joinRelations); j++ {
+		//		right := joinRelations[j]
+		//
+		//	}
+		//}
 	}
 }
 
