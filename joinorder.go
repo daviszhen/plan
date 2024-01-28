@@ -10,25 +10,8 @@ import (
 )
 
 func (b *Builder) joinOrder(root *LogicalOperator) (*LogicalOperator, error) {
-	var err error
-	var sub *LogicalOperator
-	switch root.Typ {
-	case LOT_JOIN:
-		if root.JoinTyp != LOT_JoinTypeInner {
-			panic(fmt.Sprintf("usp join type %v in joinorder", root.JoinTyp))
-		}
-		//TODO: maybe it is wrong
-		return b.joinOrderImpl(root)
-	}
-
-	for i, child := range root.Children {
-		sub, err = b.joinOrder(child)
-		if err != nil {
-			return nil, err
-		}
-		root.Children[i] = sub
-	}
-	return root, err
+	joinOrder := NewJoinOrderOptimizer()
+	return joinOrder.Optimize(root)
 }
 
 func (b *Builder) joinOrderImpl(root *LogicalOperator) (*LogicalOperator, error) {
@@ -597,10 +580,32 @@ type JoinRelationSet struct {
 	relations []uint64
 }
 
+func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
+	ret := &JoinRelationSet{relations: copy(rels)}
+	ret.sort()
+	return ret
+}
+
 func (irs *JoinRelationSet) sort() {
 	sort.Slice(irs.relations, func(i, j int) bool {
 		return irs.relations[i] < irs.relations[j]
 	})
+}
+
+func isSubset(super, sub *JoinRelationSet) bool {
+	if len(sub.relations) > len(super.relations) {
+		return false
+	}
+	j := 0
+	for i := 0; i < len(super.relations); i++ {
+		if sub.relations[j] == super.relations[i] {
+			j++
+			if j == len(sub.relations) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (jrs *JoinRelationSet) String() string {
@@ -608,21 +613,15 @@ func (jrs *JoinRelationSet) String() string {
 		return ""
 	}
 	bb := strings.Builder{}
-	bb.WriteString("")
+	bb.WriteString("[")
 	for i, r := range jrs.relations {
 		if i > 0 {
 			bb.WriteString(", ")
 		}
 		bb.WriteString(fmt.Sprintf("%d", r))
 	}
-	bb.WriteString("")
+	bb.WriteString("]")
 	return bb.String()
-}
-
-func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
-	ret := &JoinRelationSet{relations: copy(rels)}
-	ret.sort()
-	return ret
 }
 
 type Item[T uint64] struct {
@@ -755,13 +754,40 @@ type neighborInfo struct {
 	filters  []*FilterInfo
 }
 
+func (neigh *neighborInfo) appendFilter(f *FilterInfo) {
+	neigh.filters = append(neigh.filters, f)
+}
+
 type queryEdge struct {
 	neighbors []*neighborInfo
 	children  map[uint64]*queryEdge
 }
 
-func (edge *queryEdge) Print(tree treeprint.Tree) {
-	//TODO:
+func (edge *queryEdge) Print(prefix []uint64) string {
+	source := strings.Builder{}
+	source.WriteByte('[')
+	for i, u := range prefix {
+		if i > 0 {
+			source.WriteByte(',')
+		}
+		source.WriteString(fmt.Sprintf("%d", u))
+	}
+	source.WriteByte(']')
+
+	sb := strings.Builder{}
+	for _, neighbor := range edge.neighbors {
+		sb.WriteString(fmt.Sprintf("%s -> %s\n", source.String(), neighbor.neighbor.String()))
+	}
+	for k, v := range edge.children {
+		newPrefix := copy(prefix)
+		newPrefix = append(newPrefix, k)
+		sb.WriteString(v.Print(newPrefix))
+	}
+	return sb.String()
+}
+
+func (edge *queryEdge) String() string {
+	return edge.Print([]uint64{})
 }
 
 func newQueryEdge() *queryEdge {
@@ -780,30 +806,89 @@ func NewQueryGraph() *QueryGraph {
 	}
 }
 
-func (graph *QueryGraph) AddEdge(left, right *JoinRelationSet, info *FilterInfo) {
-	leftItem := &Item[uint64]{}
-	leftItem.append(left.relations...)
+func (graph *QueryGraph) String() string {
+	return graph.root.String()
+}
 
-	rightItem := &Item[uint64]{}
-	rightItem.append(right.relations...)
-
-	if rightItem.less(leftItem) {
-		leftItem, rightItem = rightItem, leftItem
+func (graph *QueryGraph) getQueryEdge(set *JoinRelationSet) *queryEdge {
+	info := graph.root
+	for _, rel := range set.relations {
+		if next, has := info.children[rel]; !has {
+			info.children[rel] = newQueryEdge()
+			info = info.children[rel]
+		} else {
+			info = next
+		}
 	}
-	qe := &queryEdge{
-		from: leftItem,
-		to:   rightItem,
-		info: info,
-	}
+	return info
+}
 
-	graph.nodes.Set(qe.from)
-	graph.nodes.Set(qe.to)
-
-	if _, has := graph.edges.Get(qe); !has {
-		graph.edges.Set(qe)
-	} else {
-		panic("edge exists")
+func (graph *QueryGraph) CreateEdge(left, right *JoinRelationSet, info *FilterInfo) {
+	node := graph.getQueryEdge(left)
+	for _, neighbor := range node.neighbors {
+		if neighbor.neighbor == right {
+			if info != nil {
+				neighbor.appendFilter(info)
+			}
+			return
+		}
 	}
+	newNode := &neighborInfo{
+		neighbor: right,
+	}
+	if info != nil {
+		newNode.appendFilter(info)
+	}
+	node.neighbors = append(node.neighbors, newNode)
+}
+
+func (graph *QueryGraph) enumNeighbors(node *JoinRelationSet, callback func(info *neighborInfo) bool) {
+	for j := 0; j < len(node.relations); j++ {
+		info := graph.root
+		for i := j; i < len(node.relations); i++ {
+			if next, has := info.children[node.relations[i]]; !has {
+				break
+			} else {
+				info = next
+			}
+			for _, neighbor := range info.neighbors {
+				if callback(neighbor) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (graph *QueryGraph) GetNeighbors(node *JoinRelationSet, excludeSet Set) (ret []uint64) {
+	dedup := make(Set)
+	graph.enumNeighbors(node, func(info *neighborInfo) bool {
+		if !joinRelationSetIsExcluded(info.neighbor, excludeSet) {
+			dedup.insert(info.neighbor.relations[0])
+		}
+		return false
+	})
+	for k, _ := range dedup {
+		ret = append(ret, k)
+	}
+	return
+}
+
+func (graph *QueryGraph) GetConnections(node, other *JoinRelationSet) (conns []*neighborInfo) {
+	graph.enumNeighbors(node, func(info *neighborInfo) bool {
+		if isSubset(other, info.neighbor) {
+			conns = append(conns, info)
+		}
+		return false
+	})
+	return
+}
+
+func joinRelationSetIsExcluded(node *JoinRelationSet, set Set) bool {
+	if _, has := set[node.relations[0]]; has {
+		return true
+	}
+	return false
 }
 
 type JoinNode struct {
@@ -853,6 +938,7 @@ func NewJoinOrderOptimizer() *JoinOrderOptimizer {
 		relationMapping: make(map[uint64]uint64),
 		setManager:      NewJoinRelationSetManager(),
 		plans:           btree.NewBTreeG[*planItem](planLess),
+		queryGraph:      NewQueryGraph(),
 	}
 }
 
@@ -905,9 +991,10 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 				info.rightSet = joinOrder.setManager.getRelation(rightRelations)
 				if info.leftSet != info.rightSet {
 					//disjoint or not
-					if !isDisjoint(leftRelations, rightRelations) {
+					if isDisjoint(leftRelations, rightRelations) {
 						//add edge into query graph
-						joinOrder.queryGraph.AddEdge(info.leftSet, info.rightSet, info)
+						joinOrder.queryGraph.CreateEdge(info.leftSet, info.rightSet, info)
+						joinOrder.queryGraph.CreateEdge(info.rightSet, info.leftSet, info)
 					}
 				}
 			}
@@ -915,6 +1002,9 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 			panic(fmt.Sprintf("usp operator type %d", filter.Typ))
 		}
 	}
+
+	fmt.Println("join set manager", joinOrder.setManager)
+	fmt.Println("query graph", joinOrder.queryGraph)
 
 	//prepare for dp algorithm
 	var nodesOpts []*NodeOp
@@ -962,14 +1052,21 @@ func (joinOrder *JoinOrderOptimizer) greedy() {
 
 	for len(joinRelations) > 1 {
 		//bestLeft, bestRight := 0
-		//var best *JoinNode
-		//for i := 0; i < len(joinRelations); i++ {
-		//	left := joinRelations[i]
-		//	for j := i + 1; j < len(joinRelations); j++ {
-		//		right := joinRelations[j]
-		//
-		//	}
-		//}
+		var best *JoinNode
+		for i := 0; i < len(joinRelations); i++ {
+			left := joinRelations[i]
+			for j := i + 1; j < len(joinRelations); j++ {
+				right := joinRelations[j]
+				conns := joinOrder.queryGraph.GetConnections(left, right)
+				if len(conns) != 0 {
+					//TODO
+					panic("to do")
+				}
+			}
+		}
+		if best == nil {
+			//TODO:
+		}
 	}
 }
 
