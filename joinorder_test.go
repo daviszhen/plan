@@ -3,6 +3,7 @@ package main
 import (
     "bytes"
     "fmt"
+    "github.com/stretchr/testify/assert"
     "testing"
 )
 
@@ -112,4 +113,14 @@ func TestXXX(t *testing.T) {
     for key, _ := range x {
         fmt.Println(key.Name())
     }
+}
+
+func TestPlanMap(t *testing.T) {
+    pm := make(planMap)
+    s1 := NewJoinRelationSet([]uint64{1, 2, 3})
+    s2 := NewJoinRelationSet([]uint64{1, 2, 3})
+    pm.set(s1, &JoinNode{})
+    assert.NotNil(t, pm.get(s1))
+    assert.NotNil(t, pm.get(s2))
+
 }

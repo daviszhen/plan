@@ -3,9 +3,9 @@ package main
 import (
     "errors"
     "fmt"
-    "github.com/tidwall/btree"
     "github.com/xlab/treeprint"
     "math"
+    "slices"
     "sort"
     "strings"
 )
@@ -588,6 +588,10 @@ func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
     return ret
 }
 
+func (irs *JoinRelationSet) Equal(o Equal) bool {
+    return slices.Equal(irs.relations, o.(*JoinRelationSet).relations)
+}
+
 func (irs *JoinRelationSet) sort() {
     sort.Slice(irs.relations, func(i, j int) bool {
         return irs.relations[i] < irs.relations[j]
@@ -922,34 +926,21 @@ type NodeOp struct {
     op   *LogicalOperator
 }
 
-type planItem struct {
-    set  *Item[uint64]
-    node *JoinNode
-}
-
-func NewPlanItem(set *JoinRelationSet, node *JoinNode) *planItem {
-    item := &Item[uint64]{}
-    item.append(set.relations...)
-    return &planItem{
-        set:  item,
-        node: node,
-    }
-}
-
-func (item *planItem) less(o *planItem) bool {
-    return item.set.less(o.set)
-}
-
-func planLess(a, b *planItem) bool {
-    return a.less(b)
-}
-
 type Equal interface {
     Equal(key Equal) bool
 }
 
-type PlanKey struct {
-    set *JoinRelationSet
+type planMap map[Equal]*JoinNode
+
+func (pmap planMap) set(set *JoinRelationSet, node *JoinNode) {
+    pmap[set] = node
+}
+
+func (pmap planMap) get(set *JoinRelationSet) *JoinNode {
+    if val, has := pmap[set]; has {
+        return val
+    }
+    return nil
 }
 
 type JoinOrderOptimizer struct {
@@ -960,14 +951,14 @@ type JoinOrderOptimizer struct {
     filterInfos     []*FilterInfo
     setManager      *JoinRelationSetManager
     queryGraph      *QueryGraph
-    plans           *btree.BTreeG[*planItem]
+    plans           planMap
 }
 
 func NewJoinOrderOptimizer() *JoinOrderOptimizer {
     return &JoinOrderOptimizer{
         relationMapping: make(map[uint64]uint64),
         setManager:      NewJoinRelationSetManager(),
-        plans:           btree.NewBTreeG[*planItem](planLess),
+        plans:           make(planMap),
         queryGraph:      NewQueryGraph(),
     }
 }
@@ -1048,7 +1039,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 
     for _, nodeOp := range nodesOpts {
         fmt.Println("node op set", nodeOp.node.set)
-        joinOrder.plans.Set(NewPlanItem(nodeOp.node.set, nodeOp.node))
+        joinOrder.plans.set(nodeOp.node.set, nodeOp.node)
     }
     err = joinOrder.solveJoinOrder()
     if err != nil {
@@ -1060,23 +1051,22 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
         relations[uint64(i)] = true
     }
     set := joinOrder.setManager.getRelation(relations)
-    item := NewPlanItem(set, nil)
-    var final *planItem
-    var has bool
-    if final, has = joinOrder.plans.Get(item); !has {
+    final := joinOrder.plans.get(set)
+    if final == nil {
         joinOrder.generateCrossProduct()
         err = joinOrder.solveJoinOrder()
         if err != nil {
             return nil, err
         }
-        if final, has = joinOrder.plans.Get(item); !has {
+        final = joinOrder.plans.get(set)
+        if final == nil {
             return nil, errors.New("no plan any more")
         }
     }
-    if final.node == nil {
+    if final == nil {
         return nil, errors.New("final plan is nil")
     }
-    return joinOrder.rewritePlan(root, final.node)
+    return joinOrder.rewritePlan(root, final)
 }
 
 func (joinOrder *JoinOrderOptimizer) generateCrossProduct() {
@@ -1276,23 +1266,25 @@ func (joinOrder *JoinOrderOptimizer) greedy() error {
             smallestPlans := make([]*JoinNode, 2)
             smallestIndex := make([]uint64, 2)
             for i := 0; i < 2; i++ {
-                if p, has := joinOrder.plans.Get(NewPlanItem(joinRelations[i], nil)); has {
-                    smallestPlans[i] = p.node
+                p := joinOrder.plans.get(joinRelations[i])
+                if p != nil {
+                    smallestPlans[i] = p
                     smallestIndex[i] = uint64(i)
-                    if p.node == nil {
+                    if p == nil {
                         return errors.New("no plan")
                     }
                 }
             }
 
             for i := 2; i < len(joinRelations); i++ {
-                if p, has := joinOrder.plans.Get(NewPlanItem(joinRelations[i], nil)); !has || p.node == nil {
+                p := joinOrder.plans.get(joinRelations[i])
+                if p == nil {
                     return errors.New("plan is nil")
                 } else {
                     for j := 0; j < 2; j++ {
                         if smallestPlans[j] == nil ||
-                            smallestPlans[j].getCardinality() > p.node.getCardinality() {
-                            smallestPlans[j] = p.node
+                            smallestPlans[j].getCardinality() > p.getCardinality() {
+                            smallestPlans[j] = p
                             smallestIndex[j] = uint64(i)
                             break
                         }
@@ -1343,14 +1335,16 @@ func (joinOrder *JoinOrderOptimizer) updateDPTree(newPlan *JoinNode) error {
     for _, neighbor := range allNeighbors {
         neiRel := joinOrder.setManager.getRelation(neighbor)
         combineSet := joinOrder.setManager.union(newSet, neiRel)
-        if combinePlan, has := joinOrder.plans.Get(NewPlanItem(combineSet, nil)); has {
+        combinePlan := joinOrder.plans.get(combineSet)
+        if combinePlan != nil {
             conns := joinOrder.queryGraph.GetConnections(newSet, neiRel)
-            if _, has := joinOrder.plans.Get(NewPlanItem(neiRel, nil)); has {
+            p := joinOrder.plans.get(neiRel)
+            if p != nil {
                 updatedPlan, err := joinOrder.emitPair(newSet, neiRel, conns)
                 if err != nil {
                     return err
                 }
-                if updatedPlan.getCost() < combinePlan.node.getCost() {
+                if updatedPlan.getCost() < combinePlan.getCost() {
                     err = joinOrder.updateDPTree(updatedPlan)
                     if err != nil {
                         return err
@@ -1380,7 +1374,7 @@ func (joinOrder *JoinOrderOptimizer) getAllNeighborSets(excludeSet Set, neighbor
     for {
         added = joinOrder.addSuperSets(added, neighbors)
         ret = append(ret, added...)
-        if len(added) != 0 {
+        if len(added) == 0 {
             break
         }
     }
@@ -1409,16 +1403,7 @@ func (joinOrder *JoinOrderOptimizer) addSuperSets(current []Set, allNeighbors []
 }
 
 func (joinOrder *JoinOrderOptimizer) getPlan(set *JoinRelationSet) (*JoinNode, error) {
-    var plan *JoinNode
-    if item, ok := joinOrder.plans.Get(NewPlanItem(set, nil)); ok {
-        if item != nil && item.node != nil {
-            plan = item.node
-        } else {
-            return nil, errors.New("node does not exist")
-        }
-    } else {
-        plan = nil
-    }
+    plan := joinOrder.plans.get(set)
     return plan, nil
 }
 
@@ -1482,7 +1467,7 @@ func (joinOrder *JoinOrderOptimizer) emitPair(left, right *JoinRelationSet, info
         if len(newSet.relations) == len(joinOrder.relations) {
             //TODO:
         }
-        joinOrder.plans.Set(NewPlanItem(newSet, newPlan))
+        joinOrder.plans.set(newSet, newPlan)
         return newPlan, nil
     }
     return tplan, nil
