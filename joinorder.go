@@ -937,8 +937,10 @@ func (pmap planMap) set(set *JoinRelationSet, node *JoinNode) {
 }
 
 func (pmap planMap) get(set *JoinRelationSet) *JoinNode {
-    if val, has := pmap[set]; has {
-        return val
+    for key, value := range pmap {
+        if key.Equal(set) {
+            return value
+        }
     }
     return nil
 }
@@ -964,7 +966,7 @@ func NewJoinOrderOptimizer() *JoinOrderOptimizer {
 }
 
 func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOperator, error) {
-    noReorder, filterOps, err := joinOrder.extractRelations(root)
+    noReorder, filterOps, err := joinOrder.extractRelations(root, nil)
     if err != nil {
         return nil, err
     }
@@ -1024,8 +1026,8 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
         }
     }
 
-    fmt.Println("join set manager", joinOrder.setManager)
-    fmt.Println("query graph", joinOrder.queryGraph)
+    fmt.Println("join set manager\n", joinOrder.setManager)
+    fmt.Println("query graph\n", joinOrder.queryGraph)
 
     //prepare for dp algorithm
     var nodesOpts []*NodeOp
@@ -1088,6 +1090,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelation(rel *SingleJoinRelation
         if children[i] == rel.op {
             ret := children[i]
             children = erase(children, i)
+            rel.parent.Children = children
             return ret, nil
         }
     }
@@ -1473,7 +1476,7 @@ func (joinOrder *JoinOrderOptimizer) emitPair(left, right *JoinRelationSet, info
     return tplan, nil
 }
 
-func (joinOrder *JoinOrderOptimizer) extractRelations(root *LogicalOperator) (nonReorder bool, filterOps []*LogicalOperator, err error) {
+func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOperator) (nonReorder bool, filterOps []*LogicalOperator, err error) {
     op := root
     for len(op.Children) == 1 &&
         op.Typ != LOT_Project &&
@@ -1517,12 +1520,12 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root *LogicalOperator) (no
     }
     switch op.Typ {
     case LOT_JOIN:
-        leftReorder, leftFilters, err := joinOrder.extractRelations(op.Children[0])
+        leftReorder, leftFilters, err := joinOrder.extractRelations(op.Children[0], op)
         if err != nil {
             return false, nil, err
         }
         filterOps = append(filterOps, leftFilters...)
-        rightReorder, rightFilters, err := joinOrder.extractRelations(op.Children[1])
+        rightReorder, rightFilters, err := joinOrder.extractRelations(op.Children[1], op)
         if err != nil {
             return false, nil, err
         }
@@ -1530,14 +1533,14 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root *LogicalOperator) (no
         return leftReorder && rightReorder, filterOps, err
     case LOT_Scan:
         tableIndex := op.Index
-        relation := &SingleJoinRelation{op: root}
+        relation := &SingleJoinRelation{op: root, parent: parent}
         relationId := len(joinOrder.relations)
         joinOrder.relationMapping[tableIndex] = uint64(relationId)
         joinOrder.relations = append(joinOrder.relations, relation)
         return true, filterOps, err
     case LOT_Project:
         tableIndex := op.Index
-        relation := &SingleJoinRelation{op: root}
+        relation := &SingleJoinRelation{op: root, parent: parent}
         relationId := len(joinOrder.relations)
         optimizer := NewJoinOrderOptimizer()
         op.Children[0], err = optimizer.Optimize(op.Children[0])
@@ -1561,6 +1564,9 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
             panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
         } else {
             set[relId] = true
+            if joinOrder.relations[relId].op.Index != index {
+                panic("no such relation")
+            }
         }
     case ET_And, ET_Equal, ET_Like:
         for _, child := range e.Children {
