@@ -756,10 +756,12 @@ func (jrsm *JoinRelationSetManager) String() string {
 }
 
 type FilterInfo struct {
-    set         *JoinRelationSet
-    filterIndex int
-    leftSet     *JoinRelationSet
-    rightSet    *JoinRelationSet
+    set          *JoinRelationSet
+    filterIndex  int
+    leftSet      *JoinRelationSet
+    rightSet     *JoinRelationSet
+    leftBinding  [2]uint64
+    rightBinding [2]uint64
 }
 
 type neighborInfo struct {
