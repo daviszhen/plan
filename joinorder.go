@@ -598,6 +598,10 @@ func (irs *JoinRelationSet) sort() {
     })
 }
 
+func (irs *JoinRelationSet) count() int {
+    return len(irs.relations)
+}
+
 func isSubset(super, sub *JoinRelationSet) bool {
     if len(sub.relations) > len(super.relations) {
         return false
@@ -682,6 +686,25 @@ func (set Set) insert(keys ...uint64) {
     for _, key := range keys {
         set[key] = true
     }
+}
+
+func (set Set) find(key uint64) bool {
+    _, has := set[key]
+    return has
+}
+
+func (set Set) clear() {
+    for key, _ := range set {
+        delete(set, key)
+    }
+}
+
+func (set Set) empty() bool {
+    return len(set) == 0
+}
+
+func (set Set) size() int {
+    return len(set)
 }
 
 type treeNode struct {
@@ -907,15 +930,34 @@ func joinRelationSetIsExcluded(node *JoinRelationSet, set Set) bool {
 }
 
 type JoinNode struct {
-    set         *JoinRelationSet
-    info        *neighborInfo
-    left, right *JoinNode
-    card        float64
+    set            *JoinRelationSet
+    info           *neighborInfo
+    left, right    *JoinNode
+    baseCard       float64
+    estimatedProps *EstimatedProperties
 }
 
-func (jnode *JoinNode) getCardinality() float64 {
-    //TODO:
-    return jnode.card
+func NewJoinNode(set *JoinRelationSet, baseCard float64) *JoinNode {
+    return &JoinNode{
+        set:            set,
+        baseCard:       baseCard,
+        estimatedProps: NewEstimatedProperties(baseCard, 0),
+    }
+}
+
+func (jnode *JoinNode) getCard() float64 {
+    return jnode.estimatedProps.getCard()
+}
+
+func (jnode *JoinNode) getBaseCard() float64 {
+    //if jnode.set.count() > 1 {
+    //    panic("usp call on intermediate join node")
+    //}
+    return jnode.baseCard
+}
+
+func (jnode *JoinNode) setBaseCard(f float64) {
+    jnode.baseCard = f
 }
 
 func (jnode *JoinNode) getCost() float64 {
@@ -956,6 +998,7 @@ type JoinOrderOptimizer struct {
     setManager      *JoinRelationSetManager
     queryGraph      *QueryGraph
     plans           planMap
+    estimator       *CardinalityEstimator
 }
 
 func NewJoinOrderOptimizer() *JoinOrderOptimizer {
@@ -964,6 +1007,7 @@ func NewJoinOrderOptimizer() *JoinOrderOptimizer {
         setManager:      NewJoinRelationSetManager(),
         plans:           make(planMap),
         queryGraph:      NewQueryGraph(),
+        estimator:       NewCardinalityEstimator(),
     }
 }
 
@@ -1036,9 +1080,14 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
     for i, relation := range joinOrder.relations {
         set := joinOrder.setManager.getRelation2(uint64(i))
         nodesOpts = append(nodesOpts, &NodeOp{
-            node: &JoinNode{set: set},
+            node: NewJoinNode(set, 0),
             op:   relation.op,
         })
+    }
+
+    err = joinOrder.estimator.InitCardinalityEstimatorProps(nodesOpts, joinOrder.filterInfos)
+    if err != nil {
+        return nil, err
     }
 
     for _, nodeOp := range nodesOpts {
@@ -1288,7 +1337,7 @@ func (joinOrder *JoinOrderOptimizer) greedy() error {
                 } else {
                     for j := 0; j < 2; j++ {
                         if smallestPlans[j] == nil ||
-                            smallestPlans[j].getCardinality() > p.getCardinality() {
+                            smallestPlans[j].getBaseCard() > p.getBaseCard() {
                             smallestPlans[j] = p
                             smallestIndex[j] = uint64(i)
                             break
@@ -1417,29 +1466,29 @@ func (joinOrder *JoinOrderOptimizer) createJoinTree(set *JoinRelationSet, info [
     if err != nil {
         return nil, err
     }
-    if left.getCardinality() < right.getCardinality() {
+    if left.getBaseCard() < right.getBaseCard() {
         return joinOrder.createJoinTree(set, info, right, left)
     }
     var expectCard float64
     var bestConn *neighborInfo
     if plan != nil {
-        expectCard = plan.getCardinality()
+        expectCard = plan.getBaseCard()
         bestConn = info[len(info)-1]
     } else if len(info) == 0 {
-        //TODO:
-        //expectCard
+        //cross product
+        expectCard = joinOrder.estimator.EstimateCrossProduct(left, right)
     } else {
-        //TODO:
-        //expectCard
+        //normal join
+        expectCard = joinOrder.estimator.EstimateCardWithSet(set)
         bestConn = info[len(info)-1]
     }
     //TODO:
     return &JoinNode{
-        set:   set,
-        info:  bestConn,
-        left:  left,
-        right: right,
-        card:  expectCard,
+        set:      set,
+        info:     bestConn,
+        left:     left,
+        right:    right,
+        baseCard: expectCard,
     }, nil
 }
 
@@ -1508,12 +1557,16 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOpera
 
     if nonReorder {
         //setop or non-inner join
+        cmaps := make([]ColumnBindMap, 0)
         for i, child := range op.Children {
             optimizer := NewJoinOrderOptimizer()
             op.Children[i], err = optimizer.Optimize(child)
             if err != nil {
                 return false, nil, err
             }
+            cmap := make(ColumnBindMap)
+            optimizer.estimator.CopyRelationMap(cmap)
+            cmaps = append(cmaps, cmap)
         }
         //get all table
         //TODO:
@@ -1537,6 +1590,10 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOpera
         tableIndex := op.Index
         relation := &SingleJoinRelation{op: root, parent: parent}
         relationId := len(joinOrder.relations)
+        err = joinOrder.estimator.AddRelationColumnMapping(op, uint64(relationId))
+        if err != nil {
+            return false, nil, err
+        }
         joinOrder.relationMapping[tableIndex] = uint64(relationId)
         joinOrder.relations = append(joinOrder.relations, relation)
         return true, filterOps, err
@@ -1549,7 +1606,14 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOpera
         if err != nil {
             return false, nil, err
         }
+        cmap := make(ColumnBindMap)
+        optimizer.estimator.CopyRelationMap(cmap)
         joinOrder.relationMapping[tableIndex] = uint64(relationId)
+        for key, value := range cmap {
+            newkey := [2]uint64{tableIndex, key[1]}
+            joinOrder.estimator.AddRelationToColumnMapping(newkey, value)
+            joinOrder.estimator.AddColumnToRelationMap(value[0], value[1])
+        }
         joinOrder.relations = append(joinOrder.relations, relation)
         return true, filterOps, err
     default:
@@ -1565,6 +1629,7 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
         if relId, has := joinOrder.relationMapping[index]; !has {
             panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
         } else {
+            joinOrder.estimator.AddColumnToRelationMap(relId, e.ColRef[0])
             set[relId] = true
             if joinOrder.relations[relId].op.Index != index {
                 panic("no such relation")
