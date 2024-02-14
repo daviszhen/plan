@@ -63,7 +63,26 @@ func analyze(path string) error {
 }
 
 func Test_analyzeTpch1g(t *testing.T) {
-    path := "/Users/pengzhen/Documents/GitHub/mo-tpch/data/1/supplier.tbl"
+    path := "/Users/pengzhen/Documents/GitHub/mo-tpch/data/1/region.tbl"
     err := analyze(path)
     assert.NoError(t, err)
+}
+
+func TestT1(t *testing.T) {
+    var x [2]uint64
+
+    dfun := func(x [2]uint64) {
+        x[0] = 1
+        x[1] = 2
+        fmt.Println(x)
+    }
+    dfun2 := func(x *[2]uint64) {
+        x[0] = 1
+        x[1] = 2
+        fmt.Println(x)
+    }
+    dfun(x)
+    fmt.Println(x)
+    dfun2(&x)
+    fmt.Println(x)
 }

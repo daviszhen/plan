@@ -783,8 +783,8 @@ type FilterInfo struct {
     filterIndex  int
     leftSet      *JoinRelationSet
     rightSet     *JoinRelationSet
-    leftBinding  [2]uint64
-    rightBinding [2]uint64
+    leftBinding  ColumnBind
+    rightBinding ColumnBind
 }
 
 type neighborInfo struct {
@@ -940,7 +940,6 @@ type JoinNode struct {
 func NewJoinNode(set *JoinRelationSet, baseCard float64) *JoinNode {
     return &JoinNode{
         set:            set,
-        baseCard:       baseCard,
         estimatedProps: NewEstimatedProperties(baseCard, 0),
     }
 }
@@ -957,12 +956,21 @@ func (jnode *JoinNode) getBaseCard() float64 {
 }
 
 func (jnode *JoinNode) setBaseCard(f float64) {
+    if f == 0 {
+        panic("zero")
+    }
     jnode.baseCard = f
 }
 
 func (jnode *JoinNode) getCost() float64 {
-    //TODO:
-    return 0
+    return jnode.estimatedProps.getCost()
+}
+
+func (jnode *JoinNode) setEstimatedCard(f float64) {
+    if f == 0 {
+        panic("zero")
+    }
+    jnode.estimatedProps.setCard(f)
 }
 
 type NodeOp struct {
@@ -1012,7 +1020,7 @@ func NewJoinOrderOptimizer() *JoinOrderOptimizer {
 }
 
 func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOperator, error) {
-    noReorder, filterOps, err := joinOrder.extractRelations(root, nil)
+    noReorder, filterOps, err := joinOrder.extractJoinRelations(root, nil)
     if err != nil {
         return nil, err
     }
@@ -1055,6 +1063,8 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
             rightRelations := make(map[uint64]bool)
             joinOrder.collectRelation(filter.Children[0], leftRelations)
             joinOrder.collectRelation(filter.Children[1], rightRelations)
+            joinOrder.getColumnBind(filter.Children[0], &info.leftBinding)
+            joinOrder.getColumnBind(filter.Children[1], &info.rightBinding)
             if len(leftRelations) != 0 && len(rightRelations) != 0 {
                 info.leftSet = joinOrder.setManager.getRelation(leftRelations)
                 info.rightSet = joinOrder.setManager.getRelation(rightRelations)
@@ -1206,6 +1216,8 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
                     //TODO:
                 }
                 resultOp.OnConds = append(resultOp.OnConds, cond)
+                //remove this filter
+                joinOrder.filters[filter.filterIndex] = nil
             }
         }
         leftNode = left.set
@@ -1215,14 +1227,74 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
         resultRel = node.set
         resultOp = extractedRels[node.set.relations[0]]
     }
-    //TODO: add estimate
+    resultOp.estimatedProps = node.estimatedProps.Copy()
+    resultOp.estimatedCard = uint64(resultOp.estimatedProps.getCard())
+    resultOp.hasEstimatedCard = true
+    if resultOp.Typ == LOT_Filter &&
+        len(resultOp.Children) != 0 &&
+        resultOp.Children[0].Typ == LOT_Scan {
+        filterProps := resultOp.estimatedProps
+        childOp := resultOp.Children[0]
+        childOp.estimatedProps = NewEstimatedProperties(filterProps.getCard()/defaultSelectivity, filterProps.getCost())
+        childOp.estimatedCard = uint64(childOp.estimatedProps.getCard())
+        childOp.hasEstimatedCard = true
+    }
     //push down remaining filters
     //TODO:
-    //for _, info := range joinOrder.filterInfos {
-    //    if joinOrder.filters[info.filterIndex] != nil {
-    //
-    //    }
-    //}
+    for _, info := range joinOrder.filterInfos {
+        if joinOrder.filters[info.filterIndex] != nil {
+            //filter is subset of current relation
+            if info.set.count() > 0 && isSubset(resultRel, info.set) {
+                filter := joinOrder.filters[info.filterIndex]
+                if leftNode == nil || info.leftSet == nil {
+                    resultOp = pushFilter(resultOp, filter)
+                    joinOrder.filters[info.filterIndex] = nil
+                    continue
+                }
+                foundSubset := false
+                invert := false
+                if isSubset(leftNode, info.leftSet) && isSubset(rightNode, info.rightSet) {
+                    foundSubset = true
+                } else if isSubset(rightNode, info.leftSet) && isSubset(leftNode, info.rightSet) {
+                    invert = true
+                    foundSubset = true
+                }
+                if !foundSubset {
+                    resultOp = pushFilter(resultOp, filter)
+                    joinOrder.filters[info.filterIndex] = nil
+                    continue
+                }
+                cond := &Expr{Typ: filter.Typ}
+                if !invert {
+                    cond.Children[0], cond.Children[1] = filter.Children[0], filter.Children[1]
+                } else {
+                    cond.Children[0], cond.Children[1] = filter.Children[1], filter.Children[0]
+                }
+                if invert {
+                    //TODO
+                }
+                cur := resultOp
+                if cur.Typ == LOT_Filter {
+                    cur = cur.Children[0]
+                }
+                if cur.Typ == LOT_JOIN && cur.JoinTyp == LOT_JoinTypeCross {
+                    next := &LogicalOperator{
+                        Typ:      LOT_JOIN,
+                        JoinTyp:  ET_JoinTypeInner,
+                        Children: cur.Children,
+                        OnConds:  []*Expr{cond},
+                    }
+                    if cur == resultOp {
+                        resultOp = next
+                    } else {
+                        resultOp.Children[0] = next
+                    }
+                } else {
+                    resultOp.OnConds = append(resultOp.OnConds, cond)
+                }
+            }
+        }
+    }
     return &GenerateJoinRelation{
         set: resultRel,
         op:  resultOp,
@@ -1472,7 +1544,7 @@ func (joinOrder *JoinOrderOptimizer) createJoinTree(set *JoinRelationSet, info [
     var expectCard float64
     var bestConn *neighborInfo
     if plan != nil {
-        expectCard = plan.getBaseCard()
+        expectCard = plan.getCard()
         bestConn = info[len(info)-1]
     } else if len(info) == 0 {
         //cross product
@@ -1482,14 +1554,20 @@ func (joinOrder *JoinOrderOptimizer) createJoinTree(set *JoinRelationSet, info [
         expectCard = joinOrder.estimator.EstimateCardWithSet(set)
         bestConn = info[len(info)-1]
     }
-    //TODO:
+    cost := joinOrder.ComputeCost(left, right, expectCard)
     return &JoinNode{
-        set:      set,
-        info:     bestConn,
-        left:     left,
-        right:    right,
-        baseCard: expectCard,
+        set:   set,
+        info:  bestConn,
+        left:  left,
+        right: right,
+        estimatedProps: &EstimatedProperties{
+            card: expectCard,
+            cost: cost,
+        },
     }, nil
+}
+func (joinOrder *JoinOrderOptimizer) ComputeCost(left, right *JoinNode, expectedCard float64) float64 {
+    return expectedCard + left.getCost() + right.getCost()
 }
 
 func (joinOrder *JoinOrderOptimizer) emitPair(left, right *JoinRelationSet, info []*neighborInfo) (*JoinNode, error) {
@@ -1527,7 +1605,7 @@ func (joinOrder *JoinOrderOptimizer) emitPair(left, right *JoinRelationSet, info
     return tplan, nil
 }
 
-func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOperator) (nonReorder bool, filterOps []*LogicalOperator, err error) {
+func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalOperator) (nonReorder bool, filterOps []*LogicalOperator, err error) {
     op := root
     for len(op.Children) == 1 &&
         op.Typ != LOT_Project &&
@@ -1575,12 +1653,12 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOpera
     }
     switch op.Typ {
     case LOT_JOIN:
-        leftReorder, leftFilters, err := joinOrder.extractRelations(op.Children[0], op)
+        leftReorder, leftFilters, err := joinOrder.extractJoinRelations(op.Children[0], op)
         if err != nil {
             return false, nil, err
         }
         filterOps = append(filterOps, leftFilters...)
-        rightReorder, rightFilters, err := joinOrder.extractRelations(op.Children[1], op)
+        rightReorder, rightFilters, err := joinOrder.extractJoinRelations(op.Children[1], op)
         if err != nil {
             return false, nil, err
         }
@@ -1610,7 +1688,7 @@ func (joinOrder *JoinOrderOptimizer) extractRelations(root, parent *LogicalOpera
         optimizer.estimator.CopyRelationMap(cmap)
         joinOrder.relationMapping[tableIndex] = uint64(relationId)
         for key, value := range cmap {
-            newkey := [2]uint64{tableIndex, key[1]}
+            newkey := ColumnBind{tableIndex, key[1]}
             joinOrder.estimator.AddRelationToColumnMapping(newkey, value)
             joinOrder.estimator.AddColumnToRelationMap(value[0], value[1])
         }
@@ -1629,7 +1707,7 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
         if relId, has := joinOrder.relationMapping[index]; !has {
             panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
         } else {
-            joinOrder.estimator.AddColumnToRelationMap(relId, e.ColRef[0])
+            joinOrder.estimator.AddColumnToRelationMap(relId, e.ColRef[1])
             set[relId] = true
             if joinOrder.relations[relId].op.Index != index {
                 panic("no such relation")
@@ -1642,6 +1720,27 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
     case ET_Func:
         for _, child := range e.Children {
             joinOrder.collectRelation(child, set)
+        }
+    }
+}
+
+func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
+    switch e.Typ {
+    case ET_Column:
+        index := e.ColRef[0]
+        if relId, has := joinOrder.relationMapping[index]; !has {
+            panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
+        } else {
+            cb[0] = relId
+            cb[1] = e.ColRef[1]
+        }
+    case ET_And, ET_Equal, ET_Like:
+        for _, child := range e.Children {
+            joinOrder.getColumnBind(child, cb)
+        }
+    case ET_Func:
+        for _, child := range e.Children {
+            joinOrder.getColumnBind(child, cb)
         }
     }
 }

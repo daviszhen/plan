@@ -172,17 +172,17 @@ func tpchCatalog() *Catalog {
         },
         Stats: &Stats{
             RowCount: 200000,
-        },
-        ColStats: []*BaseStats{
-            {distinctCount: 200000},
-            {distinctCount: 199997},
-            {distinctCount: 5},
-            {distinctCount: 25},
-            {distinctCount: 150},
-            {distinctCount: 50},
-            {distinctCount: 40},
-            {distinctCount: 20899},
-            {distinctCount: 131753},
+            ColStats: []*BaseStats{
+                {distinctCount: 200000},
+                {distinctCount: 199997},
+                {distinctCount: 5},
+                {distinctCount: 25},
+                {distinctCount: 150},
+                {distinctCount: 50},
+                {distinctCount: 40},
+                {distinctCount: 20899},
+                {distinctCount: 131753},
+            },
         },
     }
     // supplier
@@ -219,11 +219,15 @@ func tpchCatalog() *Catalog {
         },
         Stats: &Stats{
             RowCount: 10000,
-        },
-        ColStats: []*BaseStats{
-            {distinctCount: 10000},
-            {distinctCount: 10000},
-            {distinctCount: 10000},
+            ColStats: []*BaseStats{
+                {distinctCount: 10000},
+                {distinctCount: 10000},
+                {distinctCount: 10000},
+                {distinctCount: 25},
+                {distinctCount: 10000},
+                {distinctCount: 9955},
+                {distinctCount: 10000},
+            },
         },
     }
     // partsupp
@@ -254,6 +258,13 @@ func tpchCatalog() *Catalog {
         },
         Stats: &Stats{
             RowCount: 800000,
+            ColStats: []*BaseStats{
+                {distinctCount: 200000},
+                {distinctCount: 10000},
+                {distinctCount: 9999},
+                {distinctCount: 99865},
+                {distinctCount: 799124},
+            },
         },
     }
     // nation
@@ -281,6 +292,12 @@ func tpchCatalog() *Catalog {
         },
         Stats: &Stats{
             RowCount: 25,
+            ColStats: []*BaseStats{
+                {distinctCount: 25},
+                {distinctCount: 25},
+                {distinctCount: 5},
+                {distinctCount: 25},
+            },
         },
     }
     // region
@@ -305,6 +322,11 @@ func tpchCatalog() *Catalog {
         },
         Stats: &Stats{
             RowCount: 5,
+            ColStats: []*BaseStats{
+                {distinctCount: 5},
+                {distinctCount: 5},
+                {distinctCount: 5},
+            },
         },
     }
     return cat

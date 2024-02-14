@@ -132,11 +132,19 @@ type LogicalOperator struct {
     Stats            *Stats
     hasEstimatedCard bool
     estimatedCard    uint64
+    estimatedProps   *EstimatedProperties
 
     Children []*LogicalOperator
 }
 
 func (lo *LogicalOperator) EstimatedCard() uint64 {
+    if lo.Typ == LOT_Scan {
+        catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
+        if err != nil {
+            panic(err)
+        }
+        return uint64(catalogTable.Stats.RowCount)
+    }
     if lo.hasEstimatedCard {
         return lo.estimatedCard
     }
@@ -653,19 +661,32 @@ func (c *Catalog) Table(db, table string) (*CatalogTable, error) {
 
 type Stats struct {
     RowCount float64
+    ColStats []*BaseStats
 }
 
 func (s *Stats) Copy() *Stats {
-    return &Stats{
+    ret := &Stats{
         RowCount: s.RowCount,
     }
+    ret.ColStats = make([]*BaseStats, len(s.ColStats))
+    for i, stat := range s.ColStats {
+        ret.ColStats[i] = stat.Copy()
+    }
+    return ret
 }
 
 func (s *Stats) String() string {
     if s == nil {
         return ""
     }
-    return fmt.Sprintf("rowcount %v", s.RowCount)
+    sb := strings.Builder{}
+    sb.WriteString(fmt.Sprintf("rowcount %v\n", s.RowCount))
+    for i, stat := range s.ColStats {
+        sb.WriteString(fmt.Sprintf("col %v ", i))
+        sb.WriteString(stat.String())
+        sb.WriteByte('\n')
+    }
+    return sb.String()
 }
 
 type CatalogTable struct {
@@ -676,11 +697,10 @@ type CatalogTable struct {
     PK         []int
     Column2Idx map[string]int
     Stats      *Stats
-    ColStats   []*BaseStats
 }
 
 func (catalog *CatalogTable) getStats(colId uint64) *BaseStats {
-    return catalog.ColStats[colId]
+    return catalog.Stats.ColStats[colId]
 }
 
 func splitExprByAnd(expr *Expr) []*Expr {

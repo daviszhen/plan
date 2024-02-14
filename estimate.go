@@ -17,17 +17,30 @@ func NewRelationAttributes() *RelationAttributes {
     }
 }
 
-type ColumnBindSet map[[2]uint64]bool
-type ColumnBindMap map[[2]uint64][2]uint64
+type ColumnBind [2]uint64
+type ColumnBindSet map[ColumnBind]bool
+type ColumnBindMap map[ColumnBind]ColumnBind
 
-func (set ColumnBindSet) find(bind [2]uint64) bool {
+func NewColumnBind(a, b uint64) ColumnBind {
+    return ColumnBind{a, b}
+}
+
+func (bind ColumnBind) table() uint64 {
+    return bind[0]
+}
+
+func (bind ColumnBind) column() uint64 {
+    return bind[1]
+}
+
+func (set ColumnBindSet) find(bind ColumnBind) bool {
     if _, has := set[bind]; has {
         return true
     }
     return false
 }
 
-func (set ColumnBindSet) insert(bind [2]uint64) {
+func (set ColumnBindSet) insert(bind ColumnBind) {
     set[bind] = true
 }
 
@@ -41,21 +54,21 @@ func (set ColumnBindSet) clear() {
     }
 }
 
-func (cmap ColumnBindMap) find(bind [2]uint64) bool {
+func (cmap ColumnBindMap) find(bind ColumnBind) bool {
     if _, has := cmap[bind]; has {
         return true
     }
     return false
 }
 
-func (cmap ColumnBindMap) get(bind [2]uint64) [2]uint64 {
+func (cmap ColumnBindMap) get(bind ColumnBind) ColumnBind {
     if !cmap.find(bind) {
         panic("does no exist")
     }
     return cmap[bind]
 }
 
-func (cmap ColumnBindMap) insert(key, value [2]uint64) {
+func (cmap ColumnBindMap) insert(key, value ColumnBind) {
     cmap[key] = value
 }
 
@@ -170,7 +183,7 @@ func (est *CardinalityEstimator) AddRelationTdom(filterInfo *FilterInfo) {
         }
     }
     set := make(ColumnBindSet)
-    set.insert([2]uint64{filterInfo.leftBinding[0], filterInfo.leftBinding[1]})
+    set.insert(ColumnBind{filterInfo.leftBinding[0], filterInfo.leftBinding[1]})
     newTdom := NewRelationToTDom(set)
     est.relationsToTDoms = append(est.relationsToTDoms, newTdom)
 }
@@ -233,7 +246,7 @@ func (est *CardinalityEstimator) EstimateBaseTableCard(node *JoinNode, op *Logic
     lowestCardFound := node.getBaseCard()
     for col, _ := range est.relationAttributes[relId].columns {
         cardAfterFilters := node.getBaseCard()
-        key := [2]uint64{relId, col}
+        key := ColumnBind{relId, col}
         var tableFilters *TableFilterSet
         if est.relationColumnToOriginalColumn.find(key) {
             actualBind := est.relationColumnToOriginalColumn.get(key)
@@ -247,7 +260,7 @@ func (est *CardinalityEstimator) EstimateBaseTableCard(node *JoinNode, op *Logic
         }
         lowestCardFound = min(cardAfterFilters, lowestCardFound)
     }
-    node.setBaseCard(lowestCardFound)
+    node.setEstimatedCard(lowestCardFound)
 }
 
 func (est *CardinalityEstimator) GetTableFilters(op *LogicalOperator, tableIndex uint64) *TableFilterSet {
@@ -269,7 +282,7 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
     var err error
     getUpdated := true
     for col, _ := range est.relationAttributes[relId].columns {
-        key := [2]uint64{relId, col}
+        key := ColumnBind{relId, col}
         if est.relationColumnToOriginalColumn.find(key) {
             actualBind := est.relationColumnToOriginalColumn.get(key)
             if get == nil || get.Index != actualBind[0] {
@@ -336,14 +349,14 @@ func (est *CardinalityEstimator) AddRelationColumnMapping(get *LogicalOperator, 
 
     //TODO: refine
     for i, _ := range catalogTable.Columns {
-        key := [2]uint64{relId, uint64(i)}
-        value := [2]uint64{get.Index, uint64(i)}
+        key := ColumnBind{relId, uint64(i)}
+        value := ColumnBind{get.Index, uint64(i)}
         est.AddRelationToColumnMapping(key, value)
     }
     return nil
 }
 
-func (est *CardinalityEstimator) AddRelationToColumnMapping(key, value [2]uint64) {
+func (est *CardinalityEstimator) AddRelationToColumnMapping(key, value ColumnBind) {
     est.relationColumnToOriginalColumn[key] = value
 }
 
@@ -506,6 +519,13 @@ func NewEstimatedProperties(card, cost float64) *EstimatedProperties {
     return &EstimatedProperties{
         card: card,
         cost: cost,
+    }
+}
+
+func (e EstimatedProperties) Copy() *EstimatedProperties {
+    return &EstimatedProperties{
+        card: e.card,
+        cost: e.cost,
     }
 }
 
