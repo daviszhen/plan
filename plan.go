@@ -57,13 +57,13 @@ var InvalidExprDataType = ExprDataType{
 type LOT int
 
 const (
-	LOT_Project = iota
-	LOT_Filter
-	LOT_Scan
-	LOT_JOIN
-	LOT_AggGroup
-	LOT_Order
-	LOT_Limit
+	LOT_Project  = 0
+	LOT_Filter   = 1
+	LOT_Scan     = 2
+	LOT_JOIN     = 3
+	LOT_AggGroup = 4
+	LOT_Order    = 5
+	LOT_Limit    = 6
 )
 
 func (lt LOT) String() string {
