@@ -957,6 +957,10 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
     }
 
     //3. column prune
+    root,err = b.columnPrune(root)
+    if err != nil {
+        return nil, err
+    }
     return root, nil
 }
 
