@@ -478,6 +478,8 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 		}
 	case AstExprTypeJoin:
 		return b.buildJoinTable(table, ctx)
+	case AstExprTypeSubquery:
+		panic("usp")
 	default:
 		return nil, fmt.Errorf("usp table type %d", table.Typ)
 	}

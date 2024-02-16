@@ -154,6 +154,85 @@ func q4Subquery() *Ast {
 	return ret
 }
 
+func tpchQ7() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("supp_nation"),
+		column("cust_nation"),
+		column("l_year"),
+		withAlias(function("sum", column("volume")), "revenue"),
+	)
+	//TODO: fixme scalar subquery
+	ret.Select.From.Tables = withAlias(
+		subquery(q7Subquery(), AstSubqueryTypeScalar),
+		"shipping")
+	ret.Select.GroupBy.Exprs = astList(
+		column("supp_nation"),
+		column("cust_nation"),
+		column("l_year"))
+	ret.OrderBy.Exprs = astList(
+		column("supp_nation"),
+		column("cust_nation"),
+		column("l_year"))
+	return ret
+}
+
+func q7Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(column2("n1", "n_name"), "supp_nation"),
+		withAlias(column2("n2", "n_name"), "cust_nation"),
+		withAlias(
+			function("extract",
+				sstring("year"),
+				column("l_shipdate"),
+			),
+			"l_year"),
+		withAlias(
+			mul(
+				column("l_extendedprice"),
+				sub(
+					inumber(1),
+					column("l_discount"),
+				),
+			),
+			"volume"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("supplier"),
+		table("lineitem"),
+		table("orders"),
+		table("customer"),
+		withAlias(table("nation"), "n1"),
+		withAlias(table("nation"), "n2"),
+	)
+
+	w1 := equal(column("s_suppkey"), column("l_suppkey"))
+	w2 := equal(column("o_orderkey"), column("l_orderkey"))
+	w3 := equal(column("c_custkey"), column("o_custkey"))
+	w4 := equal(column("s_nationkey"), column2("n1", "n_nationkey"))
+	w5 := equal(column("c_nationkey"), column2("n2", "n_nationkey"))
+	w6 :=
+		or(
+			and(
+				equal(
+					column2("n1", "n_name"),
+					sstring("FRANCE")),
+				equal(
+					column2("n2", "n_name"),
+					sstring("ARGENTINA"))),
+			and(
+				equal(
+					column2("n1", "n_name"),
+					sstring("ARGENTINA")),
+				equal(
+					column2("n2", "n_name"),
+					sstring("FRANCE"))))
+	w7 := between(column("l_shipdate"), date("1995-01-01"), date("1996-12-31"))
+	ret.Select.Where.Expr = andList(w1, w2, w3, w4, w5, w6, w7)
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{
@@ -490,6 +569,56 @@ func tpchCatalog() *Catalog {
 				{distinctCount: 4},
 				{distinctCount: 7},
 				{distinctCount: 4580667},
+			},
+		},
+	}
+
+	//customer
+	cat.tpch["customer"] = &CatalogTable{
+		Db:    "tpch",
+		Table: "customer",
+		Columns: []string{
+			"c_custkey",
+			"c_name",
+			"c_address",
+			"c_nationkey",
+			"c_phone",
+			"c_acctbal",
+			"c_mktsegment",
+			"c_comment",
+		},
+		Types: []ExprDataType{
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 25},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 40},
+			{Typ: DataTypeInteger, NotNull: true},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 15},
+			{Typ: DataTypeDecimal, NotNull: true, Width: 15, Scale: 2},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 10},
+			{Typ: DataTypeVarchar, NotNull: true, Width: 117},
+		},
+		PK: []int{0},
+		Column2Idx: map[string]int{
+			"c_custkey":    0,
+			"c_name":       1,
+			"c_address":    2,
+			"c_nationkey":  3,
+			"c_phone":      4,
+			"c_acctbal":    5,
+			"c_mktsegment": 6,
+			"c_comment":    7,
+		},
+		Stats: &Stats{
+			RowCount: 150000,
+			ColStats: []*BaseStats{
+				{distinctCount: 150000},
+				{distinctCount: 150000},
+				{distinctCount: 150000},
+				{distinctCount: 25},
+				{distinctCount: 150000},
+				{distinctCount: 140187},
+				{distinctCount: 5},
+				{distinctCount: 149968},
 			},
 		},
 	}

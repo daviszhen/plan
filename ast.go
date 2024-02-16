@@ -32,8 +32,9 @@ const (
 	AstExprTypeMul
 	AstExprTypeDiv
 	AstExprTypeEqual        // =
-	AstExprTypeGreaterEqual // =
-	AstExprTypeLess         // =
+	AstExprTypeGreaterEqual // =>
+	AstExprTypeLess         // <
+	AstExprTypeBetween      // [a,b]
 	AstExprTypeAnd
 	AstExprTypeOr
 	AstExprTypeNot
@@ -88,6 +89,7 @@ type Ast struct {
 		JoinTyp     AstJoinType // join
 		Alias       string
 		SubqueryTyp AstSubqueryType
+		Between     *Ast // a part in a between b and c
 
 		Children []*Ast
 		On       *Ast //JoinOn
@@ -227,6 +229,14 @@ func column(name string) *Ast {
 	return col
 }
 
+func column2(table, name string) *Ast {
+	col := &Ast{Typ: AstTypeExpr}
+	col.Expr.ExprTyp = AstExprTypeColumn
+	col.Expr.Table = table
+	col.Expr.Svalue = name
+	return col
+}
+
 func withAlias(in *Ast, alias string) *Ast {
 	if in.Typ == AstTypeExpr {
 		in.Expr.Alias = alias
@@ -262,6 +272,17 @@ func crossJoin(left, right *Ast) *Ast {
 	return join
 }
 
+func crossJoinList(a ...*Ast) *Ast {
+	if len(a) == 1 {
+		return a[0]
+	} else if len(a) == 2 {
+		return crossJoin(a[0], a[1])
+	}
+	return crossJoin(
+		crossJoinList(a[:len(a)-1]...),
+		a[len(a)-1])
+}
+
 func binary(typ AstExprType, left, right *Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
 	ret.Expr.ExprTyp = typ
@@ -289,8 +310,37 @@ func and(left, right *Ast) *Ast {
 	return binary(AstExprTypeAnd, left, right)
 }
 
+func andList(a ...*Ast) *Ast {
+	if len(a) == 1 {
+		return a[0]
+	} else if len(a) == 2 {
+		return and(a[0], a[1])
+	}
+	return and(andList(a[:len(a)-1]...), a[len(a)-1])
+}
+
+func or(left, right *Ast) *Ast {
+	return binary(AstExprTypeOr, left, right)
+}
+
+func between(a, left, right *Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeBetween
+	ret.Expr.Between = a
+	ret.Expr.Children = []*Ast{left, right}
+	return ret
+}
+
 func like(left, right *Ast) *Ast {
 	return binary(AstExprTypeLike, left, right)
+}
+
+func mul(left, right *Ast) *Ast {
+	return binary(AstExprTypeMul, left, right)
+}
+
+func sub(left, right *Ast) *Ast {
+	return binary(AstExprTypeSub, left, right)
 }
 
 func exists(a *Ast) *Ast {
