@@ -31,11 +31,14 @@ const (
 	AstExprTypeSub
 	AstExprTypeMul
 	AstExprTypeDiv
-	AstExprTypeEqual // =
+	AstExprTypeEqual        // =
+	AstExprTypeGreaterEqual // =
+	AstExprTypeLess         // =
 	AstExprTypeAnd
 	AstExprTypeOr
 	AstExprTypeNot
-	AstExprTypeLike // Lik
+	AstExprTypeLike   // Like
+	AstExprTypeExists // Like
 
 	//table
 	AstExprTypeTable
@@ -46,6 +49,8 @@ const (
 	AstExprTypeNumber
 	AstExprTypeString
 	AstExprTypeNull
+	AstExprTypeDate
+	AstExprTypeInterval
 
 	//composite
 	AstExprTypeParen // ()
@@ -62,19 +67,27 @@ const (
 	AstJoinTypeLeft
 )
 
+type AstSubqueryType int
+
+const (
+	AstSubqueryTypeScalar = iota
+	AstSubqueryTypeExists
+)
+
 type Ast struct {
 	Typ AstType
 
 	Expr struct {
 		ExprTyp AstExprType
 
-		Table   string
-		Svalue  string
-		Ivalue  int64
-		Fvalue  float64
-		Desc    bool        // in orderby
-		JoinTyp AstJoinType // join
-		Alias   string
+		Table       string
+		Svalue      string
+		Ivalue      int64
+		Fvalue      float64
+		Desc        bool        // in orderby
+		JoinTyp     AstJoinType // join
+		Alias       string
+		SubqueryTyp AstSubqueryType
 
 		Children []*Ast
 		On       *Ast //JoinOn
@@ -214,6 +227,26 @@ func column(name string) *Ast {
 	return col
 }
 
+func withAlias(in *Ast, alias string) *Ast {
+	if in.Typ == AstTypeExpr {
+		in.Expr.Alias = alias
+	} else {
+		panic("usp alias type ")
+	}
+	return in
+}
+
+func date(d string) *Ast {
+	col := &Ast{Typ: AstTypeExpr}
+	col.Expr.ExprTyp = AstExprTypeDate
+	col.Expr.Svalue = d
+	return col
+}
+
+func astList(a ...*Ast) []*Ast {
+	return a
+}
+
 func table(table string) *Ast {
 	tab := &Ast{Typ: AstTypeExpr}
 	tab.Expr.ExprTyp = AstExprTypeTable
@@ -236,8 +269,20 @@ func binary(typ AstExprType, left, right *Ast) *Ast {
 	return ret
 }
 
+func add(left, right *Ast) *Ast {
+	return binary(AstExprTypeAdd, left, right)
+}
+
 func equal(left, right *Ast) *Ast {
 	return binary(AstExprTypeEqual, left, right)
+}
+
+func greaterEqual(left, right *Ast) *Ast {
+	return binary(AstExprTypeGreaterEqual, left, right)
+}
+
+func less(left, right *Ast) *Ast {
+	return binary(AstExprTypeLess, left, right)
 }
 
 func and(left, right *Ast) *Ast {
@@ -248,10 +293,26 @@ func like(left, right *Ast) *Ast {
 	return binary(AstExprTypeLike, left, right)
 }
 
-func subquery(sub *Ast) *Ast {
+func exists(a *Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeExists
+	ret.Expr.Children = []*Ast{a}
+	return ret
+}
+
+func subquery(sub *Ast, subqueryTyp AstSubqueryType) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
 	ret.Expr.ExprTyp = AstExprTypeSubquery
+	ret.Expr.SubqueryTyp = subqueryTyp
 	ret.Expr.Children = []*Ast{sub}
+	return ret
+}
+
+func interval(val int, unit string) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeInterval
+	ret.Expr.Ivalue = int64(val)
+	ret.Expr.Svalue = unit
 	return ret
 }
 

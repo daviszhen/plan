@@ -15,7 +15,9 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	// binary
 	case AstExprTypeAnd,
 		AstExprTypeEqual,
-		AstExprTypeLike:
+		AstExprTypeLike,
+		AstExprTypeGreaterEqual,
+		AstExprTypeLess:
 		return b.bindBinaryExpr(ctx, iwc, expr, depth)
 
 	case AstExprTypeNumber:
@@ -79,7 +81,18 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			Children: []*Expr{child},
 		}, err
 	case AstExprTypeFunc:
-
+		name := expr.Expr.Svalue
+		if name == "count" {
+			if len(expr.Expr.Children) != 1 {
+				return nil, fmt.Errorf("count must have 1 arg")
+			}
+			if expr.Expr.Children[0].Expr.Svalue == "*" {
+				//replace * by the column 0 of the first table
+				//TODO: refine
+				colName := b.rootCtx.bindingsList[0].names[0]
+				expr.Expr.Children[0].Expr.Svalue = colName
+			}
+		}
 		args := make([]*Expr, 0)
 		for _, arg := range expr.Expr.Children {
 			child, err = b.bindExpr(ctx, iwc, arg, depth)
@@ -88,7 +101,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			}
 			args = append(args, child)
 		}
-		name := expr.Expr.Svalue
+
 		id, err = GetFunctionId(name)
 		if err != nil {
 			return nil, err
@@ -100,6 +113,13 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			FuncId:   id,
 			DataTyp:  InvalidExprDataType,
 			Children: args,
+		}
+
+		//hard code for simplicity
+		if id == DATE_ADD {
+			ret.DataTyp = ExprDataType{
+				Typ: DataTypeDate,
+			}
 		}
 
 		if IsAgg(name) {
@@ -114,6 +134,37 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			}
 		}
 		return ret, err
+	case AstExprTypeDate:
+		ret := &Expr{
+			Typ: ET_DateConst,
+			DataTyp: ExprDataType{
+				Typ: DataTypeDate,
+			},
+			Svalue: expr.Expr.Svalue,
+		}
+		return ret, nil
+	case AstExprTypeInterval:
+		ret := &Expr{
+			Typ: ET_IntervalConst,
+			DataTyp: ExprDataType{
+				Typ: DataTypeInterval,
+			},
+			Ivalue: expr.Expr.Ivalue,
+			Svalue: expr.Expr.Svalue,
+		}
+		return ret, nil
+	case AstExprTypeExists:
+		child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+		if err != nil {
+			return nil, err
+		}
+		ret := &Expr{
+			Typ:      ET_Exists,
+			DataTyp:  ExprDataType{Typ: DataTypeBool},
+			Children: []*Expr{child},
+		}
+
+		return ret, nil
 	default:
 		panic(fmt.Sprintf("usp expr type %d", expr.Expr.ExprTyp))
 	}
@@ -148,6 +199,12 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	case AstExprTypeLike:
 		et = ET_Like
 		edt.Typ = DataTypeBool
+	case AstExprTypeGreaterEqual:
+		et = ET_GreaterEqual
+		edt.Typ = DataTypeBool
+	case AstExprTypeLess:
+		et = ET_Less
+		edt.Typ = DataTypeBool
 	default:
 		panic(fmt.Sprintf("usp binary type %d", expr.Expr.ExprTyp))
 	}
@@ -166,10 +223,20 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	if err != nil {
 		return nil, err
 	}
+	typ := ET_SubqueryTypeScalar
+	switch expr.Expr.SubqueryTyp {
+	case AstSubqueryTypeScalar:
+		typ = ET_SubqueryTypeScalar
+	case AstSubqueryTypeExists:
+		typ = ET_SubqueryTypeExists
+	default:
+		panic(fmt.Sprintf("usp %v", expr.Expr.SubqueryTyp))
+	}
 	return &Expr{
-		Typ:        ET_Subquery,
-		SubBuilder: subBuilder,
-		SubCtx:     subBuilder.rootCtx,
+		Typ:         ET_Subquery,
+		SubBuilder:  subBuilder,
+		SubCtx:      subBuilder.rootCtx,
+		SubqueryTyp: typ,
 	}, err
 }
 

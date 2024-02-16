@@ -52,3 +52,8 @@ func TestQ2(t *testing.T) {
 	q2 := tpchQ2()
 	runTest(t, "q2.json", q2)
 }
+
+func TestQ4(t *testing.T) {
+	q4 := tpchQ4()
+	runTest(t, "q4.json", q4)
+}

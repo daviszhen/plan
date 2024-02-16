@@ -28,16 +28,21 @@ type Impl struct {
 
 const (
 	MIN FuncId = iota
+	DATE_ADD
+	COUNT
 )
 
 var funcName2Id = map[string]FuncId{
-	"min": MIN,
+	"min":      MIN,
+	"date_add": DATE_ADD,
+	"count":    COUNT,
 }
 
 var allFunctions = map[FuncId]Function{}
 
 var aggFuncs = map[string]int{
-	"min": 1,
+	"min":   1,
+	"count": 1,
 }
 
 func IsAgg(name string) bool {
@@ -91,6 +96,27 @@ var aggs = []Function{
 		},
 		ImplDecider: func(*Function, []ExprDataType) (int, []ExprDataType) {
 			panic("usp")
+		},
+	},
+	{
+		Id: DATE_ADD,
+		Impls: []Impl{
+			{
+				Desc: "date_add",
+				Idx:  0,
+				Args: []ExprDataType{
+					{Typ: DataTypeDate},
+					{Typ: DataTypeInterval},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					panic("usp")
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
 		},
 	},
 }

@@ -16,6 +16,7 @@ const (
 	DataTypeDecimal
 	DataTypeDate
 	DataTypeBool
+	DataTypeInterval
 	DataTypeInvalid // used in binding process
 )
 
@@ -108,6 +109,8 @@ func (lojt LOT_JoinType) String() string {
 		return "left"
 	case LOT_JoinTypeInner:
 		return "inner"
+	case LOT_JoinTypeMARK:
+		return "mark"
 	default:
 		panic(fmt.Sprintf("usp %d", lojt))
 	}
@@ -273,11 +276,13 @@ const (
 type ET int
 
 const (
-	ET_Add = iota
+	ET_Add ET = iota
 	ET_Sub
 	ET_Mul
 	ET_Div
 	ET_Equal
+	ET_GreaterEqual
+	ET_Less
 	ET_And
 	ET_Or
 	ET_Not
@@ -289,10 +294,14 @@ const (
 
 	ET_Func
 	ET_Subquery
+	ET_Exists
 
-	ET_IConst //integer
-	ET_SConst //string
-	ET_FConst //float
+	ET_IConst    //integer
+	ET_SConst    //string
+	ET_FConst    //float
+	ET_DateConst //date
+	ET_IntervalConst
+	ET_BConst // bool
 
 	ET_Orderby
 )
@@ -300,30 +309,39 @@ const (
 type ET_JoinType int
 
 const (
-	ET_JoinTypeCross = iota
+	ET_JoinTypeCross ET_JoinType = iota
 	ET_JoinTypeLeft
 	ET_JoinTypeInner
+)
+
+type ET_SubqueryType int
+
+const (
+	ET_SubqueryTypeScalar ET_SubqueryType = iota
+	ET_SubqueryTypeExists
 )
 
 type Expr struct {
 	Typ     ET
 	DataTyp ExprDataType
 
-	Index      uint64
-	Database   string
-	Table      string    // table
-	Name       string    // column
-	ColRef     [2]uint64 // relationTag, columnPos
-	Depth      int       // > 0, correlated column
-	Svalue     string
-	Ivalue     int64
-	Fvalue     float64
-	Desc       bool        // in orderby
-	JoinTyp    ET_JoinType // join
-	Alias      string
-	SubBuilder *Builder     // builder for subquery
-	SubCtx     *BindContext // context for subquery
-	FuncId     FuncId
+	Index       uint64
+	Database    string
+	Table       string    // table
+	Name        string    // column
+	ColRef      [2]uint64 // relationTag, columnPos
+	Depth       int       // > 0, correlated column
+	Svalue      string
+	Ivalue      int64
+	Fvalue      float64
+	Bvalue      bool
+	Desc        bool        // in orderby
+	JoinTyp     ET_JoinType // join
+	Alias       string
+	SubBuilder  *Builder     // builder for subquery
+	SubCtx      *BindContext // context for subquery
+	FuncId      FuncId
+	SubqueryTyp ET_SubqueryType
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -339,11 +357,7 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		if index == e.ColRef[0] {
 			e = realExprs[e.ColRef[1]]
 		}
-	case ET_And, ET_Equal, ET_Like:
-		for i, child := range e.Children {
-			e.Children[i] = restoreExpr(child, index, realExprs)
-		}
-	case ET_Func:
+	default:
 		for i, child := range e.Children {
 			e.Children[i] = restoreExpr(child, index, realExprs)
 		}
@@ -358,13 +372,7 @@ func referTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
-	case ET_And, ET_Equal, ET_Like:
-		for _, child := range e.Children {
-			if referTo(child, index) {
-				return true
-			}
-		}
-	case ET_Func:
+	default:
 		for _, child := range e.Children {
 			if referTo(child, index) {
 				return true
@@ -381,13 +389,8 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
-	case ET_And, ET_Equal, ET_Like:
-		for _, child := range e.Children {
-			if !onlyReferTo(child, index) {
-				return false
-			}
-		}
-	case ET_Func:
+	default:
+
 		for _, child := range e.Children {
 			if !onlyReferTo(child, index) {
 				return false
@@ -407,11 +410,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		if _, has := rightTags[e.ColRef[0]]; has {
 			ret |= RightSide
 		}
-	case ET_And, ET_Equal, ET_Like:
-		for _, child := range e.Children {
-			ret |= decideSide(child, leftTags, rightTags)
-		}
-	case ET_Func:
+	default:
 		for _, child := range e.Children {
 			ret |= decideSide(child, leftTags, rightTags)
 		}
@@ -458,7 +457,7 @@ func collectRelation(e *Expr, dir int) (map[uint64]map[*Expr]bool, map[uint64]ma
 			set[e] = true
 			right[e.ColRef[0]] = set
 		}
-	case ET_And, ET_Equal, ET_Like:
+	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
 		for i, child := range e.Children {
 			newDir := 0
 			if i > 0 {
@@ -529,7 +528,13 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ctx.Write(e.Svalue)
 	case ET_IConst:
 		ctx.Writef("%d", e.Ivalue)
-	case ET_And, ET_Equal, ET_Like:
+	case ET_DateConst:
+		ctx.Writef("%s", e.Svalue)
+	case ET_IntervalConst:
+		ctx.Writef("%d %s", e.Ivalue, e.Svalue)
+	case ET_BConst:
+		ctx.Writef("%v", e.Bvalue)
+	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
 		e.Children[0].Format(ctx)
 		op := ""
 		switch e.Typ {
@@ -539,6 +544,10 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = "="
 		case ET_Like:
 			op = "like"
+		case ET_GreaterEqual:
+			op = ">="
+		case ET_Less:
+			op = "<"
 		default:
 			panic(fmt.Sprintf("usp binary expr type %d", e.Typ))
 		}
@@ -580,6 +589,10 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		if e.Desc {
 			ctx.Write(" desc")
 		}
+	case ET_Exists:
+		ctx.Writef("exists(")
+		e.Children[0].Format(ctx)
+		ctx.Write(")")
 
 	default:
 		panic(fmt.Sprintf("usp expr type %d", e.Typ))
@@ -780,7 +793,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 			return expr, expr.Depth > 0
 		}
 		return expr, false
-	case ET_And, ET_Equal, ET_Like:
+	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
 		left, leftHasCorr := deceaseDepth(expr.Children[0])
 		hasCorCol = hasCorCol || leftHasCorr
 		right, rightHasCorr := deceaseDepth(expr.Children[1])
@@ -818,11 +831,8 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 		if bind == e.ColRef {
 			e.ColRef = newBind
 		}
-	case ET_And, ET_Equal, ET_Like:
-		for i, child := range e.Children {
-			e.Children[i] = replaceColRef(child, bind, newBind)
-		}
-	case ET_Func:
+
+	default:
 		for i, child := range e.Children {
 			e.Children[i] = replaceColRef(child, bind, newBind)
 		}
@@ -837,11 +847,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	switch e.Typ {
 	case ET_Column:
 		set.insert(e.ColRef)
-	case ET_And, ET_Equal, ET_Like:
-		for _, child := range e.Children {
-			collectColRefs(child, set)
-		}
-	case ET_Func:
+	default:
 		for _, child := range e.Children {
 			collectColRefs(child, set)
 		}

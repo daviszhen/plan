@@ -2,6 +2,38 @@ package main
 
 import "fmt"
 
+type ColumnBindCountMap map[ColumnBind]int
+
+func (ccount ColumnBindCountMap) addColumnBind(bind ColumnBind) {
+	if _, ok := ccount[bind]; !ok {
+		ccount[bind] = 0
+	}
+	ccount[bind]++
+}
+
+func (ccount ColumnBindCountMap) removeColumnBind(bind ColumnBind) {
+	if _, ok := ccount[bind]; ok {
+		old := ccount[bind]
+		if old < 1 {
+			panic("negative bind count")
+		}
+		ccount[bind] = old - 1
+	} else {
+		panic("no bind")
+	}
+}
+
+func (ccount ColumnBindCountMap) refCount(bind ColumnBind) int {
+	if count, ok := ccount[bind]; ok {
+		return count
+	}
+	return 0
+}
+
+func (ccount ColumnBindCountMap) count() int {
+	return len(ccount)
+}
+
 type ReferredColumnBindMap map[ColumnBind][]*Expr
 
 func (ref ReferredColumnBindMap) addExpr(exprs ...*Expr) {
@@ -54,18 +86,21 @@ func (ref ReferredColumnBindMap) count() int {
 
 type ColumnPrune struct {
 	//colref -> referenced exprs in the plan tree
-	colRefs ReferredColumnBindMap
+	colRefs   ReferredColumnBindMap
+	colCounts ColumnBindCountMap
 }
 
 func NewColumnPrune() *ColumnPrune {
 	return &ColumnPrune{
-		colRefs: make(ReferredColumnBindMap),
+		colRefs:   make(ReferredColumnBindMap),
+		colCounts: make(ColumnBindCountMap),
 	}
 }
 
 func (b *Builder) columnPrune(root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	cp := NewColumnPrune()
+	cp.addRefCountOnFirstProject(root)
 	root, err = cp.prune(root)
 	if err != nil {
 		return nil, err
@@ -76,58 +111,65 @@ func (b *Builder) columnPrune(root *LogicalOperator) (*LogicalOperator, error) {
 	return root, err
 }
 
+func (cp *ColumnPrune) addRefCountOnFirstProject(root *LogicalOperator) {
+	for root != nil && len(root.Children) == 1 {
+		if root.Typ == LOT_Project {
+			break
+		}
+		root = root.Children[0]
+	}
+	if root != nil && root.Typ == LOT_Project {
+		for i := 0; i < len(root.Projects); i++ {
+			bind := ColumnBind{root.Index, uint64(i)}
+			cp.colRefs.addExpr(&Expr{Typ: ET_Column, ColRef: bind})
+		}
+	} else {
+		panic("no project")
+	}
+}
+
 func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	switch root.Typ {
 	case LOT_Limit:
-		for i, child := range root.Children {
-			root.Children[i], err = cp.prune(child)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return root, err
 	case LOT_Order:
 		cp.colRefs.addExpr(root.OrderBys...)
+	case LOT_Project:
+		cmap := make(ColumnBindMap)
+		newId := uint64(0)
+		removed := make([]int, 0)
+		for i := 0; i < len(root.Projects); i++ {
+			bind := ColumnBind{root.Index, uint64(i)}
+			if !cp.colRefs.beenReferred(bind) {
+				removed = append(removed, i)
+				cmap[bind] = ColumnBind{root.Index, newId}
+				newId++
+			} else {
+				cp.colRefs.addExpr(root.Projects[i])
+			}
+		}
+
 		for i, child := range root.Children {
 			root.Children[i], err = cp.prune(child)
 			if err != nil {
 				return nil, err
 			}
 		}
-		return root, err
-	case LOT_Project:
-		cp.colRefs.addExpr(root.Projects...)
-		for i, child := range root.Children {
-			root.Children[i], err = cp.prune(child)
-			if err != nil {
-				return nil, err
-			}
+		//remove unused columns
+		for i := len(removed) - 1; i >= 0; i-- {
+			root.Projects = erase(root.Projects, removed[i])
+		}
+		cp.colRefs.replaceAll(cmap)
+		if len(root.Projects) == 0 {
+			return root.Children[0], err
 		}
 		return root, err
 	case LOT_AggGroup:
 		cp.colRefs.addExpr(root.GroupBys...)
 		cp.colRefs.addExpr(root.Aggs...)
 		cp.colRefs.addExpr(root.Filters...)
-		for i, child := range root.Children {
-			root.Children[i], err = cp.prune(child)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return root, err
 	case LOT_JOIN:
-		if root.JoinTyp != ET_JoinTypeInner {
-			panic(fmt.Sprintf("usp join type %v", root.JoinTyp))
-		}
 		cp.colRefs.addExpr(root.OnConds...)
-		for i, child := range root.Children {
-			root.Children[i], err = cp.prune(child)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return root, err
 	case LOT_Scan:
 		cp.colRefs.addExpr(root.Filters...)
 		catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
@@ -148,8 +190,16 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		root.Columns = needed
 		cp.colRefs.replaceAll(cmap)
 		return root, nil
+	case LOT_Filter:
+		cp.colRefs.addExpr(root.Filters...)
 	default:
 		panic(fmt.Sprintf("usp op type %v", root.Typ))
 	}
-	return nil, nil
+	for i, child := range root.Children {
+		root.Children[i], err = cp.prune(child)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return root, err
 }
