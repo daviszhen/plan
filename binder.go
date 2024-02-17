@@ -22,6 +22,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		AstExprTypeEqual,
 		AstExprTypeLike,
 		AstExprTypeGreaterEqual,
+		AstExprTypeGreater,
 		AstExprTypeLess,
 		AstExprTypeBetween:
 		ret, err = b.bindBinaryExpr(ctx, iwc, expr, depth)
@@ -43,6 +44,14 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			Ivalue: expr.Expr.Ivalue,
 		}
 
+	case AstExprTypeFNumber:
+		ret = &Expr{
+			Typ: ET_FConst,
+			DataTyp: ExprDataType{
+				Typ: DataTypeFloat64,
+			},
+			Fvalue: expr.Expr.Fvalue,
+		}
 	case AstExprTypeString:
 		ret = &Expr{
 			Typ: ET_SConst,
@@ -55,11 +64,6 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	case AstExprTypeColumn:
 		colName := expr.Expr.Svalue
 		tableName := expr.Expr.Table
-		bind, d, err := ctx.GetMatchingBinding(tableName, colName)
-		if err != nil {
-			return nil, err
-		}
-		colIdx := bind.HasColumn(colName)
 		switch iwc {
 		case IWC_WHERE:
 		case IWC_ORDER:
@@ -69,9 +73,16 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			}
 		case IWC_GROUP:
 		case IWC_SELECT:
+		case IWC_HAVING:
 		default:
 			panic(fmt.Sprintf("usp iwc %d", iwc))
 		}
+		bind, d, err := ctx.GetMatchingBinding(tableName, colName)
+		if err != nil {
+			return nil, err
+		}
+		colIdx := bind.HasColumn(colName)
+
 		ret = &Expr{
 			Typ:     ET_Column,
 			DataTyp: bind.typs[colIdx],
@@ -206,6 +217,8 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		if left.DataTyp.Typ == DataTypeDecimal && right.DataTyp.Typ == DataTypeInteger ||
 			left.DataTyp.Typ == DataTypeInteger && right.DataTyp.Typ == DataTypeDecimal {
 			//integer op decimal
+		} else if left.DataTyp.Typ == DataTypeInvalid || right.DataTyp.Typ == DataTypeInvalid {
+
 		} else if right.Typ != ET_Subquery {
 			//skip subquery
 			panic(fmt.Sprintf("unmatch data type %d %d", left.DataTyp.Typ, right.DataTyp.Typ))
@@ -238,6 +251,9 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		edt.Typ = DataTypeBool
 	case AstExprTypeGreaterEqual:
 		et = ET_GreaterEqual
+		edt.Typ = DataTypeBool
+	case AstExprTypeGreater:
+		et = ET_Greater
 		edt.Typ = DataTypeBool
 	case AstExprTypeLess:
 		et = ET_Less

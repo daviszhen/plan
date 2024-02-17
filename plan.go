@@ -17,6 +17,7 @@ const (
 	DataTypeDate
 	DataTypeBool
 	DataTypeInterval
+	DataTypeFloat64
 	DataTypeInvalid // used in binding process
 )
 
@@ -288,6 +289,7 @@ const (
 	ET_Mul
 	ET_Div
 	ET_Equal
+	ET_Greater
 	ET_GreaterEqual
 	ET_Less
 	ET_And
@@ -475,6 +477,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
@@ -596,6 +599,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 	}
 	switch e.Typ {
 	case ET_Column:
+		//TODO:
 		ctx.Writef("(%s.%s,%s,[%d,%d],%d)", e.Table, e.Name,
 			e.DataTyp,
 			e.ColRef[0], e.ColRef[1], e.Depth)
@@ -609,10 +613,13 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ctx.Writef("%d %s", e.Ivalue, e.Svalue)
 	case ET_BConst:
 		ctx.Writef("%v", e.Bvalue)
+	case ET_FConst:
+		ctx.Writef("%v", e.Fvalue)
 	case ET_And,
 		ET_Or,
 		ET_Equal,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Mul,
@@ -629,6 +636,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = "="
 		case ET_Like:
 			op = "like"
+		case ET_Greater:
+			op = ">"
 		case ET_GreaterEqual:
 			op = ">="
 		case ET_Less:
@@ -989,6 +998,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
@@ -996,7 +1006,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		ET_Mul,
 		ET_Div:
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Orderby:
 	default:
 		panic("usp")

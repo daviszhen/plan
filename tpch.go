@@ -367,6 +367,69 @@ func q9Subquery() *Ast {
 	return ret
 }
 
+func tpchQ11() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("ps_partkey"),
+		withAlias(
+			function("sum",
+				mul(
+					column("ps_supplycost"),
+					column("ps_availqty"),
+				),
+			),
+			"value"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("partsupp"),
+		table("supplier"),
+		table("nation"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("ps_suppkey"), column("s_suppkey")),
+		equal(column("s_nationkey"), column("n_nationkey")),
+		equal(column("n_name"), sstring("JAPAN")),
+	)
+	ret.Select.GroupBy.Exprs = astList(column("ps_partkey"))
+	ret.Select.Having.Expr = greater(
+		function("sum",
+			mul(
+				column("ps_supplycost"),
+				column("ps_availqty"),
+			),
+		),
+		subquery(q11Subquery(), AstSubqueryTypeScalar),
+	)
+	ret.OrderBy.Exprs = astList(orderby(column("value"), true))
+	return ret
+}
+
+func q11Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		mul(
+			function("sum",
+				mul(
+					column("ps_supplycost"),
+					column("ps_availqty"),
+				),
+			),
+			fnumber(0.0001000000),
+		),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("partsupp"),
+		table("supplier"),
+		table("nation"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("ps_suppkey"), column("s_suppkey")),
+		equal(column("s_nationkey"), column("n_nationkey")),
+		equal(column("n_name"), sstring("JAPAN")),
+	)
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{

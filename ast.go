@@ -32,6 +32,7 @@ const (
 	AstExprTypeMul
 	AstExprTypeDiv
 	AstExprTypeEqual        // =
+	AstExprTypeGreater      // =>
 	AstExprTypeGreaterEqual // =>
 	AstExprTypeLess         // <
 	AstExprTypeBetween      // [a,b]
@@ -49,6 +50,7 @@ const (
 
 	//literal
 	AstExprTypeNumber
+	AstExprTypeFNumber
 	AstExprTypeString
 	AstExprTypeNull
 	AstExprTypeDate
@@ -148,6 +150,8 @@ func (a *Ast) Format(ctx *FormatCtx) {
 		}
 	case AstExprTypeNumber:
 		ctx.Writef("%d", a.Expr.Ivalue)
+	case AstExprTypeFNumber:
+		ctx.Writef("%f", a.Expr.Fvalue)
 	case AstExprTypeString:
 		ctx.Write(a.Expr.Svalue)
 	case AstExprTypeFunc:
@@ -260,6 +264,13 @@ func inumber(i int64) *Ast {
 	return num
 }
 
+func fnumber(f float64) *Ast {
+	num := &Ast{Typ: AstTypeExpr}
+	num.Expr.ExprTyp = AstExprTypeFNumber
+	num.Expr.Fvalue = f
+	return num
+}
+
 func sstring(s string) *Ast {
 	ss := &Ast{Typ: AstTypeExpr}
 	ss.Expr.ExprTyp = AstExprTypeString
@@ -358,6 +369,10 @@ func equal(left, right *Ast) *Ast {
 
 func greaterEqual(left, right *Ast) *Ast {
 	return binary(AstExprTypeGreaterEqual, left, right)
+}
+
+func greater(left, right *Ast) *Ast {
+	return binary(AstExprTypeGreater, left, right)
 }
 
 func less(left, right *Ast) *Ast {

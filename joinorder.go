@@ -1831,13 +1831,14 @@ func collectTableRefers(e *Expr, set Set) {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 
 	case ET_Func:
 	case ET_Between:

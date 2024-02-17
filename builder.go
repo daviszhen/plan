@@ -216,6 +216,7 @@ type Builder struct {
 	whereExpr    *Expr
 	aggs         []*Expr
 	groupbyExprs []*Expr
+	havingExpr *Expr
 	orderbyExprs []*Expr
 	limitCount   *Expr
 
@@ -398,6 +399,37 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 		}
 	}
 
+	//group by
+	if len(sel.Select.GroupBy.Exprs) != 0 {
+		var retExpr *Expr
+		for _, expr := range sel.Select.GroupBy.Exprs {
+			retExpr, err = b.bindExpr(ctx, IWC_GROUP, expr, depth)
+			if err != nil {
+				return err
+			}
+			b.groupbyExprs = append(b.groupbyExprs, retExpr)
+		}
+	}
+
+	//having
+	if sel.Select.Having.Expr != nil {
+		var retExpr *Expr
+		retExpr, err = b.bindExpr(ctx, IWC_HAVING, sel.Select.Having.Expr, depth)
+		if err != nil {
+			return err
+		}
+		b.havingExpr = retExpr
+	}
+	//select exprs
+	for _, expr := range newSelectExprs {
+		var retExpr *Expr
+		retExpr, err = b.bindExpr(ctx, IWC_SELECT, expr, depth)
+		if err != nil {
+			return err
+		}
+		b.projectExprs = append(b.projectExprs, retExpr)
+	}
+
 	//order by,limit,distinct
 	if len(sel.OrderBy.Exprs) != 0 {
 		var retExpr *Expr
@@ -415,30 +447,6 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 		if err != nil {
 			return err
 		}
-	}
-
-	//group by
-	if len(sel.Select.GroupBy.Exprs) != 0 {
-		var retExpr *Expr
-		for _, expr := range sel.Select.GroupBy.Exprs {
-			retExpr, err = b.bindExpr(ctx, IWC_GROUP, expr, depth)
-			if err != nil {
-				return err
-			}
-			b.groupbyExprs = append(b.groupbyExprs, retExpr)
-		}
-	}
-
-	//having
-
-	//select exprs
-	for _, expr := range newSelectExprs {
-		var retExpr *Expr
-		retExpr, err = b.bindExpr(ctx, IWC_SELECT, expr, depth)
-		if err != nil {
-			return err
-		}
-		b.projectExprs = append(b.projectExprs, retExpr)
 	}
 	return err
 }
@@ -605,6 +613,9 @@ func (b *Builder) CreatePlan(ctx *BindContext, root *LogicalOperator) (*LogicalO
 	}
 
 	//having
+	if b.havingExpr != nil {
+		root, err = b.createWhere(b.havingExpr, root)
+	}
 
 	//projects
 	if len(b.projectExprs) > 0 {
@@ -732,6 +743,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		ET_And,
 		ET_Or,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Between,
@@ -780,7 +792,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		}, root, nil
 	case ET_Column:
 		return expr, root, nil
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst:
 		return expr, root, nil
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
