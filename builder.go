@@ -755,6 +755,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			Typ:      expr.Typ,
 			DataTyp:  expr.DataTyp,
 			Between:  bet,
+			Alias:    expr.Alias,
 			Children: []*Expr{left, right},
 		}, rroot, nil
 	case ET_Func:
@@ -772,6 +773,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			Svalue:   expr.Svalue,
 			FuncId:   expr.FuncId,
 			DataTyp:  expr.DataTyp,
+			Alias:    expr.Alias,
 			Children: args,
 		}, root, nil
 	case ET_Column:
