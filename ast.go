@@ -40,6 +40,7 @@ const (
 	AstExprTypeNot
 	AstExprTypeLike   // Like
 	AstExprTypeExists // Like
+	AstExprTypeCase
 
 	//table
 	AstExprTypeTable
@@ -91,6 +92,9 @@ type Ast struct {
 		Alias       string
 		SubqueryTyp AstSubqueryType
 		Between     *Ast // a part in a between b and c
+		Kase *Ast        //for case when
+		Els  *Ast
+		When []*Ast
 
 		Children []*Ast
 		On       *Ast //JoinOn
@@ -157,7 +161,7 @@ func (a *Ast) Format(ctx *FormatCtx) {
 			ctx.Write(c.String())
 		}
 		ctx.Write(")")
-	case AstExprTypeSub, AstExprTypeMul:
+	case AstExprTypeSub, AstExprTypeMul, AstExprTypeDiv, AstExprTypeEqual:
 		ctx.Write(a.Expr.Children[0].String())
 		op := ""
 		switch a.Expr.ExprTyp {
@@ -165,11 +169,34 @@ func (a *Ast) Format(ctx *FormatCtx) {
 			op = "-"
 		case AstExprTypeMul:
 			op = "*"
+		case AstExprTypeDiv:
+			op = "/"
+		case AstExprTypeEqual:
+			op = "="
 		default:
 			panic("usp")
 		}
 		ctx.Write(fmt.Sprintf(" %v ", op))
 		ctx.Write(a.Expr.Children[1].String())
+	case AstExprTypeCase:
+		ctx.Write("case ")
+		if a.Expr.Kase != nil {
+			ctx.Write(a.Expr.Kase.String())
+		}
+		for i := 0; i < len(a.Expr.When); i += 2 {
+			j := i + 1
+			if j >= len(a.Expr.When) {
+				panic("miss then")
+			}
+			ctx.Write(" when ")
+			ctx.Write(a.Expr.When[i].String())
+			ctx.Write(" then ")
+			ctx.Write(a.Expr.When[j].String())
+		}
+		if a.Expr.Els != nil {
+			ctx.Write(" else ")
+			ctx.Write(a.Expr.Els.String())
+		}
 	default:
 		panic(fmt.Sprintf("usp expr type %d", a.Expr.ExprTyp))
 	}
@@ -255,6 +282,15 @@ func column2(table, name string) *Ast {
 	return col
 }
 
+func caseWhen(kase *Ast, els *Ast, when ...*Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeCase
+	ret.Expr.Kase = kase
+	ret.Expr.Els = els
+	ret.Expr.When = when
+	return ret
+}
+
 func withAlias(in *Ast, alias string) *Ast {
 	if in.Typ == AstTypeExpr {
 		in.Expr.Alias = alias
@@ -310,6 +346,10 @@ func binary(typ AstExprType, left, right *Ast) *Ast {
 
 func add(left, right *Ast) *Ast {
 	return binary(AstExprTypeAdd, left, right)
+}
+
+func div(left, right *Ast) *Ast {
+	return binary(AstExprTypeDiv, left, right)
 }
 
 func equal(left, right *Ast) *Ast {

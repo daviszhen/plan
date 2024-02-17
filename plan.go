@@ -124,6 +124,7 @@ type LogicalOperator struct {
 	Index2           uint64 //AggNode for aggTag
 	Database         string
 	Table            string       // table
+	Alias string                  // alias
 	Columns          []string     //needed column name for SCAN
 	Filters          []*Expr      //for FILTER or AGG
 	BelongCtx        *BindContext //for table or join
@@ -180,7 +181,13 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	case LOT_Scan:
 		tree = tree.AddBranch("Scan:")
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
-		tree.AddMetaNode("table", fmt.Sprintf("%v.%v", lo.Database, lo.Table))
+		tableInfo := ""
+		if len(lo.Alias) != 0 && lo.Alias != lo.Table {
+			tableInfo = fmt.Sprintf("%v.%v %v", lo.Database, lo.Table, lo.Alias)
+		} else {
+			tableInfo = fmt.Sprintf("%v.%v", lo.Database, lo.Table)
+		}
+		tree.AddMetaNode("table", tableInfo)
 		catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
 		if err != nil {
 			panic("no table")
@@ -288,6 +295,7 @@ const (
 	ET_Not
 	ET_Like
 	ET_Between
+	ET_Case
 
 	ET_Column //column
 	ET_TABLE  //table
@@ -344,6 +352,9 @@ type Expr struct {
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
 	Between     *Expr
+	Kase *Expr
+	When []*Expr
+	Els  *Expr
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -605,7 +616,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Mul,
-		ET_Sub:
+		ET_Sub,
+		ET_Div:
 		e.Children[0].Format(ctx)
 		op := ""
 		switch e.Typ {
@@ -625,6 +637,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = "*"
 		case ET_Sub:
 			op = "-"
+		case ET_Div:
+			op = "/"
 		default:
 			panic(fmt.Sprintf("usp binary expr type %d", e.Typ))
 		}
@@ -636,6 +650,25 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		e.Children[0].Format(ctx)
 		ctx.Write(" and ")
 		e.Children[1].Format(ctx)
+	case ET_Case:
+		ctx.Write("case ")
+		if e.Kase != nil {
+			e.Kase.Format(ctx)
+			ctx.Writeln()
+		}
+		for i := 0; i < len(e.When); i += 2 {
+			ctx.Write(" when")
+			e.When[i].Format(ctx)
+			ctx.Write(" then ")
+			e.When[i+1].Format(ctx)
+			ctx.Writeln()
+		}
+		if e.Els != nil {
+			ctx.Write(" else ")
+			e.Els.Format(ctx)
+			ctx.Writeln()
+		}
+		ctx.Write("end")
 	case ET_TABLE:
 		ctx.Writef("%s.%s", e.Database, e.Table)
 	case ET_Join:
@@ -946,6 +979,12 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		set.insert(e.ColRef)
 	case ET_Between:
 		collectColRefs(e.Between, set)
+	case ET_Case:
+		collectColRefs(e.Kase, set)
+		for _, expr := range e.When {
+			collectColRefs(expr, set)
+		}
+		collectColRefs(e.Els, set)
 	case ET_Func:
 	case ET_Equal,
 		ET_And,
@@ -954,7 +993,8 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		ET_Less,
 		ET_Or,
 		ET_Sub,
-		ET_Mul:
+		ET_Mul,
+		ET_Div:
 
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 	case ET_Orderby:

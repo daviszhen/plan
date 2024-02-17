@@ -232,6 +232,73 @@ func q7Subquery() *Ast {
 	return ret
 }
 
+func tpchQ8() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("o_year"),
+		withAlias(
+			div(
+				function("sum",
+					caseWhen(nil,
+						inumber(0),
+						equal(column("nation"), sstring("ARGENTINA")), column("volume"),
+					)),
+				function("sum", column("volume")),
+			),
+			"mkt_share"),
+	)
+	ret.Select.From.Tables = withAlias(subquery(q8Subquery(), AstSubqueryTypeFrom), "all_nations")
+	ret.Select.GroupBy.Exprs = astList(column("o_year"))
+	ret.OrderBy.Exprs = astList(column("o_year"))
+	return ret
+}
+
+func q8Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			function("extract",
+				sstring("year"),
+				column("o_orderdate")),
+			"o_year"),
+		withAlias(
+			mul(
+				column("l_extendedprice"),
+				sub(
+					inumber(1),
+					column("l_discount"),
+				),
+			),
+			"volume"),
+		withAlias(
+			column2("n2", "n_name"),
+			"nation"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("part"),
+		table("supplier"),
+		table("lineitem"),
+		table("orders"),
+		table("customer"),
+		withAlias(table("nation"), "n1"),
+		withAlias(table("nation"), "n2"),
+		table("region"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("p_partkey"), column("l_partkey")),
+		equal(column("s_suppkey"), column("l_suppkey")),
+		equal(column("l_orderkey"), column("o_orderkey")),
+		equal(column("o_custkey"), column("c_custkey")),
+		equal(column("c_nationkey"), column2("n1", "n_nationkey")),
+		equal(column2("n1", "n_regionkey"), column("r_regionkey")),
+		equal(column("r_name"), sstring("AMERICA")),
+		equal(column("s_nationkey"), column2("n2", "n_nationkey")),
+		between(column("o_orderdate"), date("1995-01-01"), date("1996-12-31")),
+		equal(column("p_type"), sstring("ECONOMY BURNISHED TIN")),
+	)
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{

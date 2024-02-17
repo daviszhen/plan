@@ -642,6 +642,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			Index:     expr.Index,
 			Database:  expr.Database,
 			Table:     expr.Table,
+			Alias: expr.Alias,
 			BelongCtx: expr.BelongCtx,
 			Stats:     catalogOfTable.Stats.Copy(),
 		}, err
@@ -735,7 +736,8 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		ET_Less,
 		ET_Between,
 		ET_Sub,
-		ET_Mul:
+		ET_Mul,
+		ET_Div:
 		var bet *Expr
 		if expr.Typ == ET_Between {
 			bet, root, err = b.createSubquery(expr.Between, root)
@@ -1309,6 +1311,47 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 	}
 
 	return root, left, err
+}
+
+func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
+	var err error
+	var kase *Expr
+	var els *Expr
+	when := make([]*Expr, len(expr.Expr.When))
+	if expr.Expr.Kase != nil {
+		kase, err = b.bindExpr(ctx, iwc, expr.Expr.Kase, depth)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for i := 0; i < len(expr.Expr.When); i += 2 {
+		if i+1 >= len(expr.Expr.When) {
+			panic("miss then")
+		}
+		when[i], err = b.bindExpr(ctx, iwc, expr.Expr.When[i], depth)
+		if err != nil {
+			return nil, err
+		}
+		when[i+1], err = b.bindExpr(ctx, iwc, expr.Expr.When[i+1], depth)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if expr.Expr.Els != nil {
+		els, err = b.bindExpr(ctx, iwc, expr.Expr.Els, depth)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &Expr{
+		Typ:  ET_Case,
+		Kase: kase,
+		When: when,
+		Els:  els,
+	}, err
 }
 
 func collectTags(root *LogicalOperator, set map[uint64]bool) {

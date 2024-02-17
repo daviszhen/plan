@@ -18,6 +18,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		AstExprTypeOr,
 		AstExprTypeSub,
 		AstExprTypeMul,
+		AstExprTypeDiv,
 		AstExprTypeEqual,
 		AstExprTypeLike,
 		AstExprTypeGreaterEqual,
@@ -28,6 +29,11 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			return nil, err
 		}
 
+	case AstExprTypeCase:
+		ret, err = b.bindCaseExpr(ctx, iwc, expr, depth)
+		if err != nil {
+			return nil, err
+		}
 	case AstExprTypeNumber:
 		ret = &Expr{
 			Typ: ET_IConst,
@@ -220,6 +226,9 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		edt.Typ = left.DataTyp.Typ
 	case AstExprTypeMul:
 		et = ET_Mul
+		edt.Typ = left.DataTyp.Typ
+	case AstExprTypeDiv:
+		et = ET_Div
 		edt.Typ = left.DataTyp.Typ
 	case AstExprTypeEqual:
 		et = ET_Equal
