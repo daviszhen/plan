@@ -287,6 +287,7 @@ const (
 	ET_Or
 	ET_Not
 	ET_Like
+	ET_Between
 
 	ET_Column //column
 	ET_TABLE  //table
@@ -342,6 +343,7 @@ type Expr struct {
 	SubCtx      *BindContext // context for subquery
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
+	Between     *Expr
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -357,10 +359,24 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		if index == e.ColRef[0] {
 			e = realExprs[e.ColRef[1]]
 		}
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_Func:
+	case ET_Between:
+		e.Between = restoreExpr(e.Between, index, realExprs)
 	default:
-		for i, child := range e.Children {
-			e.Children[i] = restoreExpr(child, index, realExprs)
-		}
+		panic("usp")
+	}
+	for i, child := range e.Children {
+		e.Children[i] = restoreExpr(child, index, realExprs)
 	}
 	return e
 }
@@ -372,11 +388,29 @@ func referTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+
+	case ET_SConst, ET_IConst, ET_DateConst:
+
+	case ET_Func:
+
+	case ET_Between:
+		if referTo(e.Between, index) {
+			return true
+		}
 	default:
-		for _, child := range e.Children {
-			if referTo(child, index) {
-				return true
-			}
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		if referTo(child, index) {
+			return true
 		}
 	}
 	return false
@@ -389,12 +423,29 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
-	default:
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
 
-		for _, child := range e.Children {
-			if !onlyReferTo(child, index) {
-				return false
-			}
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+		return true
+	case ET_Func:
+
+	case ET_Between:
+		if !onlyReferTo(e.Between, index) {
+			return false
+		}
+	default:
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		if !onlyReferTo(child, index) {
+			return false
 		}
 	}
 	return true
@@ -410,10 +461,23 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		if _, has := rightTags[e.ColRef[0]]; has {
 			ret |= RightSide
 		}
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst:
+	case ET_Func:
+	case ET_Between:
+		ret |= decideSide(e.Between, leftTags, rightTags)
 	default:
-		for _, child := range e.Children {
-			ret |= decideSide(child, leftTags, rightTags)
-		}
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		ret |= decideSide(child, leftTags, rightTags)
 	}
 	return ret
 }
@@ -437,51 +501,51 @@ dir
 	0 left
 	1 right
 */
-func collectRelation(e *Expr, dir int) (map[uint64]map[*Expr]bool, map[uint64]map[*Expr]bool) {
-	left := make(map[uint64]map[*Expr]bool)
-	right := make(map[uint64]map[*Expr]bool)
-	switch e.Typ {
-	case ET_Column:
-		if dir <= 0 {
-			set := left[e.ColRef[0]]
-			if set == nil {
-				set = make(map[*Expr]bool)
-			}
-			set[e] = true
-			left[e.ColRef[0]] = set
-		} else {
-			set := right[e.ColRef[0]]
-			if set == nil {
-				set = make(map[*Expr]bool)
-			}
-			set[e] = true
-			right[e.ColRef[0]] = set
-		}
-	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
-		for i, child := range e.Children {
-			newDir := 0
-			if i > 0 {
-				newDir = 1
-			}
-			retl, retr := collectRelation(child, newDir)
-			if i == 0 {
-				mergeMap(left, retl)
-			} else {
-				mergeMap(right, retr)
-			}
-		}
-	case ET_Func:
-		for _, child := range e.Children {
-			retl, retr := collectRelation(child, dir)
-			if dir <= 0 {
-				mergeMap(left, retl)
-			} else {
-				mergeMap(right, retr)
-			}
-		}
-	}
-	return left, right
-}
+//func collectRelation(e *Expr, dir int) (map[uint64]map[*Expr]bool, map[uint64]map[*Expr]bool) {
+//	left := make(map[uint64]map[*Expr]bool)
+//	right := make(map[uint64]map[*Expr]bool)
+//	switch e.Typ {
+//	case ET_Column:
+//		if dir <= 0 {
+//			set := left[e.ColRef[0]]
+//			if set == nil {
+//				set = make(map[*Expr]bool)
+//			}
+//			set[e] = true
+//			left[e.ColRef[0]] = set
+//		} else {
+//			set := right[e.ColRef[0]]
+//			if set == nil {
+//				set = make(map[*Expr]bool)
+//			}
+//			set[e] = true
+//			right[e.ColRef[0]] = set
+//		}
+//	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
+//		for i, child := range e.Children {
+//			newDir := 0
+//			if i > 0 {
+//				newDir = 1
+//			}
+//			retl, retr := collectRelation(child, newDir)
+//			if i == 0 {
+//				mergeMap(left, retl)
+//			} else {
+//				mergeMap(right, retr)
+//			}
+//		}
+//	case ET_Func:
+//		for _, child := range e.Children {
+//			retl, retr := collectRelation(child, dir)
+//			if dir <= 0 {
+//				mergeMap(left, retl)
+//			} else {
+//				mergeMap(right, retr)
+//			}
+//		}
+//	}
+//	return left, right
+//}
 
 func mergeMap(a, b map[uint64]map[*Expr]bool) {
 	for k, v := range b {
@@ -534,12 +598,21 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ctx.Writef("%d %s", e.Ivalue, e.Svalue)
 	case ET_BConst:
 		ctx.Writef("%v", e.Bvalue)
-	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
+	case ET_And,
+		ET_Or,
+		ET_Equal,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Mul,
+		ET_Sub:
 		e.Children[0].Format(ctx)
 		op := ""
 		switch e.Typ {
 		case ET_And:
 			op = "and"
+		case ET_Or:
+			op = "or"
 		case ET_Equal:
 			op = "="
 		case ET_Like:
@@ -548,10 +621,20 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = ">="
 		case ET_Less:
 			op = "<"
+		case ET_Mul:
+			op = "*"
+		case ET_Sub:
+			op = "-"
 		default:
 			panic(fmt.Sprintf("usp binary expr type %d", e.Typ))
 		}
 		ctx.Writef(" %s ", op)
+		e.Children[1].Format(ctx)
+	case ET_Between:
+		e.Between.Format(ctx)
+		ctx.Write(" between ")
+		e.Children[0].Format(ctx)
+		ctx.Write(" and ")
 		e.Children[1].Format(ctx)
 	case ET_TABLE:
 		ctx.Writef("%s.%s", e.Database, e.Table)
@@ -699,7 +782,7 @@ func (c *Catalog) Table(db, table string) (*CatalogTable, error) {
 		if c, ok := c.tpch[table]; ok {
 			return c, nil
 		} else {
-			fmt.Errorf("table %s in database %s does not exist", table, db)
+			panic(fmt.Errorf("table %s in database %s does not exist", table, db))
 		}
 	} else {
 		panic(fmt.Sprintf("database %s does not exist", db))
@@ -831,11 +914,25 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 		if bind == e.ColRef {
 			e.ColRef = newBind
 		}
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
 
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_Func:
+	case ET_Orderby:
+	case ET_Between:
+		e.Between = replaceColRef(e.Between, bind, newBind)
 	default:
-		for i, child := range e.Children {
-			e.Children[i] = replaceColRef(child, bind, newBind)
-		}
+		panic("usp")
+	}
+	for i, child := range e.Children {
+		e.Children[i] = replaceColRef(child, bind, newBind)
 	}
 	return e
 }
@@ -847,9 +944,24 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	switch e.Typ {
 	case ET_Column:
 		set.insert(e.ColRef)
+	case ET_Between:
+		collectColRefs(e.Between, set)
+	case ET_Func:
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_Orderby:
 	default:
-		for _, child := range e.Children {
-			collectColRefs(child, set)
-		}
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		collectColRefs(child, set)
 	}
 }

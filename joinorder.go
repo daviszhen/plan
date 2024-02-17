@@ -284,41 +284,41 @@ func bitsetToNumber(bitset uint64) int {
 
 func constructGraph(root *LogicalOperator) (*Graph, error) {
 	var err error
-	var conds []*Expr
+	//var conds []*Expr
 	g := NewGraph()
 
 	//collect scan nodes
 	collectScanNodes(root, g.scans)
 
 	//collect join conditions
-	conds = collectJoinConds(root)
-	for _, cond := range conds {
-		left, right := collectRelation(cond, 0)
-		//fmt.Println("cond", cond.String())
-		//printRelations("left", left)
-		//printRelations("right", right)
-		if len(left) == 0 || len(right) == 0 {
-			continue
-		}
-		for l, lv := range left {
-			if lv == nil {
-				panic("must have expr for left")
-			}
-			//_, ltable := getTableNameFromExprs(lv)
-			for r, rv := range right {
-				if rv == nil {
-					panic("must have expr for right")
-				}
-				//_, rtable := getTableNameFromExprs(rv)
-				lscan := g.Scan(l)
-				rscan := g.Scan(r)
-				g.AddEdge(
-					&GNode{index: l, db: lscan.Database, name: lscan.Table},
-					&GNode{index: r, db: rscan.Database, name: rscan.Table},
-					cond)
-			}
-		}
-	}
+	//conds = collectJoinConds(root)
+	//for _, cond := range conds {
+	//	left, right := collectRelation(cond, 0)
+	//	//fmt.Println("cond", cond.String())
+	//	//printRelations("left", left)
+	//	//printRelations("right", right)
+	//	if len(left) == 0 || len(right) == 0 {
+	//		continue
+	//	}
+	//	for l, lv := range left {
+	//		if lv == nil {
+	//			panic("must have expr for left")
+	//		}
+	//		//_, ltable := getTableNameFromExprs(lv)
+	//		for r, rv := range right {
+	//			if rv == nil {
+	//				panic("must have expr for right")
+	//			}
+	//			//_, rtable := getTableNameFromExprs(rv)
+	//			lscan := g.Scan(l)
+	//			rscan := g.Scan(r)
+	//			g.AddEdge(
+	//				&GNode{index: l, db: lscan.Database, name: lscan.Table},
+	//				&GNode{index: r, db: rscan.Database, name: rscan.Table},
+	//				cond)
+	//		}
+	//	}
+	//}
 
 	return g, err
 }
@@ -1058,7 +1058,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		joinOrder.filterInfos = append(joinOrder.filterInfos, info)
 		//comparison operator => join predicate
 		switch filter.Typ {
-		case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
+		case ET_And, ET_Or, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
 			leftRelations := make(map[uint64]bool)
 			rightRelations := make(map[uint64]bool)
 			joinOrder.collectRelation(filter.Children[0], leftRelations)
@@ -1720,10 +1720,22 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 				panic("no such relation")
 			}
 		}
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+	case ET_SConst, ET_IConst:
+	case ET_Between:
+		joinOrder.collectRelation(e.Between, set)
 	default:
-		for _, child := range e.Children {
-			joinOrder.collectRelation(child, set)
-		}
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		joinOrder.collectRelation(child, set)
 	}
 }
 
@@ -1740,10 +1752,23 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 			cb[0] = relId
 			cb[1] = e.ColRef[1]
 		}
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+
+	case ET_SConst, ET_IConst:
+	case ET_Between:
+		joinOrder.getColumnBind(e.Between, cb)
 	default:
-		for _, child := range e.Children {
-			joinOrder.getColumnBind(child, cb)
-		}
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		joinOrder.getColumnBind(child, cb)
 	}
 }
 
@@ -1803,9 +1828,24 @@ func collectTableRefers(e *Expr, set Set) {
 	case ET_Column:
 		index := e.ColRef[0]
 		set.insert(index)
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul:
+
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+
+	case ET_Func:
+	case ET_Between:
+		collectTableRefers(e.Between, set)
 	default:
-		for _, child := range e.Children {
-			collectTableRefers(child, set)
-		}
+		panic("usp")
+	}
+	for _, child := range e.Children {
+		collectTableRefers(child, set)
 	}
 }

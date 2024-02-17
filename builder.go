@@ -14,6 +14,7 @@ const (
 	BT_TABLE
 	BT_DUMMY
 	BT_CATALOG_ENTRY
+	BT_Subquery
 )
 
 func (bt BindingType) String() string {
@@ -26,6 +27,8 @@ func (bt BindingType) String() string {
 		return "dummy"
 	case BT_CATALOG_ENTRY:
 		return "catalog_entry"
+	case BT_Subquery:
+		return "subquery"
 	default:
 		panic(fmt.Sprintf("usp binding type %d", bt))
 	}
@@ -148,15 +151,21 @@ func (bc *BindContext) GetBinding(name string) (*Binding, error) {
 	return nil, fmt.Errorf("table %s does not exists", name)
 }
 
-func (bc *BindContext) GetMatchingBinding(column string) (*Binding, int, error) {
+func (bc *BindContext) GetMatchingBinding(table, column string) (*Binding, int, error) {
 	var ret *Binding
 	var err error
 	var depth int
-	for _, b := range bc.bindings {
-		if b.HasColumn(column) >= 0 {
-			if ret != nil {
-				return nil, 0, fmt.Errorf("Ambiguous column %s in %s or %s", column, ret.alias, b.alias)
+	if len(table) == 0 {
+		for _, b := range bc.bindings {
+			if b.HasColumn(column) >= 0 {
+				if ret != nil {
+					return nil, 0, fmt.Errorf("Ambiguous column %s in %s or %s", column, ret.alias, b.alias)
+				}
+				ret = b
 			}
+		}
+	} else {
+		if b, has := bc.bindings[table]; has {
 			ret = b
 		}
 	}
@@ -164,7 +173,7 @@ func (bc *BindContext) GetMatchingBinding(column string) (*Binding, int, error) 
 	//find it in parent context
 	parDepth := -1
 	for p := bc.parent; p != nil && ret == nil; p = p.parent {
-		ret, parDepth, err = p.GetMatchingBinding(column)
+		ret, parDepth, err = p.GetMatchingBinding(table, column)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -446,40 +455,88 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 	case AstExprTypeTable:
 		{
 			db := "tpch"
-			table := table.Expr.Svalue
-			tpchCatalog := tpchCatalog()
-			cta, err := tpchCatalog.Table(db, table)
+			tableName := table.Expr.Svalue
+			tpchDB := tpchCatalog()
+			cta, err := tpchDB.Table(db, tableName)
 			if err != nil {
 				return nil, err
 			}
-			b := &Binding{
+			alias := tableName
+			if len(table.Expr.Alias) != 0 {
+				alias = table.Expr.Alias
+			}
+			bind := &Binding{
 				typ:     BT_TABLE,
-				alias:   table,
+				alias:   alias,
 				index:   uint64(b.GetTag()),
 				typs:    copy(cta.Types),
 				names:   copy(cta.Columns),
 				nameMap: make(map[string]int),
 			}
-			for idx, name := range b.names {
-				b.nameMap[name] = idx
+			for idx, name := range bind.names {
+				bind.nameMap[name] = idx
 			}
-			err = ctx.AddBinding(table, b)
+			err = ctx.AddBinding(alias, bind)
 			if err != nil {
 				return nil, err
 			}
 
 			return &Expr{
 				Typ:       ET_TABLE,
-				Index:     b.index,
+				Index:     bind.index,
 				Database:  db,
-				Table:     table,
+				Table:     tableName,
+				Alias:     alias,
 				BelongCtx: ctx,
 			}, err
 		}
 	case AstExprTypeJoin:
 		return b.buildJoinTable(table, ctx)
 	case AstExprTypeSubquery:
-		panic("usp")
+		subBuilder := NewBuilder()
+		subBuilder.tag = b.GetTag()
+		subBuilder.rootCtx.parent = ctx
+		err := subBuilder.buildSelect(table.Expr.Children[0], subBuilder.rootCtx, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(table.Expr.Alias) == 0 {
+			return nil, errors.New("need alias for subquery")
+		}
+
+		subTypes := make([]ExprDataType, 0)
+		subNames := make([]string, 0)
+		for _, expr := range subBuilder.projectExprs {
+			subTypes = append(subTypes, expr.DataTyp)
+			subNames = append(subNames, expr.Alias)
+		}
+
+		bind := &Binding{
+			typ:     BT_Subquery,
+			alias:   table.Expr.Alias,
+			index:   uint64(b.GetTag()),
+			typs:    subTypes,
+			names:   subNames,
+			nameMap: make(map[string]int),
+		}
+		for idx, name := range bind.names {
+			bind.nameMap[name] = idx
+		}
+		err = ctx.AddBinding(bind.alias, bind)
+		if err != nil {
+			return nil, err
+		}
+
+		return &Expr{
+			Typ:        ET_Subquery,
+			Index:      bind.index,
+			Database:   "",
+			Table:      bind.alias,
+			SubBuilder: subBuilder,
+			SubCtx:     subBuilder.rootCtx,
+			BelongCtx:  ctx,
+		}, err
 	default:
 		return nil, fmt.Errorf("usp table type %d", table.Typ)
 	}
@@ -611,6 +668,14 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			JoinTyp:  jt,
 			Children: []*LogicalOperator{left, right},
 		}, err
+	case ET_Subquery:
+		_, root, err = b.createSubquery(expr, root)
+		if err != nil {
+			return nil, err
+		}
+		return root, err
+	default:
+		panic("usp")
 	}
 	return nil, nil
 }
@@ -662,7 +727,22 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		}
 
 		return childExpr, root, nil
-	case ET_Equal, ET_And, ET_Like, ET_GreaterEqual, ET_Less:
+	case ET_Equal,
+		ET_And,
+		ET_Or,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Between,
+		ET_Sub,
+		ET_Mul:
+		var bet *Expr
+		if expr.Typ == ET_Between {
+			bet, root, err = b.createSubquery(expr.Between, root)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 		left, lroot, err := b.createSubquery(expr.Children[0], root)
 		if err != nil {
 			return nil, nil, err
@@ -674,6 +754,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		return &Expr{
 			Typ:      expr.Typ,
 			DataTyp:  expr.DataTyp,
+			Between:  bet,
 			Children: []*Expr{left, right},
 		}, rroot, nil
 	case ET_Func:
@@ -754,18 +835,24 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		}
 
 	} else {
-		newRoot := &LogicalOperator{
-			Typ:     LOT_JOIN,
-			JoinTyp: LOT_JoinTypeInner,
-			OnConds: nil,
-			Children: []*LogicalOperator{
-				root, subRoot,
-			},
+		var colRef *Expr
+		var newRoot *LogicalOperator
+		if root == nil {
+			newRoot = subRoot
+		} else {
+			newRoot = &LogicalOperator{
+				Typ:     LOT_JOIN,
+				JoinTyp: LOT_JoinTypeCross,
+				OnConds: nil,
+				Children: []*LogicalOperator{
+					root, subRoot,
+				},
+			}
 		}
 		// TODO: may have multi columns
 		subBuilder := expr.SubBuilder
 		proj0 := subBuilder.projectExprs[0]
-		colRef := &Expr{
+		colRef = &Expr{
 			Typ:     ET_Column,
 			DataTyp: proj0.DataTyp,
 			Table:   proj0.Table,
@@ -945,8 +1032,20 @@ func hasCorrCol(expr *Expr) bool {
 	switch expr.Typ {
 	case ET_Column:
 		return expr.Depth > 0
-	case ET_Equal, ET_And, ET_Like, ET_GreaterEqual, ET_Less:
-		return hasCorrCol(expr.Children[0]) || hasCorrCol(expr.Children[1])
+	case ET_Equal,
+		ET_And,
+		ET_Like,
+		ET_GreaterEqual,
+		ET_Less,
+		ET_Or,
+		ET_Sub,
+		ET_Mul,
+		ET_Between:
+		betHas := false
+		if expr.Typ == ET_Between {
+			betHas = hasCorrCol(expr.Between)
+		}
+		return betHas || hasCorrCol(expr.Children[0]) || hasCorrCol(expr.Children[1])
 	case ET_Func:
 		for _, child := range expr.Children {
 			if hasCorrCol(child) {
@@ -954,7 +1053,7 @@ func hasCorrCol(expr *Expr) bool {
 			}
 		}
 		return false
-	case ET_IConst, ET_SConst:
+	case ET_IConst, ET_SConst, ET_DateConst:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))

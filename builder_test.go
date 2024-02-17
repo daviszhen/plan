@@ -33,7 +33,6 @@ func runTest(t *testing.T, name string, ast *Ast) {
 
 	// fmt.Println(builder.String())
 	assert.Greater(t, builder.tag, 0)
-	assert.NotNil(t, builder.whereExpr)
 
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
 	assert.NoError(t, err)

@@ -162,9 +162,8 @@ func tpchQ7() *Ast {
 		column("l_year"),
 		withAlias(function("sum", column("volume")), "revenue"),
 	)
-	//TODO: fixme scalar subquery
 	ret.Select.From.Tables = withAlias(
-		subquery(q7Subquery(), AstSubqueryTypeScalar),
+		subquery(q7Subquery(), AstSubqueryTypeFrom),
 		"shipping")
 	ret.Select.GroupBy.Exprs = astList(
 		column("supp_nation"),

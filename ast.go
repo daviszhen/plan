@@ -73,6 +73,7 @@ type AstSubqueryType int
 const (
 	AstSubqueryTypeScalar = iota
 	AstSubqueryTypeExists
+	AstSubqueryTypeFrom //TODO: fixme
 )
 
 type Ast struct {
@@ -141,6 +142,10 @@ func (a *Ast) Format(ctx *FormatCtx) {
 		} else {
 			ctx.Write(a.Expr.Svalue)
 		}
+	case AstExprTypeNumber:
+		ctx.Writef("%d", a.Expr.Ivalue)
+	case AstExprTypeString:
+		ctx.Write(a.Expr.Svalue)
 	case AstExprTypeFunc:
 		funcName := a.Expr.Svalue
 		ctx.Write(funcName)
@@ -152,6 +157,19 @@ func (a *Ast) Format(ctx *FormatCtx) {
 			ctx.Write(c.String())
 		}
 		ctx.Write(")")
+	case AstExprTypeSub, AstExprTypeMul:
+		ctx.Write(a.Expr.Children[0].String())
+		op := ""
+		switch a.Expr.ExprTyp {
+		case AstExprTypeSub:
+			op = "-"
+		case AstExprTypeMul:
+			op = "*"
+		default:
+			panic("usp")
+		}
+		ctx.Write(fmt.Sprintf(" %v ", op))
+		ctx.Write(a.Expr.Children[1].String())
 	default:
 		panic(fmt.Sprintf("usp expr type %d", a.Expr.ExprTyp))
 	}

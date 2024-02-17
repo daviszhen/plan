@@ -30,12 +30,16 @@ const (
 	MIN FuncId = iota
 	DATE_ADD
 	COUNT
+	EXTRACT
+	SUM
 )
 
 var funcName2Id = map[string]FuncId{
 	"min":      MIN,
 	"date_add": DATE_ADD,
 	"count":    COUNT,
+	"extract":  EXTRACT,
+	"sum":      SUM,
 }
 
 var allFunctions = map[FuncId]Function{}
@@ -43,6 +47,7 @@ var allFunctions = map[FuncId]Function{}
 var aggFuncs = map[string]int{
 	"min":   1,
 	"count": 1,
+	"sum":   1,
 }
 
 func IsAgg(name string) bool {
@@ -117,6 +122,56 @@ var aggs = []Function{
 					}
 				},
 			},
+		},
+	},
+	{
+		Id: EXTRACT,
+		Impls: []Impl{
+			{
+				Desc: "extract",
+				Idx:  0,
+				Args: []ExprDataType{
+					{Typ: DataTypeInterval},
+					{Typ: DataTypeDate},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					panic("usp")
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+	},
+	{
+		Id: SUM,
+		Impls: []Impl{
+			{
+				Desc: "sum",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						Typ: DataTypeDecimal,
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					if types[0].Typ == DataTypeDecimal {
+						return types[0]
+					}
+					panic("usp")
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: true,
+			},
+		},
+		ImplDecider: func(*Function, []ExprDataType) (int, []ExprDataType) {
+			panic("usp")
 		},
 	},
 }
