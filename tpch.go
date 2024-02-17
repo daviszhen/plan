@@ -1,5 +1,6 @@
 package main
 
+// correlated
 func tpchQ2() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
 
@@ -125,6 +126,7 @@ func q2Subquery() *Ast {
 	return ret
 }
 
+// correlated
 func tpchQ4() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
 	ret.Select.SelectExprs = astList(
@@ -170,9 +172,9 @@ func tpchQ7() *Ast {
 		column("cust_nation"),
 		column("l_year"))
 	ret.OrderBy.Exprs = astList(
-		column("supp_nation"),
-		column("cust_nation"),
-		column("l_year"))
+		orderby(column("supp_nation"), false),
+		orderby(column("cust_nation"), false),
+		orderby(column("l_year"), false))
 	return ret
 }
 
@@ -249,7 +251,7 @@ func tpchQ8() *Ast {
 	)
 	ret.Select.From.Tables = withAlias(subquery(q8Subquery(), AstSubqueryTypeFrom), "all_nations")
 	ret.Select.GroupBy.Exprs = astList(column("o_year"))
-	ret.OrderBy.Exprs = astList(column("o_year"))
+	ret.OrderBy.Exprs = astList(orderby(column("o_year"), false))
 	return ret
 }
 
@@ -295,6 +297,72 @@ func q8Subquery() *Ast {
 		equal(column("s_nationkey"), column2("n2", "n_nationkey")),
 		between(column("o_orderdate"), date("1995-01-01"), date("1996-12-31")),
 		equal(column("p_type"), sstring("ECONOMY BURNISHED TIN")),
+	)
+	return ret
+}
+
+func tpchQ9() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("nation"),
+		column("o_year"),
+		withAlias(
+			function("sum", column("amount")),
+			"sum_profit"),
+	)
+	ret.Select.From.Tables = withAlias(
+		subquery(q9Subquery(), AstSubqueryTypeFrom),
+		"profit")
+	ret.Select.GroupBy.Exprs = astList(
+		column("nation"),
+		column("o_year"),
+	)
+	ret.OrderBy.Exprs = astList(
+		orderby(column("nation"), false),
+		orderby(column("o_year"), true),
+	)
+	return ret
+}
+
+func q9Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(column("n_name"), "nation"),
+		withAlias(
+			function("extract", sstring("year"), column("o_orderdate")),
+			"o_year"),
+		withAlias(
+			sub(
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+				mul(
+					column("ps_supplycost"),
+					column("l_quantity"),
+				),
+			),
+			"amount"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("part"),
+		table("supplier"),
+		table("lineitem"),
+		table("partsupp"),
+		table("orders"),
+		table("nation"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("s_suppkey"), column("l_suppkey")),
+		equal(column("ps_suppkey"), column("l_suppkey")),
+		equal(column("ps_partkey"), column("l_partkey")),
+		equal(column("p_partkey"), column("l_partkey")),
+		equal(column("o_orderkey"), column("l_orderkey")),
+		equal(column("s_nationkey"), column("n_nationkey")),
+		like(column("p_name"), sstring("%pink%")),
 	)
 	return ret
 }
