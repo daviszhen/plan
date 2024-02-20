@@ -73,6 +73,21 @@ func TestQ9(t *testing.T) {
 }
 
 func TestQ11(t *testing.T) {
+	/*
+		TODO: fix
+			└── Order:
+			    ├── [exprs]
+			    │     0: (.,<invalid,null,0,0>,[1,1],0) desc
+	*/
 	q11 := tpchQ11()
 	runTest(t, "q11.json", q11)
+}
+
+func TestQ13(t *testing.T) {
+	/*
+		TODO:fix
+			join order on the left join
+	*/
+	q13 := tpchQ13()
+	runTest(t, "q13.json", q13)
 }

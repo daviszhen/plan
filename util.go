@@ -169,6 +169,9 @@ func (fc *Padding) RestorePad() {
 
 func listExprs(bb *strings.Builder, exprs []*Expr) *strings.Builder {
 	for i, expr := range exprs {
+		if expr == nil {
+			continue
+		}
 		bb.WriteString(fmt.Sprintf("\n  %d: ", i))
 		if len(expr.Alias) != 0 {
 			bb.WriteString(expr.Alias)

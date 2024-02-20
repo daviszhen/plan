@@ -430,6 +430,50 @@ func q11Subquery() *Ast {
 	return ret
 }
 
+func tpchQ13() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("c_count"),
+		withAlias(
+			function("count", column("*")),
+			"custdist"),
+	)
+	ret.Select.From.Tables = withAlias2(
+		subquery(q13Subquery(), AstSubqueryTypeFrom),
+		"c_orders",
+		"c_custkey", "c_count",
+	)
+	ret.Select.GroupBy.Exprs = astList(column("c_count"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("custdist"), true),
+		orderby(column("c_count"), true))
+	return ret
+}
+
+func q13Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("c_custkey"),
+		function("count",
+			column("o_orderkey")))
+	ret.Select.From.Tables = leftJoin(
+		table("customer"),
+		table("orders"),
+		andList(
+			equal(
+				column("c_custkey"),
+				column("o_custkey"),
+			),
+			notlike(
+				column("o_comment"),
+				sstring("%pending%accounts%"),
+			),
+		),
+	)
+	ret.Select.GroupBy.Exprs = astList(column("c_custkey"))
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{

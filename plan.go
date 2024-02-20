@@ -296,6 +296,7 @@ const (
 	ET_Or
 	ET_Not
 	ET_Like
+	ET_NotLike
 	ET_Between
 	ET_Case
 
@@ -619,6 +620,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ET_Or,
 		ET_Equal,
 		ET_Like,
+		ET_NotLike,
 		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
@@ -636,6 +638,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = "="
 		case ET_Like:
 			op = "like"
+		case ET_NotLike:
+			op = "not like"
 		case ET_Greater:
 			op = ">"
 		case ET_GreaterEqual:
@@ -886,6 +890,9 @@ func splitExprByAnd(expr *Expr) []*Expr {
 func splitExprsByAnd(exprs []*Expr) []*Expr {
 	ret := make([]*Expr, 0)
 	for _, e := range exprs {
+		if e == nil {
+			continue
+		}
 		ret = append(ret, splitExprByAnd(e)...)
 	}
 	return ret
@@ -959,6 +966,7 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_NotLike,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
@@ -998,6 +1006,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_NotLike,
 		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,

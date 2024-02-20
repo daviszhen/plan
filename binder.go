@@ -21,6 +21,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		AstExprTypeDiv,
 		AstExprTypeEqual,
 		AstExprTypeLike,
+		AstExprTypeNotLike,
 		AstExprTypeGreaterEqual,
 		AstExprTypeGreater,
 		AstExprTypeLess,
@@ -74,6 +75,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		case IWC_GROUP:
 		case IWC_SELECT:
 		case IWC_HAVING:
+		case IWC_JOINON:
 		default:
 			panic(fmt.Sprintf("usp iwc %d", iwc))
 		}
@@ -190,8 +192,8 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	default:
 		panic(fmt.Sprintf("usp expr type %d", expr.Expr.ExprTyp))
 	}
-	if len(expr.Expr.Alias) != 0 {
-		ret.Alias = expr.Expr.Alias
+	if len(expr.Expr.Alias.alias) != 0 {
+		ret.Alias = expr.Expr.Alias.alias
 	}
 	return ret, err
 }
@@ -248,6 +250,9 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		edt.Typ = DataTypeBool
 	case AstExprTypeLike:
 		et = ET_Like
+		edt.Typ = DataTypeBool
+	case AstExprTypeNotLike:
+		et = ET_NotLike
 		edt.Typ = DataTypeBool
 	case AstExprTypeGreaterEqual:
 		et = ET_GreaterEqual

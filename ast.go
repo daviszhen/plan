@@ -40,6 +40,7 @@ const (
 	AstExprTypeOr
 	AstExprTypeNot
 	AstExprTypeLike   // Like
+	AstExprTypeNotLike // Like
 	AstExprTypeExists // Like
 	AstExprTypeCase
 
@@ -69,6 +70,7 @@ type AstJoinType int
 const (
 	AstJoinTypeCross = iota
 	AstJoinTypeLeft
+	AstJoinTypeInner
 )
 
 type AstSubqueryType int
@@ -91,7 +93,10 @@ type Ast struct {
 		Fvalue      float64
 		Desc        bool        // in orderby
 		JoinTyp     AstJoinType // join
-		Alias       string
+		Alias struct {
+			alias string
+			cols  []string
+		}
 		SubqueryTyp AstSubqueryType
 		Between     *Ast // a part in a between b and c
 		Kase *Ast        //for case when
@@ -143,8 +148,8 @@ func (a *Ast) Format(ctx *FormatCtx) {
 
 	switch a.Expr.ExprTyp {
 	case AstExprTypeColumn:
-		if a.Expr.Alias != "" {
-			ctx.Write(a.Expr.Alias)
+		if a.Expr.Alias.alias != "" {
+			ctx.Write(a.Expr.Alias.alias)
 		} else {
 			ctx.Write(a.Expr.Svalue)
 		}
@@ -236,7 +241,7 @@ func (a *Ast) Hash() string {
 	//join type
 	hash.Write(bin.BigEndian.AppendUint64(nil, uint64(a.Expr.JoinTyp)))
 	//alias
-	hash.Write([]byte(a.Expr.Alias))
+	hash.Write([]byte(a.Expr.Alias.alias))
 	//children
 	for _, c := range a.Expr.Children {
 		hash.Write([]byte(c.Hash()))
@@ -255,6 +260,7 @@ const (
 	IWC_HAVING
 	IWC_ORDER
 	IWC_LIMIT
+	IWC_JOINON
 )
 
 func inumber(i int64) *Ast {
@@ -304,7 +310,17 @@ func caseWhen(kase *Ast, els *Ast, when ...*Ast) *Ast {
 
 func withAlias(in *Ast, alias string) *Ast {
 	if in.Typ == AstTypeExpr {
-		in.Expr.Alias = alias
+		in.Expr.Alias.alias = alias
+	} else {
+		panic("usp alias type ")
+	}
+	return in
+}
+
+func withAlias2(in *Ast, alias string, cols ...string) *Ast {
+	if in.Typ == AstTypeExpr {
+		in.Expr.Alias.alias = alias
+		in.Expr.Alias.cols = cols
 	} else {
 		panic("usp alias type ")
 	}
@@ -346,6 +362,15 @@ func crossJoinList(a ...*Ast) *Ast {
 	return crossJoin(
 		crossJoinList(a[:len(a)-1]...),
 		a[len(a)-1])
+}
+
+func leftJoin(left, right *Ast, on *Ast) *Ast {
+	join := &Ast{Typ: AstTypeExpr}
+	join.Expr.ExprTyp = AstExprTypeJoin
+	join.Expr.JoinTyp = AstJoinTypeLeft
+	join.Expr.Children = []*Ast{left, right}
+	join.Expr.On = on
+	return join
 }
 
 func binary(typ AstExprType, left, right *Ast) *Ast {
@@ -406,6 +431,10 @@ func between(a, left, right *Ast) *Ast {
 
 func like(left, right *Ast) *Ast {
 	return binary(AstExprTypeLike, left, right)
+}
+
+func notlike(left, right *Ast) *Ast {
+	return binary(AstExprTypeNotLike, left, right)
 }
 
 func mul(left, right *Ast) *Ast {

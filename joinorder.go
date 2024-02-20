@@ -1831,6 +1831,7 @@ func collectTableRefers(e *Expr, set Set) {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_NotLike,
 		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,

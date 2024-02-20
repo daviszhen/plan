@@ -364,7 +364,7 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	b.aggTag = b.GetTag()
 
 	//from
-	b.fromExpr, err = b.buildTable(sel.Select.From.Tables, ctx)
+	b.fromExpr, err = b.buildTable(sel.Select.From.Tables, ctx, depth)
 	if err != nil {
 		return err
 	}
@@ -382,9 +382,9 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	//select expr alias
 	for i, expr := range newSelectExprs {
 		name := expr.String()
-		if expr.Expr.Alias != "" {
-			b.aliasMap[expr.Expr.Alias] = i
-			name = expr.Expr.Alias
+		if expr.Expr.Alias.alias != "" {
+			b.aliasMap[expr.Expr.Alias.alias] = i
+			name = expr.Expr.Alias.alias
 		}
 		b.names = append(b.names, name)
 		b.projectMap[expr.Hash()] = i
@@ -451,11 +451,11 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	return err
 }
 
-func (b *Builder) buildFrom(table *Ast, ctx *BindContext) (*Expr, error) {
-	return b.buildTable(table, ctx)
+func (b *Builder) buildFrom(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
+	return b.buildTable(table, ctx, depth)
 }
 
-func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
+func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
 	if table == nil {
 		panic("need table")
 	}
@@ -470,8 +470,8 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 				return nil, err
 			}
 			alias := tableName
-			if len(table.Expr.Alias) != 0 {
-				alias = table.Expr.Alias
+			if len(table.Expr.Alias.alias) != 0 {
+				alias = table.Expr.Alias.alias
 			}
 			bind := &Binding{
 				typ:     BT_TABLE,
@@ -499,7 +499,7 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 			}, err
 		}
 	case AstExprTypeJoin:
-		return b.buildJoinTable(table, ctx)
+		return b.buildJoinTable(table, ctx, depth)
 	case AstExprTypeSubquery:
 		subBuilder := NewBuilder()
 		subBuilder.tag = b.GetTag()
@@ -509,20 +509,27 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 			return nil, err
 		}
 
-		if len(table.Expr.Alias) == 0 {
+		if len(table.Expr.Alias.alias) == 0 {
 			return nil, errors.New("need alias for subquery")
 		}
 
 		subTypes := make([]ExprDataType, 0)
 		subNames := make([]string, 0)
-		for _, expr := range subBuilder.projectExprs {
+		for i, expr := range subBuilder.projectExprs {
 			subTypes = append(subTypes, expr.DataTyp)
-			subNames = append(subNames, expr.Alias)
+			name := expr.Name
+			if len(expr.Alias) != 0 {
+				name = expr.Alias
+			}
+			if i < len(table.Expr.Alias.cols) {
+				name = table.Expr.Alias.cols[i]
+			}
+			subNames = append(subNames, name)
 		}
 
 		bind := &Binding{
 			typ:     BT_Subquery,
-			alias:   table.Expr.Alias,
+			alias: table.Expr.Alias.alias,
 			index:   uint64(b.GetTag()),
 			typs:    subTypes,
 			names:   subNames,
@@ -551,23 +558,29 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext) (*Expr, error) {
 	return nil, nil
 }
 
-func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext) (*Expr, error) {
+func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
 	leftCtx := NewBindContext(ctx)
 	//left
-	left, err := b.buildTable(table.Expr.Children[0], leftCtx)
+	left, err := b.buildTable(table.Expr.Children[0], leftCtx, depth)
 	if err != nil {
 		return nil, err
 	}
 
 	rightCtx := NewBindContext(ctx)
 	//right
-	right, err := b.buildTable(table.Expr.Children[1], rightCtx)
+	right, err := b.buildTable(table.Expr.Children[1], rightCtx, depth)
 	if err != nil {
 		return nil, err
 	}
 
+	jt := ET_JoinTypeCross
 	switch table.Expr.JoinTyp {
 	case AstJoinTypeCross:
+		jt = ET_JoinTypeCross
+	case AstJoinTypeLeft:
+		jt = ET_JoinTypeLeft
+	case AstJoinTypeInner:
+		jt = ET_JoinTypeInner
 	default:
 		return nil, fmt.Errorf("usp join type %d", table.Expr.JoinTyp)
 	}
@@ -582,8 +595,18 @@ func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext) (*Expr, error) {
 		return nil, err
 	}
 
+	var onExpr *Expr
+	if table.Expr.On != nil {
+		onExpr, err = b.bindExpr(ctx, IWC_JOINON, table.Expr.On, depth)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	ret := &Expr{
 		Typ:       ET_Join,
+		JoinTyp: jt,
+		On:      onExpr,
 		BelongCtx: ctx,
 		Children:  []*Expr{left, right},
 	}
@@ -678,6 +701,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
 			JoinTyp:  jt,
+			OnConds: []*Expr{expr.On},
 			Children: []*LogicalOperator{left, right},
 		}, err
 	case ET_Subquery:
