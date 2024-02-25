@@ -289,6 +289,7 @@ const (
 	ET_Mul
 	ET_Div
 	ET_Equal
+	ET_NotEqual
 	ET_Greater
 	ET_GreaterEqual
 	ET_Less
@@ -299,6 +300,8 @@ const (
 	ET_NotLike
 	ET_Between
 	ET_Case
+	ET_In
+	ET_NotIn
 
 	ET_Column //column
 	ET_TABLE  //table
@@ -360,6 +363,7 @@ type Expr struct {
 	When []*Expr
 	Els  *Expr
 	CTEIndex uint64
+	In *Expr
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -383,7 +387,7 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
-
+	case ET_In, ET_NotIn:
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 	case ET_Func:
 	case ET_Between:
@@ -440,6 +444,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	case ET_Column:
 		return index == e.ColRef[0]
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Like,
 		ET_GreaterEqual,
@@ -448,6 +453,10 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		ET_Sub,
 		ET_Mul:
 
+	case ET_In, ET_NotIn:
+		if !onlyReferTo(e.In, index) {
+			return false
+		}
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 		return true
 	case ET_Func:
@@ -478,6 +487,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 			ret |= RightSide
 		}
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Like,
 		ET_Greater,
@@ -486,6 +496,8 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
+	case ET_In, ET_NotIn:
+		ret |= decideSide(e.In, leftTags, rightTags)
 	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst:
 	case ET_Func:
 	case ET_Between:
@@ -621,6 +633,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 	case ET_And,
 		ET_Or,
 		ET_Equal,
+		ET_NotEqual,
 		ET_Like,
 		ET_NotLike,
 		ET_Greater,
@@ -638,6 +651,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = "or"
 		case ET_Equal:
 			op = "="
+		case ET_NotEqual:
+			op = "<>"
 		case ET_Like:
 			op = "like"
 		case ET_NotLike:
@@ -699,6 +714,22 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		}
 		ctx.Writef(" %s ", typStr)
 		e.Children[1].Format(ctx)
+	case ET_In, ET_NotIn:
+		e.In.Format(ctx)
+		if e.Typ == ET_NotIn {
+			ctx.Write(" not in ")
+		} else {
+			ctx.Write(" in ")
+		}
+
+		ctx.Write("(")
+		for idx, e := range e.Children {
+			if idx > 0 {
+				ctx.Write(",")
+			}
+			e.Format(ctx)
+		}
+		ctx.Write(")")
 	case ET_Func:
 		ctx.Writef("%s_%d(", e.Svalue, e.FuncId)
 		for idx, e := range e.Children {
@@ -885,6 +916,15 @@ func (catalog *CatalogTable) getStats(colId uint64) *BaseStats {
 func splitExprByAnd(expr *Expr) []*Expr {
 	if expr.Typ == ET_And {
 		return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
+	} else if expr.Typ == ET_In || expr.Typ == ET_NotIn {
+		ret := make([]*Expr, 0)
+		for _, child := range expr.Children {
+			ret = append(ret, &Expr{
+				Typ:      expr.Typ,
+				In:       expr.In,
+				Children: []*Expr{child},
+			})
+		}
 	}
 	return []*Expr{expr}
 }
@@ -966,6 +1006,7 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 			e.ColRef = newBind
 		}
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Like,
 		ET_NotLike,
@@ -974,7 +1015,8 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
-
+	case ET_In, ET_NotIn:
+		e.In = replaceColRef(e.In, bind, newBind)
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 	case ET_Func:
 	case ET_Orderby:
@@ -1006,6 +1048,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		collectColRefs(e.Els, set)
 	case ET_Func:
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Like,
 		ET_NotLike,
@@ -1016,7 +1059,8 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		ET_Sub,
 		ET_Mul,
 		ET_Div:
-
+	case ET_In, ET_NotIn:
+		collectColRefs(e.In, set)
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Orderby:
 	default:

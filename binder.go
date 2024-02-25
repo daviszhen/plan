@@ -20,6 +20,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		AstExprTypeMul,
 		AstExprTypeDiv,
 		AstExprTypeEqual,
+		AstExprTypeNotEqual,
 		AstExprTypeLike,
 		AstExprTypeNotLike,
 		AstExprTypeGreaterEqual,
@@ -30,7 +31,12 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		if err != nil {
 			return nil, err
 		}
-
+	case AstExprTypeIn,
+		AstExprTypeNotIn:
+		ret, err = b.bindInExpr(ctx, iwc, expr, depth)
+		if err != nil {
+			return nil, err
+		}
 	case AstExprTypeCase:
 		ret, err = b.bindCaseExpr(ctx, iwc, expr, depth)
 		if err != nil {
@@ -256,6 +262,9 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	case AstExprTypeEqual:
 		et = ET_Equal
 		edt.Typ = DataTypeBool
+	case AstExprTypeNotEqual:
+		et = ET_NotEqual
+		edt.Typ = DataTypeBool
 	case AstExprTypeLike:
 		et = ET_Like
 		edt.Typ = DataTypeBool
@@ -273,6 +282,12 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		edt.Typ = DataTypeBool
 	case AstExprTypeBetween:
 		et = ET_Between
+		edt.Typ = DataTypeBool
+	case AstExprTypeIn:
+		et = ET_In
+		edt.Typ = DataTypeBool
+	case AstExprTypeNotIn:
+		et = ET_NotIn
 		edt.Typ = DataTypeBool
 	default:
 		panic(fmt.Sprintf("usp binary type %d", expr.Expr.ExprTyp))

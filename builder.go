@@ -843,6 +843,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 
 		return childExpr, root, nil
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Or,
 		ET_Like,
@@ -875,6 +876,28 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			Alias:    expr.Alias,
 			Children: []*Expr{left, right},
 		}, rroot, nil
+	case ET_In, ET_NotIn:
+		var in *Expr
+		in, root, err = b.createSubquery(expr.In, root)
+		if err != nil {
+			return nil, nil, err
+		}
+		var childExpr *Expr
+		args := make([]*Expr, 0)
+		for _, child := range expr.Children {
+			childExpr, root, err = b.createSubquery(child, root)
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, childExpr)
+		}
+		return &Expr{
+			Typ:      expr.Typ,
+			DataTyp:  expr.DataTyp,
+			In:       in,
+			Alias:    expr.Alias,
+			Children: args,
+		}, root, nil
 	case ET_Func:
 		var childExpr *Expr
 		args := make([]*Expr, 0)
@@ -1467,6 +1490,46 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		When: when,
 		Els:  els,
 	}, err
+}
+
+func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
+	var err error
+	var in *Expr
+	var children []*Expr
+
+	in, err = b.bindExpr(ctx, iwc, expr.Expr.In, depth)
+	if err != nil {
+		return nil, err
+	}
+	children = make([]*Expr, len(expr.Expr.Children))
+	for i, child := range expr.Expr.Children {
+		children[i], err = b.bindExpr(ctx, iwc, child, depth)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	//TODO: type check
+
+	var et ET
+	var edt ExprDataType
+	switch expr.Expr.ExprTyp {
+	case AstExprTypeIn:
+		et = ET_In
+		edt.Typ = DataTypeBool
+	case AstExprTypeNotIn:
+		et = ET_NotIn
+		edt.Typ = DataTypeBool
+	default:
+		panic("unhandled default case")
+	}
+	return &Expr{
+		Typ:      et,
+		DataTyp:  edt,
+		In:       in,
+		Children: children,
+	}, err
+
 }
 
 func collectTags(root *LogicalOperator, set map[uint64]bool) {

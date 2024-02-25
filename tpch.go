@@ -555,6 +555,65 @@ func q15Subquery() *Ast {
 	return ret
 }
 
+func tpchQ16() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("p_brand"),
+		column("p_type"),
+		column("p_size"),
+		withAlias(
+			functionDistinct("count", column("ps_suppkey")),
+			"supplier_cnt"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("partsupp"),
+		table("part"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("p_partkey"), column("ps_partkey")),
+		notEqual(column("p_brand"), sstring("Brand#35")),
+		notEqual(column("p_type"), sstring("ECONOMY BURNISHED%")),
+		in(column("p_size"),
+			inumber(14),
+			inumber(7),
+			inumber(21),
+			inumber(24),
+			inumber(35),
+			inumber(33),
+			inumber(2),
+			inumber(20),
+		),
+		notIn(column("ps_suppkey"),
+			subquery(q16Subquery(), AstSubqueryTypeScalar),
+		),
+	)
+	ret.Select.GroupBy.Exprs = astList(
+		column("p_brand"),
+		column("p_type"),
+		column("p_size"),
+	)
+	ret.OrderBy.Exprs = astList(
+		orderby(column("supplier_cnt"), true),
+		orderby(column("p_brand"), false),
+		orderby(column("p_type"), false),
+		orderby(column("p_size"), false),
+	)
+	return ret
+}
+
+func q16Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("s_suppkey"),
+	)
+	ret.Select.From.Tables = table("supplier")
+	ret.Select.Where.Expr = like(
+		column("s_comment"),
+		sstring("%Customer%Complaints%"),
+	)
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{

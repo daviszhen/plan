@@ -1019,6 +1019,27 @@ func NewJoinOrderOptimizer() *JoinOrderOptimizer {
 	}
 }
 
+func (joinOrder *JoinOrderOptimizer) createEdge(left, right *Expr, info *FilterInfo) {
+	leftRelations := make(map[uint64]bool)
+	rightRelations := make(map[uint64]bool)
+	joinOrder.collectRelation(left, leftRelations)
+	joinOrder.collectRelation(right, rightRelations)
+	joinOrder.getColumnBind(left, &info.leftBinding)
+	joinOrder.getColumnBind(right, &info.rightBinding)
+	if len(leftRelations) != 0 && len(rightRelations) != 0 {
+		info.leftSet = joinOrder.setManager.getRelation(leftRelations)
+		info.rightSet = joinOrder.setManager.getRelation(rightRelations)
+		if info.leftSet != info.rightSet {
+			//disjoint or not
+			if isDisjoint(leftRelations, rightRelations) {
+				//add edge into query graph
+				joinOrder.queryGraph.CreateEdge(info.leftSet, info.rightSet, info)
+				joinOrder.queryGraph.CreateEdge(info.rightSet, info.leftSet, info)
+			}
+		}
+	}
+}
+
 func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOperator, error) {
 	noReorder, filterOps, err := joinOrder.extractJoinRelations(root, nil)
 	if err != nil {
@@ -1039,9 +1060,9 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 			if filterOp.JoinTyp != LOT_JoinTypeInner {
 				panic("usp join type")
 			}
-			joinOrder.filters = append(joinOrder.filters, filterOp.OnConds...)
+			joinOrder.filters = append(joinOrder.filters, splitExprsByAnd(filterOp.OnConds)...)
 		case LOT_Filter:
-			joinOrder.filters = append(joinOrder.filters, filterOp.Filters...)
+			joinOrder.filters = append(joinOrder.filters, splitExprsByAnd(filterOp.Filters)...)
 		default:
 			panic(fmt.Sprintf("usp op type %d", filterOp.Typ))
 		}
@@ -1058,24 +1079,12 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		joinOrder.filterInfos = append(joinOrder.filterInfos, info)
 		//comparison operator => join predicate
 		switch filter.Typ {
-		case ET_And, ET_Or, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
-			leftRelations := make(map[uint64]bool)
-			rightRelations := make(map[uint64]bool)
-			joinOrder.collectRelation(filter.Children[0], leftRelations)
-			joinOrder.collectRelation(filter.Children[1], rightRelations)
-			joinOrder.getColumnBind(filter.Children[0], &info.leftBinding)
-			joinOrder.getColumnBind(filter.Children[1], &info.rightBinding)
-			if len(leftRelations) != 0 && len(rightRelations) != 0 {
-				info.leftSet = joinOrder.setManager.getRelation(leftRelations)
-				info.rightSet = joinOrder.setManager.getRelation(rightRelations)
-				if info.leftSet != info.rightSet {
-					//disjoint or not
-					if isDisjoint(leftRelations, rightRelations) {
-						//add edge into query graph
-						joinOrder.queryGraph.CreateEdge(info.leftSet, info.rightSet, info)
-						joinOrder.queryGraph.CreateEdge(info.rightSet, info.leftSet, info)
-					}
-				}
+		case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less:
+			joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
+		case ET_In, ET_NotIn:
+			//in or not in has been splited
+			for _, child := range filter.Children {
+				joinOrder.createEdge(filter.In, child, info)
 			}
 		default:
 			panic(fmt.Sprintf("usp operator type %d", filter.Typ))
@@ -1207,11 +1216,25 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				}
 				cond := &Expr{Typ: condition.Typ}
 				invert := !isSubset(left.set, filter.leftSet)
-				if !invert {
-					cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
+				if condition.Typ == ET_In || condition.Typ == ET_NotIn {
+					cond.In = condition.In
+					cond.Children = []*Expr{condition.Children[0]}
+					//TODO: fixme
+					//if !invert {
+					//	cond.In = condition.In
+					//	cond.Children = []*Expr{condition.Children[0]}
+					//} else {
+					//	cond.In = condition.Children[0]
+					//	cond.Children = []*Expr{condition.In}
+					//}
 				} else {
-					cond.Children = []*Expr{condition.Children[1], condition.Children[0]}
+					if !invert {
+						cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
+					} else {
+						cond.Children = []*Expr{condition.Children[1], condition.Children[0]}
+					}
 				}
+
 				if invert {
 					//TODO:
 				}
@@ -1732,6 +1755,8 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
+	case ET_In, ET_NotIn:
+		joinOrder.collectRelation(e.In, set)
 	case ET_SConst, ET_IConst:
 	case ET_Between:
 		joinOrder.collectRelation(e.Between, set)

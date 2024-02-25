@@ -33,6 +33,7 @@ const (
 	AstExprTypeMul
 	AstExprTypeDiv
 	AstExprTypeEqual        // =
+	AstExprTypeNotEqual     // =
 	AstExprTypeGreater      // =>
 	AstExprTypeGreaterEqual // =>
 	AstExprTypeLess         // <
@@ -44,6 +45,8 @@ const (
 	AstExprTypeNotLike // Like
 	AstExprTypeExists // Like
 	AstExprTypeCase
+	AstExprTypeIn
+	AstExprTypeNotIn
 
 	//table
 	AstExprTypeTable
@@ -103,6 +106,8 @@ type Ast struct {
 		Kase *Ast        //for case when
 		Els  *Ast
 		When []*Ast
+		Distinct bool // for distinct
+		In       *Ast
 
 		Children []*Ast
 		On       *Ast //JoinOn
@@ -393,6 +398,26 @@ func equal(left, right *Ast) *Ast {
 	return binary(AstExprTypeEqual, left, right)
 }
 
+func notEqual(left, right *Ast) *Ast {
+	return binary(AstExprTypeNotEqual, left, right)
+}
+
+func in(in *Ast, right ...*Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeIn
+	ret.Expr.In = in
+	ret.Expr.Children = right
+	return ret
+}
+
+func notIn(in *Ast, right ...*Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeNotIn
+	ret.Expr.In = in
+	ret.Expr.Children = right
+	return ret
+}
+
 func greaterEqual(left, right *Ast) *Ast {
 	return binary(AstExprTypeGreaterEqual, left, right)
 }
@@ -472,6 +497,15 @@ func interval(val int, unit string) *Ast {
 func function(name string, args ...*Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
 	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.Svalue = name
+	ret.Expr.Children = args
+	return ret
+}
+
+func functionDistinct(name string, args ...*Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.Distinct = true
 	ret.Expr.Svalue = name
 	ret.Expr.Children = args
 	return ret
