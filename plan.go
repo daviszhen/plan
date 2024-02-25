@@ -303,6 +303,7 @@ const (
 	ET_Column //column
 	ET_TABLE  //table
 	ET_Join   //join
+	ET_CTE
 
 	ET_Func
 	ET_Subquery
@@ -358,6 +359,7 @@ type Expr struct {
 	Kase *Expr
 	When []*Expr
 	Els  *Expr
+	CTEIndex uint64
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join

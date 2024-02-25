@@ -21,6 +21,7 @@ const (
 	AstTypeExpr
 	AstTypeTable
 	AstTypeNumber
+	AstTypeCTE
 )
 
 type AstExprType int
@@ -108,7 +109,7 @@ type Ast struct {
 	}
 
 	With struct {
-		Exprs []*Ast
+		Ctes []*Ast
 	}
 
 	Select struct {

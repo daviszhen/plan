@@ -32,7 +32,7 @@ func runTest(t *testing.T, name string, ast *Ast) {
 	assert.NoError(t, err)
 
 	// fmt.Println(builder.String())
-	assert.Greater(t, builder.tag, 0)
+	assert.Greater(t, *builder.tag, 0)
 
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
 	assert.NoError(t, err)
@@ -90,4 +90,9 @@ func TestQ13(t *testing.T) {
 	*/
 	q13 := tpchQ13()
 	runTest(t, "q13.json", q13)
+}
+
+func TestQ15(t *testing.T) {
+	q15 := tpchQ15()
+	runTest(t, "q15.json", q15)
 }

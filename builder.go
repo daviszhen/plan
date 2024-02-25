@@ -85,12 +85,16 @@ type BindContext struct {
 	parent       *BindContext
 	bindings     map[string]*Binding
 	bindingsList []*Binding
+	ctes        map[string]*Ast
+	cteBindings map[string]*Binding
 }
 
 func NewBindContext(parent *BindContext) *BindContext {
 	return &BindContext{
 		parent:   parent,
 		bindings: make(map[string]*Binding, 0),
+		ctes:        make(map[string]*Ast),
+		cteBindings: make(map[string]*Binding),
 	}
 }
 
@@ -197,14 +201,23 @@ func (bc *BindContext) BindColumn(table, column string, depth int) (*Expr, error
 	return b.Bind(table, column, depth)
 }
 
+func (bc *BindContext) GetCteBinding(name string) *Binding {
+	if b, ok := bc.cteBindings[name]; ok {
+		return b
+	} else {
+		return nil
+	}
+}
+
 var _ Format = &Builder{}
 
 type Builder struct {
-	tag        int // relation tag
+	tag   *int // relation tag
 	projectTag int
 	groupTag   int
 	aggTag     int
 	rootCtx    *BindContext
+	alias string //for subquery
 
 	//alias of select expr -> idx of select expr
 	aliasMap map[string]int
@@ -226,7 +239,7 @@ type Builder struct {
 
 func NewBuilder() *Builder {
 	return &Builder{
-		tag:        0,
+		tag: new(int),
 		rootCtx:    NewBindContext(nil),
 		aliasMap:   make(map[string]int),
 		projectMap: make(map[string]int),
@@ -331,8 +344,8 @@ func (b *Builder) String() string {
 }
 
 func (b *Builder) GetTag() int {
-	b.tag++
-	return b.tag
+	*b.tag++
+	return *b.tag
 }
 
 func (b *Builder) expandStar(expr *Ast) ([]*Ast, error) {
@@ -362,6 +375,13 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	b.projectTag = b.GetTag()
 	b.groupTag = b.GetTag()
 	b.aggTag = b.GetTag()
+
+	if len(sel.With.Ctes) != 0 {
+		_, err := b.buildWith(sel.With.Ctes, ctx, depth)
+		if err != nil {
+			return err
+		}
+	}
 
 	//from
 	b.fromExpr, err = b.buildTable(sel.Select.From.Tables, ctx, depth)
@@ -451,8 +471,35 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	return err
 }
 
-func (b *Builder) buildFrom(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
-	return b.buildTable(table, ctx, depth)
+func (b *Builder) findCte(name string, skip bool, ctx *BindContext) *Ast {
+	if val, has := ctx.ctes[name]; has {
+		if !skip {
+			return val
+		}
+	}
+	if ctx.parent != nil {
+		return b.findCte(name, name == b.alias, ctx.parent)
+	}
+	return nil
+}
+
+func (b *Builder) addCte(cte *Ast, ctx *BindContext) error {
+	name := cte.Expr.Alias.alias
+	if _, has := ctx.ctes[name]; has {
+		return errors.New(fmt.Sprintf("duplicate cte %s", name))
+	}
+	ctx.ctes[name] = cte
+	return nil
+}
+
+func (b *Builder) buildWith(ctes []*Ast, ctx *BindContext, depth int) (*Expr, error) {
+	for _, cte := range ctes {
+		err := b.addCte(cte, ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
 }
 
 func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
@@ -461,9 +508,37 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 	}
 	switch table.Expr.ExprTyp {
 	case AstExprTypeTable:
+		db := "tpch"
+		tableName := table.Expr.Svalue
+		cte := b.findCte(tableName, tableName == b.alias, ctx)
+		if cte != nil {
+			//find cte binding
+			cteBind := ctx.GetCteBinding(tableName)
+			if cteBind != nil {
+				panic("usp")
+				//index := b.GetTag()
+				//alias := tableName
+				//if len(table.Expr.Alias.alias) != 0 {
+				//	alias = table.Expr.Alias.alias
+				//}
+				//return &Expr{
+				//	Typ:       ET_CTE,
+				//	Index:     uint64(index),
+				//	Database:  db,
+				//	Table:     tableName,
+				//	Alias:     alias,
+				//	BelongCtx: ctx,
+				//	CTEIndex:  cteBind.index,
+				//}, nil
+			} else {
+				mockSub := withAlias2(
+					subquery(cte.Expr.Children[0], AstSubqueryTypeFrom),
+					cte.Expr.Alias.alias,
+					cte.Expr.Alias.cols...)
+				return b.buildTable(mockSub, ctx, depth)
+			}
+		}
 		{
-			db := "tpch"
-			tableName := table.Expr.Svalue
 			tpchDB := tpchCatalog()
 			cta, err := tpchDB.Table(db, tableName)
 			if err != nil {
@@ -502,17 +577,20 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 		return b.buildJoinTable(table, ctx, depth)
 	case AstExprTypeSubquery:
 		subBuilder := NewBuilder()
-		subBuilder.tag = b.GetTag()
+		subBuilder.tag = b.tag
 		subBuilder.rootCtx.parent = ctx
+		if len(table.Expr.Alias.alias) == 0 {
+			return nil, errors.New("need alias for subquery")
+		}
+		subBuilder.alias = table.Expr.Alias.alias
 		err := subBuilder.buildSelect(table.Expr.Children[0], subBuilder.rootCtx, 0)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(table.Expr.Alias.alias) == 0 {
-			return nil, errors.New("need alias for subquery")
+		if len(subBuilder.projectExprs) == 0 {
+			panic("subquery must have project list")
 		}
-
 		subTypes := make([]ExprDataType, 0)
 		subNames := make([]string, 0)
 		for i, expr := range subBuilder.projectExprs {
@@ -530,7 +608,8 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 		bind := &Binding{
 			typ:     BT_Subquery,
 			alias: table.Expr.Alias.alias,
-			index:   uint64(b.GetTag()),
+			//bind index of subquery is equal to the projectTag of subquery
+			index: uint64(subBuilder.projectTag),
 			typs:    subTypes,
 			names:   subNames,
 			nameMap: make(map[string]int),
@@ -1093,7 +1172,7 @@ func hasCorrCol(expr *Expr) bool {
 			}
 		}
 		return false
-	case ET_IConst, ET_SConst, ET_DateConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))

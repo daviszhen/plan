@@ -1327,7 +1327,7 @@ func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *Jo
 	if rootIsJoin {
 		return joinTree.op, nil
 	}
-	if len(joinTree.op.Children) != 1 {
+	if len(root.Children) != 1 {
 		return nil, errors.New("multiple children")
 	}
 	op := root
@@ -1628,8 +1628,12 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 	if op.Typ == LOT_JOIN {
 		if op.JoinTyp == LOT_JoinTypeInner {
 			filterOps = append(filterOps, op)
+		} else if op.JoinTyp == LOT_JoinTypeCross {
+			//TODO:
 		} else {
+			//non-inner join, be not reordered
 			nonReorder = true
+			//TODO: tpchQ13
 		}
 	}
 

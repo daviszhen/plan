@@ -474,6 +474,87 @@ func q13Subquery() *Ast {
 	return ret
 }
 
+func tpchQ15() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.With.Ctes = append(ret.With.Ctes, q15Cte())
+	ret.Select.SelectExprs = astList(
+		column("s_suppkey"),
+		column("s_name"),
+		column("s_address"),
+		column("s_phone"),
+		column("total_revenue"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("supplier"),
+		table("q15_revenue0"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(
+			column("s_suppkey"),
+			column("supplier_no"),
+		),
+		equal(
+			column("total_revenue"),
+			subquery(q15Subquery(), AstSubqueryTypeScalar),
+		),
+	)
+	ret.OrderBy.Exprs = astList(column("s_suppkey"))
+	return ret
+}
+
+func q15Cte() *Ast {
+	ret := &Ast{Typ: AstTypeCTE}
+	ret.Expr.Alias.alias = "q15_revenue0"
+	ret.Expr.Children = []*Ast{q15CteImpl()}
+	return ret
+}
+
+func q15CteImpl() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			column("l_suppkey"),
+			"supplier_no"),
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+			),
+			"total_revenue"),
+	)
+	ret.Select.From.Tables = table("lineitem")
+	ret.Select.Where.Expr = andList(
+		greaterEqual(
+			column("l_shipdate"),
+			date("1995-12-01"),
+		),
+		less(
+			column("l_shipdate"),
+			function("date_add",
+				date("1995-12-01"),
+				interval(3, "month"),
+			),
+		),
+	)
+	ret.Select.GroupBy.Exprs = astList(column("l_suppkey"))
+	return ret
+}
+
+func q15Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		function("max",
+			column("total_revenue")),
+	)
+	ret.Select.From.Tables = table("q15_revenue0")
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{

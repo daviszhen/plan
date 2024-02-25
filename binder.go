@@ -85,6 +85,14 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		}
 		colIdx := bind.HasColumn(colName)
 
+		switch bind.typ {
+		case BT_TABLE:
+
+		case BT_Subquery:
+
+		default:
+		}
+
 		ret = &Expr{
 			Typ:     ET_Column,
 			DataTyp: bind.typs[colIdx],
@@ -279,7 +287,7 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 
 func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
 	subBuilder := NewBuilder()
-	subBuilder.tag = b.GetTag()
+	subBuilder.tag = b.tag
 	subBuilder.rootCtx.parent = ctx
 	err := subBuilder.buildSelect(expr.Expr.Children[0], subBuilder.rootCtx, 0)
 	if err != nil {
