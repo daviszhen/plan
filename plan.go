@@ -372,6 +372,10 @@ func (et ET_SubTyp) String() string {
 		return "in"
 	case ET_NotIn:
 		return "not in"
+	case ET_Exists:
+		return "exists"
+	case ET_NotExists:
+		return "not exists"
 	default:
 		panic(fmt.Sprintf("usp %v", int(et)))
 	}
@@ -924,6 +928,7 @@ func splitExprByAnd(expr *Expr) []*Expr {
 				ret = append(ret, &Expr{
 					Typ:      expr.Typ,
 					SubTyp:   expr.SubTyp,
+					Svalue:   expr.SubTyp.String(),
 					In:       expr.In,
 					Children: []*Expr{child},
 				})
@@ -982,6 +987,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 			return &Expr{
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
+				Svalue:   expr.SubTyp.String(),
 				DataTyp:  expr.DataTyp,
 				Children: []*Expr{left, right},
 			}, hasCorCol

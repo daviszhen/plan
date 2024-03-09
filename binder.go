@@ -5,11 +5,6 @@ import (
 )
 
 func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (ret *Expr, err error) {
-	defer func() {
-		if ret != nil && ret.Typ == ET_Func && ret.SubTyp == ET_Invalid {
-			panic("invalid expr")
-		}
-	}()
 	var child *Expr
 	var id FuncId
 	if expr.Typ != AstTypeExpr {
@@ -172,6 +167,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			ret = &Expr{
 				Typ:      ET_Func,
 				SubTyp:   ET_Exists,
+				Svalue:   ET_Exists.String(),
 				DataTyp:  ExprDataType{Typ: DataTypeBool},
 				Children: []*Expr{child},
 			}
@@ -183,6 +179,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			ret = &Expr{
 				Typ:      ET_Func,
 				SubTyp:   ET_NotExists,
+				Svalue:   ET_NotExists.String(),
 				DataTyp:  ExprDataType{Typ: DataTypeBool},
 				Children: []*Expr{child},
 			}
@@ -308,6 +305,7 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	return &Expr{
 		Typ:      ET_Func,
 		SubTyp:   et,
+		Svalue:   et.String(),
 		DataTyp:  edt,
 		Between:  between,
 		Children: []*Expr{left, right},

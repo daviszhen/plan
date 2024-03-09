@@ -857,6 +857,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			return &Expr{
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
+				Svalue:   expr.SubTyp.String(),
 				DataTyp:  expr.DataTyp,
 				Between:  bet,
 				Alias:    expr.Alias,
@@ -1495,6 +1496,7 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	return &Expr{
 		Typ:    ET_Func,
 		SubTyp: ET_Case,
+		Svalue: ET_Case.String(),
 		Kase:   kase,
 		When:   when,
 		Els:    els,
@@ -1535,6 +1537,7 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 	return &Expr{
 		Typ:      ET_Func,
 		SubTyp:   et,
+		Svalue:   et.String(),
 		DataTyp:  edt,
 		In:       in,
 		Children: children,
