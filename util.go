@@ -191,7 +191,7 @@ func Min[T int](a, b T) T {
 }
 
 func isDisjoint(a, b map[uint64]bool) bool {
-	for k, _ := range a {
+	for k := range a {
 		if _, has := b[k]; has {
 			return false
 		}

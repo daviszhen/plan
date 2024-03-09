@@ -49,7 +49,7 @@ func (set ColumnBindSet) empty() bool {
 }
 
 func (set ColumnBindSet) clear() {
-	for key, _ := range set {
+	for key := range set {
 		delete(set, key)
 	}
 }
@@ -205,7 +205,7 @@ func (est *CardinalityEstimator) AddToEquivalenceSets(filterInfo *FilterInfo, se
 		panic("should be <= 2")
 	}
 	if len(set) > 1 {
-		for bind, _ := range est.relationsToTDoms[set[1]].equivalentRelations {
+		for bind := range est.relationsToTDoms[set[1]].equivalentRelations {
 			est.relationsToTDoms[set[0]].equivalentRelations.insert(bind)
 		}
 		est.relationsToTDoms[set[1]].equivalentRelations.clear()
@@ -244,7 +244,7 @@ func (est *CardinalityEstimator) EstimateBaseTableCard(node *JoinNode, op *Logic
 	}
 	relId := node.set.relations[0]
 	lowestCardFound := node.getBaseCard()
-	for col, _ := range est.relationAttributes[relId].columns {
+	for col := range est.relationAttributes[relId].columns {
 		cardAfterFilters := node.getBaseCard()
 		key := ColumnBind{relId, col}
 		var tableFilters *TableFilterSet
@@ -281,7 +281,7 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 	var catalogTable *CatalogTable
 	var err error
 	getUpdated := true
-	for col, _ := range est.relationAttributes[relId].columns {
+	for col := range est.relationAttributes[relId].columns {
 		key := ColumnBind{relId, col}
 		if est.relationColumnToOriginalColumn.find(key) {
 			actualBind := est.relationColumnToOriginalColumn.get(key)
@@ -348,7 +348,7 @@ func (est *CardinalityEstimator) AddRelationColumnMapping(get *LogicalOperator, 
 	}
 
 	//TODO: refine
-	for i, _ := range catalogTable.Columns {
+	for i := range catalogTable.Columns {
 		key := ColumnBind{relId, uint64(i)}
 		value := ColumnBind{get.Index, uint64(i)}
 		est.AddRelationToColumnMapping(key, value)
@@ -487,7 +487,7 @@ func FindSubgraphMatchAndMerge(mergeTo *Subgraph2Denominator,
 	subgraphs []*Subgraph2Denominator) {
 	for i := next; i < len(subgraphs); i++ {
 		if subgraphs[i].relations.find(findMe) {
-			for key, _ := range subgraphs[i].relations {
+			for key := range subgraphs[i].relations {
 				mergeTo.relations.insert(key)
 			}
 			subgraphs[i].relations.clear()

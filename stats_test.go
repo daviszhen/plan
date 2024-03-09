@@ -41,7 +41,7 @@ func analyze(path string) error {
 
 		if len(cols) == 0 {
 			cols = make([]DedupSet, len(records)*2)
-			for i, _ := range cols {
+			for i := range cols {
 				cols[i] = make(DedupSet)
 			}
 		}

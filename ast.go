@@ -11,7 +11,7 @@ import (
 type AstType int
 
 const (
-	AstTypeWith = iota
+	AstTypeWith AstType = iota
 	AstTypeSelect
 	AstTypeFrom
 	AstTypeWhere
@@ -27,30 +27,8 @@ const (
 type AstExprType int
 
 const (
-	//operator
-	AstExprTypeAdd = iota
-	AstExprTypeSub
-	AstExprTypeMul
-	AstExprTypeDiv
-	AstExprTypeEqual        // =
-	AstExprTypeNotEqual     // =
-	AstExprTypeGreater      // =>
-	AstExprTypeGreaterEqual // =>
-	AstExprTypeLess         // <
-	AstExprTypeBetween      // [a,b]
-	AstExprTypeAnd
-	AstExprTypeOr
-	AstExprTypeNot
-	AstExprTypeLike      // Like
-	AstExprTypeNotLike   // Like
-	AstExprTypeExists    // Like
-	AstExprTypeNotExists // Like
-	AstExprTypeCase
-	AstExprTypeIn
-	AstExprTypeNotIn
-
 	//table
-	AstExprTypeTable
+	AstExprTypeTable AstExprType = iota
 	AstExprTypeColumn
 	AstExprTypeJoin
 
@@ -70,10 +48,39 @@ const (
 	AstExprTypeOrderBy
 )
 
+type AstExprSubType int
+
+const (
+	//real function
+	AstExprSubTypeInvalid AstExprSubType = iota
+	AstExprSubTypeFunc
+	//operator
+	AstExprSubTypeAdd
+	AstExprSubTypeSub
+	AstExprSubTypeMul
+	AstExprSubTypeDiv
+	AstExprSubTypeEqual        // =
+	AstExprSubTypeNotEqual     // =
+	AstExprSubTypeGreater      // =>
+	AstExprSubTypeGreaterEqual // =>
+	AstExprSubTypeLess         // <
+	AstExprSubTypeBetween      // [a,b]
+	AstExprSubTypeAnd
+	AstExprSubTypeOr
+	AstExprSubTypeNot
+	AstExprSubTypeLike      // Like
+	AstExprSubTypeNotLike   // Like
+	AstExprSubTypeExists    // Like
+	AstExprSubTypeNotExists // Like
+	AstExprSubTypeCase
+	AstExprSubTypeIn
+	AstExprSubTypeNotIn
+)
+
 type AstJoinType int
 
 const (
-	AstJoinTypeCross = iota
+	AstJoinTypeCross AstJoinType = iota
 	AstJoinTypeLeft
 	AstJoinTypeInner
 )
@@ -81,7 +88,7 @@ const (
 type AstSubqueryType int
 
 const (
-	AstSubqueryTypeScalar = iota
+	AstSubqueryTypeScalar AstSubqueryType = iota
 	AstSubqueryTypeExists
 	AstSubqueryTypeNotExists
 	AstSubqueryTypeFrom //TODO: fixme
@@ -92,6 +99,7 @@ type Ast struct {
 
 	Expr struct {
 		ExprTyp AstExprType
+		SubTyp  AstExprSubType
 
 		Table   string
 		Svalue  string
@@ -168,51 +176,56 @@ func (a *Ast) Format(ctx *FormatCtx) {
 	case AstExprTypeString:
 		ctx.Write(a.Expr.Svalue)
 	case AstExprTypeFunc:
-		funcName := a.Expr.Svalue
-		ctx.Write(funcName)
-		ctx.Write("(")
-		for i, c := range a.Expr.Children {
-			if i > 0 {
-				ctx.Write(",")
+		switch a.Expr.SubTyp {
+		case AstExprSubTypeSub, AstExprSubTypeMul, AstExprSubTypeDiv, AstExprSubTypeEqual:
+			ctx.Write(a.Expr.Children[0].String())
+			op := ""
+			switch a.Expr.SubTyp {
+			case AstExprSubTypeSub:
+				op = "-"
+			case AstExprSubTypeMul:
+				op = "*"
+			case AstExprSubTypeDiv:
+				op = "/"
+			case AstExprSubTypeEqual:
+				op = "="
+			default:
+				panic("usp")
 			}
-			ctx.Write(c.String())
-		}
-		ctx.Write(")")
-	case AstExprTypeSub, AstExprTypeMul, AstExprTypeDiv, AstExprTypeEqual:
-		ctx.Write(a.Expr.Children[0].String())
-		op := ""
-		switch a.Expr.ExprTyp {
-		case AstExprTypeSub:
-			op = "-"
-		case AstExprTypeMul:
-			op = "*"
-		case AstExprTypeDiv:
-			op = "/"
-		case AstExprTypeEqual:
-			op = "="
+			ctx.Write(fmt.Sprintf(" %v ", op))
+			ctx.Write(a.Expr.Children[1].String())
+		case AstExprSubTypeCase:
+			ctx.Write("case ")
+			if a.Expr.Kase != nil {
+				ctx.Write(a.Expr.Kase.String())
+			}
+			for i := 0; i < len(a.Expr.When); i += 2 {
+				j := i + 1
+				if j >= len(a.Expr.When) {
+					panic("miss then")
+				}
+				ctx.Write(" when ")
+				ctx.Write(a.Expr.When[i].String())
+				ctx.Write(" then ")
+				ctx.Write(a.Expr.When[j].String())
+			}
+			if a.Expr.Els != nil {
+				ctx.Write(" else ")
+				ctx.Write(a.Expr.Els.String())
+			}
+		case AstExprSubTypeFunc:
+			funcName := a.Expr.Svalue
+			ctx.Write(funcName)
+			ctx.Write("(")
+			for i, c := range a.Expr.Children {
+				if i > 0 {
+					ctx.Write(",")
+				}
+				ctx.Write(c.String())
+			}
+			ctx.Write(")")
 		default:
-			panic("usp")
-		}
-		ctx.Write(fmt.Sprintf(" %v ", op))
-		ctx.Write(a.Expr.Children[1].String())
-	case AstExprTypeCase:
-		ctx.Write("case ")
-		if a.Expr.Kase != nil {
-			ctx.Write(a.Expr.Kase.String())
-		}
-		for i := 0; i < len(a.Expr.When); i += 2 {
-			j := i + 1
-			if j >= len(a.Expr.When) {
-				panic("miss then")
-			}
-			ctx.Write(" when ")
-			ctx.Write(a.Expr.When[i].String())
-			ctx.Write(" then ")
-			ctx.Write(a.Expr.When[j].String())
-		}
-		if a.Expr.Els != nil {
-			ctx.Write(" else ")
-			ctx.Write(a.Expr.Els.String())
+			panic(fmt.Sprintf("usp %v", a.Expr.SubTyp))
 		}
 	default:
 		panic(fmt.Sprintf("usp expr type %d", a.Expr.ExprTyp))
@@ -309,7 +322,8 @@ func column2(table, name string) *Ast {
 
 func caseWhen(kase *Ast, els *Ast, when ...*Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = AstExprTypeCase
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeCase
 	ret.Expr.Kase = kase
 	ret.Expr.Els = els
 	ret.Expr.When = when
@@ -381,32 +395,34 @@ func leftJoin(left, right *Ast, on *Ast) *Ast {
 	return join
 }
 
-func binary(typ AstExprType, left, right *Ast) *Ast {
+func binary(typ AstExprSubType, left, right *Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = typ
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = typ
 	ret.Expr.Children = []*Ast{left, right}
 	return ret
 }
 
 func add(left, right *Ast) *Ast {
-	return binary(AstExprTypeAdd, left, right)
+	return binary(AstExprSubTypeAdd, left, right)
 }
 
 func div(left, right *Ast) *Ast {
-	return binary(AstExprTypeDiv, left, right)
+	return binary(AstExprSubTypeDiv, left, right)
 }
 
 func equal(left, right *Ast) *Ast {
-	return binary(AstExprTypeEqual, left, right)
+	return binary(AstExprSubTypeEqual, left, right)
 }
 
 func notEqual(left, right *Ast) *Ast {
-	return binary(AstExprTypeNotEqual, left, right)
+	return binary(AstExprSubTypeNotEqual, left, right)
 }
 
 func in(in *Ast, right ...*Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = AstExprTypeIn
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeIn
 	ret.Expr.In = in
 	ret.Expr.Children = right
 	return ret
@@ -414,26 +430,27 @@ func in(in *Ast, right ...*Ast) *Ast {
 
 func notIn(in *Ast, right ...*Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = AstExprTypeNotIn
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeNotIn
 	ret.Expr.In = in
 	ret.Expr.Children = right
 	return ret
 }
 
 func greaterEqual(left, right *Ast) *Ast {
-	return binary(AstExprTypeGreaterEqual, left, right)
+	return binary(AstExprSubTypeGreaterEqual, left, right)
 }
 
 func greater(left, right *Ast) *Ast {
-	return binary(AstExprTypeGreater, left, right)
+	return binary(AstExprSubTypeGreater, left, right)
 }
 
 func less(left, right *Ast) *Ast {
-	return binary(AstExprTypeLess, left, right)
+	return binary(AstExprSubTypeLess, left, right)
 }
 
 func and(left, right *Ast) *Ast {
-	return binary(AstExprTypeAnd, left, right)
+	return binary(AstExprSubTypeAnd, left, right)
 }
 
 func andList(a ...*Ast) *Ast {
@@ -446,43 +463,46 @@ func andList(a ...*Ast) *Ast {
 }
 
 func or(left, right *Ast) *Ast {
-	return binary(AstExprTypeOr, left, right)
+	return binary(AstExprSubTypeOr, left, right)
 }
 
 func between(a, left, right *Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = AstExprTypeBetween
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeBetween
 	ret.Expr.Between = a
 	ret.Expr.Children = []*Ast{left, right}
 	return ret
 }
 
 func like(left, right *Ast) *Ast {
-	return binary(AstExprTypeLike, left, right)
+	return binary(AstExprSubTypeLike, left, right)
 }
 
 func notlike(left, right *Ast) *Ast {
-	return binary(AstExprTypeNotLike, left, right)
+	return binary(AstExprSubTypeNotLike, left, right)
 }
 
 func mul(left, right *Ast) *Ast {
-	return binary(AstExprTypeMul, left, right)
+	return binary(AstExprSubTypeMul, left, right)
 }
 
 func sub(left, right *Ast) *Ast {
-	return binary(AstExprTypeSub, left, right)
+	return binary(AstExprSubTypeSub, left, right)
 }
 
 func exists(a *Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = AstExprTypeExists
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeExists
 	ret.Expr.Children = []*Ast{a}
 	return ret
 }
 
 func notExists(a *Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
-	ret.Expr.ExprTyp = AstExprTypeNotExists
+	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeNotExists
 	ret.Expr.Children = []*Ast{a}
 	return ret
 }
@@ -506,6 +526,7 @@ func interval(val int, unit string) *Ast {
 func function(name string, args ...*Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
 	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeFunc
 	ret.Expr.Svalue = name
 	ret.Expr.Children = args
 	return ret
@@ -514,6 +535,7 @@ func function(name string, args ...*Ast) *Ast {
 func functionDistinct(name string, args ...*Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
 	ret.Expr.ExprTyp = AstExprTypeFunc
+	ret.Expr.SubTyp = AstExprSubTypeFunc
 	ret.Expr.Distinct = true
 	ret.Expr.Svalue = name
 	ret.Expr.Children = args

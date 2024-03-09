@@ -834,89 +834,86 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		}
 		//flatten subquery
 		return b.apply(expr, root, subRoot)
-	case ET_Exists, ET_NotExists:
-		var childExpr *Expr
-		childExpr, root, err = b.createSubquery(expr.Children[0], root)
-		if err != nil {
-			return nil, nil, err
-		}
 
-		return childExpr, root, nil
-	case ET_Equal,
-		ET_NotEqual,
-		ET_And,
-		ET_Or,
-		ET_Like,
-		ET_Greater,
-		ET_GreaterEqual,
-		ET_Less,
-		ET_Between,
-		ET_Add,
-		ET_Sub,
-		ET_Mul,
-		ET_Div:
-		var bet *Expr
-		if expr.Typ == ET_Between {
-			bet, root, err = b.createSubquery(expr.Between, root)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		left, lroot, err := b.createSubquery(expr.Children[0], root)
-		if err != nil {
-			return nil, nil, err
-		}
-		right, rroot, err := b.createSubquery(expr.Children[1], lroot)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &Expr{
-			Typ:      expr.Typ,
-			DataTyp:  expr.DataTyp,
-			Between:  bet,
-			Alias:    expr.Alias,
-			Children: []*Expr{left, right},
-		}, rroot, nil
-	case ET_In, ET_NotIn:
-		var in *Expr
-		in, root, err = b.createSubquery(expr.In, root)
-		if err != nil {
-			return nil, nil, err
-		}
-		var childExpr *Expr
-		args := make([]*Expr, 0)
-		for _, child := range expr.Children {
-			childExpr, root, err = b.createSubquery(child, root)
-			if err != nil {
-				return nil, nil, err
-			}
-			args = append(args, childExpr)
-		}
-		return &Expr{
-			Typ:      expr.Typ,
-			DataTyp:  expr.DataTyp,
-			In:       in,
-			Alias:    expr.Alias,
-			Children: args,
-		}, root, nil
 	case ET_Func:
-		var childExpr *Expr
-		args := make([]*Expr, 0)
-		for _, child := range expr.Children {
-			childExpr, root, err = b.createSubquery(child, root)
+		switch expr.SubTyp {
+		default:
+			//binary operator
+			var bet *Expr
+			if expr.SubTyp == ET_Between {
+				bet, root, err = b.createSubquery(expr.Between, root)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			left, lroot, err := b.createSubquery(expr.Children[0], root)
 			if err != nil {
 				return nil, nil, err
 			}
-			args = append(args, childExpr)
+			right, rroot, err := b.createSubquery(expr.Children[1], lroot)
+			if err != nil {
+				return nil, nil, err
+			}
+			return &Expr{
+				Typ:      expr.Typ,
+				SubTyp:   expr.SubTyp,
+				DataTyp:  expr.DataTyp,
+				Between:  bet,
+				Alias:    expr.Alias,
+				Children: []*Expr{left, right},
+			}, rroot, nil
+		case ET_In, ET_NotIn:
+			var in *Expr
+			in, root, err = b.createSubquery(expr.In, root)
+			if err != nil {
+				return nil, nil, err
+			}
+			var childExpr *Expr
+			args := make([]*Expr, 0)
+			for _, child := range expr.Children {
+				childExpr, root, err = b.createSubquery(child, root)
+				if err != nil {
+					return nil, nil, err
+				}
+				args = append(args, childExpr)
+			}
+			return &Expr{
+				Typ:      expr.Typ,
+				SubTyp:   expr.SubTyp,
+				DataTyp:  expr.DataTyp,
+				In:       in,
+				Alias:    expr.Alias,
+				Children: args,
+			}, root, nil
+		case ET_Exists, ET_NotExists:
+			var childExpr *Expr
+			childExpr, root, err = b.createSubquery(expr.Children[0], root)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return childExpr, root, nil
+
+		case ET_SubFunc:
+			var childExpr *Expr
+			args := make([]*Expr, 0)
+			for _, child := range expr.Children {
+				childExpr, root, err = b.createSubquery(child, root)
+				if err != nil {
+					return nil, nil, err
+				}
+				args = append(args, childExpr)
+			}
+			return &Expr{
+				Typ:      expr.Typ,
+				SubTyp:   expr.SubTyp,
+				Svalue:   expr.Svalue,
+				FuncId:   expr.FuncId,
+				DataTyp:  expr.DataTyp,
+				Alias:    expr.Alias,
+				Children: args,
+			}, root, nil
 		}
-		return &Expr{
-			Typ:      expr.Typ,
-			Svalue:   expr.Svalue,
-			FuncId:   expr.FuncId,
-			DataTyp:  expr.DataTyp,
-			Alias:    expr.Alias,
-			Children: args,
-		}, root, nil
 	case ET_Column:
 		return expr, root, nil
 	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst:
@@ -1174,9 +1171,6 @@ func collectCorrColumn(expr *Expr) []*Expr {
 		if expr.Depth > 0 {
 			return []*Expr{expr}
 		}
-	case ET_Equal, ET_And, ET_Like, ET_NotEqual:
-		ret = append(ret, collectCorrColumn(expr.Children[0])...)
-		ret = append(ret, collectCorrColumn(expr.Children[1])...)
 	case ET_Func:
 		for _, child := range expr.Children {
 			ret = append(ret, collectCorrColumn(child)...)
@@ -1191,38 +1185,22 @@ func hasCorrCol(expr *Expr) bool {
 	switch expr.Typ {
 	case ET_Column:
 		return expr.Depth > 0
-	case ET_Equal,
-		ET_NotEqual,
-		ET_And,
-		ET_Like,
-		ET_Greater,
-		ET_GreaterEqual,
-		ET_Less,
-		ET_Or,
-		ET_Add,
-		ET_Sub,
-		ET_Mul,
-		ET_Between, ET_In:
+	case ET_Func:
 		betHas := false
 		inHas := false
-		switch expr.Typ {
+		switch expr.SubTyp {
 		case ET_Between:
 			betHas = hasCorrCol(expr.Between)
 		case ET_In:
 			inHas = hasCorrCol(expr.In)
+		default:
+
 		}
 		ret := betHas || inHas
 		for _, child := range expr.Children {
 			ret = ret || hasCorrCol(child)
 		}
 		return ret
-	case ET_Func:
-		for _, child := range expr.Children {
-			if hasCorrCol(child) {
-				return true
-			}
-		}
-		return false
 	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst:
 		return false
 	default:
@@ -1290,6 +1268,8 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("After join reorder\n", root.String())
 
 	//3. column prune
 	root, err = b.columnPrune(root)
@@ -1513,10 +1493,11 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	}
 
 	return &Expr{
-		Typ:  ET_Case,
-		Kase: kase,
-		When: when,
-		Els:  els,
+		Typ:    ET_Func,
+		SubTyp: ET_Case,
+		Kase:   kase,
+		When:   when,
+		Els:    els,
 	}, err
 }
 
@@ -1539,20 +1520,21 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 
 	//TODO: type check
 
-	var et ET
+	var et ET_SubTyp
 	var edt ExprDataType
-	switch expr.Expr.ExprTyp {
-	case AstExprTypeIn:
+	switch expr.Expr.SubTyp {
+	case AstExprSubTypeIn:
 		et = ET_In
 		edt.Typ = DataTypeBool
-	case AstExprTypeNotIn:
+	case AstExprSubTypeNotIn:
 		et = ET_NotIn
 		edt.Typ = DataTypeBool
 	default:
 		panic("unhandled default case")
 	}
 	return &Expr{
-		Typ:      et,
+		Typ:      ET_Func,
+		SubTyp:   et,
 		DataTyp:  edt,
 		In:       in,
 		Children: children,

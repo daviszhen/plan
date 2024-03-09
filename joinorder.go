@@ -673,7 +673,7 @@ type Set map[uint64]bool
 
 func (set Set) orderedKeys() []uint64 {
 	keys := make([]uint64, 0, len(set))
-	for key, _ := range set {
+	for key := range set {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
@@ -694,7 +694,7 @@ func (set Set) find(key uint64) bool {
 }
 
 func (set Set) clear() {
-	for key, _ := range set {
+	for key := range set {
 		delete(set, key)
 	}
 }
@@ -906,7 +906,7 @@ func (graph *QueryGraph) GetNeighbors(node *JoinRelationSet, excludeSet Set) (re
 		}
 		return false
 	})
-	for k, _ := range dedup {
+	for k := range dedup {
 		ret = append(ret, k)
 	}
 	return
@@ -1079,12 +1079,18 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		joinOrder.filterInfos = append(joinOrder.filterInfos, info)
 		//comparison operator => join predicate
 		switch filter.Typ {
-		case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
-			joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
-		case ET_In, ET_NotIn:
-			//in or not in has been splited
-			for _, child := range filter.Children {
-				joinOrder.createEdge(filter.In, child, info)
+		case ET_Func:
+			switch filter.SubTyp {
+			case ET_In, ET_NotIn:
+				//in or not in has been splited
+				for _, child := range filter.Children {
+					joinOrder.createEdge(filter.In, child, info)
+				}
+			case ET_SubFunc:
+			case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
+				joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
+			default:
+				panic(fmt.Sprintf("usp %v", filter.SubTyp))
 			}
 		default:
 			panic(fmt.Sprintf("usp operator type %d", filter.Typ))
@@ -1214,9 +1220,12 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				if !check {
 					return nil, errors.New("filter sets are not intersects")
 				}
-				cond := &Expr{Typ: condition.Typ}
+				cond := &Expr{
+					Typ:    condition.Typ,
+					SubTyp: condition.SubTyp,
+				}
 				invert := !isSubset(left.set, filter.leftSet)
-				if condition.Typ == ET_In || condition.Typ == ET_NotIn {
+				if condition.SubTyp == ET_In || condition.SubTyp == ET_NotIn {
 					cond.In = condition.In
 					cond.Children = []*Expr{condition.Children[0]}
 					//TODO: fixme
@@ -1681,7 +1690,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 		getTableRefers(root, tables)
 		relation := &SingleJoinRelation{op: root, parent: parent}
 		relId := len(joinOrder.relations)
-		for tabId, _ := range tables {
+		for tabId := range tables {
 			joinOrder.estimator.MergeBindings(tabId, uint64(relId), cmaps)
 			joinOrder.relationMapping[tabId] = uint64(relId)
 		}
@@ -1750,21 +1759,16 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 				panic("no such relation")
 			}
 		}
-	case ET_Equal,
-		ET_And,
-		ET_Like,
-		ET_Greater,
-		ET_GreaterEqual,
-		ET_Less,
-		ET_Or,
-		ET_Sub,
-		ET_Mul:
-	case ET_In, ET_NotIn:
-		joinOrder.collectRelation(e.In, set)
 	case ET_SConst, ET_IConst, ET_FConst:
-	case ET_Between:
-		joinOrder.collectRelation(e.Between, set)
 	case ET_Func:
+		switch e.SubTyp {
+		case ET_In, ET_NotIn:
+			joinOrder.collectRelation(e.In, set)
+		case ET_Between:
+			joinOrder.collectRelation(e.Between, set)
+		default:
+
+		}
 	default:
 		panic("usp")
 	}
@@ -1786,19 +1790,17 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 			cb[0] = relId
 			cb[1] = e.ColRef[1]
 		}
-	case ET_Equal,
-		ET_And,
-		ET_Like,
-		ET_GreaterEqual,
-		ET_Less,
-		ET_Or,
-		ET_Sub,
-		ET_Mul:
 
 	case ET_SConst, ET_IConst, ET_FConst:
-	case ET_Between:
-		joinOrder.getColumnBind(e.Between, cb)
 	case ET_Func:
+		switch e.SubTyp {
+		case ET_Between:
+			joinOrder.getColumnBind(e.Between, cb)
+		case ET_In, ET_NotIn:
+			joinOrder.getColumnBind(e.In, cb)
+		default:
+
+		}
 	default:
 		panic("usp")
 	}
@@ -1863,23 +1865,17 @@ func collectTableRefers(e *Expr, set Set) {
 	case ET_Column:
 		index := e.ColRef[0]
 		set.insert(index)
-	case ET_Equal,
-		ET_NotEqual,
-		ET_And,
-		ET_Like,
-		ET_NotLike,
-		ET_Greater,
-		ET_GreaterEqual,
-		ET_Less,
-		ET_Or,
-		ET_Sub,
-		ET_Mul:
-
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 
 	case ET_Func:
-	case ET_Between:
-		collectTableRefers(e.Between, set)
+		switch e.SubTyp {
+		case ET_Between:
+			collectTableRefers(e.Between, set)
+		case ET_In, ET_NotIn:
+			collectTableRefers(e.In, set)
+		default:
+		}
+
 	default:
 		panic("usp")
 	}

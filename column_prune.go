@@ -40,7 +40,7 @@ func (ref ReferredColumnBindMap) addExpr(exprs ...*Expr) {
 	for _, expr := range exprs {
 		set := make(ColumnBindSet)
 		collectColRefs(expr, set)
-		for bind, _ := range set {
+		for bind := range set {
 			ref.insert(bind, expr)
 		}
 	}

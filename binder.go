@@ -4,45 +4,18 @@ import (
 	"fmt"
 )
 
-func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
-	var err error
+func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (ret *Expr, err error) {
+	defer func() {
+		if ret != nil && ret.Typ == ET_Func && ret.SubTyp == ET_Invalid {
+			panic("invalid expr")
+		}
+	}()
 	var child *Expr
 	var id FuncId
-	var ret *Expr
 	if expr.Typ != AstTypeExpr {
 		panic("need expr")
 	}
 	switch expr.Expr.ExprTyp {
-	// binary
-	case AstExprTypeAnd,
-		AstExprTypeOr,
-		AstExprTypeAdd,
-		AstExprTypeSub,
-		AstExprTypeMul,
-		AstExprTypeDiv,
-		AstExprTypeEqual,
-		AstExprTypeNotEqual,
-		AstExprTypeLike,
-		AstExprTypeNotLike,
-		AstExprTypeGreaterEqual,
-		AstExprTypeGreater,
-		AstExprTypeLess,
-		AstExprTypeBetween:
-		ret, err = b.bindBinaryExpr(ctx, iwc, expr, depth)
-		if err != nil {
-			return nil, err
-		}
-	case AstExprTypeIn,
-		AstExprTypeNotIn:
-		ret, err = b.bindInExpr(ctx, iwc, expr, depth)
-		if err != nil {
-			return nil, err
-		}
-	case AstExprTypeCase:
-		ret, err = b.bindCaseExpr(ctx, iwc, expr, depth)
-		if err != nil {
-			return nil, err
-		}
 	case AstExprTypeNumber:
 		ret = &Expr{
 			Typ: ET_IConst,
@@ -124,56 +97,100 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			Children: []*Expr{child},
 		}
 	case AstExprTypeFunc:
-		name := expr.Expr.Svalue
-		if name == "count" {
-			if len(expr.Expr.Children) != 1 {
-				return nil, fmt.Errorf("count must have 1 arg")
+		switch expr.Expr.SubTyp {
+		case AstExprSubTypeFunc:
+			//real function
+			name := expr.Expr.Svalue
+			if name == "count" {
+				if len(expr.Expr.Children) != 1 {
+					return nil, fmt.Errorf("count must have 1 arg")
+				}
+				if expr.Expr.Children[0].Expr.Svalue == "*" {
+					//replace * by the column 0 of the first table
+					//TODO: refine
+					colName := b.rootCtx.bindingsList[0].names[0]
+					expr.Expr.Children[0].Expr.Svalue = colName
+				}
 			}
-			if expr.Expr.Children[0].Expr.Svalue == "*" {
-				//replace * by the column 0 of the first table
-				//TODO: refine
-				colName := b.rootCtx.bindingsList[0].names[0]
-				expr.Expr.Children[0].Expr.Svalue = colName
+			args := make([]*Expr, 0)
+			for _, arg := range expr.Expr.Children {
+				child, err = b.bindExpr(ctx, iwc, arg, depth)
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, child)
 			}
-		}
-		args := make([]*Expr, 0)
-		for _, arg := range expr.Expr.Children {
-			child, err = b.bindExpr(ctx, iwc, arg, depth)
+
+			id, err = GetFunctionId(name)
 			if err != nil {
 				return nil, err
 			}
-			args = append(args, child)
-		}
 
-		id, err = GetFunctionId(name)
-		if err != nil {
-			return nil, err
-		}
-
-		ret = &Expr{
-			Typ:      ET_Func,
-			Svalue:   name,
-			FuncId:   id,
-			DataTyp:  InvalidExprDataType,
-			Children: args,
-		}
-
-		//hard code for simplicity
-		if id == DATE_ADD {
-			ret.DataTyp = ExprDataType{
-				Typ: DataTypeDate,
-			}
-		}
-
-		if IsAgg(name) {
-			b.aggs = append(b.aggs, ret)
 			ret = &Expr{
-				Typ:     ET_Column,
-				DataTyp: ret.DataTyp,
-				Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
-				Name:    expr.String(),
-				ColRef:  [2]uint64{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
-				Depth:   0,
+				Typ:      ET_Func,
+				SubTyp:   ET_SubFunc,
+				Svalue:   name,
+				FuncId:   id,
+				DataTyp:  InvalidExprDataType,
+				Children: args,
+			}
+
+			//hard code for simplicity
+			if id == DATE_ADD {
+				ret.DataTyp = ExprDataType{
+					Typ: DataTypeDate,
+				}
+			}
+
+			if IsAgg(name) {
+				b.aggs = append(b.aggs, ret)
+				ret = &Expr{
+					Typ:     ET_Column,
+					DataTyp: ret.DataTyp,
+					Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
+					Name:    expr.String(),
+					ColRef:  [2]uint64{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
+					Depth:   0,
+				}
+			}
+		case AstExprSubTypeIn,
+			AstExprSubTypeNotIn:
+			ret, err = b.bindInExpr(ctx, iwc, expr, depth)
+			if err != nil {
+				return nil, err
+			}
+		case AstExprSubTypeCase:
+			ret, err = b.bindCaseExpr(ctx, iwc, expr, depth)
+			if err != nil {
+				return nil, err
+			}
+		case AstExprSubTypeExists:
+			child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+			if err != nil {
+				return nil, err
+			}
+			ret = &Expr{
+				Typ:      ET_Func,
+				SubTyp:   ET_Exists,
+				DataTyp:  ExprDataType{Typ: DataTypeBool},
+				Children: []*Expr{child},
+			}
+		case AstExprSubTypeNotExists:
+			child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+			if err != nil {
+				return nil, err
+			}
+			ret = &Expr{
+				Typ:      ET_Func,
+				SubTyp:   ET_NotExists,
+				DataTyp:  ExprDataType{Typ: DataTypeBool},
+				Children: []*Expr{child},
+			}
+		default:
+			//binary opeartor
+			ret, err = b.bindBinaryExpr(ctx, iwc, expr, depth)
+			if err != nil {
+				return nil, err
 			}
 		}
 	case AstExprTypeDate:
@@ -194,26 +211,6 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			Ivalue: expr.Expr.Ivalue,
 			Svalue: expr.Expr.Svalue,
 		}
-	case AstExprTypeExists:
-		child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
-		if err != nil {
-			return nil, err
-		}
-		ret = &Expr{
-			Typ:      ET_Exists,
-			DataTyp:  ExprDataType{Typ: DataTypeBool},
-			Children: []*Expr{child},
-		}
-	case AstExprTypeNotExists:
-		child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
-		if err != nil {
-			return nil, err
-		}
-		ret = &Expr{
-			Typ:      ET_NotExists,
-			DataTyp:  ExprDataType{Typ: DataTypeBool},
-			Children: []*Expr{child},
-		}
 	default:
 		panic(fmt.Sprintf("usp expr type %d", expr.Expr.ExprTyp))
 	}
@@ -226,7 +223,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
 	var between *Expr
 	var err error
-	if expr.Expr.ExprTyp == AstExprTypeBetween {
+	if expr.Expr.SubTyp == AstExprSubTypeBetween {
 		between, err = b.bindExpr(ctx, iwc, expr.Expr.Between, depth)
 		if err != nil {
 			return nil, err
@@ -254,62 +251,63 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		}
 	}
 
-	var et ET
+	var et ET_SubTyp
 	var edt ExprDataType
-	switch expr.Expr.ExprTyp {
-	case AstExprTypeAnd:
+	switch expr.Expr.SubTyp {
+	case AstExprSubTypeAnd:
 		et = ET_And
 		edt.Typ = DataTypeBool
-	case AstExprTypeOr:
+	case AstExprSubTypeOr:
 		et = ET_Or
 		edt.Typ = DataTypeBool
-	case AstExprTypeAdd:
+	case AstExprSubTypeAdd:
 		et = ET_Add
 		edt.Typ = left.DataTyp.Typ
-	case AstExprTypeSub:
+	case AstExprSubTypeSub:
 		et = ET_Sub
 		edt.Typ = left.DataTyp.Typ
-	case AstExprTypeMul:
+	case AstExprSubTypeMul:
 		et = ET_Mul
 		edt.Typ = left.DataTyp.Typ
-	case AstExprTypeDiv:
+	case AstExprSubTypeDiv:
 		et = ET_Div
 		edt.Typ = left.DataTyp.Typ
-	case AstExprTypeEqual:
+	case AstExprSubTypeEqual:
 		et = ET_Equal
 		edt.Typ = DataTypeBool
-	case AstExprTypeNotEqual:
+	case AstExprSubTypeNotEqual:
 		et = ET_NotEqual
 		edt.Typ = DataTypeBool
-	case AstExprTypeLike:
+	case AstExprSubTypeLike:
 		et = ET_Like
 		edt.Typ = DataTypeBool
-	case AstExprTypeNotLike:
+	case AstExprSubTypeNotLike:
 		et = ET_NotLike
 		edt.Typ = DataTypeBool
-	case AstExprTypeGreaterEqual:
+	case AstExprSubTypeGreaterEqual:
 		et = ET_GreaterEqual
 		edt.Typ = DataTypeBool
-	case AstExprTypeGreater:
+	case AstExprSubTypeGreater:
 		et = ET_Greater
 		edt.Typ = DataTypeBool
-	case AstExprTypeLess:
+	case AstExprSubTypeLess:
 		et = ET_Less
 		edt.Typ = DataTypeBool
-	case AstExprTypeBetween:
+	case AstExprSubTypeBetween:
 		et = ET_Between
 		edt.Typ = DataTypeBool
-	case AstExprTypeIn:
+	case AstExprSubTypeIn:
 		et = ET_In
 		edt.Typ = DataTypeBool
-	case AstExprTypeNotIn:
+	case AstExprSubTypeNotIn:
 		et = ET_NotIn
 		edt.Typ = DataTypeBool
 	default:
 		panic(fmt.Sprintf("usp binary type %d", expr.Expr.ExprTyp))
 	}
 	return &Expr{
-		Typ:      et,
+		Typ:      ET_Func,
+		SubTyp:   et,
 		DataTyp:  edt,
 		Between:  between,
 		Children: []*Expr{left, right},
