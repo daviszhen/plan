@@ -614,6 +614,168 @@ func q16Subquery() *Ast {
 	return ret
 }
 
+func tpchQ17() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			div(
+				function("sum",
+					column("l_extendedprice")),
+				fnumber(7.0)),
+			"avg_yearly"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("lineitem"),
+		table("part"))
+	ret.Select.Where.Expr = andList(
+		equal(column("p_partkey"), column("l_partkey")),
+		equal(column("p_brand"), sstring("Brand#54")),
+		equal(column("p_container"), sstring("LG BAG")),
+		less(column("l_quantity"), subquery(q17Subquery(), AstSubqueryTypeScalar)),
+	)
+	return ret
+}
+
+func q17Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		mul(
+			fnumber(0.2),
+			function("avg", column("l_quantity")),
+		),
+	)
+	ret.Select.From.Tables = table("lineitem")
+	ret.Select.Where.Expr = equal(column("l_partkey"), column("p_partkey"))
+	return ret
+}
+
+func tpchQ18() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("c_name"),
+		column("c_custkey"),
+		column("o_orderkey"),
+		column("o_orderdate"),
+		column("o_totalprice"),
+		function("sum", column("l_quantity")))
+	ret.Select.From.Tables = crossJoinList(
+		table("customer"),
+		table("orders"),
+		table("lineitem"),
+	)
+	ret.Select.Where.Expr = andList(
+		in(column("o_orderkey"), subquery(q18Subquery(), AstSubqueryTypeScalar)),
+		equal(column("c_custkey"), column("o_custkey")),
+		equal(column("o_orderkey"), column("l_orderkey")),
+	)
+	ret.Select.GroupBy.Exprs = astList(
+		column("c_name"),
+		column("c_custkey"),
+		column("o_orderkey"),
+		column("o_orderdate"),
+		column("o_totalprice"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("o_totalprice"), true),
+		orderby(column("o_orderdate"), false),
+	)
+	ret.Limit.Count = inumber(100)
+	return ret
+}
+
+func q18Subquery() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("l_orderkey"),
+	)
+	ret.Select.From.Tables = table("lineitem")
+	ret.Select.GroupBy.Exprs = astList(column("l_orderkey"))
+	ret.Select.Having.Expr = greater(
+		function("sum", column("l_quantity")),
+		inumber(314))
+	return ret
+}
+
+func tpchQ20() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("s_name"),
+		column("s_address"))
+	ret.Select.From.Tables = crossJoinList(
+		table("supplier"),
+		table("nation"))
+	ret.Select.Where.Expr = andList(
+		in(
+			column("s_suppkey"),
+			subquery(q20Subquery1(), AstSubqueryTypeScalar),
+		),
+		equal(column("s_nationkey"), column("n_nationkey")),
+		equal(column("n_name"), sstring("VIETNAM")),
+	)
+	ret.OrderBy.Exprs = astList(
+		orderby(column("s_name"), false))
+	return ret
+}
+
+func q20Subquery1() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(column("ps_suppkey"))
+	ret.Select.From.Tables = table("partsupp")
+	ret.Select.Where.Expr = andList(
+		in(
+			column("ps_partkey"),
+			subquery(q20Subquery21(), AstSubqueryTypeScalar),
+		),
+		greater(
+			column("ps_availqty"),
+			subquery(q20Subquery22(), AstSubqueryTypeScalar),
+		))
+	return ret
+}
+
+func q20Subquery21() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(column("p_partkey"))
+	ret.Select.From.Tables = table("part")
+	ret.Select.Where.Expr = like(column("p_name"), sstring("lime%"))
+	return ret
+}
+
+func q20Subquery22() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		mul(
+			fnumber(0.5),
+			function("sum", column("l_quantity")),
+		),
+	)
+	ret.Select.From.Tables = table("lineitem")
+	ret.Select.Where.Expr = andList(
+		equal(column("l_partkey"), column("ps_partkey")),
+		equal(column("l_suppkey"), column("ps_suppkey")),
+		greaterEqual(column("l_shipdate"), date("1993-01-01")),
+		less(column("l_shipdate"),
+			add(
+				date("1993-01-01"),
+				interval(1, "year"))),
+	)
+	return ret
+}
+
+func tpchQ21() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	return ret
+}
+
+func q21Subquery1() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	return ret
+}
+
+func q21Subquery2() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	return ret
+}
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{

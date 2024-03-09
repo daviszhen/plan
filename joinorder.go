@@ -1287,7 +1287,10 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
-				cond := &Expr{Typ: filter.Typ}
+				cond := &Expr{
+					Typ:      filter.Typ,
+					Children: []*Expr{nil, nil},
+				}
 				if !invert {
 					cond.Children[0], cond.Children[1] = filter.Children[0], filter.Children[1]
 				} else {
@@ -1757,9 +1760,10 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 		ET_Mul:
 	case ET_In, ET_NotIn:
 		joinOrder.collectRelation(e.In, set)
-	case ET_SConst, ET_IConst:
+	case ET_SConst, ET_IConst, ET_FConst:
 	case ET_Between:
 		joinOrder.collectRelation(e.Between, set)
+	case ET_Func:
 	default:
 		panic("usp")
 	}
@@ -1790,9 +1794,10 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 		ET_Sub,
 		ET_Mul:
 
-	case ET_SConst, ET_IConst:
+	case ET_SConst, ET_IConst, ET_FConst:
 	case ET_Between:
 		joinOrder.getColumnBind(e.Between, cb)
+	case ET_Func:
 	default:
 		panic("usp")
 	}

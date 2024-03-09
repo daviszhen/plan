@@ -851,6 +851,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Between,
+		ET_Add,
 		ET_Sub,
 		ET_Mul,
 		ET_Div:
@@ -1177,17 +1178,27 @@ func hasCorrCol(expr *Expr) bool {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
+		ET_Add,
 		ET_Sub,
 		ET_Mul,
-		ET_Between:
+		ET_Between, ET_In:
 		betHas := false
-		if expr.Typ == ET_Between {
+		inHas := false
+		switch expr.Typ {
+		case ET_Between:
 			betHas = hasCorrCol(expr.Between)
+		case ET_In:
+			inHas = hasCorrCol(expr.In)
 		}
-		return betHas || hasCorrCol(expr.Children[0]) || hasCorrCol(expr.Children[1])
+		ret := betHas || inHas
+		for _, child := range expr.Children {
+			ret = ret || hasCorrCol(child)
+		}
+		return ret
 	case ET_Func:
 		for _, child := range expr.Children {
 			if hasCorrCol(child) {
@@ -1195,7 +1206,7 @@ func hasCorrCol(expr *Expr) bool {
 			}
 		}
 		return false
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))

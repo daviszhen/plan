@@ -382,13 +382,14 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
 	case ET_In, ET_NotIn:
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
 	case ET_Between:
 		e.Between = restoreExpr(e.Between, index, realExprs)
@@ -411,18 +412,23 @@ func referTo(e *Expr, index uint64) bool {
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
 		ET_Sub,
 		ET_Mul:
 
-	case ET_SConst, ET_IConst, ET_DateConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst:
 
 	case ET_Func:
 
 	case ET_Between:
 		if referTo(e.Between, index) {
+			return true
+		}
+	case ET_In:
+		if referTo(e.In, index) {
 			return true
 		}
 	default:
@@ -450,6 +456,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
+		ET_Add,
 		ET_Sub,
 		ET_Mul:
 
@@ -495,10 +502,11 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		ET_Less,
 		ET_Or,
 		ET_Sub,
+		ET_Add,
 		ET_Mul:
 	case ET_In, ET_NotIn:
 		ret |= decideSide(e.In, leftTags, rightTags)
-	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst:
+	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
 	case ET_Between:
 		ret |= decideSide(e.Between, leftTags, rightTags)
@@ -640,6 +648,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Mul,
+		ET_Add,
 		ET_Sub,
 		ET_Div:
 		e.Children[0].Format(ctx)
@@ -665,6 +674,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			op = "<"
 		case ET_Mul:
 			op = "*"
+		case ET_Add:
+			op = "+"
 		case ET_Sub:
 			op = "-"
 		case ET_Div:
@@ -1010,14 +1021,16 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 		ET_And,
 		ET_Like,
 		ET_NotLike,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
+		ET_Add,
 		ET_Sub,
 		ET_Mul:
 	case ET_In, ET_NotIn:
 		e.In = replaceColRef(e.In, bind, newBind)
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
 	case ET_Orderby:
 	case ET_Between:
@@ -1056,6 +1069,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
+		ET_Add,
 		ET_Sub,
 		ET_Mul,
 		ET_Div:

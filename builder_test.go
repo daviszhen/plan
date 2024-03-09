@@ -101,3 +101,18 @@ func TestQ16(t *testing.T) {
 	q16 := tpchQ16()
 	runTest(t, "q16.json", q16)
 }
+
+func TestQ17(t *testing.T) {
+	q17 := tpchQ17()
+	runTest(t, "q17.json", q17)
+}
+
+func TestQ18(t *testing.T) {
+	q18 := tpchQ18()
+	runTest(t, "q18.json", q18)
+}
+
+func TestQ20(t *testing.T) {
+	q20 := tpchQ20()
+	runTest(t, "q20.json", q20)
+}

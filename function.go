@@ -33,6 +33,7 @@ const (
 	EXTRACT
 	SUM
 	MAX
+	AVG
 )
 
 var funcName2Id = map[string]FuncId{
@@ -42,6 +43,7 @@ var funcName2Id = map[string]FuncId{
 	"extract":  EXTRACT,
 	"sum":      SUM,
 	"max": MAX,
+	"avg": AVG,
 }
 
 var allFunctions = map[FuncId]Function{}
@@ -51,6 +53,7 @@ var aggFuncs = map[string]int{
 	"count": 1,
 	"sum":   1,
 	"max": 1,
+	"avg": 1,
 }
 
 func IsAgg(name string) bool {

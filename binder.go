@@ -16,6 +16,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	// binary
 	case AstExprTypeAnd,
 		AstExprTypeOr,
+		AstExprTypeAdd,
 		AstExprTypeSub,
 		AstExprTypeMul,
 		AstExprTypeDiv,
@@ -235,6 +236,8 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 			//integer op decimal
 		} else if left.DataTyp.Typ == DataTypeInvalid || right.DataTyp.Typ == DataTypeInvalid {
 
+		} else if right.Typ == ET_IntervalConst {
+
 		} else if right.Typ != ET_Subquery {
 			//skip subquery
 			panic(fmt.Sprintf("unmatch data type %d %d", left.DataTyp.Typ, right.DataTyp.Typ))
@@ -250,6 +253,9 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	case AstExprTypeOr:
 		et = ET_Or
 		edt.Typ = DataTypeBool
+	case AstExprTypeAdd:
+		et = ET_Add
+		edt.Typ = left.DataTyp.Typ
 	case AstExprTypeSub:
 		et = ET_Sub
 		edt.Typ = left.DataTyp.Typ
