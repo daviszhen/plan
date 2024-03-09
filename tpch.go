@@ -763,16 +763,141 @@ func q20Subquery22() *Ast {
 
 func tpchQ21() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("s_name"),
+		withAlias(function("count", column("*")), "numwait"))
+	ret.Select.From.Tables = crossJoinList(
+		table("supplier"),
+		withAlias(table("lineitem"), "l1"),
+		table("orders"),
+		table("nation"))
+	ret.Select.Where.Expr = andList(
+		equal(column("s_suppkey"), column2("l1", "l_suppkey")),
+		equal(column("o_orderkey"), column2("l1", "l_orderkey")),
+		equal(column("o_orderstatus"), sstring("F")),
+		greater(column2("l1", "l_receiptdate"), column2("l1", "l_commitdate")),
+		exists(subquery(q21Subquery1(), AstSubqueryTypeExists)),
+		notExists(subquery(q21Subquery2(), AstSubqueryTypeNotExists)),
+		equal(column("s_nationkey"), column("n_nationkey")),
+		equal(column("n_name"), sstring("BRAZIL")),
+	)
+	ret.Select.GroupBy.Exprs = astList(column("s_name"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("numwait"), true),
+		orderby(column("s_name"), false),
+	)
+	ret.Limit.Count = inumber(100)
 	return ret
 }
 
 func q21Subquery1() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(column("*"))
+	ret.Select.From.Tables = withAlias(table("lineitem"), "l2")
+	ret.Select.Where.Expr = andList(
+		equal(column2("l2", "l_orderkey"), column2("l1", "l_orderkey")),
+		notEqual(column2("l2", "l_suppkey"), column2("l1", "l_suppkey")),
+	)
 	return ret
 }
 
 func q21Subquery2() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(column("*"))
+	ret.Select.From.Tables = withAlias(table("lineitem"), "l3")
+	ret.Select.Where.Expr = andList(
+		equal(column2("l3", "l_orderkey"), column2("l1", "l_orderkey")),
+		notEqual(column2("l3", "l_suppkey"), column2("l1", "l_suppkey")),
+		greater(column2("l3", "l_receiptdate"), column2("l3", "l_commitdate")),
+	)
+	return ret
+}
+
+func tpchQ22() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("cntrycode"),
+		withAlias(
+			function("count", column("*")),
+			"numcust"),
+		withAlias(
+			function("sum", column("c_acctbal")),
+			"totacctbal"),
+	)
+	ret.Select.From.Tables = withAlias(
+		subquery(q22Subquery1(), AstSubqueryTypeFrom),
+		"custsale")
+	ret.Select.GroupBy.Exprs = astList(column("cntrycode"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("cntrycode"), false))
+	return ret
+}
+
+func q22Subquery1() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			function("substring",
+				column("c_phone"),
+				inumber(1),
+				inumber(2),
+			),
+			"cntrycode"),
+		column("c_acctbal"),
+	)
+	ret.Select.From.Tables = table("customer")
+	ret.Select.Where.Expr = andList(
+		in(
+			function("substring",
+				column("c_phone"),
+				inumber(1),
+				inumber(2),
+			),
+			sstring("10"),
+			sstring("11"),
+			sstring("26"),
+			sstring("22"),
+			sstring("19"),
+			sstring("20"),
+			sstring("27"),
+		),
+		greater(column("c_acctbal"), subquery(q22Subquery21(), AstSubqueryTypeScalar)),
+		notExists(subquery(q22Subquery22(), AstSubqueryTypeNotExists)),
+	)
+	return ret
+}
+
+func q22Subquery21() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		function("avg", column("c_acctbal")))
+	ret.Select.From.Tables = table("customer")
+	ret.Select.Where.Expr = andList(
+		greater(column("c_acctbal"), fnumber(0)),
+		in(
+			function("substring",
+				column("c_phone"),
+				inumber(1),
+				inumber(2),
+			),
+			sstring("10"),
+			sstring("11"),
+			sstring("26"),
+			sstring("22"),
+			sstring("19"),
+			sstring("20"),
+			sstring("27"),
+		),
+	)
+	return ret
+}
+
+func q22Subquery22() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("*"))
+	ret.Select.From.Tables = table("orders")
+	ret.Select.Where.Expr = equal(column("o_custkey"), column("c_custkey"))
 	return ret
 }
 

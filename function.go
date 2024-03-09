@@ -34,16 +34,18 @@ const (
 	SUM
 	MAX
 	AVG
+	SUBSTRING
 )
 
 var funcName2Id = map[string]FuncId{
-	"min":      MIN,
-	"date_add": DATE_ADD,
-	"count":    COUNT,
-	"extract":  EXTRACT,
-	"sum":      SUM,
-	"max": MAX,
-	"avg": AVG,
+	"min":       MIN,
+	"date_add":  DATE_ADD,
+	"count":     COUNT,
+	"extract":   EXTRACT,
+	"sum":       SUM,
+	"max":       MAX,
+	"avg":       AVG,
+	"substring": SUBSTRING,
 }
 
 var allFunctions = map[FuncId]Function{}
@@ -52,8 +54,8 @@ var aggFuncs = map[string]int{
 	"min":   1,
 	"count": 1,
 	"sum":   1,
-	"max": 1,
-	"avg": 1,
+	"max":   1,
+	"avg":   1,
 }
 
 func IsAgg(name string) bool {

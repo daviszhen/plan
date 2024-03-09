@@ -1079,7 +1079,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		joinOrder.filterInfos = append(joinOrder.filterInfos, info)
 		//comparison operator => join predicate
 		switch filter.Typ {
-		case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less:
+		case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
 			joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
 		case ET_In, ET_NotIn:
 			//in or not in has been splited
@@ -1753,6 +1753,7 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 	case ET_Equal,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
@@ -1863,6 +1864,7 @@ func collectTableRefers(e *Expr, set Set) {
 		index := e.ColRef[0]
 		set.insert(index)
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Like,
 		ET_NotLike,

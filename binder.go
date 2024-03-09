@@ -204,6 +204,16 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			DataTyp:  ExprDataType{Typ: DataTypeBool},
 			Children: []*Expr{child},
 		}
+	case AstExprTypeNotExists:
+		child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+		if err != nil {
+			return nil, err
+		}
+		ret = &Expr{
+			Typ:      ET_NotExists,
+			DataTyp:  ExprDataType{Typ: DataTypeBool},
+			Children: []*Expr{child},
+		}
 	default:
 		panic(fmt.Sprintf("usp expr type %d", expr.Expr.ExprTyp))
 	}
@@ -236,7 +246,7 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 			//integer op decimal
 		} else if left.DataTyp.Typ == DataTypeInvalid || right.DataTyp.Typ == DataTypeInvalid {
 
-		} else if right.Typ == ET_IntervalConst {
+		} else if right.Typ == ET_IntervalConst || right.Typ == ET_FConst {
 
 		} else if right.Typ != ET_Subquery {
 			//skip subquery
@@ -320,6 +330,8 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		typ = ET_SubqueryTypeScalar
 	case AstSubqueryTypeExists:
 		typ = ET_SubqueryTypeExists
+	case AstSubqueryTypeNotExists:
+		typ = ET_SubqueryTypeNotExists
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Expr.SubqueryTyp))
 	}

@@ -99,6 +99,7 @@ const (
 	LOT_JoinTypeANTI
 	LOT_JoinTypeSINGLE
 	LOT_JoinTypeMARK
+	LOT_JoinTypeAntiMARK
 	LOT_JoinTypeOUTER
 )
 
@@ -112,6 +113,8 @@ func (lojt LOT_JoinType) String() string {
 		return "inner"
 	case LOT_JoinTypeMARK:
 		return "mark"
+	case LOT_JoinTypeAntiMARK:
+		return "anti_mark"
 	default:
 		panic(fmt.Sprintf("usp %d", lojt))
 	}
@@ -125,7 +128,7 @@ type LogicalOperator struct {
 	Index2           uint64 //AggNode for aggTag
 	Database         string
 	Table            string       // table
-	Alias string                  // alias
+	Alias            string       // alias
 	Columns          []string     //needed column name for SCAN
 	Filters          []*Expr      //for FILTER or AGG
 	BelongCtx        *BindContext //for table or join
@@ -311,6 +314,7 @@ const (
 	ET_Func
 	ET_Subquery
 	ET_Exists
+	ET_NotExists
 
 	ET_IConst    //integer
 	ET_SConst    //string
@@ -335,6 +339,7 @@ type ET_SubqueryType int
 const (
 	ET_SubqueryTypeScalar ET_SubqueryType = iota
 	ET_SubqueryTypeExists
+	ET_SubqueryTypeNotExists
 )
 
 type Expr struct {
@@ -359,11 +364,11 @@ type Expr struct {
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
 	Between     *Expr
-	Kase *Expr
-	When []*Expr
-	Els  *Expr
-	CTEIndex uint64
-	In *Expr
+	Kase        *Expr
+	When        []*Expr
+	Els         *Expr
+	CTEIndex    uint64
+	In          *Expr
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -453,6 +458,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		ET_NotEqual,
 		ET_And,
 		ET_Like,
+		ET_Greater,
 		ET_GreaterEqual,
 		ET_Less,
 		ET_Or,
@@ -464,7 +470,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		if !onlyReferTo(e.In, index) {
 			return false
 		}
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 		return true
 	case ET_Func:
 
@@ -978,7 +984,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 			return expr, expr.Depth > 0
 		}
 		return expr, false
-	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less:
+	case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less, ET_NotEqual:
 		left, leftHasCorr := deceaseDepth(expr.Children[0])
 		hasCorCol = hasCorCol || leftHasCorr
 		right, rightHasCorr := deceaseDepth(expr.Children[1])

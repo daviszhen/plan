@@ -41,9 +41,10 @@ const (
 	AstExprTypeAnd
 	AstExprTypeOr
 	AstExprTypeNot
-	AstExprTypeLike   // Like
-	AstExprTypeNotLike // Like
-	AstExprTypeExists // Like
+	AstExprTypeLike      // Like
+	AstExprTypeNotLike   // Like
+	AstExprTypeExists    // Like
+	AstExprTypeNotExists // Like
 	AstExprTypeCase
 	AstExprTypeIn
 	AstExprTypeNotIn
@@ -82,6 +83,7 @@ type AstSubqueryType int
 const (
 	AstSubqueryTypeScalar = iota
 	AstSubqueryTypeExists
+	AstSubqueryTypeNotExists
 	AstSubqueryTypeFrom //TODO: fixme
 )
 
@@ -91,23 +93,23 @@ type Ast struct {
 	Expr struct {
 		ExprTyp AstExprType
 
-		Table       string
-		Svalue      string
-		Ivalue      int64
-		Fvalue      float64
-		Desc        bool        // in orderby
-		JoinTyp     AstJoinType // join
-		Alias struct {
+		Table   string
+		Svalue  string
+		Ivalue  int64
+		Fvalue  float64
+		Desc    bool        // in orderby
+		JoinTyp AstJoinType // join
+		Alias   struct {
 			alias string
 			cols  []string
 		}
 		SubqueryTyp AstSubqueryType
 		Between     *Ast // a part in a between b and c
-		Kase *Ast        //for case when
-		Els  *Ast
-		When []*Ast
-		Distinct bool // for distinct
-		In       *Ast
+		Kase        *Ast //for case when
+		Els         *Ast
+		When        []*Ast
+		Distinct    bool // for distinct
+		In          *Ast
 
 		Children []*Ast
 		On       *Ast //JoinOn
@@ -474,6 +476,13 @@ func sub(left, right *Ast) *Ast {
 func exists(a *Ast) *Ast {
 	ret := &Ast{Typ: AstTypeExpr}
 	ret.Expr.ExprTyp = AstExprTypeExists
+	ret.Expr.Children = []*Ast{a}
+	return ret
+}
+
+func notExists(a *Ast) *Ast {
+	ret := &Ast{Typ: AstTypeExpr}
+	ret.Expr.ExprTyp = AstExprTypeNotExists
 	ret.Expr.Children = []*Ast{a}
 	return ret
 }

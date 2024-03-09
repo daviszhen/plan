@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"os"
 	"testing"
@@ -63,9 +62,9 @@ func analyze(path string) error {
 }
 
 func Test_analyzeTpch1g(t *testing.T) {
-	path := "/Users/pengzhen/Documents/GitHub/mo-tpch/data/1/customer.tbl"
-	err := analyze(path)
-	assert.NoError(t, err)
+	//path := "/Users/pengzhen/Documents/GitHub/mo-tpch/data/1/customer.tbl"
+	//err := analyze(path)
+	//assert.NoError(t, err)
 }
 
 func TestT1(t *testing.T) {

@@ -85,14 +85,14 @@ type BindContext struct {
 	parent       *BindContext
 	bindings     map[string]*Binding
 	bindingsList []*Binding
-	ctes        map[string]*Ast
-	cteBindings map[string]*Binding
+	ctes         map[string]*Ast
+	cteBindings  map[string]*Binding
 }
 
 func NewBindContext(parent *BindContext) *BindContext {
 	return &BindContext{
-		parent:   parent,
-		bindings: make(map[string]*Binding, 0),
+		parent:      parent,
+		bindings:    make(map[string]*Binding, 0),
 		ctes:        make(map[string]*Ast),
 		cteBindings: make(map[string]*Binding),
 	}
@@ -212,12 +212,12 @@ func (bc *BindContext) GetCteBinding(name string) *Binding {
 var _ Format = &Builder{}
 
 type Builder struct {
-	tag   *int // relation tag
+	tag        *int // relation tag
 	projectTag int
 	groupTag   int
 	aggTag     int
 	rootCtx    *BindContext
-	alias string //for subquery
+	alias      string //for subquery
 
 	//alias of select expr -> idx of select expr
 	aliasMap map[string]int
@@ -229,7 +229,7 @@ type Builder struct {
 	whereExpr    *Expr
 	aggs         []*Expr
 	groupbyExprs []*Expr
-	havingExpr *Expr
+	havingExpr   *Expr
 	orderbyExprs []*Expr
 	limitCount   *Expr
 
@@ -239,7 +239,7 @@ type Builder struct {
 
 func NewBuilder() *Builder {
 	return &Builder{
-		tag: new(int),
+		tag:        new(int),
 		rootCtx:    NewBindContext(nil),
 		aliasMap:   make(map[string]int),
 		projectMap: make(map[string]int),
@@ -606,10 +606,10 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 		}
 
 		bind := &Binding{
-			typ:     BT_Subquery,
+			typ:   BT_Subquery,
 			alias: table.Expr.Alias.alias,
 			//bind index of subquery is equal to the projectTag of subquery
-			index: uint64(subBuilder.projectTag),
+			index:   uint64(subBuilder.projectTag),
 			typs:    subTypes,
 			names:   subNames,
 			nameMap: make(map[string]int),
@@ -684,8 +684,8 @@ func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext, depth int) (*Expr
 
 	ret := &Expr{
 		Typ:       ET_Join,
-		JoinTyp: jt,
-		On:      onExpr,
+		JoinTyp:   jt,
+		On:        onExpr,
 		BelongCtx: ctx,
 		Children:  []*Expr{left, right},
 	}
@@ -755,7 +755,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			Index:     expr.Index,
 			Database:  expr.Database,
 			Table:     expr.Table,
-			Alias: expr.Alias,
+			Alias:     expr.Alias,
 			BelongCtx: expr.BelongCtx,
 			Stats:     catalogOfTable.Stats.Copy(),
 		}, err
@@ -780,7 +780,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
 			JoinTyp:  jt,
-			OnConds: []*Expr{expr.On},
+			OnConds:  []*Expr{expr.On},
 			Children: []*LogicalOperator{left, right},
 		}, err
 	case ET_Subquery:
@@ -834,7 +834,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		}
 		//flatten subquery
 		return b.apply(expr, root, subRoot)
-	case ET_Exists:
+	case ET_Exists, ET_NotExists:
 		var childExpr *Expr
 		childExpr, root, err = b.createSubquery(expr.Children[0], root)
 		if err != nil {
@@ -973,6 +973,13 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				Bvalue:  true,
 			}
 			return colRef, newSub, nil
+		case ET_SubqueryTypeNotExists:
+			colRef := &Expr{
+				Typ:     ET_BConst,
+				DataTyp: ExprDataType{Typ: DataTypeBool},
+				Bvalue:  true,
+			}
+			return colRef, newSub, nil
 		default:
 			panic("usp")
 		}
@@ -1033,6 +1040,15 @@ func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs []*Expr, corr
 			newRoot = &LogicalOperator{
 				Typ:     LOT_JOIN,
 				JoinTyp: LOT_JoinTypeMARK,
+				OnConds: nonCorrExprs,
+				Children: []*LogicalOperator{
+					root, subRoot,
+				},
+			}
+		case ET_SubqueryTypeNotExists:
+			newRoot = &LogicalOperator{
+				Typ:     LOT_JOIN,
+				JoinTyp: LOT_JoinTypeAntiMARK,
 				OnConds: nonCorrExprs,
 				Children: []*LogicalOperator{
 					root, subRoot,
@@ -1158,7 +1174,7 @@ func collectCorrColumn(expr *Expr) []*Expr {
 		if expr.Depth > 0 {
 			return []*Expr{expr}
 		}
-	case ET_Equal, ET_And, ET_Like:
+	case ET_Equal, ET_And, ET_Like, ET_NotEqual:
 		ret = append(ret, collectCorrColumn(expr.Children[0])...)
 		ret = append(ret, collectCorrColumn(expr.Children[1])...)
 	case ET_Func:
@@ -1176,6 +1192,7 @@ func hasCorrCol(expr *Expr) bool {
 	case ET_Column:
 		return expr.Depth > 0
 	case ET_Equal,
+		ET_NotEqual,
 		ET_And,
 		ET_Like,
 		ET_Greater,
@@ -1206,7 +1223,7 @@ func hasCorrCol(expr *Expr) bool {
 			}
 		}
 		return false
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
