@@ -8,6 +8,294 @@ import (
 	"github.com/xlab/treeprint"
 )
 
+type PhyType int
+
+const (
+	BOOL PhyType = iota + 1
+	UINT8
+	INT8
+	UINT16
+	INT16
+	UINT32
+	INT32
+	UINT64
+	INT64
+	FLOAT
+	DOUBLE
+	INTERVAL
+	LIST
+	STRUCT
+	VARCHAR
+	INT128
+	UNKNOWN
+	BIT
+	INVALID
+)
+
+type LTypeId int
+
+const (
+	LTID_INVALID LTypeId = iota
+	LTID_NULL
+	LTID_UNKNOWN
+	LTID_ANY
+	LTID_USER
+	LTID_BOOLEAN
+	LTID_TINYINT
+	LTID_SMALLINT
+	LTID_INTEGER
+	LTID_BIGINT
+	LTID_DATE
+	LTID_TIME
+	LTID_TIMESTAMP_SEC
+	LTID_TIMESTAMP_MS
+	LTID_TIMESTAMP
+	LTID_TIMESTAMP_NS
+	LTID_DECIMAL
+	LTID_FLOAT
+	LTID_DOUBLE
+	LTID_CHAR
+	LTID_VARCHAR
+	LTID_BLOB
+	LTID_INTERVAL
+	LTID_UTINYINT
+	LTID_USMALLINT
+	LTID_UINTEGER
+	LTID_UBIGINT
+	LTID_TIMESTAMP_TZ
+	LTID_TIME_TZ
+	LTID_BIT
+	LTID_HUGEINT
+	LTID_POINTER
+	LTID_VALIDITY
+	LTID_UUID
+	LTID_STRUCT
+	LTID_LIST
+	LTID_MAP
+	LTID_TABLE
+	LTID_ENUM
+	LTID_AGGREGATE_STATE
+	LTID_LAMBDA
+	LTID_UNION
+)
+
+type LType struct {
+	id   LTypeId
+	pTyp PhyType
+}
+
+var numerics = map[LTypeId]int{
+	LTID_TINYINT:   0,
+	LTID_SMALLINT:  0,
+	LTID_INTEGER:   0,
+	LTID_BIGINT:    0,
+	LTID_HUGEINT:   0,
+	LTID_FLOAT:     0,
+	LTID_DOUBLE:    0,
+	LTID_DECIMAL:   0,
+	LTID_UTINYINT:  0,
+	LTID_USMALLINT: 0,
+	LTID_UINTEGER:  0,
+	LTID_UBIGINT:   0,
+}
+
+func (lt LType) isNumeric() bool {
+	if _, has := numerics[lt.id]; has {
+		return true
+	}
+	return false
+}
+
+func targetTypeCost(typ *LType) int64 {
+	switch typ.id {
+	case LTID_INTEGER:
+		return 103
+	case LTID_BIGINT:
+		return 101
+	case LTID_DOUBLE:
+		return 102
+	case LTID_HUGEINT:
+		return 120
+	case LTID_TIMESTAMP:
+		return 120
+	case LTID_VARCHAR:
+		return 149
+	case LTID_DECIMAL:
+		return 104
+	case LTID_STRUCT:
+	case LTID_MAP:
+	case LTID_LIST:
+	case LTID_UNION:
+		return 160
+	default:
+		return 110
+	}
+	panic("can not be here")
+}
+
+var tinyintTo = map[LTypeId]int{
+	LTID_SMALLINT: 0,
+	LTID_INTEGER:  0,
+	LTID_BIGINT:   0,
+	LTID_HUGEINT:  0,
+	LTID_FLOAT:    0,
+	LTID_DOUBLE:   0,
+	LTID_DECIMAL:  0,
+}
+
+func implicitCastTinyint(to *LType) int64 {
+	if _, has := tinyintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var utinyintTo = map[LTypeId]int{
+	LTID_USMALLINT: 0,
+	LTID_UINTEGER:  0,
+	LTID_UBIGINT:   0,
+	LTID_SMALLINT:  0,
+	LTID_INTEGER:   0,
+	LTID_BIGINT:    0,
+	LTID_HUGEINT:   0,
+	LTID_FLOAT:     0,
+	LTID_DOUBLE:    0,
+	LTID_DECIMAL:   0,
+}
+
+func implicitCastUTinyint(to *LType) int64 {
+	if _, has := utinyintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var smallintTo = map[LTypeId]int{
+	LTID_INTEGER: 0,
+	LTID_BIGINT:  0,
+	LTID_HUGEINT: 0,
+	LTID_FLOAT:   0,
+	LTID_DOUBLE:  0,
+	LTID_DECIMAL: 0,
+}
+
+func implicitCastSmallint(to *LType) int64 {
+	if _, has := smallintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var usmallintTo = map[LTypeId]int{
+	LTID_UINTEGER: 0,
+	LTID_UBIGINT:  0,
+	LTID_INTEGER:  0,
+	LTID_BIGINT:   0,
+	LTID_HUGEINT:  0,
+	LTID_FLOAT:    0,
+	LTID_DOUBLE:   0,
+	LTID_DECIMAL:  0,
+}
+
+func implicitCastUSmallint(to *LType) int64 {
+	if _, has := usmallintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var integerTo = map[LTypeId]int{
+	LTID_BIGINT:  0,
+	LTID_HUGEINT: 0,
+	LTID_FLOAT:   0,
+	LTID_DOUBLE:  0,
+	LTID_DECIMAL: 0,
+}
+
+func implicitCastInteger(to *LType) int64 {
+	if _, has := integerTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var bigintTo = map[LTypeId]int{
+	LTID_FLOAT:   0,
+	LTID_DOUBLE:  0,
+	LTID_HUGEINT: 0,
+	LTID_DECIMAL: 0,
+}
+
+func implicitCastBigint(to *LType) int64 {
+	if _, has := bigintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+func implicitCast(from, to *LType) int64 {
+	if from.id == LTID_NULL {
+		//cast NULL to anything
+		return targetTypeCost(to)
+	}
+	if from.id == LTID_UNKNOWN {
+		//parameter expr cast no cost
+		return 0
+	}
+	if to.id == LTID_ANY {
+		//cast to any
+		return 1
+	}
+	if from.id == to.id {
+		//same. no cost
+		return 0
+	}
+	if to.id == LTID_VARCHAR {
+		//anything cast to varchar
+		return targetTypeCost(to)
+	}
+	switch from.id {
+	case LTID_TINYINT:
+		return implicitCastTinyint(to)
+	case LTID_SMALLINT:
+		return implicitCastSmallint(to)
+	case LTID_INTEGER:
+		return implicitCastInteger(to)
+	case LTID_BIGINT:
+		return implicitCastBigint(to)
+	case LTID_UTINYINT:
+		return implicitCastUTinyint(to)
+	case LTID_USMALLINT:
+		return implicitCastUSmallint(to)
+		//case LTID_UINTEGER:
+		//	return implicitCastUInteger(to)
+		//case LTID_UBIGINT:
+		//	return implicitCastUBigint(to)
+
+	}
+	return 0
+}
+
+func decideNumericType(left, right *LType) *LType {
+	if left.id > right.id {
+		return decideNumericType(right, left)
+	}
+
+	if implicitCast(left, right) >= 0 {
+
+	}
+	return nil
+}
+
+func MaxLType(left, right *LType) *LType {
+	//digit type
+	if left.id != right.id &&
+		left.isNumeric() && right.isNumeric() {
+		return decideNumericType(left, right)
+	}
+	return nil
+}
+
 type DataType int
 
 const (
