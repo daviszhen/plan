@@ -271,6 +271,33 @@ func (lo *LogicalOperator) String() string {
 	return tree.String()
 }
 
+func checkExprIsValid(root *LogicalOperator) {
+	if root == nil {
+		return
+	}
+	checkExprs(root.Projects...)
+	checkExprs(root.Filters...)
+	checkExprs(root.OnConds...)
+	checkExprs(root.Aggs...)
+	checkExprs(root.GroupBys...)
+	checkExprs(root.OrderBys...)
+	checkExprs(root.Limit)
+	for _, child := range root.Children {
+		checkExprIsValid(child)
+	}
+}
+
+func checkExprs(e ...*Expr) {
+	for _, expr := range e {
+		if expr == nil {
+			continue
+		}
+		if expr.Typ == ET_Func && expr.SubTyp == ET_Invalid {
+			panic("xxx")
+		}
+	}
+}
+
 type POT int
 
 const (
@@ -321,6 +348,7 @@ const (
 	ET_Greater
 	ET_GreaterEqual
 	ET_Less
+	ET_LessEqual
 	ET_And
 	ET_Or
 	ET_Not
@@ -354,6 +382,8 @@ func (et ET_SubTyp) String() string {
 		return ">="
 	case ET_Less:
 		return "<"
+	case ET_LessEqual:
+		return "<="
 	case ET_And:
 		return "and"
 	case ET_Or:

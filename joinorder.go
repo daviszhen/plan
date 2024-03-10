@@ -1144,6 +1144,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 	if final == nil {
 		return nil, errors.New("final plan is nil")
 	}
+	checkExprIsValid(root)
 	return joinOrder.rewritePlan(root, final)
 }
 
@@ -1298,6 +1299,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				}
 				cond := &Expr{
 					Typ:      filter.Typ,
+					SubTyp:   filter.SubTyp,
 					Children: []*Expr{nil, nil},
 				}
 				if !invert {
@@ -1347,18 +1349,19 @@ func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *Jo
 		}
 		extractedRelations = append(extractedRelations, exRel)
 	}
-
+	checkExprIsValid(root)
 	joinTree, err := joinOrder.generateJoins(extractedRelations, node)
 	if err != nil {
 		return nil, err
 	}
+	checkExprIsValid(joinTree.op)
 	//pushdown remaining filters
 	for _, filter := range joinOrder.filters {
 		if filter != nil {
 			joinTree.op = pushFilter(joinTree.op, filter)
 		}
 	}
-
+	checkExprIsValid(joinTree.op)
 	if rootIsJoin {
 		return joinTree.op, nil
 	}
@@ -1391,7 +1394,7 @@ func (joinOrder *JoinOrderOptimizer) solveJoinOrder() error {
 	return joinOrder.greedy()
 }
 
-func (joinOrder *JoinOrderOptimizer) greedy() error {
+func (joinOrder *JoinOrderOptimizer) greedy() (err error) {
 	var joinRelations []*JoinRelationSet
 	for i := 0; i < len(joinOrder.relations); i++ {
 		joinRelations = append(joinRelations, joinOrder.setManager.getRelation2(uint64(i)))
@@ -1465,13 +1468,13 @@ func (joinOrder *JoinOrderOptimizer) greedy() error {
 			if conns == nil {
 				return errors.New("conns are nil")
 			}
-			bestConn, err := joinOrder.emitPair(left, right, conns)
+			best, err = joinOrder.emitPair(left, right, conns)
 			if err != nil {
 				return err
 			}
 			bestLeft = int(smallestIndex[0])
 			bestRight = int(smallestIndex[1])
-			err = joinOrder.updateDPTree(bestConn)
+			err = joinOrder.updateDPTree(best)
 			if err != nil {
 				return err
 			}

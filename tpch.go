@@ -1,5 +1,81 @@
 package main
 
+func tpchQ1() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("l_returnflag"),
+		column("l_linestatus"),
+		withAlias(
+			function("sum",
+				column("l_quantity")),
+			"sum_qty"),
+		withAlias(
+			function("sum",
+				column("l_extendedprice")),
+			"sum_base_price"),
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+			),
+			"sum_disc_price"),
+		withAlias(
+			function("sum",
+				mul(
+					mul(
+						column("l_extendedprice"),
+						sub(
+							inumber(1),
+							column("l_discount"),
+						),
+					),
+					add(
+						inumber(1),
+						column("l_tax"),
+					),
+				),
+			),
+			"sum_charge"),
+		withAlias(
+			function("avg",
+				column("l_quantity")),
+			"avg_qty"),
+		withAlias(
+			function("avg",
+				column("l_extendedprice")),
+			"avg_price"),
+		withAlias(
+			function("avg",
+				column("l_discount")),
+			"avg_disc"),
+		withAlias(
+			function("count",
+				column("*")),
+			"count_order"),
+	)
+	ret.Select.From.Tables = table("lineitem")
+	ret.Select.Where.Expr = lessEqual(
+		column("l_shipdate"),
+		sub(
+			date("1998-12-01"),
+			interval(112, "day"),
+		),
+	)
+	ret.Select.GroupBy.Exprs = astList(
+		column("l_returnflag"),
+		column("l_linestatus"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("l_returnflag"), false),
+		orderby(column("l_linestatus"), false),
+	)
+	return ret
+}
+
 // correlated
 func tpchQ2() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
@@ -126,6 +202,49 @@ func q2Subquery() *Ast {
 	return ret
 }
 
+func tpchQ3() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("l_orderkey"),
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+			),
+			"revenue"),
+		column("o_orderdate"),
+		column("o_shippriority"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("customer"),
+		table("orders"),
+		table("lineitem"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("c_mktsegment"), sstring("HOUSEHOLD")),
+		equal(column("c_custkey"), column("o_custkey")),
+		equal(column("l_orderkey"), column("o_orderkey")),
+		less(column("o_orderdate"), date("1995-03-29")),
+		greater(column("l_shipdate"), date("1995-03-29")),
+	)
+	ret.Select.GroupBy.Exprs = astList(
+		column("l_orderkey"),
+		column("o_orderdate"),
+		column("o_shippriority"),
+	)
+	ret.OrderBy.Exprs = astList(
+		orderby(column("revenue"), true),
+		orderby(column("o_orderdate"), false),
+	)
+	ret.Limit.Count = inumber(10)
+	return ret
+}
+
 // correlated
 func tpchQ4() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
@@ -153,6 +272,85 @@ func q4Subquery() *Ast {
 	w1 := equal(column("l_orderkey"), column("o_orderkey"))
 	w2 := less(column("l_commitdate"), column("l_receiptdate"))
 	ret.Select.Where.Expr = and(w1, w2)
+	return ret
+}
+
+func tpchQ5() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("n_name"),
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+			),
+			"revenue"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("customer"),
+		table("orders"),
+		table("lineitem"),
+		table("supplier"),
+		table("nation"),
+		table("region"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("c_custkey"), column("o_custkey")),
+		equal(column("l_orderkey"), column("o_orderkey")),
+		equal(column("l_suppkey"), column("s_suppkey")),
+		equal(column("c_nationkey"), column("s_nationkey")),
+		equal(column("s_nationkey"), column("n_nationkey")),
+		equal(column("n_regionkey"), column("r_regionkey")),
+		equal(column("r_name"), sstring("AMERICA")),
+		greaterEqual(column("o_orderdate"), date("1994-01-01")),
+		less(
+			column("o_orderdate"),
+			add(
+				date("1994-01-01"),
+				interval(1, "year"),
+			),
+		),
+	)
+	ret.Select.GroupBy.Exprs = astList(column("n_name"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("revenue"), true))
+	return ret
+}
+
+func tpchQ6() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					column("l_discount"),
+				),
+			),
+			"revenue"),
+	)
+	ret.Select.From.Tables = table("lineitem")
+	ret.Select.Where.Expr = andList(
+		greaterEqual(column("l_shipdate"), date("1994-01-01")),
+		less(
+			column("l_shipdate"),
+			add(
+				date("1994-01-01"),
+				interval(1, "year"),
+			),
+		),
+		between(
+			column("l_discount"),
+			sub(fnumber(0.03), fnumber(0.01)),
+			add(fnumber(0.03), fnumber(0.01)),
+		),
+		less(column("l_quantity"), inumber(24)),
+	)
 	return ret
 }
 
@@ -367,6 +565,58 @@ func q9Subquery() *Ast {
 	return ret
 }
 
+func tpchQ10() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("c_custkey"),
+		column("c_name"),
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+			),
+			"revenue"),
+		column("c_acctbal"),
+		column("n_name"),
+		column("c_address"),
+		column("c_phone"),
+		column("c_comment"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("customer"),
+		table("orders"),
+		table("lineitem"),
+		table("nation"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("c_custkey"), column("o_custkey")),
+		equal(column("l_orderkey"), column("o_orderkey")),
+		greaterEqual(column("o_orderdate"), date("1993-03-01")),
+		less(column("o_orderdate"), add(date("1993-03-01"), interval(3, "month"))),
+		equal(column("l_returnflag"), sstring("R")),
+		equal(column("c_nationkey"), column("n_nationkey")),
+	)
+	ret.Select.GroupBy.Exprs = astList(
+		column("c_custkey"),
+		column("c_name"),
+		column("c_acctbal"),
+		column("c_phone"),
+		column("n_name"),
+		column("c_address"),
+		column("c_comment"),
+	)
+	ret.OrderBy.Exprs = astList(
+		orderby(column("revenue"), true),
+	)
+	ret.Limit.Count = inumber(20)
+	return ret
+}
+
 func tpchQ11() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
 	ret.Select.SelectExprs = astList(
@@ -430,6 +680,56 @@ func q11Subquery() *Ast {
 	return ret
 }
 
+func tpchQ12() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		column("l_shipmode"),
+		withAlias(
+			function("sum",
+				caseWhen(
+					nil,
+					inumber(0),
+					or(
+						equal(column("o_orderpriority"), sstring("1-URGENT")),
+						equal(column("o_orderpriority"), sstring("2-HIGH")),
+					),
+					inumber(1),
+				)),
+			"high_line_count"),
+		withAlias(
+			function("sum",
+				caseWhen(
+					nil,
+					inumber(0),
+					or(
+						notEqual(column("o_orderpriority"), sstring("1-URGENT")),
+						notEqual(column("o_orderpriority"), sstring("2-HIGH")),
+					),
+					inumber(1),
+				)),
+			"low_line_count"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("orders"),
+		table("lineitem"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("o_orderkey"), column("l_orderkey")),
+		in(column("l_shipmode"), sstring("FOB"), sstring("TRUCK")),
+		less(column("l_commitdate"), column("l_receiptdate")),
+		less(column("l_shipdate"), column("l_commitdate")),
+		greaterEqual(column("l_receiptdate"), date("1996-01-01")),
+		less(column("l_receiptdate"), add(date("1996-01-01"), interval(1, "year"))),
+	)
+	ret.Select.GroupBy.Exprs = astList(
+		column("l_shipmode"),
+	)
+	ret.OrderBy.Exprs = astList(
+		orderby(column("l_shipmode"), false),
+	)
+	return ret
+}
+
 func tpchQ13() *Ast {
 	ret := &Ast{Typ: AstTypeSelect}
 	ret.Select.SelectExprs = astList(
@@ -471,6 +771,52 @@ func q13Subquery() *Ast {
 		),
 	)
 	ret.Select.GroupBy.Exprs = astList(column("c_custkey"))
+	return ret
+}
+
+func tpchQ14() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			div(
+				mul(
+					fnumber(100),
+					function("sum",
+						caseWhen(
+							nil,
+							inumber(0),
+							like(column("p_type"), sstring("PROMO%")),
+							mul(
+								column("l_extendedprice"),
+								sub(
+									inumber(1),
+									column("l_discount"),
+								),
+							),
+						),
+					),
+				),
+				function("sum",
+					mul(
+						column("l_extendedprice"),
+						sub(
+							inumber(1),
+							column("l_discount"),
+						),
+					),
+				),
+			),
+			"promo_revenue"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("lineitem"),
+		table("part"),
+	)
+	ret.Select.Where.Expr = andList(
+		equal(column("l_partkey"), column("p_partkey")),
+		greaterEqual(column("l_shipdate"), date("1996-04-01")),
+		less(column("l_shipdate"), add(date("1996-04-01"), interval(1, "month"))),
+	)
 	return ret
 }
 
@@ -692,6 +1038,60 @@ func q18Subquery() *Ast {
 	ret.Select.Having.Expr = greater(
 		function("sum", column("l_quantity")),
 		inumber(314))
+	return ret
+}
+
+func tpchQ19() *Ast {
+	ret := &Ast{Typ: AstTypeSelect}
+	ret.Select.SelectExprs = astList(
+		withAlias(
+			function("sum",
+				mul(
+					column("l_extendedprice"),
+					sub(
+						inumber(1),
+						column("l_discount"),
+					),
+				),
+			),
+			"revenue"),
+	)
+	ret.Select.From.Tables = crossJoinList(
+		table("lineitem"),
+		table("part"),
+	)
+	ret.Select.Where.Expr = orList(
+		andList(
+			equal(column("p_partkey"), column("l_partkey")),
+			equal(column("p_brand"), sstring("Brand#23")),
+			in(column("p_container"), sstring("SM CASE"), sstring("SM BOX"), sstring("SM PACK"), sstring("SM PKG")),
+			greaterEqual(column("l_quantity"), inumber(5)),
+			lessEqual(column("l_quantity"), inumber(15)),
+			between(column("p_size"), inumber(1), inumber(5)),
+			in(column("l_shipmode"), sstring("AIR"), sstring("AIR REG")),
+			equal(column("l_shipinstruct"), sstring("DELIVER IN PERSON")),
+		),
+		andList(
+			equal(column("p_partkey"), column("l_partkey")),
+			equal(column("p_brand"), sstring("Brand#15")),
+			in(column("p_container"), sstring("MED BAG"), sstring("MED BOX"), sstring("MED PKG"), sstring("MED PACK")),
+			greaterEqual(column("l_quantity"), inumber(14)),
+			lessEqual(column("l_quantity"), inumber(24)),
+			between(column("p_size"), inumber(1), inumber(10)),
+			in(column("l_shipmode"), sstring("AIR"), sstring("AIR REG")),
+			equal(column("l_shipinstruct"), sstring("DELIVER IN PERSON")),
+		),
+		andList(
+			equal(column("p_partkey"), column("l_partkey")),
+			equal(column("p_brand"), sstring("Brand#44")),
+			in(column("p_container"), sstring("LG CASE"), sstring("LG BOX"), sstring("LG PACK"), sstring("LG PKG")),
+			greaterEqual(column("l_quantity"), inumber(28)),
+			lessEqual(column("l_quantity"), inumber(38)),
+			between(column("p_size"), inumber(1), inumber(15)),
+			in(column("l_shipmode"), sstring("AIR"), sstring("AIR REG")),
+			equal(column("l_shipinstruct"), sstring("DELIVER IN PERSON")),
+		),
+	)
 	return ret
 }
 

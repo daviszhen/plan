@@ -64,6 +64,7 @@ const (
 	AstExprSubTypeGreater      // =>
 	AstExprSubTypeGreaterEqual // =>
 	AstExprSubTypeLess         // <
+	AstExprSubTypeLessEqual    // <
 	AstExprSubTypeBetween      // [a,b]
 	AstExprSubTypeAnd
 	AstExprSubTypeOr
@@ -177,10 +178,19 @@ func (a *Ast) Format(ctx *FormatCtx) {
 		ctx.Write(a.Expr.Svalue)
 	case AstExprTypeFunc:
 		switch a.Expr.SubTyp {
-		case AstExprSubTypeSub, AstExprSubTypeMul, AstExprSubTypeDiv, AstExprSubTypeEqual:
+		case AstExprSubTypeAdd,
+			AstExprSubTypeSub,
+			AstExprSubTypeMul,
+			AstExprSubTypeDiv,
+			AstExprSubTypeEqual,
+			AstExprSubTypeNotEqual,
+			AstExprSubTypeOr,
+			AstExprSubTypeLike:
 			ctx.Write(a.Expr.Children[0].String())
 			op := ""
 			switch a.Expr.SubTyp {
+			case AstExprSubTypeAdd:
+				op = "+"
 			case AstExprSubTypeSub:
 				op = "-"
 			case AstExprSubTypeMul:
@@ -189,6 +199,12 @@ func (a *Ast) Format(ctx *FormatCtx) {
 				op = "/"
 			case AstExprSubTypeEqual:
 				op = "="
+			case AstExprSubTypeNotEqual:
+				op = "<>"
+			case AstExprSubTypeOr:
+				op = "or"
+			case AstExprSubTypeLike:
+				op = "like"
 			default:
 				panic("usp")
 			}
@@ -448,6 +464,9 @@ func greater(left, right *Ast) *Ast {
 func less(left, right *Ast) *Ast {
 	return binary(AstExprSubTypeLess, left, right)
 }
+func lessEqual(left, right *Ast) *Ast {
+	return binary(AstExprSubTypeLessEqual, left, right)
+}
 
 func and(left, right *Ast) *Ast {
 	return binary(AstExprSubTypeAnd, left, right)
@@ -464,6 +483,15 @@ func andList(a ...*Ast) *Ast {
 
 func or(left, right *Ast) *Ast {
 	return binary(AstExprSubTypeOr, left, right)
+}
+
+func orList(a ...*Ast) *Ast {
+	if len(a) == 1 {
+		return a[0]
+	} else if len(a) == 2 {
+		return or(a[0], a[1])
+	}
+	return or(orList(a[:len(a)-1]...), a[len(a)-1])
 }
 
 func between(a, left, right *Ast) *Ast {

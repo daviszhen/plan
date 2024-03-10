@@ -290,6 +290,9 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	case AstExprSubTypeLess:
 		et = ET_Less
 		edt.Typ = DataTypeBool
+	case AstExprSubTypeLessEqual:
+		et = ET_LessEqual
+		edt.Typ = DataTypeBool
 	case AstExprSubTypeBetween:
 		et = ET_Between
 		edt.Typ = DataTypeBool
@@ -300,7 +303,7 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		et = ET_NotIn
 		edt.Typ = DataTypeBool
 	default:
-		panic(fmt.Sprintf("usp binary type %d", expr.Expr.ExprTyp))
+		panic(fmt.Sprintf("usp binary type %d", expr.Expr.SubTyp))
 	}
 	return &Expr{
 		Typ:      ET_Func,

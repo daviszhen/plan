@@ -47,14 +47,34 @@ func runTest(t *testing.T, name string, ast *Ast) {
 	assert.NoError(t, err)
 }
 
+func TestQ1(t *testing.T) {
+	q1 := tpchQ1()
+	runTest(t, "q1.json", q1)
+}
+
 func TestQ2(t *testing.T) {
 	q2 := tpchQ2()
 	runTest(t, "q2.json", q2)
 }
 
+func TestQ3(t *testing.T) {
+	q3 := tpchQ3()
+	runTest(t, "q3.json", q3)
+}
+
 func TestQ4(t *testing.T) {
 	q4 := tpchQ4()
 	runTest(t, "q4.json", q4)
+}
+
+func TestQ5(t *testing.T) {
+	q5 := tpchQ5()
+	runTest(t, "q5.json", q5)
+}
+
+func TestQ6(t *testing.T) {
+	q6 := tpchQ6()
+	runTest(t, "q6.json", q6)
 }
 
 func TestQ7(t *testing.T) {
@@ -72,6 +92,11 @@ func TestQ9(t *testing.T) {
 	runTest(t, "q9.json", q9)
 }
 
+func TestQ10(t *testing.T) {
+	q10 := tpchQ10()
+	runTest(t, "q10.json", q10)
+}
+
 func TestQ11(t *testing.T) {
 	/*
 		TODO: fix
@@ -83,6 +108,11 @@ func TestQ11(t *testing.T) {
 	runTest(t, "q11.json", q11)
 }
 
+func TestQ12(t *testing.T) {
+	q12 := tpchQ12()
+	runTest(t, "q12.json", q12)
+}
+
 func TestQ13(t *testing.T) {
 	/*
 		TODO:fix
@@ -90,6 +120,11 @@ func TestQ13(t *testing.T) {
 	*/
 	q13 := tpchQ13()
 	runTest(t, "q13.json", q13)
+}
+
+func TestQ14(t *testing.T) {
+	q14 := tpchQ14()
+	runTest(t, "q14.json", q14)
 }
 
 func TestQ15(t *testing.T) {
@@ -110,6 +145,11 @@ func TestQ17(t *testing.T) {
 func TestQ18(t *testing.T) {
 	q18 := tpchQ18()
 	runTest(t, "q18.json", q18)
+}
+
+func TestQ19(t *testing.T) {
+	q19 := tpchQ19()
+	runTest(t, "q19.json", q19)
 }
 
 func TestQ20(t *testing.T) {
