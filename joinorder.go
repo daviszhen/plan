@@ -1767,12 +1767,6 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 		}
 	case ET_SConst, ET_IConst, ET_FConst:
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			joinOrder.collectRelation(e.Between, set)
-		default:
-
-		}
 	default:
 		panic("usp")
 	}
@@ -1797,12 +1791,6 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 
 	case ET_SConst, ET_IConst, ET_FConst:
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			joinOrder.getColumnBind(e.Between, cb)
-		default:
-
-		}
 	default:
 		panic("usp")
 	}
@@ -1870,11 +1858,6 @@ func collectTableRefers(e *Expr, set Set) {
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			collectTableRefers(e.Between, set)
-		default:
-		}
 
 	default:
 		panic("usp")

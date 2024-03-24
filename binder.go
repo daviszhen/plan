@@ -156,6 +156,11 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				DataTyp:  ExprDataType{LTyp: boolean()},
 				Children: []*Expr{child},
 			}
+		case AstExprSubTypeBetween:
+			ret, err = b.bindBetweenExpr(ctx, iwc, expr, depth)
+			if err != nil {
+				return nil, err
+			}
 		default:
 			//binary operator
 			ret, err = b.bindBinaryExpr(ctx, iwc, expr, depth)
@@ -387,11 +392,11 @@ func isCompare(opTyp AstExprSubType) bool {
 	return false
 }
 
-func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
+func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
 	var betExpr *Expr
 	var err error
 	var resultTyp LType
-	if expr.Expr.SubTyp == AstExprSubTypeBetween {
+	{
 		betExpr, err = b.bindExpr(ctx, iwc, expr.Expr.Between, depth)
 		if err != nil {
 			return nil, err
@@ -405,7 +410,7 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	if err != nil {
 		return nil, err
 	}
-	if expr.Expr.SubTyp == AstExprSubTypeBetween {
+	{
 		resultTyp = decideResultType(betExpr.DataTyp.LTyp, left.DataTyp.LTyp)
 		resultTyp = decideResultType(resultTyp, right.DataTyp.LTyp)
 		//cast
@@ -421,7 +426,32 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		if err != nil {
 			return nil, err
 		}
-	} else {
+	}
+
+	params := []*Expr{betExpr, left, right}
+	paramsTypes := []ExprDataType{betExpr.DataTyp, left.DataTyp, right.DataTyp}
+
+	ret, err := b.bindFunc("between", expr.String(), params, paramsTypes)
+	if err != nil {
+		return nil, err
+	}
+	ret.SubTyp = ET_Between
+	ret.Svalue = ret.SubTyp.String()
+	return ret, nil
+}
+
+func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
+	var err error
+	var resultTyp LType
+	left, err := b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+	if err != nil {
+		return nil, err
+	}
+	right, err := b.bindExpr(ctx, iwc, expr.Expr.Children[1], depth)
+	if err != nil {
+		return nil, err
+	}
+	{
 		resultTyp = decideResultType(left.DataTyp.LTyp, right.DataTyp.LTyp)
 		//cast
 		left, err = castExpr(left, resultTyp, resultTyp.id == LTID_ENUM)
@@ -446,7 +476,6 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		SubTyp:   et,
 		Svalue:   et.String(),
 		DataTyp:  ExprDataType{LTyp: retTyp},
-		Between:  betExpr,
 		Children: []*Expr{left, right},
 	}, err
 }

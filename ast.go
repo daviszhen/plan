@@ -216,6 +216,12 @@ func (a *Ast) Format(ctx *FormatCtx) {
 			}
 			ctx.Write(fmt.Sprintf(" %v ", op))
 			ctx.Write(a.Expr.Children[1].String())
+		case AstExprSubTypeBetween:
+			ctx.Write(a.Expr.In.String())
+			ctx.Write(" between ")
+			ctx.Write(a.Expr.Children[0].String())
+			ctx.Write(" and ")
+			ctx.Write(a.Expr.Children[1].String())
 		case AstExprSubTypeCase:
 			ctx.Write("case ")
 			if a.Expr.Kase != nil {

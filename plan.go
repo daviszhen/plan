@@ -230,7 +230,7 @@ func boolean() LType {
 }
 
 func intervalLType() LType {
-	return makeLType(LTID_BOOLEAN)
+	return makeLType(LTID_INTERVAL)
 }
 
 var numerics = map[LTypeId]int{
@@ -717,6 +717,11 @@ func MaxLType(left, right LType) LType {
 	} else if right.id == LTID_UNKNOWN {
 		return left
 	} else if left.id < right.id {
+		if left.id == LTID_DATE && right.id == LTID_INTERVAL {
+			return left
+		} else if left.id == LTID_INTERVAL && right.id == LTID_DATE {
+			return right
+		}
 		return right
 	}
 	if right.id < left.id {
@@ -1066,6 +1071,11 @@ func checkExprs(e ...*Expr) {
 		if expr.Typ == ET_Func && expr.SubTyp == ET_Invalid {
 			panic("xxx")
 		}
+		if expr.Typ == ET_Func && expr.SubTyp == ET_Between {
+			if len(expr.Children) != 3 {
+				panic("invalid between")
+			}
+		}
 		if expr.DataTyp.LTyp.id == LTID_INVALID {
 			panic("invalid logical type")
 		}
@@ -1139,7 +1149,7 @@ const (
 func (et ET_SubTyp) String() string {
 	switch et {
 	case ET_Add:
-		return "-"
+		return "+"
 	case ET_Sub:
 		return "-"
 	case ET_Mul:
@@ -1223,7 +1233,6 @@ type Expr struct {
 	SubCtx      *BindContext // context for subquery
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
-	Between     *Expr
 	Kase        *Expr
 	When        []*Expr
 	Els         *Expr
@@ -1245,11 +1254,6 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		}
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			e.Between = restoreExpr(e.Between, index, realExprs)
-		default:
-		}
 	default:
 		panic("usp")
 	}
@@ -1269,13 +1273,6 @@ func referTo(e *Expr, index uint64) bool {
 	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst:
 
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			if referTo(e.Between, index) {
-				return true
-			}
-		default:
-		}
 	default:
 		panic("usp")
 	}
@@ -1298,13 +1295,6 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 		return true
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			if !onlyReferTo(e.Between, index) {
-				return false
-			}
-		default:
-		}
 	default:
 		panic("usp")
 	}
@@ -1328,14 +1318,6 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		}
 	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_In, ET_NotIn:
-			ret |= decideSide(e.Children[0], leftTags, rightTags)
-		case ET_Between:
-			ret |= decideSide(e.Between, leftTags, rightTags)
-		default:
-		}
-
 	default:
 		panic("usp")
 	}
@@ -1485,11 +1467,11 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		case ET_Invalid:
 			panic("usp invalid expr")
 		case ET_Between:
-			e.Between.Format(ctx)
-			ctx.Write(" between ")
 			e.Children[0].Format(ctx)
-			ctx.Write(" and ")
+			ctx.Write(" between ")
 			e.Children[1].Format(ctx)
+			ctx.Write(" and ")
+			e.Children[2].Format(ctx)
 		case ET_Case:
 			ctx.Write("case ")
 			if e.Kase != nil {
@@ -1614,9 +1596,9 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 			panic("usp invalid expr")
 		case ET_Between:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
-			e.Between.Print(branch, "")
 			e.Children[0].Print(branch, "")
 			e.Children[1].Print(branch, "")
+			e.Children[2].Print(branch, "")
 		case ET_Case:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
 			if e.Kase != nil {
@@ -1859,12 +1841,6 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Between:
-			e.Between = replaceColRef(e.Between, bind, newBind)
-		default:
-
-		}
 	case ET_Orderby:
 	default:
 		panic("usp")
@@ -1885,8 +1861,6 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 
 	case ET_Func:
 		switch e.SubTyp {
-		case ET_Between:
-			collectColRefs(e.Between, set)
 		case ET_Case:
 			collectColRefs(e.Kase, set)
 			for _, expr := range e.When {
