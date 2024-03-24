@@ -1083,8 +1083,11 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 			switch filter.SubTyp {
 			case ET_In, ET_NotIn:
 				//in or not in has been splited
-				for _, child := range filter.Children {
-					joinOrder.createEdge(filter.In, child, info)
+				for j, child := range filter.Children {
+					if j == 0 {
+						continue
+					}
+					joinOrder.createEdge(filter.Children[0], child, info)
 				}
 			case ET_SubFunc:
 			case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
@@ -1228,8 +1231,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				}
 				invert := !isSubset(left.set, filter.leftSet)
 				if condition.SubTyp == ET_In || condition.SubTyp == ET_NotIn {
-					cond.In = condition.In
-					cond.Children = []*Expr{condition.Children[0]}
+					cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
 					//TODO: fixme
 					//if !invert {
 					//	cond.In = condition.In
@@ -1766,8 +1768,6 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 	case ET_SConst, ET_IConst, ET_FConst:
 	case ET_Func:
 		switch e.SubTyp {
-		case ET_In, ET_NotIn:
-			joinOrder.collectRelation(e.In, set)
 		case ET_Between:
 			joinOrder.collectRelation(e.Between, set)
 		default:
@@ -1800,8 +1800,6 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 		switch e.SubTyp {
 		case ET_Between:
 			joinOrder.getColumnBind(e.Between, cb)
-		case ET_In, ET_NotIn:
-			joinOrder.getColumnBind(e.In, cb)
 		default:
 
 		}
@@ -1875,8 +1873,6 @@ func collectTableRefers(e *Expr, set Set) {
 		switch e.SubTyp {
 		case ET_Between:
 			collectTableRefers(e.Between, set)
-		case ET_In, ET_NotIn:
-			collectTableRefers(e.In, set)
 		default:
 		}
 

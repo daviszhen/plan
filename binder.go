@@ -6,7 +6,6 @@ import (
 
 func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (ret *Expr, err error) {
 	var child *Expr
-	var id FuncId
 	if expr.Typ != AstTypeExpr {
 		panic("need expr")
 	}
@@ -118,44 +117,9 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				argsTypes = append(argsTypes, child.DataTyp)
 			}
 
-			id, err = GetFunctionId(name)
+			ret, err = b.bindFunc(name, expr.String(), args, argsTypes)
 			if err != nil {
 				return nil, err
-			}
-
-			impl, err := GetFunctionImpl(id, argsTypes)
-			if err != nil {
-				return nil, err
-			}
-
-			retTyp := impl.RetTypeDecider(argsTypes)
-
-			ret = &Expr{
-				Typ:      ET_Func,
-				SubTyp:   ET_SubFunc,
-				Svalue:   name,
-				FuncId:   id,
-				DataTyp:  retTyp,
-				Children: args,
-			}
-
-			//hard code for simplicity
-			if id == DATE_ADD {
-				ret.DataTyp = ExprDataType{
-					LTyp: dateLTyp(),
-				}
-			}
-
-			if IsAgg(name) {
-				b.aggs = append(b.aggs, ret)
-				ret = &Expr{
-					Typ:     ET_Column,
-					DataTyp: ret.DataTyp,
-					Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
-					Name:    expr.String(),
-					ColRef:  [2]uint64{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
-					Depth:   0,
-				}
 			}
 		case AstExprSubTypeIn,
 			AstExprSubTypeNotIn:
@@ -224,6 +188,49 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		ret.Alias = expr.Expr.Alias.alias
 	}
 	return ret, err
+}
+
+func (b *Builder) bindFunc(name string, astStr string, args []*Expr, argsTypes []ExprDataType) (*Expr, error) {
+	id, err := GetFunctionId(name)
+	if err != nil {
+		return nil, err
+	}
+
+	impl, err := GetFunctionImpl(id, argsTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	retTyp := impl.RetTypeDecider(argsTypes)
+
+	ret := &Expr{
+		Typ:      ET_Func,
+		SubTyp:   ET_SubFunc,
+		Svalue:   name,
+		FuncId:   id,
+		DataTyp:  retTyp,
+		Children: args,
+	}
+
+	//hard code for simplicity
+	if id == DATE_ADD {
+		ret.DataTyp = ExprDataType{
+			LTyp: dateLTyp(),
+		}
+	}
+
+	if IsAgg(name) {
+		b.aggs = append(b.aggs, ret)
+		ret = &Expr{
+			Typ:     ET_Column,
+			DataTyp: ret.DataTyp,
+			Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
+			Name:    astStr,
+			ColRef:  [2]uint64{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
+			Depth:   0,
+		}
+	}
+	return ret, nil
 }
 
 func decideResultType(left LType, right LType) LType {

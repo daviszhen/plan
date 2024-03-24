@@ -39,6 +39,7 @@ const (
 	AVG
 	SUBSTRING
 	CAST
+	IN
 )
 
 var funcName2Id = map[string]FuncId{
@@ -51,6 +52,7 @@ var funcName2Id = map[string]FuncId{
 	"avg":       AVG,
 	"substring": SUBSTRING,
 	"cast":      CAST,
+	"in":        IN,
 }
 
 var allFunctions = map[FuncId]*Function{}
@@ -106,6 +108,26 @@ func exactImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataT
 		for j, arg := range impl.Args {
 			if !arg.equal(argsTypes[j]) &&
 				!arg.include(argsTypes[j]) {
+				equalTyp = false
+				break
+			}
+		}
+		if equalTyp {
+			return i, impl.Args
+		}
+	}
+	return -1, nil
+}
+
+func opInImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataType) {
+	if len(argsTypes) < 1 {
+		return -1, nil
+	}
+	for i, impl := range fun.Impls {
+		equalTyp := true
+		for _, arg := range argsTypes {
+			if !impl.Args[0].equal(arg) &&
+				!impl.Args[0].include(arg) {
 				equalTyp = false
 				break
 			}
@@ -363,5 +385,29 @@ var funcs = []*Function{
 			},
 		},
 		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: IN,
+		Impls: []*Impl{
+			{
+				Desc: "in",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return types[0]
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: false,
+			},
+		},
+		ImplDecider: opInImplDecider,
 	},
 }

@@ -1228,7 +1228,6 @@ type Expr struct {
 	When        []*Expr
 	Els         *Expr
 	CTEIndex    uint64
-	In          *Expr
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -1247,8 +1246,6 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
 		switch e.SubTyp {
-		case ET_In, ET_NotIn:
-			e.In = restoreExpr(e.In, index, realExprs)
 		case ET_Between:
 			e.Between = restoreExpr(e.Between, index, realExprs)
 		default:
@@ -1277,10 +1274,6 @@ func referTo(e *Expr, index uint64) bool {
 			if referTo(e.Between, index) {
 				return true
 			}
-		case ET_In:
-			if referTo(e.In, index) {
-				return true
-			}
 		default:
 		}
 	default:
@@ -1306,10 +1299,6 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		return true
 	case ET_Func:
 		switch e.SubTyp {
-		case ET_In, ET_NotIn:
-			if !onlyReferTo(e.In, index) {
-				return false
-			}
 		case ET_Between:
 			if !onlyReferTo(e.Between, index) {
 				return false
@@ -1341,7 +1330,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 	case ET_Func:
 		switch e.SubTyp {
 		case ET_In, ET_NotIn:
-			ret |= decideSide(e.In, leftTags, rightTags)
+			ret |= decideSide(e.Children[0], leftTags, rightTags)
 		case ET_Between:
 			ret |= decideSide(e.Between, leftTags, rightTags)
 		default:
@@ -1521,7 +1510,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			}
 			ctx.Write("end")
 		case ET_In, ET_NotIn:
-			e.In.Format(ctx)
+			e.Children[0].Format(ctx)
 			if e.SubTyp == ET_NotIn {
 				ctx.Write(" not in ")
 			} else {
@@ -1529,8 +1518,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			}
 
 			ctx.Write("(")
-			for idx, e := range e.Children {
-				if idx > 0 {
+			for i := 1; i < len(e.Children); i++ {
+				if i > 1 {
 					ctx.Write(",")
 				}
 				e.Format(ctx)
@@ -1643,7 +1632,6 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 			}
 		case ET_In, ET_NotIn:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
-			e.In.Print(branch, "")
 			for _, e := range e.Children {
 				e.Print(branch, "")
 			}
@@ -1767,13 +1755,15 @@ func splitExprByAnd(expr *Expr) []*Expr {
 			return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
 		} else if expr.SubTyp == ET_In || expr.SubTyp == ET_NotIn {
 			ret := make([]*Expr, 0)
-			for _, child := range expr.Children {
+			for i, child := range expr.Children {
+				if i == 0 {
+					continue
+				}
 				ret = append(ret, &Expr{
 					Typ:      expr.Typ,
 					SubTyp:   expr.SubTyp,
 					Svalue:   expr.SubTyp.String(),
-					In:       expr.In,
-					Children: []*Expr{child},
+					Children: []*Expr{expr.Children[0], child},
 				})
 			}
 		}
@@ -1870,8 +1860,6 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Func:
 		switch e.SubTyp {
-		case ET_In, ET_NotIn:
-			e.In = replaceColRef(e.In, bind, newBind)
 		case ET_Between:
 			e.Between = replaceColRef(e.Between, bind, newBind)
 		default:
@@ -1897,8 +1885,6 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 
 	case ET_Func:
 		switch e.SubTyp {
-		case ET_In, ET_NotIn:
-			collectColRefs(e.In, set)
 		case ET_Between:
 			collectColRefs(e.Between, set)
 		case ET_Case:

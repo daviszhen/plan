@@ -185,7 +185,9 @@ func (a *Ast) Format(ctx *FormatCtx) {
 			AstExprSubTypeEqual,
 			AstExprSubTypeNotEqual,
 			AstExprSubTypeOr,
-			AstExprSubTypeLike:
+			AstExprSubTypeLike,
+			AstExprSubTypeIn,
+			AstExprSubTypeNotIn:
 			ctx.Write(a.Expr.Children[0].String())
 			op := ""
 			switch a.Expr.SubTyp {
@@ -205,6 +207,10 @@ func (a *Ast) Format(ctx *FormatCtx) {
 				op = "or"
 			case AstExprSubTypeLike:
 				op = "like"
+			case AstExprSubTypeIn:
+				op = "in"
+			case AstExprSubTypeNotIn:
+				op = "not in"
 			default:
 				panic("usp")
 			}

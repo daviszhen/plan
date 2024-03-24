@@ -864,11 +864,6 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				Children: []*Expr{left, right},
 			}, rroot, nil
 		case ET_In, ET_NotIn:
-			var in *Expr
-			in, root, err = b.createSubquery(expr.In, root)
-			if err != nil {
-				return nil, nil, err
-			}
 			var childExpr *Expr
 			args := make([]*Expr, 0)
 			for _, child := range expr.Children {
@@ -882,7 +877,6 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
 				DataTyp:  expr.DataTyp,
-				In:       in,
 				Alias:    expr.Alias,
 				Children: args,
 			}, root, nil
@@ -1188,16 +1182,13 @@ func hasCorrCol(expr *Expr) bool {
 		return expr.Depth > 0
 	case ET_Func:
 		betHas := false
-		inHas := false
 		switch expr.SubTyp {
 		case ET_Between:
 			betHas = hasCorrCol(expr.Between)
-		case ET_In:
-			inHas = hasCorrCol(expr.In)
 		default:
 
 		}
-		ret := betHas || inHas
+		ret := betHas
 		for _, child := range expr.Children {
 			ret = ret || hasCorrCol(child)
 		}
@@ -1512,37 +1503,69 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 	if err != nil {
 		return nil, err
 	}
+	argsTypes := make([]LType, 0)
 	children = make([]*Expr, len(expr.Expr.Children))
 	for i, child := range expr.Expr.Children {
 		children[i], err = b.bindExpr(ctx, iwc, child, depth)
 		if err != nil {
 			return nil, err
 		}
+		argsTypes = append(argsTypes, children[i].DataTyp.LTyp)
 	}
 
-	//TODO: type check
+	maxType := in.DataTyp.LTyp
+	anyVarchar := in.DataTyp.LTyp.id == LTID_VARCHAR
+	anyEnum := in.DataTyp.LTyp.id == LTID_ENUM
+	for i := 0; i < len(argsTypes); i++ {
+		maxType = MaxLType(maxType, argsTypes[i])
+		if argsTypes[i].id == LTID_VARCHAR {
+			anyVarchar = true
+		}
+		if argsTypes[i].id == LTID_ENUM {
+			anyEnum = true
+		}
+	}
+	if anyVarchar && anyEnum {
+		maxType = varchar()
+	}
+
+	paramTypes := make([]ExprDataType, 0)
+	params := make([]*Expr, 0)
+
+	castIn, err := castExpr(in, maxType, false)
+	if err != nil {
+		return nil, err
+	}
+	params = append(params, castIn)
+	paramTypes = append(paramTypes, castIn.DataTyp)
+	for _, child := range children {
+		castChild, err := castExpr(child, maxType, false)
+		if err != nil {
+			return nil, err
+		}
+		params = append(params, castChild)
+		paramTypes = append(paramTypes, castChild.DataTyp)
+	}
 
 	var et ET_SubTyp
-	var edt ExprDataType
+	name := ""
 	switch expr.Expr.SubTyp {
 	case AstExprSubTypeIn:
 		et = ET_In
-		edt.LTyp = boolean()
+		name = "in"
 	case AstExprSubTypeNotIn:
 		et = ET_NotIn
-		edt.LTyp = boolean()
+		name = "not in"
 	default:
 		panic("unhandled default case")
 	}
-	return &Expr{
-		Typ:      ET_Func,
-		SubTyp:   et,
-		Svalue:   et.String(),
-		DataTyp:  edt,
-		In:       in,
-		Children: children,
-	}, err
-
+	ret, err := b.bindFunc(name, expr.String(), params, paramTypes)
+	if err != nil {
+		return nil, err
+	}
+	ret.SubTyp = et
+	ret.Svalue = et.String()
+	return ret, nil
 }
 
 func collectTags(root *LogicalOperator, set map[uint64]bool) {
