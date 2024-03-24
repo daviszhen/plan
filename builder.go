@@ -839,30 +839,23 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		switch expr.SubTyp {
 		default:
 			//binary operator
-			var bet *Expr
-			if expr.SubTyp == ET_Between {
-				bet, root, err = b.createSubquery(expr.Between, root)
+			var childExpr *Expr
+			args := make([]*Expr, 0)
+			for _, child := range expr.Children {
+				childExpr, root, err = b.createSubquery(child, root)
 				if err != nil {
 					return nil, nil, err
 				}
-			}
-			left, lroot, err := b.createSubquery(expr.Children[0], root)
-			if err != nil {
-				return nil, nil, err
-			}
-			right, rroot, err := b.createSubquery(expr.Children[1], lroot)
-			if err != nil {
-				return nil, nil, err
+				args = append(args, childExpr)
 			}
 			return &Expr{
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
 				Svalue:   expr.SubTyp.String(),
 				DataTyp:  expr.DataTyp,
-				Between:  bet,
 				Alias:    expr.Alias,
-				Children: []*Expr{left, right},
-			}, rroot, nil
+				Children: args,
+			}, root, nil
 		case ET_In, ET_NotIn:
 			var childExpr *Expr
 			args := make([]*Expr, 0)
@@ -1181,14 +1174,7 @@ func hasCorrCol(expr *Expr) bool {
 	case ET_Column:
 		return expr.Depth > 0
 	case ET_Func:
-		betHas := false
-		switch expr.SubTyp {
-		case ET_Between:
-			betHas = hasCorrCol(expr.Between)
-		default:
-
-		}
-		ret := betHas
+		ret := false
 		for _, child := range expr.Children {
 			ret = ret || hasCorrCol(child)
 		}

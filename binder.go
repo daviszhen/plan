@@ -441,7 +441,6 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast
 }
 
 func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
-	var betExpr *Expr
 	var err error
 	var resultTyp LType
 	left, err := b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
@@ -477,7 +476,6 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		SubTyp:   et,
 		Svalue:   et.String(),
 		DataTyp:  ExprDataType{LTyp: retTyp},
-		Between:  betExpr,
 		Children: []*Expr{left, right},
 	}, err
 }

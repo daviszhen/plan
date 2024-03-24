@@ -40,6 +40,7 @@ const (
 	SUBSTRING
 	CAST
 	IN
+	BETWEEN
 )
 
 var funcName2Id = map[string]FuncId{
@@ -53,6 +54,7 @@ var funcName2Id = map[string]FuncId{
 	"substring": SUBSTRING,
 	"cast":      CAST,
 	"in":        IN,
+	"between":   BETWEEN,
 }
 
 var allFunctions = map[FuncId]*Function{}
@@ -409,5 +411,35 @@ var funcs = []*Function{
 			},
 		},
 		ImplDecider: opInImplDecider,
+	},
+	{
+		Id: BETWEEN,
+		Impls: []*Impl{
+			{
+				Desc: "between",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: false,
+			},
+		},
+		ImplDecider: exactImplDecider,
 	},
 }
