@@ -32,6 +32,35 @@ const (
 	INVALID
 )
 
+var pTypeToStr = map[PhyType]string{
+	BOOL:     "BOOL",
+	UINT8:    "UINT8",
+	INT8:     "INT8",
+	UINT16:   "UINT16",
+	INT16:    "INT16",
+	UINT32:   "UINT32",
+	INT32:    "INT32",
+	UINT64:   "UINT64",
+	INT64:    "INT64",
+	FLOAT:    "FLOAT",
+	DOUBLE:   "DOUBLE",
+	INTERVAL: "INTERVAL",
+	LIST:     "LIST",
+	STRUCT:   "STRUCT",
+	VARCHAR:  "VARCHAR",
+	INT128:   "INT128",
+	UNKNOWN:  "UNKNOWN",
+	BIT:      "BIT",
+	INVALID:  "INVALID",
+}
+
+func (pt PhyType) String() string {
+	if s, has := pTypeToStr[pt]; has {
+		return s
+	}
+	panic(fmt.Sprintf("usp %d", pt))
+}
+
 type LTypeId int
 
 const (
@@ -79,9 +108,129 @@ const (
 	LTID_UNION
 )
 
+var lTypeIdToStr = map[LTypeId]string{
+	LTID_INVALID:         "LTID_INVALID",
+	LTID_NULL:            "LTID_NULL",
+	LTID_UNKNOWN:         "LTID_UNKNOWN",
+	LTID_ANY:             "LTID_ANY",
+	LTID_USER:            "LTID_USER",
+	LTID_BOOLEAN:         "LTID_BOOLEAN",
+	LTID_TINYINT:         "LTID_TINYINT",
+	LTID_SMALLINT:        "LTID_SMALLINT",
+	LTID_INTEGER:         "LTID_INTEGER",
+	LTID_BIGINT:          "LTID_BIGINT",
+	LTID_DATE:            "LTID_DATE",
+	LTID_TIME:            "LTID_TIME",
+	LTID_TIMESTAMP_SEC:   "LTID_TIMESTAMP_SEC",
+	LTID_TIMESTAMP_MS:    "LTID_TIMESTAMP_MS",
+	LTID_TIMESTAMP:       "LTID_TIMESTAMP",
+	LTID_TIMESTAMP_NS:    "LTID_TIMESTAMP_NS",
+	LTID_DECIMAL:         "LTID_DECIMAL",
+	LTID_FLOAT:           "LTID_FLOAT",
+	LTID_DOUBLE:          "LTID_DOUBLE",
+	LTID_CHAR:            "LTID_CHAR",
+	LTID_VARCHAR:         "LTID_VARCHAR",
+	LTID_BLOB:            "LTID_BLOB",
+	LTID_INTERVAL:        "LTID_INTERVAL",
+	LTID_UTINYINT:        "LTID_UTINYINT",
+	LTID_USMALLINT:       "LTID_USMALLINT",
+	LTID_UINTEGER:        "LTID_UINTEGER",
+	LTID_UBIGINT:         "LTID_UBIGINT",
+	LTID_TIMESTAMP_TZ:    "LTID_TIMESTAMP_TZ",
+	LTID_TIME_TZ:         "LTID_TIME_TZ",
+	LTID_BIT:             "LTID_BIT",
+	LTID_HUGEINT:         "LTID_HUGEINT",
+	LTID_POINTER:         "LTID_POINTER",
+	LTID_VALIDITY:        "LTID_VALIDITY",
+	LTID_UUID:            "LTID_UUID",
+	LTID_STRUCT:          "LTID_STRUCT",
+	LTID_LIST:            "LTID_LIST",
+	LTID_MAP:             "LTID_MAP",
+	LTID_TABLE:           "LTID_TABLE",
+	LTID_ENUM:            "LTID_ENUM",
+	LTID_AGGREGATE_STATE: "LTID_AGGREGATE_STATE",
+	LTID_LAMBDA:          "LTID_LAMBDA",
+	LTID_UNION:           "LTID_UNION",
+}
+
+func (id LTypeId) String() string {
+	if s, has := lTypeIdToStr[id]; has {
+		return s
+	}
+	panic(fmt.Sprintf("usp %d", id))
+}
+
+const (
+	DecimalMaxWidthInt16  = 4
+	DecimalMaxWidthInt32  = 9
+	DecimalMaxWidthInt64  = 18
+	DecimalMaxWidthInt128 = 38
+	DecimalMaxWidth       = 38
+)
+
 type LType struct {
-	id   LTypeId
-	pTyp PhyType
+	id    LTypeId
+	pTyp  PhyType
+	width int
+	scale int
+}
+
+func makeLType(id LTypeId) LType {
+	ret := LType{id: id}
+	ret.pTyp = ret.getInternalType()
+	return ret
+}
+
+func invalidLType() LType {
+	return makeLType(LTID_INVALID)
+}
+
+func decimal(width, scale int) LType {
+	ret := makeLType(LTID_DECIMAL)
+	ret.width = width
+	ret.scale = scale
+	return ret
+}
+
+func hugeint() LType {
+	return makeLType(LTID_HUGEINT)
+}
+
+func bigint() LType {
+	return makeLType(LTID_BIGINT)
+}
+
+func integer() LType {
+	return makeLType(LTID_INTEGER)
+}
+
+func float() LType {
+	return makeLType(LTID_FLOAT)
+}
+
+func smallint() LType {
+	return makeLType(LTID_SMALLINT)
+}
+
+func varchar() LType {
+	return makeLType(LTID_VARCHAR)
+}
+func varchar2(width int) LType {
+	ret := makeLType(LTID_VARCHAR)
+	ret.width = width
+	return ret
+}
+
+func dateLTyp() LType {
+	return makeLType(LTID_DATE)
+}
+
+func boolean() LType {
+	return makeLType(LTID_BOOLEAN)
+}
+
+func intervalLType() LType {
+	return makeLType(LTID_BOOLEAN)
 }
 
 var numerics = map[LTypeId]int{
@@ -106,7 +255,133 @@ func (lt LType) isNumeric() bool {
 	return false
 }
 
-func targetTypeCost(typ *LType) int64 {
+func (lt LType) getDecimalSize() (bool, int, int) {
+	switch lt.id {
+	case LTID_NULL:
+		return true, 0, 0
+	case LTID_BOOLEAN:
+		return true, 1, 0
+	case LTID_TINYINT:
+		// tinyint: [-127, 127] = DECIMAL(3,0)
+		return true, 3, 0
+	case LTID_SMALLINT:
+		// smallint: [-32767, 32767] = DECIMAL(5,0)
+		return true, 5, 0
+	case LTID_INTEGER:
+		// integer: [-2147483647, 2147483647] = DECIMAL(10,0)
+		return true, 10, 0
+	case LTID_BIGINT:
+		// bigint: [-9223372036854775807, 9223372036854775807] = DECIMAL(19,0)
+		return true, 19, 0
+	case LTID_UTINYINT:
+		// UInt8 — [0 : 255]
+		return true, 3, 0
+	case LTID_USMALLINT:
+		// UInt16 — [0 : 65535]
+		return true, 5, 0
+	case LTID_UINTEGER:
+		// UInt32 — [0 : 4294967295]
+		return true, 10, 0
+	case LTID_UBIGINT:
+		// UInt64 — [0 : 18446744073709551615]
+		return true, 20, 0
+	case LTID_HUGEINT:
+		// hugeint: max size decimal (38, 0)
+		// note that a hugeint is not guaranteed to fit in this
+		return true, 38, 0
+	case LTID_DECIMAL:
+		return true, lt.width, lt.scale
+	default:
+		return false, 0, 0
+	}
+}
+
+func (lt LType) equal(o LType) bool {
+	if lt.id != o.id {
+		return false
+	}
+	switch lt.id {
+	case LTID_DECIMAL:
+		return lt.width == o.width && lt.scale == o.scale
+	default:
+
+	}
+	return true
+}
+
+func (lt LType) getInternalType() PhyType {
+	switch lt.id {
+	case LTID_BOOLEAN:
+		return BOOL
+	case LTID_TINYINT:
+		return INT8
+	case LTID_UTINYINT:
+		return UINT8
+	case LTID_SMALLINT:
+		return INT16
+	case LTID_USMALLINT:
+		return UINT16
+	case LTID_NULL, LTID_DATE, LTID_INTEGER:
+		return INT32
+	case LTID_UINTEGER:
+		return UINT32
+	case LTID_BIGINT, LTID_TIME,
+		LTID_TIMESTAMP, LTID_TIMESTAMP_SEC,
+		LTID_TIMESTAMP_NS, LTID_TIMESTAMP_MS,
+		LTID_TIME_TZ, LTID_TIMESTAMP_TZ:
+		return INT64
+	case LTID_UBIGINT:
+		return UINT64
+	case LTID_HUGEINT, LTID_UUID:
+		return INT128
+	case LTID_FLOAT:
+		return FLOAT
+	case LTID_DOUBLE:
+		return DOUBLE
+	case LTID_DECIMAL:
+		if lt.width <= DecimalMaxWidthInt16 {
+			return INT16
+		} else if lt.width <= DecimalMaxWidthInt32 {
+			return INT32
+		} else if lt.width <= DecimalMaxWidthInt64 {
+			return INT64
+		} else if lt.width <= DecimalMaxWidthInt128 {
+			return INT128
+		} else {
+			panic(fmt.Sprintf("usp decimal width %d", lt.width))
+		}
+	case LTID_VARCHAR, LTID_CHAR, LTID_BLOB, LTID_BIT:
+		return VARCHAR
+	case LTID_INTERVAL:
+		return INTERVAL
+	case LTID_UNION, LTID_STRUCT:
+		return STRUCT
+	case LTID_LIST, LTID_MAP:
+		return LIST
+	case LTID_POINTER:
+		return UINT64
+	case LTID_VALIDITY:
+		return BIT
+	case LTID_ENUM:
+		{
+			panic("usp enum")
+		}
+	case LTID_TABLE, LTID_LAMBDA, LTID_ANY, LTID_INVALID, LTID_UNKNOWN:
+		return INVALID
+	case LTID_USER:
+		return UNKNOWN
+	case LTID_AGGREGATE_STATE:
+		return VARCHAR
+	default:
+		panic(fmt.Sprintf("usp logical type %d", lt))
+	}
+}
+
+func (lt LType) String() string {
+	return fmt.Sprintf("(%v %v %d %d)", lt.id, lt.pTyp, lt.width, lt.scale)
+}
+
+func targetTypeCost(typ LType) int64 {
 	switch typ.id {
 	case LTID_INTEGER:
 		return 103
@@ -122,10 +397,7 @@ func targetTypeCost(typ *LType) int64 {
 		return 149
 	case LTID_DECIMAL:
 		return 104
-	case LTID_STRUCT:
-	case LTID_MAP:
-	case LTID_LIST:
-	case LTID_UNION:
+	case LTID_STRUCT, LTID_MAP, LTID_LIST, LTID_UNION:
 		return 160
 	default:
 		return 110
@@ -143,7 +415,7 @@ var tinyintTo = map[LTypeId]int{
 	LTID_DECIMAL:  0,
 }
 
-func implicitCastTinyint(to *LType) int64 {
+func implicitCastTinyint(to LType) int64 {
 	if _, has := tinyintTo[to.id]; has {
 		return targetTypeCost(to)
 	}
@@ -163,7 +435,7 @@ var utinyintTo = map[LTypeId]int{
 	LTID_DECIMAL:   0,
 }
 
-func implicitCastUTinyint(to *LType) int64 {
+func implicitCastUTinyint(to LType) int64 {
 	if _, has := utinyintTo[to.id]; has {
 		return targetTypeCost(to)
 	}
@@ -179,7 +451,7 @@ var smallintTo = map[LTypeId]int{
 	LTID_DECIMAL: 0,
 }
 
-func implicitCastSmallint(to *LType) int64 {
+func implicitCastSmallint(to LType) int64 {
 	if _, has := smallintTo[to.id]; has {
 		return targetTypeCost(to)
 	}
@@ -197,8 +469,64 @@ var usmallintTo = map[LTypeId]int{
 	LTID_DECIMAL:  0,
 }
 
-func implicitCastUSmallint(to *LType) int64 {
+func implicitCastUSmallint(to LType) int64 {
 	if _, has := usmallintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var hugeintTo = map[LTypeId]int{
+	LTID_FLOAT:   0,
+	LTID_DOUBLE:  0,
+	LTID_DECIMAL: 0,
+}
+
+func implicitCastHugeint(to LType) int64 {
+	if _, has := hugeintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var floatTo = map[LTypeId]int{
+	LTID_DOUBLE: 0,
+}
+
+func implicitCastFloat(to LType) int64 {
+	if _, has := floatTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var doubleTo = map[LTypeId]int{}
+
+func implicitCastDouble(to LType) int64 {
+	if _, has := doubleTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var dateTo = map[LTypeId]int{
+	LTID_TIMESTAMP: 0,
+}
+
+func implicitCastDate(to LType) int64 {
+	if _, has := dateTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var decimalTo = map[LTypeId]int{
+	LTID_FLOAT:  0,
+	LTID_DOUBLE: 0,
+}
+
+func implicitCastDecimal(to LType) int64 {
+	if _, has := decimalTo[to.id]; has {
 		return targetTypeCost(to)
 	}
 	return -1
@@ -212,8 +540,24 @@ var integerTo = map[LTypeId]int{
 	LTID_DECIMAL: 0,
 }
 
-func implicitCastInteger(to *LType) int64 {
+func implicitCastInteger(to LType) int64 {
 	if _, has := integerTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+var uintTo = map[LTypeId]int{
+	LTID_UBIGINT: 0,
+	LTID_BIGINT:  0,
+	LTID_HUGEINT: 0,
+	LTID_FLOAT:   0,
+	LTID_DOUBLE:  0,
+	LTID_DECIMAL: 0,
+}
+
+func implicitCastUInteger(to LType) int64 {
+	if _, has := uintTo[to.id]; has {
 		return targetTypeCost(to)
 	}
 	return -1
@@ -226,14 +570,28 @@ var bigintTo = map[LTypeId]int{
 	LTID_DECIMAL: 0,
 }
 
-func implicitCastBigint(to *LType) int64 {
+func implicitCastBigint(to LType) int64 {
 	if _, has := bigintTo[to.id]; has {
 		return targetTypeCost(to)
 	}
 	return -1
 }
 
-func implicitCast(from, to *LType) int64 {
+var ubigintTo = map[LTypeId]int{
+	LTID_FLOAT:   0,
+	LTID_DOUBLE:  0,
+	LTID_HUGEINT: 0,
+	LTID_DECIMAL: 0,
+}
+
+func implicitCastUBigint(to LType) int64 {
+	if _, has := ubigintTo[to.id]; has {
+		return targetTypeCost(to)
+	}
+	return -1
+}
+
+func implicitCast(from, to LType) int64 {
 	if from.id == LTID_NULL {
 		//cast NULL to anything
 		return targetTypeCost(to)
@@ -267,33 +625,131 @@ func implicitCast(from, to *LType) int64 {
 		return implicitCastUTinyint(to)
 	case LTID_USMALLINT:
 		return implicitCastUSmallint(to)
-		//case LTID_UINTEGER:
-		//	return implicitCastUInteger(to)
-		//case LTID_UBIGINT:
-		//	return implicitCastUBigint(to)
-
+	case LTID_UINTEGER:
+		return implicitCastUInteger(to)
+	case LTID_UBIGINT:
+		return implicitCastUBigint(to)
+	case LTID_HUGEINT:
+		return implicitCastHugeint(to)
+	case LTID_FLOAT:
+		return implicitCastFloat(to)
+	case LTID_DOUBLE:
+		return implicitCastDouble(to)
+	case LTID_DATE:
+		return implicitCastDate(to)
+	case LTID_DECIMAL:
+		return implicitCastDecimal(to)
+	default:
+		return -1
 	}
-	return 0
+	return -1
 }
 
-func decideNumericType(left, right *LType) *LType {
+func decimalSizeCheck(left, right LType) LType {
+	if left.id != LTID_DECIMAL && right.id != LTID_DECIMAL {
+		panic("wrong type")
+	}
+	if left.id == right.id {
+		panic("wrong type")
+	}
+
+	if left.id == LTID_DECIMAL {
+		return decimalSizeCheck(right, left)
+	}
+
+	can, owith, _ := left.getDecimalSize()
+	if !can {
+		panic(fmt.Sprintf("to decimal failed. %v ", left))
+	}
+	ewidth := right.width - right.scale
+	if owith > ewidth {
+		newWidth := owith + right.scale
+		newWidth = min(newWidth, DecimalMaxWidth)
+		return decimal(newWidth, right.scale)
+	}
+	return right
+}
+
+func decideNumericType(left, right LType) LType {
 	if left.id > right.id {
 		return decideNumericType(right, left)
 	}
 
 	if implicitCast(left, right) >= 0 {
-
+		if right.id == LTID_DECIMAL {
+			return decimalSizeCheck(left, right)
+		}
+		return right
 	}
-	return nil
+
+	if implicitCast(right, left) >= 0 {
+		if left.id == LTID_DECIMAL {
+			return decimalSizeCheck(right, left)
+		}
+		return left
+	}
+	//types that can not be cast implicitly.
+	//they are different.
+	//left is signed and right is unsigned.
+	//upcast
+	if left.id == LTID_BIGINT || right.id == LTID_UBIGINT {
+		return hugeint()
+	}
+	if left.id == LTID_INTEGER || right.id == LTID_UINTEGER {
+		return bigint()
+	}
+	if left.id == LTID_SMALLINT || right.id == LTID_USMALLINT {
+		return integer()
+	}
+	if left.id == LTID_TINYINT || right.id == LTID_UTINYINT {
+		return smallint()
+	}
+	panic(fmt.Sprintf("imcompatible %v %v", left, right))
 }
 
-func MaxLType(left, right *LType) *LType {
+func MaxLType(left, right LType) LType {
 	//digit type
 	if left.id != right.id &&
 		left.isNumeric() && right.isNumeric() {
 		return decideNumericType(left, right)
+	} else if left.id == LTID_UNKNOWN {
+		return right
+	} else if right.id == LTID_UNKNOWN {
+		return left
+	} else if left.id < right.id {
+		return right
 	}
-	return nil
+	if right.id < left.id {
+		return left
+	}
+	id := left.id
+	if id == LTID_ENUM {
+		if left.equal(right) {
+			return left
+		} else {
+			//enum cast to varchar
+			return varchar()
+		}
+	}
+	if id == LTID_VARCHAR {
+		//no collation here
+		return right
+	}
+	if id == LTID_DECIMAL {
+		//decide the width & scal of the final deciaml
+		leftNum := left.width - left.scale
+		rightNum := right.width - right.scale
+		num := max(leftNum, rightNum)
+		scale := max(left.scale, right.scale)
+		width := num + scale
+		if width > DecimalMaxWidth {
+			width = DecimalMaxWidth
+			scale = width - num
+		}
+		return decimal(width, scale)
+	}
+	//same
+	return left
 }
 
 type DataType int
@@ -326,10 +782,35 @@ func (dt DataType) String() string {
 }
 
 type ExprDataType struct {
-	Typ     DataType
+	LTyp    LType
 	NotNull bool
-	Width   uint64
-	Scale   uint64
+}
+
+func (edt ExprDataType) equal(o ExprDataType) bool {
+	if edt.NotNull != o.NotNull {
+		return false
+	}
+	return edt.LTyp.equal(o.LTyp)
+}
+
+func (edt ExprDataType) include(o ExprDataType) bool {
+	if !edt.LTyp.equal(o.LTyp) {
+		if edt.LTyp.id != o.LTyp.id {
+			return false
+		}
+		switch edt.LTyp.id {
+		case LTID_DECIMAL:
+			if implicitCast(o.LTyp, edt.LTyp) >= 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if edt.NotNull {
+		return o.NotNull
+	} else {
+		return true
+	}
 }
 
 func (edt ExprDataType) String() string {
@@ -337,11 +818,11 @@ func (edt ExprDataType) String() string {
 	if edt.NotNull {
 		null = "not null"
 	}
-	return fmt.Sprintf("<%s,%s,%d,%d>", edt.Typ, null, edt.Width, edt.Scale)
+	return fmt.Sprintf("{%v,%s}", edt.LTyp, null)
 }
 
 var InvalidExprDataType = ExprDataType{
-	Typ: DataTypeInvalid,
+	LTyp: invalidLType(),
 }
 
 type LOT int
@@ -459,17 +940,16 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	if lo == nil {
 		return
 	}
-
-	bb := strings.Builder{}
-
 	switch lo.Typ {
 	case LOT_Project:
 		tree = tree.AddBranch("Project:")
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
-		tree.AddMetaNode("exprs", listExprs(&bb, lo.Projects).String())
+		node := tree.AddMetaBranch("exprs", "")
+		listExprsToTree(node, lo.Projects)
 	case LOT_Filter:
 		tree = tree.AddBranch("Filter:")
-		tree.AddMetaNode("exprs", listExprs(&bb, lo.Filters).String())
+		node := tree.AddMetaBranch("exprs", "")
+		listExprsToTree(node, lo.Filters)
 	case LOT_Scan:
 		tree = tree.AddBranch("Scan:")
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
@@ -498,7 +978,8 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		} else {
 			tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
 		}
-		tree.AddMetaNode("filters", listExprs(&bb, lo.Filters).String())
+		node := tree.AddBranch("filters")
+		listExprsToTree(node, lo.Filters)
 		printStats := func(columns []string) string {
 			sb := strings.Builder{}
 			sb.WriteString(fmt.Sprintf("rowcount %v\n", lo.Stats.RowCount))
@@ -519,7 +1000,8 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
 		if len(lo.OnConds) > 0 {
-			tree.AddMetaNode("On", listExprs(&bb, lo.OnConds).String())
+			node := tree.AddMetaBranch("On", "")
+			listExprsToTree(node, lo.OnConds)
 		}
 		if lo.Stats != nil {
 			tree.AddMetaNode("Stats", lo.Stats.String())
@@ -527,21 +1009,22 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	case LOT_AggGroup:
 		tree = tree.AddBranch("Aggregate:")
 		if len(lo.GroupBys) > 0 {
-			bb.Reset()
-			tree.AddMetaNode(fmt.Sprintf("groupExprs, index %d", lo.Index), listExprs(&bb, lo.GroupBys).String())
+			node := tree.AddBranch(fmt.Sprintf("groupExprs, index %d", lo.Index))
+			listExprsToTree(node, lo.GroupBys)
 		}
 		if len(lo.Aggs) > 0 {
-			bb.Reset()
-			tree.AddMetaNode(fmt.Sprintf("aggExprs, index %d", lo.Index2), listExprs(&bb, lo.Aggs).String())
+			node := tree.AddBranch(fmt.Sprintf("aggExprs, index %d", lo.Index2))
+			listExprsToTree(node, lo.Aggs)
 		}
 		if len(lo.Filters) > 0 {
-			bb.Reset()
-			tree.AddMetaNode("filters", listExprs(&bb, lo.Filters).String())
+			node := tree.AddBranch("filters")
+			listExprsToTree(node, lo.Filters)
 		}
 
 	case LOT_Order:
 		tree = tree.AddBranch("Order:")
-		tree.AddMetaNode("exprs", listExprs(&bb, lo.OrderBys).String())
+		node := tree.AddMetaBranch("exprs", "")
+		listExprsToTree(node, lo.OrderBys)
 	case LOT_Limit:
 		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", lo.Limit.String()))
 	default:
@@ -582,6 +1065,9 @@ func checkExprs(e ...*Expr) {
 		}
 		if expr.Typ == ET_Func && expr.SubTyp == ET_Invalid {
 			panic("xxx")
+		}
+		if expr.DataTyp.LTyp.id == LTID_INVALID {
+			panic("invalid logical type")
 		}
 	}
 }
@@ -978,17 +1464,17 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			e.DataTyp,
 			e.ColRef[0], e.ColRef[1], e.Depth)
 	case ET_SConst:
-		ctx.Write(e.Svalue)
+		ctx.Writef("(%s,%s)", e.Svalue, e.DataTyp)
 	case ET_IConst:
-		ctx.Writef("%d", e.Ivalue)
+		ctx.Writef("(%d,%s)", e.Ivalue, e.DataTyp)
 	case ET_DateConst:
-		ctx.Writef("%s", e.Svalue)
+		ctx.Writef("(%s,%s)", e.Svalue, e.DataTyp)
 	case ET_IntervalConst:
-		ctx.Writef("%d %s", e.Ivalue, e.Svalue)
+		ctx.Writef("(%d %s,%s)", e.Ivalue, e.Svalue, e.DataTyp)
 	case ET_BConst:
-		ctx.Writef("%v", e.Bvalue)
+		ctx.Writef("(%v,%s)", e.Bvalue, e.DataTyp)
 	case ET_FConst:
-		ctx.Writef("%v", e.Fvalue)
+		ctx.Writef("(%v,%s)", e.Fvalue, e.DataTyp)
 	case ET_TABLE:
 		ctx.Writef("%s.%s", e.Database, e.Table)
 	case ET_Join:
@@ -1059,11 +1545,13 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			ctx.Writef("%s_%d(", e.Svalue, e.FuncId)
 			for idx, e := range e.Children {
 				if idx > 0 {
-					ctx.Write(",")
+					ctx.Write(", ")
 				}
 				e.Format(ctx)
 			}
 			ctx.Write(")")
+			ctx.Write("->")
+			ctx.Writef("%s", e.DataTyp)
 		default:
 			//binary operator
 			e.Children[0].Format(ctx)
@@ -1089,19 +1577,32 @@ func (e *Expr) Format(ctx *FormatCtx) {
 	}
 }
 
-func (e *Expr) Print(tree treeprint.Tree) {
+func appendMeta(meta, s string) string {
+	return fmt.Sprintf("%s %s", meta, s)
+}
+
+func (e *Expr) Print(tree treeprint.Tree, meta string) {
 	if e == nil {
 		return
 	}
+	head := appendMeta(meta, e.DataTyp.String())
 	switch e.Typ {
 	case ET_Column:
-		tree.AddNode(fmt.Sprintf("(%s.%s,%s,[%d,%d],%d)", e.Table, e.Name,
-			e.DataTyp,
+		tree.AddMetaNode(head, fmt.Sprintf("(%s.%s,[%d,%d],%d)",
+			e.Table, e.Name,
 			e.ColRef[0], e.ColRef[1], e.Depth))
 	case ET_SConst:
-		tree.AddNode(e.Svalue)
+		tree.AddMetaNode(head, fmt.Sprintf("(%s)", e.Svalue))
 	case ET_IConst:
-		tree.AddNode(fmt.Sprintf("%d", e.Ivalue))
+		tree.AddMetaNode(head, fmt.Sprintf("(%d)", e.Ivalue))
+	case ET_DateConst:
+		tree.AddMetaNode(head, fmt.Sprintf("(%s)", e.Svalue))
+	case ET_IntervalConst:
+		tree.AddMetaNode(head, fmt.Sprintf("(%d %s)", e.Ivalue, e.Svalue))
+	case ET_BConst:
+		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Bvalue))
+	case ET_FConst:
+		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Fvalue))
 	case ET_TABLE:
 		tree.AddNode(fmt.Sprintf("%s.%s", e.Database, e.Table))
 	case ET_Join:
@@ -1114,35 +1615,59 @@ func (e *Expr) Print(tree treeprint.Tree) {
 		default:
 			panic(fmt.Sprintf("usp join type %d", e.JoinTyp))
 		}
-		sub := tree.AddBranch(typStr)
-		e.Children[0].Print(sub)
-		e.Children[1].Print(sub)
+		branch := tree.AddBranch(typStr)
+		e.Children[0].Print(branch, "")
+		e.Children[1].Print(branch, "")
 	case ET_Func:
+		var branch treeprint.Tree
 		switch e.SubTyp {
-		case ET_And, ET_Equal, ET_Like:
-			op := e.SubTyp.String()
-			sub := tree.AddBranch(op)
-			e.Children[0].Print(sub)
-			e.Children[1].Print(sub)
-		case ET_SubFunc:
-			sub := tree.AddBranch(fmt.Sprintf("%s_%d(", e.Svalue, e.FuncId))
-			for i, e := range e.Children {
-				p := sub.AddMetaNode("param", fmt.Sprintf("%d", i))
-				e.Print(p)
+		case ET_Invalid:
+			panic("usp invalid expr")
+		case ET_Between:
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			e.Between.Print(branch, "")
+			e.Children[0].Print(branch, "")
+			e.Children[1].Print(branch, "")
+		case ET_Case:
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			if e.Kase != nil {
+				e.Kase.Print(branch, "")
 			}
-			sub.AddNode(")")
+			when := branch.AddBranch("when")
+			for i := 0; i < len(e.When); i += 2 {
+				e.When[i].Print(when, "")
+				e.When[i+1].Print(when, "")
+			}
+			if e.Els != nil {
+				e.Els.Print(branch, "")
+			}
+		case ET_In, ET_NotIn:
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			e.In.Print(branch, "")
+			for _, e := range e.Children {
+				e.Print(branch, "")
+			}
+		case ET_Exists:
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			e.Children[0].Print(branch, "")
+		case ET_SubFunc:
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.Svalue))
+			for _, e := range e.Children {
+				e.Print(branch, "")
+			}
 		default:
-			panic(fmt.Sprintf("usp %v", e.SubTyp))
+			//binary operator
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			e.Children[0].Print(branch, "")
+			e.Children[1].Print(branch, "")
 		}
 	case ET_Subquery:
-		sub := tree.AddBranch("subquery(")
-		e.SubBuilder.Print(sub)
-		sub.AddNode(")")
+		branch := tree.AddBranch("subquery(")
+		e.SubBuilder.Print(branch)
+		branch.AddNode(")")
 	case ET_Orderby:
-		e.Children[0].Print(tree)
-		if e.Desc {
-			tree.AddNode(" desc")
-		}
+		e.Children[0].Print(tree, meta)
+
 	default:
 		panic(fmt.Sprintf("usp expr type %d", e.Typ))
 	}

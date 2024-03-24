@@ -967,14 +967,14 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		case ET_SubqueryTypeExists:
 			colRef := &Expr{
 				Typ:     ET_BConst,
-				DataTyp: ExprDataType{Typ: DataTypeBool},
+				DataTyp: ExprDataType{LTyp: boolean()},
 				Bvalue:  true,
 			}
 			return colRef, newSub, nil
 		case ET_SubqueryTypeNotExists:
 			colRef := &Expr{
 				Typ:     ET_BConst,
-				DataTyp: ExprDataType{Typ: DataTypeBool},
+				DataTyp: ExprDataType{LTyp: boolean()},
 				Bvalue:  true,
 			}
 			return colRef, newSub, nil
@@ -1527,10 +1527,10 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 	switch expr.Expr.SubTyp {
 	case AstExprSubTypeIn:
 		et = ET_In
-		edt.Typ = DataTypeBool
+		edt.LTyp = boolean()
 	case AstExprSubTypeNotIn:
 		et = ET_NotIn
-		edt.Typ = DataTypeBool
+		edt.LTyp = boolean()
 	default:
 		panic("unhandled default case")
 	}

@@ -15,7 +15,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		ret = &Expr{
 			Typ: ET_IConst,
 			DataTyp: ExprDataType{
-				Typ: DataTypeInteger,
+				LTyp: integer(),
 			},
 			Ivalue: expr.Expr.Ivalue,
 		}
@@ -24,7 +24,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		ret = &Expr{
 			Typ: ET_FConst,
 			DataTyp: ExprDataType{
-				Typ: DataTypeFloat64,
+				LTyp: float(),
 			},
 			Fvalue: expr.Expr.Fvalue,
 		}
@@ -32,7 +32,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		ret = &Expr{
 			Typ: ET_SConst,
 			DataTyp: ExprDataType{
-				Typ: DataTypeVarchar,
+				LTyp: varchar(),
 			},
 			Svalue: expr.Expr.Svalue,
 		}
@@ -108,12 +108,14 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				}
 			}
 			args := make([]*Expr, 0)
+			argsTypes := make([]ExprDataType, 0)
 			for _, arg := range expr.Expr.Children {
 				child, err = b.bindExpr(ctx, iwc, arg, depth)
 				if err != nil {
 					return nil, err
 				}
 				args = append(args, child)
+				argsTypes = append(argsTypes, child.DataTyp)
 			}
 
 			id, err = GetFunctionId(name)
@@ -121,19 +123,26 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				return nil, err
 			}
 
+			impl, err := GetFunctionImpl(id, argsTypes)
+			if err != nil {
+				return nil, err
+			}
+
+			retTyp := impl.RetTypeDecider(argsTypes)
+
 			ret = &Expr{
 				Typ:      ET_Func,
 				SubTyp:   ET_SubFunc,
 				Svalue:   name,
 				FuncId:   id,
-				DataTyp:  InvalidExprDataType,
+				DataTyp:  retTyp,
 				Children: args,
 			}
 
 			//hard code for simplicity
 			if id == DATE_ADD {
 				ret.DataTyp = ExprDataType{
-					Typ: DataTypeDate,
+					LTyp: dateLTyp(),
 				}
 			}
 
@@ -168,7 +177,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				Typ:      ET_Func,
 				SubTyp:   ET_Exists,
 				Svalue:   ET_Exists.String(),
-				DataTyp:  ExprDataType{Typ: DataTypeBool},
+				DataTyp:  ExprDataType{LTyp: boolean()},
 				Children: []*Expr{child},
 			}
 		case AstExprSubTypeNotExists:
@@ -180,11 +189,11 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				Typ:      ET_Func,
 				SubTyp:   ET_NotExists,
 				Svalue:   ET_NotExists.String(),
-				DataTyp:  ExprDataType{Typ: DataTypeBool},
+				DataTyp:  ExprDataType{LTyp: boolean()},
 				Children: []*Expr{child},
 			}
 		default:
-			//binary opeartor
+			//binary operator
 			ret, err = b.bindBinaryExpr(ctx, iwc, expr, depth)
 			if err != nil {
 				return nil, err
@@ -194,7 +203,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		ret = &Expr{
 			Typ: ET_DateConst,
 			DataTyp: ExprDataType{
-				Typ: DataTypeDate,
+				LTyp: dateLTyp(),
 			},
 			Svalue: expr.Expr.Svalue,
 		}
@@ -203,7 +212,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		ret = &Expr{
 			Typ: ET_IntervalConst,
 			DataTyp: ExprDataType{
-				Typ: DataTypeInterval,
+				LTyp: intervalLType(),
 			},
 			Ivalue: expr.Expr.Ivalue,
 			Svalue: expr.Expr.Svalue,
@@ -217,11 +226,166 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	return ret, err
 }
 
+func decideResultType(left LType, right LType) LType {
+	resultTyp := MaxLType(left, right)
+	//adjust final result type
+	switch resultTyp.id {
+	case LTID_DECIMAL:
+		//max width & scal of the result type
+		inputTypes := []LType{left, right}
+		maxWidth, maxScale, maxWidthOverScale := 0, 0, 0
+		for _, typ := range inputTypes {
+			can, width, scale := typ.getDecimalSize()
+			if !can {
+				return resultTyp
+			}
+			maxWidth = max(width, maxWidth)
+			maxScale = max(scale, maxScale)
+			maxWidthOverScale = max(width-scale, maxWidthOverScale)
+		}
+		maxWidth = max(maxScale+maxWidthOverScale, maxWidth)
+		maxWidth = min(maxWidth, DecimalMaxWidth)
+		return decimal(maxWidth, maxScale)
+	case LTID_VARCHAR:
+		//
+		if left.isNumeric() || left.id == LTID_BOOLEAN {
+			return left
+		} else if right.isNumeric() || right.id == LTID_BOOLEAN {
+			//TODO: collation
+		}
+		return resultTyp
+	default:
+		return resultTyp
+	}
+
+}
+
+func castExpr(e *Expr, target LType, tryCast bool) (*Expr, error) {
+	if e.DataTyp.LTyp.equal(target) {
+		return e, nil
+	}
+	id, err := GetFunctionId("cast")
+	if err != nil {
+		return nil, err
+	}
+	ret := &Expr{
+		Typ:     ET_Func,
+		SubTyp:  ET_SubFunc,
+		Svalue:  "cast",
+		FuncId:  id,
+		DataTyp: ExprDataType{LTyp: target},
+		Children: []*Expr{
+			//expr to be cast
+			e,
+			//target type saved in DataTyp field
+			{
+				Typ: ET_IConst,
+				DataTyp: ExprDataType{
+					LTyp: target,
+				},
+			},
+		},
+	}
+	return ret, nil
+}
+
+func decideBinaryOpType(opTyp AstExprSubType, resultTyp LType) (ET_SubTyp, LType) {
+	var et ET_SubTyp
+	var retTyp LType
+	switch opTyp {
+	case AstExprSubTypeAnd:
+		et = ET_And
+		retTyp = boolean()
+	case AstExprSubTypeOr:
+		et = ET_Or
+		retTyp = boolean()
+	case AstExprSubTypeAdd:
+		et = ET_Add
+		retTyp = resultTyp
+	case AstExprSubTypeSub:
+		et = ET_Sub
+		retTyp = resultTyp
+	case AstExprSubTypeMul:
+		et = ET_Mul
+		retTyp = resultTyp
+	case AstExprSubTypeDiv:
+		et = ET_Div
+		retTyp = resultTyp
+	default:
+		panic(fmt.Sprintf("usp binary type %d", opTyp))
+	}
+	return et, retTyp
+}
+
+func decideCompareOpType(opTyp AstExprSubType) (ET_SubTyp, LType) {
+	var et ET_SubTyp
+	var retTyp LType
+	switch opTyp {
+	case AstExprSubTypeEqual:
+		et = ET_Equal
+		retTyp = boolean()
+	case AstExprSubTypeNotEqual:
+		et = ET_NotEqual
+		retTyp = boolean()
+	case AstExprSubTypeGreaterEqual:
+		et = ET_GreaterEqual
+		retTyp = boolean()
+	case AstExprSubTypeGreater:
+		et = ET_Greater
+		retTyp = boolean()
+	case AstExprSubTypeLess:
+		et = ET_Less
+		retTyp = boolean()
+	case AstExprSubTypeLessEqual:
+		et = ET_LessEqual
+		retTyp = boolean()
+	case AstExprSubTypeBetween:
+		et = ET_Between
+		retTyp = boolean()
+	case AstExprSubTypeIn:
+		et = ET_In
+		retTyp = boolean()
+	case AstExprSubTypeNotIn:
+		et = ET_NotIn
+		retTyp = boolean()
+	case AstExprSubTypeLike:
+		et = ET_Like
+		retTyp = boolean()
+	case AstExprSubTypeNotLike:
+		et = ET_NotLike
+		retTyp = boolean()
+	default:
+		panic(fmt.Sprintf("usp binary type %d", opTyp))
+	}
+	return et, retTyp
+}
+
+func isCompare(opTyp AstExprSubType) bool {
+	switch opTyp {
+	case AstExprSubTypeEqual,
+		AstExprSubTypeNotEqual,
+		AstExprSubTypeGreaterEqual,
+		AstExprSubTypeGreater,
+		AstExprSubTypeLess,
+		AstExprSubTypeLessEqual,
+		AstExprSubTypeBetween,
+		AstExprSubTypeIn,
+		AstExprSubTypeNotIn,
+		AstExprSubTypeLike,
+		AstExprSubTypeNotLike:
+		return true
+	default:
+		return false
+	}
+	return false
+}
+
 func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
-	var between *Expr
+	var betExpr *Expr
 	var err error
+	var resultTyp LType
 	if expr.Expr.SubTyp == AstExprSubTypeBetween {
-		between, err = b.bindExpr(ctx, iwc, expr.Expr.Between, depth)
+		betExpr, err = b.bindExpr(ctx, iwc, expr.Expr.Between, depth)
 		if err != nil {
 			return nil, err
 		}
@@ -234,83 +398,48 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	if err != nil {
 		return nil, err
 	}
-	if left.DataTyp.Typ != right.DataTyp.Typ {
-		if left.DataTyp.Typ == DataTypeDecimal && right.DataTyp.Typ == DataTypeInteger ||
-			left.DataTyp.Typ == DataTypeInteger && right.DataTyp.Typ == DataTypeDecimal {
-			//integer op decimal
-		} else if left.DataTyp.Typ == DataTypeInvalid || right.DataTyp.Typ == DataTypeInvalid {
-
-		} else if right.Typ == ET_IntervalConst || right.Typ == ET_FConst {
-
-		} else if right.Typ != ET_Subquery {
-			//skip subquery
-			panic(fmt.Sprintf("unmatch data type %d %d", left.DataTyp.Typ, right.DataTyp.Typ))
+	if expr.Expr.SubTyp == AstExprSubTypeBetween {
+		resultTyp = decideResultType(betExpr.DataTyp.LTyp, left.DataTyp.LTyp)
+		resultTyp = decideResultType(resultTyp, right.DataTyp.LTyp)
+		//cast
+		betExpr, err = castExpr(betExpr, resultTyp, false)
+		if err != nil {
+			return nil, err
+		}
+		left, err = castExpr(left, resultTyp, false)
+		if err != nil {
+			return nil, err
+		}
+		right, err = castExpr(right, resultTyp, false)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		resultTyp = decideResultType(left.DataTyp.LTyp, right.DataTyp.LTyp)
+		//cast
+		left, err = castExpr(left, resultTyp, resultTyp.id == LTID_ENUM)
+		if err != nil {
+			return nil, err
+		}
+		right, err = castExpr(right, resultTyp, resultTyp.id == LTID_ENUM)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	var et ET_SubTyp
-	var edt ExprDataType
-	switch expr.Expr.SubTyp {
-	case AstExprSubTypeAnd:
-		et = ET_And
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeOr:
-		et = ET_Or
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeAdd:
-		et = ET_Add
-		edt.Typ = left.DataTyp.Typ
-	case AstExprSubTypeSub:
-		et = ET_Sub
-		edt.Typ = left.DataTyp.Typ
-	case AstExprSubTypeMul:
-		et = ET_Mul
-		edt.Typ = left.DataTyp.Typ
-	case AstExprSubTypeDiv:
-		et = ET_Div
-		edt.Typ = left.DataTyp.Typ
-	case AstExprSubTypeEqual:
-		et = ET_Equal
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeNotEqual:
-		et = ET_NotEqual
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeLike:
-		et = ET_Like
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeNotLike:
-		et = ET_NotLike
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeGreaterEqual:
-		et = ET_GreaterEqual
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeGreater:
-		et = ET_Greater
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeLess:
-		et = ET_Less
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeLessEqual:
-		et = ET_LessEqual
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeBetween:
-		et = ET_Between
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeIn:
-		et = ET_In
-		edt.Typ = DataTypeBool
-	case AstExprSubTypeNotIn:
-		et = ET_NotIn
-		edt.Typ = DataTypeBool
-	default:
-		panic(fmt.Sprintf("usp binary type %d", expr.Expr.SubTyp))
+	var retTyp LType
+	if isCompare(expr.Expr.SubTyp) {
+		et, retTyp = decideCompareOpType(expr.Expr.SubTyp)
+	} else {
+		et, retTyp = decideBinaryOpType(expr.Expr.SubTyp, resultTyp)
 	}
 	return &Expr{
 		Typ:      ET_Func,
 		SubTyp:   et,
 		Svalue:   et.String(),
-		DataTyp:  edt,
-		Between:  between,
+		DataTyp:  ExprDataType{LTyp: retTyp},
+		Between:  betExpr,
 		Children: []*Expr{left, right},
 	}, err
 }

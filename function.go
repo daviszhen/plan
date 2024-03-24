@@ -1,6 +1,8 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type FuncId int
 
@@ -8,7 +10,7 @@ type Function struct {
 	Id FuncId
 
 	// all implementation versions
-	Impls []Impl
+	Impls []*Impl
 
 	// decide which implementation should be used
 	ImplDecider func(*Function, []ExprDataType) (int, []ExprDataType)
@@ -27,7 +29,8 @@ type Impl struct {
 }
 
 const (
-	MIN FuncId = iota
+	INVALID_FUNC FuncId = iota
+	MIN
 	DATE_ADD
 	COUNT
 	EXTRACT
@@ -35,6 +38,7 @@ const (
 	MAX
 	AVG
 	SUBSTRING
+	CAST
 )
 
 var funcName2Id = map[string]FuncId{
@@ -46,11 +50,12 @@ var funcName2Id = map[string]FuncId{
 	"max":       MAX,
 	"avg":       AVG,
 	"substring": SUBSTRING,
+	"cast":      CAST,
 }
 
-var allFunctions = map[FuncId]Function{}
+var allFunctions = map[FuncId]*Function{}
 
-var aggFuncs = map[string]int{
+var aggNames = map[string]int{
 	"min":   1,
 	"count": 1,
 	"sum":   1,
@@ -59,7 +64,7 @@ var aggFuncs = map[string]int{
 }
 
 func IsAgg(name string) bool {
-	if _, ok := aggFuncs[name]; ok {
+	if _, ok := aggNames[name]; ok {
 		return ok
 	}
 	return false
@@ -72,29 +77,89 @@ func GetFunctionId(name string) (FuncId, error) {
 	return 0, fmt.Errorf("no function %s", name)
 }
 
-func GetFunctionImpl(id FuncId, argsTypes []ExprDataType) (FunctionBody, error) {
-	if _, ok := allFunctions[id]; ok {
-		panic("usp")
+func GetFunctionImpl(id FuncId, argsTypes []ExprDataType) (*Impl, error) {
+	if fun, ok := allFunctions[id]; !ok {
+		panic(fmt.Sprintf("no function %v", id))
+	} else {
+		if fun.ImplDecider == nil {
+			panic("usp")
+		}
+		implIdx, _ := fun.ImplDecider(fun, argsTypes)
+		if implIdx < 0 {
+			//no right impl
+			panic("no right impl")
+		} else {
+			//right impl
+			impl := fun.Impls[implIdx]
+			return impl, nil
+		}
 	}
-	return nil, fmt.Errorf("no body of function %d", id)
+	panic("usp")
 }
 
-var operators = []Function{}
+func exactImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataType) {
+	for i, impl := range fun.Impls {
+		if len(argsTypes) != len(impl.Args) {
+			continue
+		}
+		equalTyp := true
+		for j, arg := range impl.Args {
+			if !arg.equal(argsTypes[j]) &&
+				!arg.include(argsTypes[j]) {
+				equalTyp = false
+				break
+			}
+		}
+		if equalTyp {
+			return i, impl.Args
+		}
+	}
+	return -1, nil
+}
 
-var aggs = []Function{
+func ignoreTypesImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataType) {
+	return 0, nil
+}
+
+func decideNull(types []ExprDataType) bool {
+	for _, typ := range types {
+		if !typ.NotNull {
+			return true
+		}
+	}
+	return false
+}
+
+func init() {
+	for _, oper := range operators {
+		allFunctions[oper.Id] = oper
+	}
+
+	for _, agg := range aggFuncs {
+		allFunctions[agg.Id] = agg
+	}
+
+	for _, fun := range funcs {
+		allFunctions[fun.Id] = fun
+	}
+}
+
+var operators = []*Function{}
+
+var aggFuncs = []*Function{
 	{
 		Id: MIN,
-		Impls: []Impl{
+		Impls: []*Impl{
 			{
 				Desc: "min",
 				Idx:  0,
 				Args: []ExprDataType{
 					{
-						Typ: DataTypeDecimal,
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					if types[0].Typ == DataTypeDecimal {
+					if types[0].LTyp.id == LTID_DECIMAL {
 						return types[0]
 					}
 					panic("usp")
@@ -112,14 +177,98 @@ var aggs = []Function{
 		},
 	},
 	{
+		Id: SUM,
+		Impls: []*Impl{
+			{
+				Desc: "sum",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					if types[0].LTyp.id == LTID_DECIMAL {
+						return types[0]
+					}
+					panic("usp")
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: true,
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: COUNT,
+		Impls: []*Impl{
+			{
+				Desc: "count",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{
+						LTyp:    integer(),
+						NotNull: true,
+					}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: true,
+			},
+		},
+		ImplDecider: ignoreTypesImplDecider,
+	},
+	{
+		Id: AVG,
+		Impls: []*Impl{
+			{
+				Desc: "avg",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{
+						LTyp:    types[0].LTyp,
+						NotNull: decideNull(types),
+					}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: true,
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+}
+
+var funcs = []*Function{
+	{
 		Id: DATE_ADD,
-		Impls: []Impl{
+		Impls: []*Impl{
 			{
 				Desc: "date_add",
 				Idx:  0,
 				Args: []ExprDataType{
-					{Typ: DataTypeDate},
-					{Typ: DataTypeInterval},
+					{LTyp: dateLTyp()},
+					{LTyp: intervalLType()},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
 					panic("usp")
@@ -134,13 +283,13 @@ var aggs = []Function{
 	},
 	{
 		Id: EXTRACT,
-		Impls: []Impl{
+		Impls: []*Impl{
 			{
 				Desc: "extract",
 				Idx:  0,
 				Args: []ExprDataType{
-					{Typ: DataTypeInterval},
-					{Typ: DataTypeDate},
+					{LTyp: intervalLType()},
+					{LTyp: dateLTyp()},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
 					panic("usp")
@@ -154,20 +303,20 @@ var aggs = []Function{
 		},
 	},
 	{
-		Id: SUM,
-		Impls: []Impl{
+		Id: CAST,
+		Impls: []*Impl{
 			{
-				Desc: "sum",
+				Desc: "cast",
 				Idx:  0,
 				Args: []ExprDataType{
 					{
-						Typ: DataTypeDecimal,
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: integer(),
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					if types[0].Typ == DataTypeDecimal {
-						return types[0]
-					}
 					panic("usp")
 				},
 				Body: func() FunctionBody {
@@ -175,21 +324,44 @@ var aggs = []Function{
 						return fmt.Errorf("usp")
 					}
 				},
-				IsAgg: true,
+				IsAgg: false,
 			},
 		},
 		ImplDecider: func(*Function, []ExprDataType) (int, []ExprDataType) {
 			panic("usp")
 		},
 	},
-}
-
-func init() {
-	for _, oper := range operators {
-		allFunctions[oper.Id] = oper
-	}
-
-	for _, agg := range aggs {
-		allFunctions[agg.Id] = agg
-	}
+	{
+		Id: SUBSTRING,
+		Impls: []*Impl{
+			{
+				Desc: "substring",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{
+						LTyp:    varchar(),
+						NotNull: decideNull(types),
+					}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: false,
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
 }

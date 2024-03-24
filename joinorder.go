@@ -1222,8 +1222,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					return nil, errors.New("filter sets are not intersects")
 				}
 				cond := &Expr{
-					Typ:    condition.Typ,
-					SubTyp: condition.SubTyp,
+					Typ:     condition.Typ,
+					SubTyp:  condition.SubTyp,
+					DataTyp: condition.DataTyp,
 				}
 				invert := !isSubset(left.set, filter.leftSet)
 				if condition.SubTyp == ET_In || condition.SubTyp == ET_NotIn {

@@ -128,12 +128,12 @@ func WriteMapTree[K comparable, V any](tree treeprint.Tree, m map[K]V) {
 func WriteExprsTree(tree treeprint.Tree, exprs []*Expr) {
 	for i, e := range exprs {
 		p := tree.AddBranch(fmt.Sprintf("%d", i))
-		e.Print(p)
+		e.Print(p, "")
 	}
 }
 
 func WriteExprTree(tree treeprint.Tree, expr *Expr) {
-	expr.Print(tree)
+	expr.Print(tree, "")
 }
 
 type Format interface {
@@ -181,6 +181,31 @@ func listExprs(bb *strings.Builder, exprs []*Expr) *strings.Builder {
 
 	}
 	return bb
+}
+
+func listExprsToTree(tree treeprint.Tree, exprs []*Expr) {
+	for i, expr := range exprs {
+		if expr == nil {
+			continue
+		}
+		alias := ""
+		if len(expr.Alias) != 0 {
+			alias = expr.Alias
+		}
+		meta := ""
+		if expr.Typ == ET_Orderby {
+			asc := ""
+			if expr.Desc {
+				asc = "desc"
+			} else {
+				asc = "asc"
+			}
+			meta = fmt.Sprintf("%v %v %v", i, alias, asc)
+		} else {
+			meta = fmt.Sprintf("%v %v", i, alias)
+		}
+		expr.Print(tree, meta)
+	}
 }
 
 func Min[T int](a, b T) T {
