@@ -1223,11 +1223,11 @@ type Expr struct {
 	SubCtx      *BindContext // context for subquery
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
-	Between     *Expr
-	Kase        *Expr
-	When        []*Expr
-	Els         *Expr
-	CTEIndex    uint64
+	//Between     *Expr
+	Kase     *Expr
+	When     []*Expr
+	Els      *Expr
+	CTEIndex uint64
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join

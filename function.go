@@ -398,7 +398,7 @@ var funcs = []*Function{
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return types[0]
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func() error {
