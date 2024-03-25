@@ -154,18 +154,21 @@ func decideNull(types []ExprDataType) bool {
 	return false
 }
 
-func init() {
-	for _, oper := range operators {
-		allFunctions[oper.Id] = oper
-	}
-
-	for _, agg := range aggFuncs {
-		allFunctions[agg.Id] = agg
-	}
-
-	for _, fun := range funcs {
+func registerFunctions(funs []*Function) {
+	for _, fun := range funs {
+		if _, ok := allFunctions[fun.Id]; ok {
+			panic(fmt.Sprintf("function %v already exists", fun.Id))
+		}
 		allFunctions[fun.Id] = fun
 	}
+}
+
+func init() {
+	registerFunctions(operators)
+
+	registerFunctions(aggFuncs)
+
+	registerFunctions(funcs)
 }
 
 var operators = []*Function{}
