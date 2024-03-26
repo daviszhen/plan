@@ -108,6 +108,7 @@ func (b *Builder) columnPrune(root *LogicalOperator) (*LogicalOperator, error) {
 	if cp.colRefs.count() != 0 {
 		//panic("")
 	}
+	//TODO: evaluate global offsets
 	return root, err
 }
 

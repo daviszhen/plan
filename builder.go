@@ -1644,3 +1644,67 @@ const (
 	BothSide       = LeftSide | RightSide
 	CorrelatedSide = 1 << 3
 )
+
+//////////////////////////////////////////////
+// create physical plan
+//////////////////////////////////////////////
+
+func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error) {
+	if root == nil {
+		return nil, nil
+	}
+	var err error
+	children := make([]*PhysicalOperator, 0)
+	for _, child := range root.Children {
+		childPlan, err := b.CreatePhyPlan(child)
+		if err != nil {
+			return nil, err
+		}
+		children = append(children, childPlan)
+	}
+	var proot *PhysicalOperator
+	switch root.Typ {
+	case LOT_Project:
+		proot, err = b.createPhyProject(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_Order:
+		proot, err = b.createPhyOrder(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_AggGroup:
+		proot, err = b.createPhyAgg(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_Limit:
+		proot, err = b.createPhyTopN(root, children)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if proot != nil {
+		proot.estimatedCard = root.estimatedCard
+	}
+
+	return proot, nil
+}
+
+func (b *Builder) createPhyOrder(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{Typ: POT_Order, OrderBys: root.OrderBys, Children: children}, nil
+}
+
+func (b *Builder) createPhyProject(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{Typ: POT_Project, Projects: root.Projects, Children: children}, nil
+}
+
+func (b *Builder) createPhyAgg(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+
+	return &PhysicalOperator{Typ: POT_Agg, Children: children}, nil
+}
+
+func (b *Builder) createPhyTopN(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{Typ: POT_Limit, Children: children}, nil
+}

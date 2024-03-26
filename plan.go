@@ -1046,7 +1046,7 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 }
 
 func (lo *LogicalOperator) String() string {
-	tree := treeprint.NewWithRoot("LogicalOperator:")
+	tree := treeprint.NewWithRoot("LogicalPlan:")
 	lo.Print(tree)
 	return tree.String()
 }
@@ -1085,19 +1085,6 @@ func checkExprs(e ...*Expr) {
 		}
 	}
 }
-
-type POT int
-
-const (
-	POT_Project POT = iota
-	POT_With
-	POT_Filter
-	POT_Agg
-	POT_Join
-	POT_Order
-	POT_Limit
-	POT_Scan
-)
 
 type ET int
 
@@ -1237,10 +1224,7 @@ type Expr struct {
 	SubCtx      *BindContext // context for subquery
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
-	//Kase        *Expr
-	//When        []*Expr
-	//Els         *Expr
-	CTEIndex uint64
+	CTEIndex    uint64
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -1659,19 +1643,158 @@ type TableDef struct {
 	Alias string
 }
 
+type POT int
+
+const (
+	POT_Project POT = iota
+	POT_With
+	POT_Filter
+	POT_Agg
+	POT_Join
+	POT_Order
+	POT_Limit
+	POT_Scan
+)
+
+var potToStr = map[POT]string{
+	POT_Project: "project",
+	POT_With:    "with",
+	POT_Filter:  "filter",
+	POT_Agg:     "agg",
+	POT_Join:    "join",
+	POT_Order:   "order",
+	POT_Limit:   "limit",
+	POT_Scan:    "scan",
+}
+
+func (t POT) String() string {
+	if s, has := potToStr[t]; has {
+		return s
+	}
+	panic(fmt.Sprintf("usp %d", t))
+}
+
 type PhysicalOperator struct {
 	Typ POT
 	Tag int //relationTag
 
-	Columns  []string // name of project
-	Project  []*Expr
-	Filter   []*Expr
-	Agg      []*Expr
-	JoinOn   []*Expr
-	Order    []*Expr
-	Limit    []*Expr
-	Table    *TableDef
+	Columns       []string // name of project
+	Projects      []*Expr
+	Filters       []*Expr
+	Agg           []*Expr
+	JoinOn        []*Expr
+	OrderBys      []*Expr
+	Limit         []*Expr
+	Table         *TableDef
+	estimatedCard uint64
+
 	Children []*PhysicalOperator
+}
+
+func (po *PhysicalOperator) String() string {
+	tree := treeprint.NewWithRoot("PhysicalPlan:")
+	po.Print(tree)
+	return tree.String()
+}
+
+func (po *PhysicalOperator) Print(tree treeprint.Tree) {
+	if po == nil {
+		return
+	}
+	switch po.Typ {
+	case POT_Project:
+		tree = tree.AddBranch("Project:")
+		//tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
+		node := tree.AddMetaBranch("exprs", "")
+		listExprsToTree(node, po.Projects)
+	case POT_Filter:
+		tree = tree.AddBranch("Filter:")
+		node := tree.AddMetaBranch("exprs", "")
+		listExprsToTree(node, po.Filters)
+	case POT_Scan:
+		tree = tree.AddBranch("Scan:")
+		//tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
+		//tableInfo := ""
+		//if len(po.Alias) != 0 && po.Alias != po.Table {
+		//	tableInfo = fmt.Sprintf("%v.%v %v", po.Database, po.Table, po.Alias)
+		//} else {
+		//	tableInfo = fmt.Sprintf("%v.%v", po.Database, po.Table)
+		//}
+		//tree.AddMetaNode("table", tableInfo)
+		//catalogTable, err := tpchCatalog().Table(po.Database, po.Table)
+		//if err != nil {
+		//	panic("no table")
+		//}
+		//printColumns := func(cols []string) string {
+		//	t := strings.Builder{}
+		//	t.WriteByte('\n')
+		//	for i, col := range cols {
+		//		t.WriteString(fmt.Sprintf("col %d %v", i, col))
+		//		t.WriteByte('\n')
+		//	}
+		//	return t.String()
+		//}
+		//if len(po.Columns) > 0 {
+		//	tree.AddMetaNode("columns", printColumns(po.Columns))
+		//} else {
+		//	tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
+		//}
+		//node := tree.AddBranch("filters")
+		//listExprsToTree(node, po.Filters)
+		//printStats := func(columns []string) string {
+		//	sb := strings.Builder{}
+		//	sb.WriteString(fmt.Sprintf("rowcount %v\n", po.Stats.RowCount))
+		//	for colIdx, colName := range po.Columns {
+		//		originIdx := catalogTable.Column2Idx[colName]
+		//		sb.WriteString(fmt.Sprintf("col %v %v ", colIdx, colName))
+		//		sb.WriteString(po.Stats.ColStats[originIdx].String())
+		//		sb.WriteByte('\n')
+		//	}
+		//	return sb.String()
+		//}
+		//if len(po.Columns) > 0 {
+		//	tree.AddMetaNode("stats", printStats(po.Columns))
+		//} else {
+		//	tree.AddMetaNode("stats", printStats(catalogTable.Columns))
+		//}
+
+	case POT_Join:
+		//tree = tree.AddBranch(fmt.Sprintf("Join (%v):", po.JoinTyp))
+		//if len(po.OnConds) > 0 {
+		//	node := tree.AddMetaBranch("On", "")
+		//	listExprsToTree(node, po.OnConds)
+		//}
+		//if po.Stats != nil {
+		//	tree.AddMetaNode("Stats", po.Stats.String())
+		//}
+	case POT_Agg:
+		tree = tree.AddBranch("Aggregate:")
+		//if len(po.GroupBys) > 0 {
+		//	node := tree.AddBranch(fmt.Sprintf("groupExprs, index %d", po.Index))
+		//	listExprsToTree(node, po.GroupBys)
+		//}
+		//if len(po.Aggs) > 0 {
+		//	node := tree.AddBranch(fmt.Sprintf("aggExprs, index %d", po.Index2))
+		//	listExprsToTree(node, po.Aggs)
+		//}
+		//if len(po.Filters) > 0 {
+		//	node := tree.AddBranch("filters")
+		//	listExprsToTree(node, po.Filters)
+		//}
+
+	case POT_Order:
+		tree = tree.AddBranch("Order:")
+		node := tree.AddMetaBranch("exprs", "")
+		listExprsToTree(node, po.OrderBys)
+	case POT_Limit:
+		//tree = tree.AddBranch(fmt.Sprintf("Limit: %v", po.Limit.String()))
+	default:
+		panic(fmt.Sprintf("usp %v", po.Typ))
+	}
+
+	for _, child := range po.Children {
+		child.Print(tree)
+	}
 }
 
 type Catalog struct {

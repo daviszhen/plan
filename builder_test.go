@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func toJson(root *LogicalOperator, path string) error {
+func toJson(root any, path string) error {
 	data, err := json.Marshal(root)
 	if err != nil {
 		return err
@@ -45,6 +45,15 @@ func runTest(t *testing.T, name string, ast *Ast) {
 
 	err = toJson(lp, "./"+name)
 	assert.NoError(t, err)
+
+	pp, err := builder.CreatePhyPlan(lp)
+	assert.NoError(t, err)
+	assert.NotNil(t, pp)
+	fmt.Println("\n", pp.String())
+
+	err = toJson(pp, "./p"+name)
+	assert.NoError(t, err)
+
 }
 
 func TestQ1(t *testing.T) {
