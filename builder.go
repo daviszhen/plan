@@ -1470,14 +1470,90 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		}
 	}
 
-	return &Expr{
-		Typ:    ET_Func,
-		SubTyp: ET_Case,
-		Svalue: ET_Case.String(),
-		Kase:   kase,
-		When:   when,
-		Els:    els,
-	}, err
+	//decide case expr
+	if kase != nil {
+		//CASE value
+		//WHEN compare_value THEN result
+		//[WHEN compare_value THEN result ...]
+		//[ELSE result] END
+
+		caseTyp := kase.DataTyp.LTyp
+		for i := 0; i < len(when); i += 2 {
+			caseTyp = MaxLType(caseTyp, when[i].DataTyp.LTyp)
+		}
+		//cast WHEN to
+		for i := 0; i < len(when); i += 2 {
+			when[i], err = castExpr(when[i], caseTyp, caseTyp.id == LTID_ENUM)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		//CASE
+		//WHEN condition THEN result
+		//[WHEN condition THEN result ...]
+		//[ELSE result] END
+
+		//cast WHEN to boolean
+		for i := 0; i < len(when); i += 2 {
+			when[i], err = castExpr(when[i], boolean(), false)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	//decide result types
+	//max type of the THEN expr and the ELSE expr
+	retTyp := when[1].DataTyp.LTyp
+	for i := 0; i < len(when); i += 2 {
+		retTyp = MaxLType(retTyp, when[i+1].DataTyp.LTyp)
+	}
+
+	if els != nil {
+		retTyp = MaxLType(retTyp, els.DataTyp.LTyp)
+	}
+
+	//case THEN to
+	for i := 0; i < len(when); i += 2 {
+		when[i+1], err = castExpr(when[i+1], retTyp, retTyp.id == LTID_ENUM)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if els != nil {
+		els, err = castExpr(els, retTyp, retTyp.id == LTID_ENUM)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	params := []*Expr{kase, els}
+	params = append(params, when...)
+
+	decideDataType := func(e *Expr) ExprDataType {
+		if e == nil {
+			return ExprDataType{LTyp: null()}
+		} else {
+			return e.DataTyp
+		}
+	}
+
+	paramsTypes := []ExprDataType{
+		decideDataType(kase),
+		decideDataType(els),
+	}
+
+	for i := 0; i < len(when); i += 1 {
+		paramsTypes = append(paramsTypes, when[i].DataTyp)
+	}
+
+	ret, err := b.bindFunc(ET_Case.String(), ET_Case, expr.String(), params, paramsTypes)
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
 }
 
 func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
@@ -1534,23 +1610,18 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 	}
 
 	var et ET_SubTyp
-	name := ""
 	switch expr.Expr.SubTyp {
 	case AstExprSubTypeIn:
 		et = ET_In
-		name = "in"
 	case AstExprSubTypeNotIn:
 		et = ET_NotIn
-		name = "not in"
 	default:
 		panic("unhandled default case")
 	}
-	ret, err := b.bindFunc(name, expr.String(), params, paramTypes)
+	ret, err := b.bindFunc(et.String(), et, expr.String(), params, paramTypes)
 	if err != nil {
 		return nil, err
 	}
-	ret.SubTyp = et
-	ret.Svalue = et.String()
 	return ret, nil
 }
 

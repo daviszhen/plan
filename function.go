@@ -30,17 +30,36 @@ type Impl struct {
 
 const (
 	INVALID_FUNC FuncId = iota
+	//agg
 	MIN
-	DATE_ADD
 	COUNT
-	EXTRACT
 	SUM
 	MAX
 	AVG
+	//operator
+	EQUAL
+	NOT_EQUAL
+	IN
+	NOT_IN
+	BETWEEN
+	AND
+	OR
+	ADD
+	SUB
+	MUL
+	DIV
+	GREAT_EQUAL
+	GREAT
+	LESS_EQUAL
+	LESS
+	LIKE
+	NOT_LIKE
+	CASE
+	//functions
+	DATE_ADD
+	EXTRACT
 	SUBSTRING
 	CAST
-	IN
-	BETWEEN
 )
 
 var funcName2Id = map[string]FuncId{
@@ -53,8 +72,25 @@ var funcName2Id = map[string]FuncId{
 	"avg":       AVG,
 	"substring": SUBSTRING,
 	"cast":      CAST,
+	"=":         EQUAL,
+	"<>":        NOT_EQUAL,
+	"!=":        NOT_EQUAL,
 	"in":        IN,
+	"not in":    NOT_IN,
 	"between":   BETWEEN,
+	"and":       AND,
+	"or":        OR,
+	"+":         ADD,
+	"-":         SUB,
+	"*":         MUL,
+	"/":         DIV,
+	">=":        GREAT_EQUAL,
+	">":         GREAT,
+	"<=":        LESS_EQUAL,
+	"<":         LESS,
+	"like":      LIKE,
+	"not like":  NOT_LIKE,
+	"case":      CASE,
 }
 
 var allFunctions = map[FuncId]*Function{}
@@ -154,26 +190,942 @@ func decideNull(types []ExprDataType) bool {
 	return false
 }
 
-func registerFunctions(funs []*Function) {
+func registerFunctions(funs []*Function, needAgg bool) {
 	for _, fun := range funs {
 		if _, ok := allFunctions[fun.Id]; ok {
 			panic(fmt.Sprintf("function %v already exists", fun.Id))
+		}
+		if len(fun.Impls) == 0 {
+			panic(fmt.Sprintf("function %v need impl", fun.Id))
+		}
+		for i := 1; i < len(fun.Impls); i++ {
+			if fun.Impls[i].Idx != i {
+				panic(fmt.Sprintf("function %v impl %d has wrong index", fun.Id, i))
+			}
+		}
+		if needAgg {
+			hasAgg := false
+			for _, impl := range fun.Impls {
+				if impl.IsAgg {
+					hasAgg = true
+					break
+				}
+			}
+			if !hasAgg {
+				panic(fmt.Sprintf("function %v need agg impl", fun.Id))
+			}
 		}
 		allFunctions[fun.Id] = fun
 	}
 }
 
 func init() {
-	registerFunctions(operators)
+	registerFunctions(operators, false)
 
-	registerFunctions(aggFuncs)
+	registerFunctions(aggFuncs, true)
 
-	registerFunctions(funcs)
+	registerFunctions(funcs, false)
 }
 
-var operators = []*Function{}
+var operators = []*Function{
+	{
+		Id: IN,
+		Impls: []*Impl{
+			{
+				Desc: "in",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "in",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: opInImplDecider,
+	},
+	{
+		Id: NOT_IN,
+		Impls: []*Impl{
+			{
+				Desc: "not in",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "not in",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: opInImplDecider,
+	},
+	{
+		Id: BETWEEN,
+		Impls: []*Impl{
+			{
+				Desc: "between",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "between",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "between",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: ADD,
+		Impls: []*Impl{
+			{
+				Desc: "+",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "+",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "+",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: SUB,
+		Impls: []*Impl{
+			{
+				Desc: "-",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "-",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "-",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: MUL,
+		Impls: []*Impl{
+			{
+				Desc: "*",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "*",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: DIV,
+		Impls: []*Impl{
+			{
+				Desc: "/",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "/",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: EQUAL,
+		Impls: []*Impl{
+			{
+				Desc: "=",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "=",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "=",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: NOT_EQUAL,
+		Impls: []*Impl{
+			{
+				Desc: "<>",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "<>",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: GREAT_EQUAL,
+		Impls: []*Impl{
+			{
+				Desc: ">=",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: ">=",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: GREAT,
+		Impls: []*Impl{
+			{
+				Desc: ">",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: ">",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: ">",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: ">",
+				Idx:  3,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: LESS_EQUAL,
+		Impls: []*Impl{
+			{
+				Desc: "<=",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "<=",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: LESS,
+		Impls: []*Impl{
+			{
+				Desc: "<",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: dateLTyp(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "<",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: AND,
+		Impls: []*Impl{
+			{
+				Desc: "and",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: boolean(),
+					},
+					{
+						LTyp: boolean(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: OR,
+		Impls: []*Impl{
+			{
+				Desc: "or",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: boolean(),
+					},
+					{
+						LTyp: boolean(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: LIKE,
+		Impls: []*Impl{
+			{
+				Desc: "like",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: opInImplDecider,
+	},
+	{
+		Id: NOT_LIKE,
+		Impls: []*Impl{
+			{
+				Desc: "not like",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: opInImplDecider,
+	},
+	{
+		Id: CASE,
+		Impls: []*Impl{
+			{
+				Desc: "case",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: null(),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: boolean(),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[3].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "case",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: null(),
+					},
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: boolean(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[3].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+}
 
 var aggFuncs = []*Function{
+	{
+		Id: MAX,
+		Impls: []*Impl{
+			{
+				Desc: "max",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: true,
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
 	{
 		Id: MIN,
 		Impls: []*Impl{
@@ -186,10 +1138,7 @@ var aggFuncs = []*Function{
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					if types[0].LTyp.id == LTID_DECIMAL {
-						return types[0]
-					}
-					panic("usp")
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func() error {
@@ -199,9 +1148,7 @@ var aggFuncs = []*Function{
 				IsAgg: true,
 			},
 		},
-		ImplDecider: func(*Function, []ExprDataType) (int, []ExprDataType) {
-			panic("usp")
-		},
+		ImplDecider: exactImplDecider,
 	},
 	{
 		Id: SUM,
@@ -215,10 +1162,25 @@ var aggFuncs = []*Function{
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					if types[0].LTyp.id == LTID_DECIMAL {
-						return types[0]
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
 					}
-					panic("usp")
+				},
+				IsAgg: true,
+			},
+			{
+				Desc: "sum",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: integer(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func() error {
@@ -281,6 +1243,27 @@ var aggFuncs = []*Function{
 				},
 				IsAgg: true,
 			},
+			{
+				Desc: "avg",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{
+						LTyp:    types[0].LTyp,
+						NotNull: decideNull(types),
+					}
+				},
+				Body: func() FunctionBody {
+					return func() error {
+						return fmt.Errorf("usp")
+					}
+				},
+				IsAgg: true,
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},
@@ -298,7 +1281,7 @@ var funcs = []*Function{
 					{LTyp: intervalLType()},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					panic("usp")
+					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func() error {
@@ -307,6 +1290,7 @@ var funcs = []*Function{
 				},
 			},
 		},
+		ImplDecider: exactImplDecider,
 	},
 	{
 		Id: EXTRACT,
@@ -315,11 +1299,11 @@ var funcs = []*Function{
 				Desc: "extract",
 				Idx:  0,
 				Args: []ExprDataType{
-					{LTyp: intervalLType()},
+					{LTyp: varchar()},
 					{LTyp: dateLTyp()},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					panic("usp")
+					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func() error {
@@ -328,6 +1312,7 @@ var funcs = []*Function{
 				},
 			},
 		},
+		ImplDecider: exactImplDecider,
 	},
 	{
 		Id: CAST,
@@ -344,19 +1329,16 @@ var funcs = []*Function{
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					panic("usp")
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func() error {
 						return fmt.Errorf("usp")
 					}
 				},
-				IsAgg: false,
 			},
 		},
-		ImplDecider: func(*Function, []ExprDataType) (int, []ExprDataType) {
-			panic("usp")
-		},
+		ImplDecider: exactImplDecider,
 	},
 	{
 		Id: SUBSTRING,
@@ -386,61 +1368,6 @@ var funcs = []*Function{
 						return fmt.Errorf("usp")
 					}
 				},
-				IsAgg: false,
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: IN,
-		Impls: []*Impl{
-			{
-				Desc: "in",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
-					}
-				},
-				IsAgg: false,
-			},
-		},
-		ImplDecider: opInImplDecider,
-	},
-	{
-		Id: BETWEEN,
-		Impls: []*Impl{
-			{
-				Desc: "between",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
-					}
-				},
-				IsAgg: false,
 			},
 		},
 		ImplDecider: exactImplDecider,

@@ -117,7 +117,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				argsTypes = append(argsTypes, child.DataTyp)
 			}
 
-			ret, err = b.bindFunc(name, expr.String(), args, argsTypes)
+			ret, err = b.bindFunc(name, ET_SubFunc, expr.String(), args, argsTypes)
 			if err != nil {
 				return nil, err
 			}
@@ -195,7 +195,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	return ret, err
 }
 
-func (b *Builder) bindFunc(name string, astStr string, args []*Expr, argsTypes []ExprDataType) (*Expr, error) {
+func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []ExprDataType) (*Expr, error) {
 	id, err := GetFunctionId(name)
 	if err != nil {
 		return nil, err
@@ -210,7 +210,7 @@ func (b *Builder) bindFunc(name string, astStr string, args []*Expr, argsTypes [
 
 	ret := &Expr{
 		Typ:      ET_Func,
-		SubTyp:   ET_SubFunc,
+		SubTyp:   subTyp,
 		Svalue:   name,
 		FuncId:   id,
 		DataTyp:  retTyp,
@@ -431,12 +431,10 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast
 	params := []*Expr{betExpr, left, right}
 	paramsTypes := []ExprDataType{betExpr.DataTyp, left.DataTyp, right.DataTyp}
 
-	ret, err := b.bindFunc("between", expr.String(), params, paramsTypes)
+	ret, err := b.bindFunc(ET_Between.String(), ET_Between, expr.String(), params, paramsTypes)
 	if err != nil {
 		return nil, err
 	}
-	ret.SubTyp = ET_Between
-	ret.Svalue = ret.SubTyp.String()
 	return ret, nil
 }
 
@@ -465,19 +463,17 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	}
 
 	var et ET_SubTyp
-	var retTyp LType
 	if isCompare(expr.Expr.SubTyp) {
-		et, retTyp = decideCompareOpType(expr.Expr.SubTyp)
+		et, _ = decideCompareOpType(expr.Expr.SubTyp)
 	} else {
-		et, retTyp = decideBinaryOpType(expr.Expr.SubTyp, resultTyp)
+		et, _ = decideBinaryOpType(expr.Expr.SubTyp, resultTyp)
 	}
-	return &Expr{
-		Typ:      ET_Func,
-		SubTyp:   et,
-		Svalue:   et.String(),
-		DataTyp:  ExprDataType{LTyp: retTyp},
-		Children: []*Expr{left, right},
-	}, err
+
+	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []ExprDataType{left.DataTyp, right.DataTyp})
+	if err != nil {
+		return nil, err
+	}
+	return bindFunc, nil
 }
 
 func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {

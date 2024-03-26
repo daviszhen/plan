@@ -657,6 +657,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				if invert {
 					//TODO:
 				}
+				checkExprs(cond)
 				resultOp.OnConds = append(resultOp.OnConds, cond)
 				//remove this filter
 				joinOrder.filters[filter.filterIndex] = nil
@@ -709,6 +710,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				cond := &Expr{
 					Typ:      filter.Typ,
 					SubTyp:   filter.SubTyp,
+					DataTyp:  filter.DataTyp,
 					Children: []*Expr{nil, nil},
 				}
 				if !invert {
@@ -723,6 +725,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				if cur.Typ == LOT_Filter {
 					cur = cur.Children[0]
 				}
+				checkExprs(cond)
 				if cur.Typ == LOT_JOIN && cur.JoinTyp == LOT_JoinTypeCross {
 					next := &LogicalOperator{
 						Typ:      LOT_JOIN,

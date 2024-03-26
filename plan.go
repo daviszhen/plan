@@ -181,6 +181,10 @@ func makeLType(id LTypeId) LType {
 	return ret
 }
 
+func null() LType {
+	return makeLType(LTID_NULL)
+}
+
 func invalidLType() LType {
 	return makeLType(LTID_INVALID)
 }
@@ -1233,10 +1237,10 @@ type Expr struct {
 	SubCtx      *BindContext // context for subquery
 	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
-	Kase        *Expr
-	When        []*Expr
-	Els         *Expr
-	CTEIndex    uint64
+	//Kase        *Expr
+	//When        []*Expr
+	//Els         *Expr
+	CTEIndex uint64
 
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
@@ -1474,20 +1478,20 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			e.Children[2].Format(ctx)
 		case ET_Case:
 			ctx.Write("case ")
-			if e.Kase != nil {
-				e.Kase.Format(ctx)
+			if e.Children[0] != nil {
+				e.Children[0].Format(ctx)
 				ctx.Writeln()
 			}
-			for i := 0; i < len(e.When); i += 2 {
+			for i := 2; i < len(e.Children); i += 2 {
 				ctx.Write(" when")
-				e.When[i].Format(ctx)
+				e.Children[i].Format(ctx)
 				ctx.Write(" then ")
-				e.When[i+1].Format(ctx)
+				e.Children[i+1].Format(ctx)
 				ctx.Writeln()
 			}
-			if e.Els != nil {
+			if e.Children[1] != nil {
 				ctx.Write(" else ")
-				e.Els.Format(ctx)
+				e.Children[1].Format(ctx)
 				ctx.Writeln()
 			}
 			ctx.Write("end")
@@ -1601,16 +1605,16 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 			e.Children[2].Print(branch, "")
 		case ET_Case:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
-			if e.Kase != nil {
-				e.Kase.Print(branch, "")
+			if e.Children[0] != nil {
+				e.Children[0].Print(branch, "")
 			}
 			when := branch.AddBranch("when")
-			for i := 0; i < len(e.When); i += 2 {
-				e.When[i].Print(when, "")
-				e.When[i+1].Print(when, "")
+			for i := 2; i < len(e.Children); i += 2 {
+				e.Children[i].Print(when, "")
+				e.Children[i+1].Print(when, "")
 			}
-			if e.Els != nil {
-				e.Els.Print(branch, "")
+			if e.Children[1] != nil {
+				e.Children[1].Print(branch, "")
 			}
 		case ET_In, ET_NotIn:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
@@ -1860,15 +1864,6 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		set.insert(e.ColRef)
 
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Case:
-			collectColRefs(e.Kase, set)
-			for _, expr := range e.When {
-				collectColRefs(expr, set)
-			}
-			collectColRefs(e.Els, set)
-		default:
-		}
 	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
 	case ET_Orderby:
 	default:

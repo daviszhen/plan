@@ -176,9 +176,14 @@ func (a *Ast) Format(ctx *FormatCtx) {
 		ctx.Writef("%f", a.Expr.Fvalue)
 	case AstExprTypeString:
 		ctx.Write(a.Expr.Svalue)
+	case AstExprTypeDate:
+		ctx.Write(a.Expr.Svalue)
+	case AstExprTypeInterval:
+		ctx.Write(a.Expr.Svalue)
 	case AstExprTypeFunc:
 		switch a.Expr.SubTyp {
-		case AstExprSubTypeAdd,
+		case AstExprSubTypeAnd,
+			AstExprSubTypeAdd,
 			AstExprSubTypeSub,
 			AstExprSubTypeMul,
 			AstExprSubTypeDiv,
@@ -186,11 +191,16 @@ func (a *Ast) Format(ctx *FormatCtx) {
 			AstExprSubTypeNotEqual,
 			AstExprSubTypeOr,
 			AstExprSubTypeLike,
-			AstExprSubTypeIn,
-			AstExprSubTypeNotIn:
+			AstExprSubTypeNotLike,
+			AstExprSubTypeGreaterEqual,
+			AstExprSubTypeGreater,
+			AstExprSubTypeLessEqual,
+			AstExprSubTypeLess:
 			ctx.Write(a.Expr.Children[0].String())
 			op := ""
 			switch a.Expr.SubTyp {
+			case AstExprSubTypeAnd:
+				op = "and"
 			case AstExprSubTypeAdd:
 				op = "+"
 			case AstExprSubTypeSub:
@@ -207,10 +217,20 @@ func (a *Ast) Format(ctx *FormatCtx) {
 				op = "or"
 			case AstExprSubTypeLike:
 				op = "like"
+			case AstExprSubTypeNotLike:
+				op = "not like"
 			case AstExprSubTypeIn:
 				op = "in"
 			case AstExprSubTypeNotIn:
 				op = "not in"
+			case AstExprSubTypeGreaterEqual:
+				op = ">="
+			case AstExprSubTypeGreater:
+				op = ">"
+			case AstExprSubTypeLessEqual:
+				op = "<="
+			case AstExprSubTypeLess:
+				op = "<"
 			default:
 				panic("usp")
 			}
@@ -241,6 +261,20 @@ func (a *Ast) Format(ctx *FormatCtx) {
 				ctx.Write(" else ")
 				ctx.Write(a.Expr.Els.String())
 			}
+		case AstExprSubTypeNotExists:
+			ctx.Write("not exists")
+			ctx.Write(a.Expr.Children[0].String())
+		case AstExprSubTypeExists:
+			ctx.Write("exists")
+			ctx.Write(a.Expr.Children[0].String())
+		case AstExprSubTypeIn:
+			ctx.Write(a.Expr.In.String())
+			ctx.Write("in")
+			ctx.Write(a.Expr.Children[0].String())
+		case AstExprSubTypeNotIn:
+			ctx.Write(a.Expr.In.String())
+			ctx.Write("not in")
+			ctx.Write(a.Expr.Children[0].String())
 		case AstExprSubTypeFunc:
 			funcName := a.Expr.Svalue
 			ctx.Write(funcName)
@@ -255,6 +289,8 @@ func (a *Ast) Format(ctx *FormatCtx) {
 		default:
 			panic(fmt.Sprintf("usp %v", a.Expr.SubTyp))
 		}
+	case AstExprTypeSubquery:
+		ctx.Write("!!!subquery")
 	default:
 		panic(fmt.Sprintf("usp expr type %d", a.Expr.ExprTyp))
 	}
