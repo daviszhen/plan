@@ -403,7 +403,7 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 
 	switch root.Typ {
 	case LOT_Limit:
-		err = updateChildren(counts)
+		err = updateCounts(counts, nil)
 		if err != nil {
 			return nil, err
 		}
