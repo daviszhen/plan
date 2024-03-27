@@ -43,6 +43,11 @@ func (set ColumnBindSet) find(bind ColumnBind) bool {
 func (set ColumnBindSet) insert(bind ColumnBind) {
 	set[bind] = true
 }
+func (set ColumnBindSet) merge(other ColumnBindSet) {
+	for bind, _ := range other {
+		set.insert(bind)
+	}
+}
 
 func (set ColumnBindSet) empty() bool {
 	return len(set) == 0

@@ -11,7 +11,8 @@ import (
 type PhyType int
 
 const (
-	BOOL PhyType = iota + 1
+	NA PhyType = iota
+	BOOL
 	UINT8
 	INT8
 	UINT16
@@ -33,6 +34,7 @@ const (
 )
 
 var pTypeToStr = map[PhyType]string{
+	NA:       "NA",
 	BOOL:     "BOOL",
 	UINT8:    "UINT8",
 	INT8:     "INT8",
@@ -920,6 +922,8 @@ type LogicalOperator struct {
 	hasEstimatedCard bool
 	estimatedCard    uint64
 	estimatedProps   *EstimatedProperties
+	Outputs          []*Expr
+	Counts           ColumnBindCountMap `json:"-"`
 
 	Children []*LogicalOperator
 }
@@ -952,15 +956,18 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	switch lo.Typ {
 	case LOT_Project:
 		tree = tree.AddBranch("Project:")
+		printOutputs(tree, lo)
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		node := tree.AddMetaBranch("exprs", "")
 		listExprsToTree(node, lo.Projects)
 	case LOT_Filter:
 		tree = tree.AddBranch("Filter:")
+		printOutputs(tree, lo)
 		node := tree.AddMetaBranch("exprs", "")
 		listExprsToTree(node, lo.Filters)
 	case LOT_Scan:
 		tree = tree.AddBranch("Scan:")
+		printOutputs(tree, lo)
 		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		tableInfo := ""
 		if len(lo.Alias) != 0 && lo.Alias != lo.Table {
@@ -977,13 +984,24 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 			t := strings.Builder{}
 			t.WriteByte('\n')
 			for i, col := range cols {
-				t.WriteString(fmt.Sprintf("col %d %v", i, col))
+				idx := catalogTable.Column2Idx[col]
+				t.WriteString(fmt.Sprintf("col %d %v %v", i, col, catalogTable.Types[idx]))
 				t.WriteByte('\n')
 			}
 			return t.String()
 		}
-		if len(lo.Columns) > 0 {
-			tree.AddMetaNode("columns", printColumns(lo.Columns))
+		printColumns2 := func(cols []*Expr) string {
+			t := strings.Builder{}
+			t.WriteByte('\n')
+			for _, col := range cols {
+				t.WriteString(fmt.Sprintf("col %v %v %v", col.ColRef, col.Name, col.DataTyp))
+				t.WriteByte('\n')
+			}
+			return t.String()
+		}
+		if len(lo.Outputs) > 0 {
+			tree.AddMetaNode("columns", printColumns2(lo.Outputs))
+			//tree.AddMetaNode("columns", printColumns(lo.Columns))
 		} else {
 			tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
 		}
@@ -1008,6 +1026,7 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
+		printOutputs(tree, lo)
 		if len(lo.OnConds) > 0 {
 			node := tree.AddMetaBranch("On", "")
 			listExprsToTree(node, lo.OnConds)
@@ -1017,6 +1036,7 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		}
 	case LOT_AggGroup:
 		tree = tree.AddBranch("Aggregate:")
+		printOutputs(tree, lo)
 		if len(lo.GroupBys) > 0 {
 			node := tree.AddBranch(fmt.Sprintf("groupExprs, index %d", lo.Index))
 			listExprsToTree(node, lo.GroupBys)
@@ -1032,16 +1052,32 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 
 	case LOT_Order:
 		tree = tree.AddBranch("Order:")
+		printOutputs(tree, lo)
 		node := tree.AddMetaBranch("exprs", "")
 		listExprsToTree(node, lo.OrderBys)
 	case LOT_Limit:
 		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", lo.Limit.String()))
+		printOutputs(tree, lo)
 	default:
 		panic(fmt.Sprintf("usp %v", lo.Typ))
 	}
 
 	for _, child := range lo.Children {
 		child.Print(tree)
+	}
+}
+
+func printOutputs(tree treeprint.Tree, root *LogicalOperator) {
+	if len(root.Outputs) != 0 {
+		node := tree.AddMetaBranch("ouputs", "")
+		listExprsToTree(node, root.Outputs)
+	}
+
+	if len(root.Counts) != 0 {
+		node := tree.AddMetaBranch("counts", "")
+		for bind, i := range root.Counts {
+			node.AddNode(fmt.Sprintf("%v %v", bind, i))
+		}
 	}
 }
 
@@ -1994,5 +2030,11 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	}
 	for _, child := range e.Children {
 		collectColRefs(child, set)
+	}
+}
+
+func collectColRefs2(set ColumnBindSet, exprs ...*Expr) {
+	for _, expr := range exprs {
+		collectColRefs(expr, set)
 	}
 }
