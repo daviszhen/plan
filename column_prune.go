@@ -101,6 +101,13 @@ func (ccount ColumnBindCountMap) refCount(bind ColumnBind) int {
 	return 0
 }
 
+func (ccount ColumnBindCountMap) has(bind ColumnBind) (bool, int) {
+	if count, ok := ccount[bind]; ok {
+		return true, count
+	}
+	return false, 0
+}
+
 func (ccount ColumnBindCountMap) copy() ColumnBindCountMap {
 	res := make(ColumnBindCountMap)
 	for bind, i := range ccount {
@@ -345,6 +352,12 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 	counts := upCounts.copy()
 	resCounts := make(ColumnBindCountMap)
 	defer func() {
+		//fmt.Println("==>0", root.Typ, "upCounts", upCounts)
+		//fmt.Println("==>1", root.Typ, "counts", counts)
+		//fmt.Println("==>2", root.Typ, "resCounts", resCounts)
+	}()
+
+	defer func() {
 		//check
 		for bind, cnt := range resCounts {
 			upCnt := upCounts.refCount(bind)
@@ -355,6 +368,30 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 				panic(fmt.Sprintf("%v difers in upCounts", bind))
 			}
 		}
+
+		for bind, cnt := range counts {
+			has, hcnt := upCounts.has(bind)
+			if !has {
+				panic("xxx")
+				fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
+			} else if hcnt != cnt {
+				panic("xxx1")
+				fmt.Printf("%v bind %v count %d different in upCounts %d \n",
+					root.Typ, bind, cnt, hcnt)
+			}
+		}
+		for bind, cnt := range upCounts {
+			has, hcnt := counts.has(bind)
+			if !has {
+				panic("xxx2")
+				fmt.Printf("%v no bind %v in counts \n", root.Typ, bind)
+			} else if hcnt != cnt {
+				panic("xxx3")
+				fmt.Printf("%v bind %v count %d different in counts %d \n",
+					root.Typ, bind, cnt, hcnt)
+			}
+		}
+
 	}()
 
 	updateChildren := func(counts ColumnBindCountMap) error {
@@ -383,6 +420,7 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 			counts.addColumnBind(bind)
 		}
 
+		//fmt.Println("==>-1", root.Typ, "down-counts", counts)
 		//recursive
 		err = updateChildren(counts)
 		if err != nil {
@@ -391,6 +429,7 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 
 		//restore colRefs
 		resCounts.merge(colRefOnThisNode)
+		counts.merge(colRefOnThisNode)
 		resCounts.removeNotIn(upCounts)
 		for bind, _ := range bSet {
 			counts.removeColumnBind(bind)
@@ -436,9 +475,12 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 			return nil, err
 		}
 	case LOT_Scan:
-		colRefOnThisNode = counts.splitByTableIdx(root.Index)
-		counts.removeByTableIdx(root.Index, false)
-		resCounts.merge(colRefOnThisNode)
+		resCounts = counts.copy()
+		resCounts.removeByTableIdx(root.Index, false)
+		//colRefOnThisNode = counts.splitByTableIdx(root.Index)
+		//counts.removeByTableIdx(root.Index, false)
+		//counts.merge(colRefOnThisNode)
+		//resCounts.merge(colRefOnThisNode)
 		resCounts.removeZeroCount()
 		root.Counts = resCounts
 	case LOT_Filter:
