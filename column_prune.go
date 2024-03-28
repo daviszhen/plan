@@ -349,49 +349,44 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 	//after the children has been updated, these colRef should
 	//be restored.
 	var colRefOnThisNode ColumnBindCountMap
-	counts := upCounts.copy()
+	backupCounts := upCounts.copy()
 	resCounts := make(ColumnBindCountMap)
-	defer func() {
-		//fmt.Println("==>0", root.Typ, "upCounts", upCounts)
-		//fmt.Println("==>1", root.Typ, "counts", counts)
-		//fmt.Println("==>2", root.Typ, "resCounts", resCounts)
-	}()
 
 	defer func() {
 		//check
 		for bind, cnt := range resCounts {
-			upCnt := upCounts.refCount(bind)
+			upCnt := backupCounts.refCount(bind)
 			if upCnt == 0 {
-				panic(fmt.Sprintf("no %v in upCounts", bind))
+				panic(fmt.Sprintf("no %v in backupCounts", bind))
 			}
-			if upCounts.refCount(bind) != cnt {
-				panic(fmt.Sprintf("%v difers in upCounts", bind))
+			if backupCounts.refCount(bind) != cnt {
+				panic(fmt.Sprintf("%v count differs in backupCounts", bind))
 			}
 		}
 
-		for bind, cnt := range counts {
+		for bind, cnt := range upCounts {
+			has, hcnt := backupCounts.has(bind)
+			if !has {
+				fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
+				panic("xxx")
+			} else if hcnt != cnt {
+				fmt.Printf("%v bind %v count %d differs in upCounts %d \n",
+					root.Typ, bind, cnt, hcnt)
+				panic("xxx1")
+			}
+		}
+
+		for bind, cnt := range backupCounts {
 			has, hcnt := upCounts.has(bind)
 			if !has {
-				panic("xxx")
 				fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
-			} else if hcnt != cnt {
-				panic("xxx1")
-				fmt.Printf("%v bind %v count %d different in upCounts %d \n",
-					root.Typ, bind, cnt, hcnt)
-			}
-		}
-		for bind, cnt := range upCounts {
-			has, hcnt := counts.has(bind)
-			if !has {
 				panic("xxx2")
-				fmt.Printf("%v no bind %v in counts \n", root.Typ, bind)
 			} else if hcnt != cnt {
-				panic("xxx3")
-				fmt.Printf("%v bind %v count %d different in counts %d \n",
+				fmt.Printf("%v bind %v count %d differs in upCounts %d \n",
 					root.Typ, bind, cnt, hcnt)
+				panic("xxx3")
 			}
 		}
-
 	}()
 
 	updateChildren := func(counts ColumnBindCountMap) error {
@@ -420,7 +415,6 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 			counts.addColumnBind(bind)
 		}
 
-		//fmt.Println("==>-1", root.Typ, "down-counts", counts)
 		//recursive
 		err = updateChildren(counts)
 		if err != nil {
@@ -442,49 +436,45 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 
 	switch root.Typ {
 	case LOT_Limit:
-		err = updateCounts(counts, nil)
+		err = updateCounts(upCounts, nil)
 		if err != nil {
 			return nil, err
 		}
 	case LOT_Order:
-		err = updateCounts(counts, root.OrderBys...)
+		err = updateCounts(upCounts, root.OrderBys...)
 		if err != nil {
 			return nil, err
 		}
 	case LOT_Project:
-		colRefOnThisNode = counts.splitByTableIdx(root.Index)
-		err = updateCounts(counts, root.Projects...)
+		colRefOnThisNode = upCounts.splitByTableIdx(root.Index)
+		err = updateCounts(upCounts, root.Projects...)
 		if err != nil {
 			return nil, err
 		}
 
 	case LOT_AggGroup:
 		//remove aggExprs
-		colRefOnThisNode = counts.splitByTableIdx(root.Index2)
+		colRefOnThisNode = upCounts.splitByTableIdx(root.Index2)
 		exprs := make([]*Expr, 0)
 		exprs = append(exprs, root.GroupBys...)
 		exprs = append(exprs, root.Aggs...)
 		exprs = append(exprs, root.Filters...)
-		err = updateCounts(counts, exprs...)
+		err = updateCounts(upCounts, exprs...)
 		if err != nil {
 			return nil, err
 		}
 	case LOT_JOIN:
-		err = updateCounts(counts, root.OnConds...)
+		err = updateCounts(upCounts, root.OnConds...)
 		if err != nil {
 			return nil, err
 		}
 	case LOT_Scan:
-		resCounts = counts.copy()
+		resCounts = upCounts.copy()
 		resCounts.removeByTableIdx(root.Index, false)
-		//colRefOnThisNode = counts.splitByTableIdx(root.Index)
-		//counts.removeByTableIdx(root.Index, false)
-		//counts.merge(colRefOnThisNode)
-		//resCounts.merge(colRefOnThisNode)
 		resCounts.removeZeroCount()
 		root.Counts = resCounts
 	case LOT_Filter:
-		err = updateCounts(counts, root.Filters...)
+		err = updateCounts(upCounts, root.Filters...)
 		if err != nil {
 			return nil, err
 		}
