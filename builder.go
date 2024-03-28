@@ -1259,10 +1259,10 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	if err != nil {
 		return nil, err
 	}
-	//root, err = b.generateOutputs(root)
-	//if err != nil {
-	//	return nil, err
-	//}
+	root, err = b.generateOutputs(root)
+	if err != nil {
+		return nil, err
+	}
 	return root, nil
 }
 

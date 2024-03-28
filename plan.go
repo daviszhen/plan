@@ -1966,7 +1966,7 @@ func splitExprByAnd(expr *Expr) []*Expr {
 			}
 		}
 	}
-	return []*Expr{expr}
+	return []*Expr{expr.copy()}
 }
 
 func splitExprsByAnd(exprs []*Expr) []*Expr {
@@ -2130,6 +2130,34 @@ func checkColRefPos(e *Expr, root *LogicalOperator) {
 		if root.Typ == LOT_Scan {
 			if !(e.ColRef.table() == root.Index && e.ColRef.column() < uint64(len(root.Columns))) {
 				panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
+			}
+		} else if root.Typ == LOT_AggGroup {
+			st := SourceType(e.ColRef.table())
+			switch st {
+			case ThisNode:
+				if !(e.ColRef.table() == root.Index2 && e.ColRef.column() < uint64(len(root.Aggs))) {
+					panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
+				}
+			case LeftChild:
+				if len(root.Children) < 1 || root.Children[0] == nil {
+					panic("no child")
+				}
+				binds := root.Children[0].ColRefToPos.sortByColumnBind()
+				if e.ColRef.column() >= uint64(len(binds)) {
+					panic(fmt.Sprintf("no bind %v in child", e.ColRef))
+				}
+			case RightChild:
+				if len(root.Children) < 2 || root.Children[1] == nil {
+					panic("no right child")
+				}
+				binds := root.Children[1].ColRefToPos.sortByColumnBind()
+				if e.ColRef.column() >= uint64(len(binds)) {
+					panic(fmt.Sprintf("no bind %v in right child", e.ColRef))
+				}
+			default:
+				if !(e.ColRef.table() == root.Index2 && e.ColRef.column() < uint64(len(root.Aggs))) {
+					panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
+				}
 			}
 		} else {
 			st := SourceType(e.ColRef.table())

@@ -291,10 +291,10 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 			bind := ColumnBind{root.Index, uint64(i)}
 			if !cp.colRefs.beenReferred(bind) {
 				removed = append(removed, i)
-				cmap[bind] = ColumnBind{root.Index, newId}
-				newId++
 			} else {
 				cp.colRefs.addExpr(root.Projects[i])
+				cmap[bind] = ColumnBind{root.Index, newId}
+				newId++
 			}
 		}
 
@@ -315,8 +315,40 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		return root, err
 	case LOT_AggGroup:
 		cp.colRefs.addExpr(root.GroupBys...)
-		cp.colRefs.addExpr(root.Aggs...)
 		cp.colRefs.addExpr(root.Filters...)
+		//!!!noticed that: Filters in the aggNode
+		//may refer the Column in Aggs list.
+		//root.Filters must be added into colRefs before
+		//process root.Aggs
+		cmap := make(ColumnBindMap)
+		newId := uint64(0)
+		removed := make([]int, 0)
+		for i := 0; i < len(root.Aggs); i++ {
+			bind := ColumnBind{root.Index2, uint64(i)}
+			if !cp.colRefs.beenReferred(bind) {
+				removed = append(removed, i)
+			} else {
+				cp.colRefs.addExpr(root.Aggs[i])
+				cmap[bind] = ColumnBind{root.Index2, newId}
+				newId++
+			}
+		}
+
+		for i, child := range root.Children {
+			root.Children[i], err = cp.prune(child)
+			if err != nil {
+				return nil, err
+			}
+		}
+		//remove unused columns
+		for i := len(removed) - 1; i >= 0; i-- {
+			root.Aggs = erase(root.Aggs, removed[i])
+		}
+		cp.colRefs.replaceAll(cmap)
+		if len(root.Aggs) == 0 {
+			return root.Children[0], nil
+		}
+		return root, nil
 	case LOT_JOIN:
 		cp.colRefs.addExpr(root.OnConds...)
 	case LOT_Scan:
@@ -824,6 +856,6 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 	default:
 		panic(fmt.Sprintf("usp op type %v", root.Typ))
 	}
-	//checkColRefPosInNode(root)
+	checkColRefPosInNode(root)
 	return root, nil
 }
