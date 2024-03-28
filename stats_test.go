@@ -68,14 +68,14 @@ func Test_analyzeTpch1g(t *testing.T) {
 }
 
 func TestT1(t *testing.T) {
-	var x [2]uint64
+	var x ColumnBind
 
-	dfun := func(x [2]uint64) {
+	dfun := func(x ColumnBind) {
 		x[0] = 1
 		x[1] = 2
 		fmt.Println(x)
 	}
-	dfun2 := func(x *[2]uint64) {
+	dfun2 := func(x *ColumnBind) {
 		x[0] = 1
 		x[1] = 2
 		fmt.Println(x)

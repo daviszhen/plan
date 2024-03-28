@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"sort"
 )
@@ -31,6 +32,14 @@ func (bind ColumnBind) table() uint64 {
 
 func (bind ColumnBind) column() uint64 {
 	return bind[1]
+}
+
+func (bind ColumnBind) less(other ColumnBind) bool {
+	return bind.table() < other.table() || bind.table() == other.table() && bind.column() < other.column()
+}
+
+func (bind ColumnBind) String() string {
+	return fmt.Sprintf("[%d %d]", int64(bind.table()), int64(bind.column()))
 }
 
 func (set ColumnBindSet) find(bind ColumnBind) bool {

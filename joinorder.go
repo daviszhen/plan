@@ -658,7 +658,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					//TODO:
 				}
 				checkExprs(cond)
-				resultOp.OnConds = append(resultOp.OnConds, cond)
+				resultOp.OnConds = append(resultOp.OnConds, cond.copy())
 				//remove this filter
 				joinOrder.filters[filter.filterIndex] = nil
 			}
@@ -690,7 +690,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 			if info.set.count() > 0 && isSubset(resultRel, info.set) {
 				filter := joinOrder.filters[info.filterIndex]
 				if leftNode == nil || info.leftSet == nil {
-					resultOp = pushFilter(resultOp, filter)
+					resultOp = pushFilter(resultOp, filter.copy())
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
@@ -703,7 +703,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					foundSubset = true
 				}
 				if !foundSubset {
-					resultOp = pushFilter(resultOp, filter)
+					resultOp = pushFilter(resultOp, filter.copy())
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
@@ -731,7 +731,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 						Typ:      LOT_JOIN,
 						JoinTyp:  LOT_JoinTypeInner,
 						Children: cur.Children,
-						OnConds:  []*Expr{cond},
+						OnConds:  []*Expr{cond.copy()},
 					}
 					if cur == resultOp {
 						resultOp = next
@@ -739,7 +739,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 						resultOp.Children[0] = next
 					}
 				} else {
-					resultOp.OnConds = append(resultOp.OnConds, cond)
+					resultOp.OnConds = append(resultOp.OnConds, cond.copy())
 				}
 			}
 		}
@@ -770,7 +770,7 @@ func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *Jo
 	//pushdown remaining filters
 	for _, filter := range joinOrder.filters {
 		if filter != nil {
-			joinTree.op = pushFilter(joinTree.op, filter)
+			joinTree.op = pushFilter(joinTree.op, filter.copy())
 		}
 	}
 	checkExprIsValid(joinTree.op)

@@ -924,6 +924,7 @@ type LogicalOperator struct {
 	estimatedProps   *EstimatedProperties
 	Outputs          []*Expr
 	Counts           ColumnBindCountMap `json:"-"`
+	ColRefToPos      ColumnBindPosMap   `json:"-"`
 
 	Children []*LogicalOperator
 }
@@ -990,18 +991,18 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 			}
 			return t.String()
 		}
-		printColumns2 := func(cols []*Expr) string {
-			t := strings.Builder{}
-			t.WriteByte('\n')
-			for _, col := range cols {
-				t.WriteString(fmt.Sprintf("col %v %v %v", col.ColRef, col.Name, col.DataTyp))
-				t.WriteByte('\n')
-			}
-			return t.String()
-		}
-		if len(lo.Outputs) > 0 {
-			tree.AddMetaNode("columns", printColumns2(lo.Outputs))
-			//tree.AddMetaNode("columns", printColumns(lo.Columns))
+		//printColumns2 := func(cols []*Expr) string {
+		//	t := strings.Builder{}
+		//	t.WriteByte('\n')
+		//	for _, col := range cols {
+		//		t.WriteString(fmt.Sprintf("col %v %v %v", col.ColRef, col.Name, col.DataTyp))
+		//		t.WriteByte('\n')
+		//	}
+		//	return t.String()
+		//}
+		if len(lo.Columns) > 0 {
+			//tree.AddMetaNode("columns", printColumns2(lo.Outputs))
+			tree.AddMetaNode("columns", printColumns(lo.Columns))
 		} else {
 			tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
 		}
@@ -1069,13 +1070,21 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 
 func printOutputs(tree treeprint.Tree, root *LogicalOperator) {
 	if len(root.Outputs) != 0 {
-		node := tree.AddMetaBranch("ouputs", "")
+		node := tree.AddMetaBranch("outputs", "")
 		listExprsToTree(node, root.Outputs)
 	}
 
 	if len(root.Counts) != 0 {
 		node := tree.AddMetaBranch("counts", "")
 		for bind, i := range root.Counts {
+			node.AddNode(fmt.Sprintf("%v %v", bind, i))
+		}
+	}
+
+	if len(root.ColRefToPos) != 0 {
+		node := tree.AddMetaBranch("colRefToPos", "")
+		binds := root.ColRefToPos.sortByColumnBind()
+		for i, bind := range binds {
 			node.AddNode(fmt.Sprintf("%v %v", bind, i))
 		}
 	}
@@ -1245,10 +1254,10 @@ type Expr struct {
 
 	Index       uint64
 	Database    string
-	Table       string    // table
-	Name        string    // column
-	ColRef      [2]uint64 // relationTag, columnPos
-	Depth       int       // > 0, correlated column
+	Table       string     // table
+	Name        string     // column
+	ColRef      ColumnBind // relationTag, columnPos
+	Depth       int        // > 0, correlated column
 	Svalue      string
 	Ivalue      int64
 	Fvalue      float64
@@ -1265,6 +1274,50 @@ type Expr struct {
 	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
 	On        *Expr        //JoinOn
+}
+
+func (e *Expr) copy() *Expr {
+	if e == nil {
+		return nil
+	}
+
+	ret := &Expr{
+		Typ:         e.Typ,
+		SubTyp:      e.SubTyp,
+		DataTyp:     e.DataTyp,
+		Index:       e.Index,
+		Database:    e.Database,
+		Table:       e.Table,
+		Name:        e.Name,
+		ColRef:      e.ColRef,
+		Depth:       e.Depth,
+		Svalue:      e.Svalue,
+		Ivalue:      e.Ivalue,
+		Fvalue:      e.Fvalue,
+		Bvalue:      e.Bvalue,
+		Desc:        e.Desc,
+		JoinTyp:     e.JoinTyp,
+		Alias:       e.Alias,
+		SubBuilder:  e.SubBuilder,
+		SubCtx:      e.SubCtx,
+		FuncId:      e.FuncId,
+		SubqueryTyp: e.SubqueryTyp,
+		CTEIndex:    e.CTEIndex,
+		BelongCtx:   e.BelongCtx,
+		On:          e.On.copy(),
+	}
+	for _, child := range e.Children {
+		ret.Children = append(ret.Children, child.copy())
+	}
+	return ret
+}
+
+func copyExprs(exprs ...*Expr) []*Expr {
+	ret := make([]*Expr, 0)
+	for _, expr := range exprs {
+		ret = append(ret, expr.copy())
+	}
+	return ret
 }
 
 func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
@@ -1583,9 +1636,9 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 	head := appendMeta(meta, e.DataTyp.String())
 	switch e.Typ {
 	case ET_Column:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s.%s,[%d,%d],%d)",
+		tree.AddMetaNode(head, fmt.Sprintf("(%s.%s,%v,%d)",
 			e.Table, e.Name,
-			e.ColRef[0], e.ColRef[1], e.Depth))
+			e.ColRef, e.Depth))
 	case ET_SConst:
 		tree.AddMetaNode(head, fmt.Sprintf("(%s)", e.Svalue))
 	case ET_IConst:
@@ -2014,6 +2067,36 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 	return e
 }
 
+func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr {
+	if e == nil {
+		return nil
+	}
+	switch e.Typ {
+	case ET_Column:
+		has, pos := colRefToPos.pos(e.ColRef)
+		if has {
+			e.ColRef[0] = uint64(st)
+			e.ColRef[1] = uint64(pos)
+		}
+
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_Func:
+	case ET_Orderby:
+	default:
+		panic("usp")
+	}
+	for i, child := range e.Children {
+		e.Children[i] = replaceColRef2(child, colRefToPos, st)
+	}
+	return e
+}
+
+func replaceColRef3(es []*Expr, colRefToPos ColumnBindPosMap, st SourceType) {
+	for _, e := range es {
+		replaceColRef2(e, colRefToPos, st)
+	}
+}
+
 func collectColRefs(e *Expr, set ColumnBindSet) {
 	if e == nil {
 		return
@@ -2037,4 +2120,63 @@ func collectColRefs2(set ColumnBindSet, exprs ...*Expr) {
 	for _, expr := range exprs {
 		collectColRefs(expr, set)
 	}
+}
+
+func checkColRefPos(e *Expr, root *LogicalOperator) {
+	if e == nil || root == nil {
+		return
+	}
+	if e.Typ == ET_Column {
+		if root.Typ == LOT_Scan {
+			if !(e.ColRef.table() == root.Index && e.ColRef.column() < uint64(len(root.Columns))) {
+				panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
+			}
+		} else {
+			st := SourceType(e.ColRef.table())
+			switch st {
+			case ThisNode:
+				panic(fmt.Sprintf("bind %v exists", e.ColRef))
+			case LeftChild:
+				if len(root.Children) < 1 || root.Children[0] == nil {
+					panic("no child")
+				}
+				binds := root.Children[0].ColRefToPos.sortByColumnBind()
+				if e.ColRef.column() >= uint64(len(binds)) {
+					panic(fmt.Sprintf("no bind %v in child", e.ColRef))
+				}
+			case RightChild:
+				if len(root.Children) < 2 || root.Children[1] == nil {
+					panic("no right child")
+				}
+				binds := root.Children[1].ColRefToPos.sortByColumnBind()
+				if e.ColRef.column() >= uint64(len(binds)) {
+					panic(fmt.Sprintf("no bind %v in right child", e.ColRef))
+				}
+			default:
+				panic(fmt.Sprintf("no source type %d", st))
+			}
+		}
+	}
+	for _, child := range e.Children {
+		checkColRefPos(child, root)
+	}
+}
+
+func checkColRefPosInExprs(es []*Expr, root *LogicalOperator) {
+	for _, e := range es {
+		checkColRefPos(e, root)
+	}
+}
+
+func checkColRefPosInNode(root *LogicalOperator) {
+	if root == nil {
+		return
+	}
+	checkColRefPosInExprs(root.Projects, root)
+	checkColRefPosInExprs(root.Filters, root)
+	checkColRefPosInExprs(root.OnConds, root)
+	checkColRefPosInExprs(root.Aggs, root)
+	checkColRefPosInExprs(root.GroupBys, root)
+	checkColRefPosInExprs(root.OrderBys, root)
+	checkColRefPosInExprs([]*Expr{root.Limit}, root)
 }

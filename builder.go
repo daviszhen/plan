@@ -66,7 +66,7 @@ func (b *Binding) Bind(table, column string, depth int) (*Expr, error) {
 			DataTyp: b.typs[idx],
 			Table:   table,
 			Name:    column,
-			ColRef:  [2]uint64{b.index, uint64(idx)},
+			ColRef:  ColumnBind{b.index, uint64(idx)},
 			Depth:   depth,
 		}
 		return exp, nil
@@ -814,7 +814,7 @@ func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperat
 
 	return &LogicalOperator{
 		Typ:      LOT_Filter,
-		Filters:  newFilters,
+		Filters:  copyExprs(newFilters...),
 		Children: []*LogicalOperator{root},
 	}, err
 }
@@ -945,7 +945,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				DataTyp: proj0.DataTyp,
 				Table:   proj0.Table,
 				Name:    proj0.Name,
-				ColRef: [2]uint64{
+				ColRef: ColumnBind{
 					uint64(subBuilder.projectTag),
 					0,
 				},
@@ -992,7 +992,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			DataTyp: proj0.DataTyp,
 			Table:   proj0.Table,
 			Name:    proj0.Name,
-			ColRef: [2]uint64{
+			ColRef: ColumnBind{
 				uint64(subBuilder.projectTag),
 				0,
 			},
@@ -1046,7 +1046,7 @@ func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs []*Expr, corr
 		if len(newCorrExprs) > 0 {
 			newRoot = &LogicalOperator{
 				Typ:      LOT_Filter,
-				Filters:  newCorrExprs,
+				Filters:  copyExprs(newCorrExprs...),
 				Children: []*LogicalOperator{newRoot},
 			}
 		}
@@ -1234,7 +1234,7 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	if len(left) > 0 {
 		root = &LogicalOperator{
 			Typ:      LOT_Filter,
-			Filters:  left,
+			Filters:  copyExprs(left...),
 			Children: []*LogicalOperator{root},
 		}
 	}
@@ -1254,10 +1254,15 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	if err != nil {
 		return nil, err
 	}
-	root, err = b.updateOutputs(root)
+	fmt.Println("After prune\n", root.String())
+	root, err = b.generateCounts(root)
 	if err != nil {
 		return nil, err
 	}
+	//root, err = b.generateOutputs(root)
+	//if err != nil {
+	//	return nil, err
+	//}
 	return root, nil
 }
 
@@ -1335,7 +1340,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		if len(childLeft) > 0 {
 			childRoot = &LogicalOperator{
 				Typ:      LOT_Filter,
-				Filters:  childLeft,
+				Filters:  copyExprs(childLeft...),
 				Children: []*LogicalOperator{childRoot},
 			}
 		}
@@ -1348,7 +1353,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		if len(childLeft) > 0 {
 			childRoot = &LogicalOperator{
 				Typ:      LOT_Filter,
-				Filters:  childLeft,
+				Filters:  copyExprs(childLeft...),
 				Children: []*LogicalOperator{childRoot},
 			}
 		}
@@ -1372,7 +1377,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		if len(childLeft) > 0 {
 			childRoot = &LogicalOperator{
 				Typ:      LOT_Filter,
-				Filters:  childLeft,
+				Filters:  copyExprs(childLeft...),
 				Children: []*LogicalOperator{childRoot},
 			}
 		}
@@ -1390,7 +1395,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		if len(childLeft) > 0 {
 			childRoot = &LogicalOperator{
 				Typ:      LOT_Filter,
-				Filters:  childLeft,
+				Filters:  copyExprs(childLeft...),
 				Children: []*LogicalOperator{childRoot},
 			}
 		}
@@ -1428,7 +1433,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			if len(childLeft) > 0 {
 				childRoot = &LogicalOperator{
 					Typ:      LOT_Filter,
-					Filters:  childLeft,
+					Filters:  copyExprs(childLeft...),
 					Children: []*LogicalOperator{childRoot},
 				}
 			}

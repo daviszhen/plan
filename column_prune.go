@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 )
 
 type ColumnBindCountMap map[ColumnBind]int
@@ -116,8 +117,55 @@ func (ccount ColumnBindCountMap) copy() ColumnBindCountMap {
 	return res
 }
 
+func (ccount ColumnBindCountMap) sortByColumnBind() ColumnBindPosMap {
+	posMap := make(ColumnBindPosMap)
+	binds := make([]ColumnBind, 0)
+	for bind, _ := range ccount {
+		binds = append(binds, bind)
+	}
+	sort.Slice(binds, func(i, j int) bool {
+		return binds[i].less(binds[j])
+	})
+	ret := sort.SliceIsSorted(binds, func(i, j int) bool {
+		return binds[i].less(binds[j])
+	})
+	if !ret {
+		panic("unsorted")
+	}
+	for i, bind := range binds {
+		posMap.insert(bind, i)
+	}
+	return posMap
+}
+
 func (ccount ColumnBindCountMap) count() int {
 	return len(ccount)
+}
+
+type ColumnBindPosMap map[ColumnBind]int
+
+func (posmap ColumnBindPosMap) insert(bind ColumnBind, pos int) {
+	posmap[bind] = pos
+}
+func (posmap ColumnBindPosMap) pos(bind ColumnBind) (bool, int) {
+	if pos, has := posmap[bind]; has {
+		return true, pos
+	}
+	return false, 0
+}
+func (posmap ColumnBindPosMap) sortByColumnBind() []ColumnBind {
+	res := make([]ColumnBind, 0)
+	for bind, _ := range posmap {
+		res = append(res, bind)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].less(res[j])
+	})
+	return res
+}
+
+func (posmap ColumnBindPosMap) count() int {
+	return len(posmap)
 }
 
 type ReferredColumnBindMap map[ColumnBind][]*Expr
@@ -290,20 +338,6 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 			}
 		}
 		root.Columns = needed
-		outputs := make([]*Expr, 0)
-		for newIdx, col := range root.Columns {
-			idx := catalogTable.Column2Idx[col]
-			e := &Expr{
-				Typ:      ET_Column,
-				DataTyp:  catalogTable.Types[idx],
-				Database: root.Database,
-				Table:    root.Table,
-				Name:     col,
-				ColRef:   [2]uint64{root.Index, uint64(newIdx)},
-			}
-			outputs = append(outputs, e)
-		}
-		root.Outputs = outputs
 
 		cp.colRefs.replaceAll(cmap)
 		return root, nil
@@ -321,12 +355,12 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 	return root, err
 }
 
-func (b *Builder) updateOutputs(root *LogicalOperator) (*LogicalOperator, error) {
+func (b *Builder) generateCounts(root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
-	update := outputsUpdater{}
+	update := countsUpdater{}
 	counts := make(ColumnBindCountMap)
 	addBindCountOnFirstProject(counts, root)
-	root, err = update.updateOutputs(root, counts)
+	root, err = update.generateCounts(root, counts)
 	for bind, cnt := range root.Counts {
 		if cnt != 1 {
 			panic(fmt.Sprintf("bind %v in root is not 1", bind))
@@ -335,10 +369,10 @@ func (b *Builder) updateOutputs(root *LogicalOperator) (*LogicalOperator, error)
 	return root, err
 }
 
-type outputsUpdater struct {
+type countsUpdater struct {
 }
 
-func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts ColumnBindCountMap) (*LogicalOperator, error) {
+func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts ColumnBindCountMap) (*LogicalOperator, error) {
 	if root == nil {
 		return nil, nil
 	}
@@ -352,53 +386,13 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 	backupCounts := upCounts.copy()
 	resCounts := make(ColumnBindCountMap)
 
-	defer func() {
-		//check
-		for bind, cnt := range resCounts {
-			upCnt := backupCounts.refCount(bind)
-			if upCnt == 0 {
-				panic(fmt.Sprintf("no %v in backupCounts", bind))
-			}
-			if backupCounts.refCount(bind) != cnt {
-				panic(fmt.Sprintf("%v count differs in backupCounts", bind))
-			}
-		}
-
-		for bind, cnt := range upCounts {
-			has, hcnt := backupCounts.has(bind)
-			if !has {
-				fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
-				panic("xxx")
-			} else if hcnt != cnt {
-				fmt.Printf("%v bind %v count %d differs in upCounts %d \n",
-					root.Typ, bind, cnt, hcnt)
-				panic("xxx1")
-			}
-		}
-
-		for bind, cnt := range backupCounts {
-			has, hcnt := upCounts.has(bind)
-			if !has {
-				fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
-				panic("xxx2")
-			} else if hcnt != cnt {
-				fmt.Printf("%v bind %v count %d differs in upCounts %d \n",
-					root.Typ, bind, cnt, hcnt)
-				panic("xxx3")
-			}
-		}
-	}()
-
 	updateChildren := func(counts ColumnBindCountMap) error {
 		for i, child := range root.Children {
-			root.Children[i], err = update.updateOutputs(child, counts)
+			root.Children[i], err = update.generateCounts(child, counts)
 			if err != nil {
 				return err
 			}
 		}
-		//for _, child := range root.Children {
-		//	root.Outputs = append(root.Outputs, child.Outputs...)
-		//}
 		for _, child := range root.Children {
 			resCounts.merge(child.Counts)
 		}
@@ -431,6 +425,7 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 		}
 
 		root.Counts = resCounts
+		root.ColRefToPos = resCounts.sortByColumnBind()
 		return nil
 	}
 
@@ -473,6 +468,7 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 		resCounts.removeByTableIdx(root.Index, false)
 		resCounts.removeZeroCount()
 		root.Counts = resCounts
+		root.ColRefToPos = resCounts.sortByColumnBind()
 	case LOT_Filter:
 		err = updateCounts(upCounts, root.Filters...)
 		if err != nil {
@@ -482,5 +478,352 @@ func (update *outputsUpdater) updateOutputs(root *LogicalOperator, upCounts Colu
 		panic(fmt.Sprintf("usp op type %v", root.Typ))
 	}
 
+	//check
+	for bind, cnt := range resCounts {
+		upCnt := backupCounts.refCount(bind)
+		if upCnt == 0 {
+			panic(fmt.Sprintf("no %v in backupCounts", bind))
+		}
+		if backupCounts.refCount(bind) != cnt {
+			panic(fmt.Sprintf("%v count differs in backupCounts", bind))
+		}
+	}
+
+	for bind, cnt := range upCounts {
+		has, hcnt := backupCounts.has(bind)
+		if !has {
+			fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
+			panic("xxx")
+		} else if hcnt != cnt {
+			fmt.Printf("%v bind %v count %d differs in upCounts %d \n",
+				root.Typ, bind, cnt, hcnt)
+			panic("xxx1")
+		}
+	}
+
+	for bind, cnt := range backupCounts {
+		has, hcnt := upCounts.has(bind)
+		if !has {
+			fmt.Printf("%v no bind %v in upCounts \n", root.Typ, bind)
+			panic("xxx2")
+		} else if hcnt != cnt {
+			fmt.Printf("%v bind %v count %d differs in upCounts %d \n",
+				root.Typ, bind, cnt, hcnt)
+			panic("xxx3")
+		}
+	}
+
+	return root, nil
+}
+
+func (b *Builder) generateOutputs(root *LogicalOperator) (*LogicalOperator, error) {
+	var err error
+	update := outputsUpdater{}
+	root, err = update.generateOutputs(root)
+	if err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+type SourceType int
+
+const (
+	ThisNode   SourceType = 0
+	LeftChild             = -1 //also for one child
+	RightChild            = -2
+)
+
+type outputsUpdater struct {
+}
+
+func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOperator, error) {
+	if root == nil {
+		return nil, nil
+	}
+	var err error
+
+	genChildren := func() (err error) {
+		for i, child := range root.Children {
+			root.Children[i], err = update.generateOutputs(child)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	switch root.Typ {
+	case LOT_Limit:
+		err = genChildren()
+		if err != nil {
+			return nil, err
+		}
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		for _, bind := range binds {
+			//bind pos in the children
+			st := LeftChild
+			has, childPos := root.Children[0].ColRefToPos.pos(bind)
+			if !has {
+				if len(root.Children) > 1 {
+					has, childPos = root.Children[1].ColRefToPos.pos(bind)
+					if !has {
+						panic(fmt.Sprintf("no such %v in children", bind))
+					}
+					st = RightChild
+				} else {
+					panic(fmt.Sprintf("no such %v in children", bind))
+				}
+			}
+
+			childExpr := root.Children[0].Outputs[childPos]
+			root.Outputs = append(root.Outputs, &Expr{
+				Typ:      ET_Column,
+				DataTyp:  childExpr.DataTyp,
+				Database: childExpr.Database,
+				Table:    childExpr.Table,
+				Name:     childExpr.Name,
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+			})
+		}
+	case LOT_Order:
+		err = genChildren()
+		if err != nil {
+			return nil, err
+		}
+
+		replaceColRef3(root.OrderBys, root.Children[0].ColRefToPos, LeftChild)
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		for _, bind := range binds {
+			//bind pos in the children
+			st := LeftChild
+			has, childPos := root.Children[0].ColRefToPos.pos(bind)
+			if !has {
+				if len(root.Children) > 1 {
+					has, childPos = root.Children[1].ColRefToPos.pos(bind)
+					if !has {
+						panic(fmt.Sprintf("no such %v in children", bind))
+					}
+					st = RightChild
+				} else {
+					panic(fmt.Sprintf("no such %v in children", bind))
+				}
+			}
+
+			childExpr := root.Children[0].Outputs[childPos]
+			root.Outputs = append(root.Outputs, &Expr{
+				Typ:      ET_Column,
+				DataTyp:  childExpr.DataTyp,
+				Database: childExpr.Database,
+				Table:    childExpr.Table,
+				Name:     childExpr.Name,
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+			})
+		}
+
+	case LOT_Project:
+		err = genChildren()
+		if err != nil {
+			return nil, err
+		}
+
+		replaceColRef3(root.Projects, root.Children[0].ColRefToPos, LeftChild)
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		for _, bind := range binds {
+			if bind.table() == root.Index {
+				proj := root.Projects[bind.column()]
+				root.Outputs = append(root.Outputs, &Expr{
+					Typ:      ET_Column,
+					DataTyp:  proj.DataTyp,
+					Database: proj.Database,
+					Table:    proj.Table,
+					Name:     proj.Name,
+					ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+				})
+				continue
+			}
+			//bind pos in the children
+			st := LeftChild
+			has, childPos := root.Children[0].ColRefToPos.pos(bind)
+			if !has {
+				if len(root.Children) > 1 {
+					has, childPos = root.Children[1].ColRefToPos.pos(bind)
+					if !has {
+						panic(fmt.Sprintf("no such %v in children", bind))
+					}
+					st = RightChild
+				} else {
+					panic(fmt.Sprintf("no such %v in children", bind))
+				}
+			}
+
+			childExpr := root.Children[0].Outputs[childPos]
+			root.Outputs = append(root.Outputs, &Expr{
+				Typ:      ET_Column,
+				DataTyp:  childExpr.DataTyp,
+				Database: childExpr.Database,
+				Table:    childExpr.Table,
+				Name:     childExpr.Name,
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+			})
+		}
+
+	case LOT_AggGroup:
+		err = genChildren()
+		if err != nil {
+			return nil, err
+		}
+
+		replaceColRef3(root.GroupBys, root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.Aggs, root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.Filters, root.Children[0].ColRefToPos, LeftChild)
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		for _, bind := range binds {
+			if bind.table() == root.Index2 {
+				agg := root.Aggs[bind.column()]
+				root.Outputs = append(root.Outputs, &Expr{
+					Typ:      ET_Column,
+					DataTyp:  agg.DataTyp,
+					Database: agg.Database,
+					Table:    agg.Table,
+					Name:     agg.Name,
+					ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+				})
+				continue
+			}
+			//bind pos in the children
+			st := LeftChild
+			has, childPos := root.Children[0].ColRefToPos.pos(bind)
+			if !has {
+				if len(root.Children) > 1 {
+					has, childPos = root.Children[1].ColRefToPos.pos(bind)
+					if !has {
+						panic(fmt.Sprintf("no such %v in children", bind))
+					}
+					st = RightChild
+				} else {
+					panic(fmt.Sprintf("no such %v in children", bind))
+				}
+			}
+
+			childExpr := root.Children[0].Outputs[childPos]
+			root.Outputs = append(root.Outputs, &Expr{
+				Typ:      ET_Column,
+				DataTyp:  childExpr.DataTyp,
+				Database: childExpr.Database,
+				Table:    childExpr.Table,
+				Name:     childExpr.Name,
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+			})
+		}
+
+	case LOT_JOIN:
+		err = genChildren()
+		if err != nil {
+			return nil, err
+		}
+
+		replaceColRef3(root.OnConds, root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.OnConds, root.Children[1].ColRefToPos, RightChild)
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		for _, bind := range binds {
+			//bind pos in the children
+			st := LeftChild
+			has, childPos := root.Children[0].ColRefToPos.pos(bind)
+			if !has {
+				if len(root.Children) > 1 {
+					has, childPos = root.Children[1].ColRefToPos.pos(bind)
+					if !has {
+						panic(fmt.Sprintf("no such %v in children", bind))
+					}
+					st = RightChild
+				} else {
+					panic(fmt.Sprintf("no such %v in children", bind))
+				}
+			}
+
+			var childExpr *Expr
+			if st == LeftChild {
+				childExpr = root.Children[0].Outputs[childPos]
+			} else {
+				childExpr = root.Children[1].Outputs[childPos]
+			}
+
+			root.Outputs = append(root.Outputs, &Expr{
+				Typ:      ET_Column,
+				DataTyp:  childExpr.DataTyp,
+				Database: childExpr.Database,
+				Table:    childExpr.Table,
+				Name:     childExpr.Name,
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+			})
+		}
+	case LOT_Scan:
+		catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
+		if err != nil {
+			return nil, err
+		}
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		outputs := make([]*Expr, 0)
+		for _, bind := range binds {
+			colName := root.Columns[bind.column()]
+			idx := catalogTable.Column2Idx[colName]
+			e := &Expr{
+				Typ:      ET_Column,
+				DataTyp:  catalogTable.Types[idx],
+				Database: root.Database,
+				Table:    root.Table,
+				Name:     colName,
+				ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+			}
+			outputs = append(outputs, e)
+		}
+		root.Outputs = outputs
+
+	case LOT_Filter:
+		err = genChildren()
+		if err != nil {
+			return nil, err
+		}
+
+		replaceColRef3(root.Filters, root.Children[0].ColRefToPos, LeftChild)
+
+		binds := root.ColRefToPos.sortByColumnBind()
+		for _, bind := range binds {
+			//bind pos in the children
+			st := LeftChild
+			has, childPos := root.Children[0].ColRefToPos.pos(bind)
+			if !has {
+				if len(root.Children) > 1 {
+					has, childPos = root.Children[1].ColRefToPos.pos(bind)
+					if !has {
+						panic(fmt.Sprintf("no such %v in children", bind))
+					}
+					st = RightChild
+				} else {
+					panic(fmt.Sprintf("no such %v in children", bind))
+				}
+			}
+
+			childExpr := root.Children[0].Outputs[childPos]
+			root.Outputs = append(root.Outputs, &Expr{
+				Typ:      ET_Column,
+				DataTyp:  childExpr.DataTyp,
+				Database: childExpr.Database,
+				Table:    childExpr.Table,
+				Name:     childExpr.Name,
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+			})
+		}
+	default:
+		panic(fmt.Sprintf("usp op type %v", root.Typ))
+	}
+	//checkColRefPosInNode(root)
 	return root, nil
 }

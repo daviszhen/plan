@@ -72,7 +72,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 			DataTyp: bind.typs[colIdx],
 			Table:   bind.alias,
 			Name:    colName,
-			ColRef:  [2]uint64{bind.index, uint64(colIdx)},
+			ColRef:  ColumnBind{bind.index, uint64(colIdx)},
 			Depth:   d,
 		}
 
@@ -231,7 +231,7 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 			DataTyp: ret.DataTyp,
 			Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
 			Name:    astStr,
-			ColRef:  [2]uint64{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
+			ColRef:  ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
 			Depth:   0,
 		}
 	}
@@ -510,7 +510,7 @@ func (b *Builder) bindToSelectList(selectExprs []*Ast, idx int, alias string) *E
 	return &Expr{
 		Typ:     ET_Column,
 		DataTyp: InvalidExprDataType,
-		ColRef:  [2]uint64{uint64(b.projectTag), uint64(idx)},
+		ColRef:  ColumnBind{uint64(b.projectTag), uint64(idx)},
 		Alias:   alias,
 	}
 }
