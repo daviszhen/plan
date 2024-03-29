@@ -1,15 +1,22 @@
 package main
 
-type Vector interface {
+type ExprState struct {
+	_expr       *Expr
+	_execState  *ExprExecutorState
+	_children   []*Expr
+	_interChunk *Chunk
 }
 
-type Chunk interface {
-	Count() int
-	GetVector(int) Vector
+type ExprExecutorState struct {
+	_root *ExprState
+	_exec *ExprExecutor
 }
 
-type Exec interface {
-	Open() error
-	GetNext() (Chunk, error)
-	Close() error
+type ExprExecutor struct {
+	_exprs []*Expr
+	_chunk *Chunk
+}
+
+func (exec *ExprExecutor) ExecuteExpr(expr *Expr, state *ExprState, sel *SelectVector, count int, result *Vector) error {
+	return nil
 }
