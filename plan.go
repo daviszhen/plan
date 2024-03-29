@@ -1767,14 +1767,22 @@ type PhysicalOperator struct {
 	Typ POT
 	Tag int //relationTag
 
+	Index         uint64
+	Index2        uint64
+	Database      string
+	Table         string // table
+	Name          string // column
+	Alias         string // alias
+	JoinTyp       LOT_JoinType
+	Outputs       []*Expr
 	Columns       []string // name of project
 	Projects      []*Expr
 	Filters       []*Expr
-	Agg           []*Expr
-	JoinOn        []*Expr
+	Aggs          []*Expr
+	GroupBys      []*Expr
+	OnConds       []*Expr
 	OrderBys      []*Expr
-	Limit         []*Expr
-	Table         *TableDef
+	Limit         *Expr
 	estimatedCard uint64
 
 	Children []*PhysicalOperator
@@ -1786,6 +1794,14 @@ func (po *PhysicalOperator) String() string {
 	return tree.String()
 }
 
+func printPhyOutputs(tree treeprint.Tree, root *PhysicalOperator) {
+	if len(root.Outputs) != 0 {
+		node := tree.AddMetaBranch("outputs", "")
+		listExprsToTree(node, root.Outputs)
+	}
+	tree.AddMetaNode("estCard", root.estimatedCard)
+}
+
 func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 	if po == nil {
 		return
@@ -1793,43 +1809,46 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 	switch po.Typ {
 	case POT_Project:
 		tree = tree.AddBranch("Project:")
-		//tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
+		printPhyOutputs(tree, po)
+		tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
 		node := tree.AddMetaBranch("exprs", "")
 		listExprsToTree(node, po.Projects)
 	case POT_Filter:
 		tree = tree.AddBranch("Filter:")
+		printPhyOutputs(tree, po)
 		node := tree.AddMetaBranch("exprs", "")
 		listExprsToTree(node, po.Filters)
 	case POT_Scan:
 		tree = tree.AddBranch("Scan:")
-		//tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
-		//tableInfo := ""
-		//if len(po.Alias) != 0 && po.Alias != po.Table {
-		//	tableInfo = fmt.Sprintf("%v.%v %v", po.Database, po.Table, po.Alias)
-		//} else {
-		//	tableInfo = fmt.Sprintf("%v.%v", po.Database, po.Table)
-		//}
-		//tree.AddMetaNode("table", tableInfo)
-		//catalogTable, err := tpchCatalog().Table(po.Database, po.Table)
-		//if err != nil {
-		//	panic("no table")
-		//}
-		//printColumns := func(cols []string) string {
-		//	t := strings.Builder{}
-		//	t.WriteByte('\n')
-		//	for i, col := range cols {
-		//		t.WriteString(fmt.Sprintf("col %d %v", i, col))
-		//		t.WriteByte('\n')
-		//	}
-		//	return t.String()
-		//}
-		//if len(po.Columns) > 0 {
-		//	tree.AddMetaNode("columns", printColumns(po.Columns))
-		//} else {
-		//	tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
-		//}
-		//node := tree.AddBranch("filters")
-		//listExprsToTree(node, po.Filters)
+		printPhyOutputs(tree, po)
+		tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
+		tableInfo := ""
+		if len(po.Alias) != 0 && po.Alias != po.Table {
+			tableInfo = fmt.Sprintf("%v.%v %v", po.Database, po.Table, po.Alias)
+		} else {
+			tableInfo = fmt.Sprintf("%v.%v", po.Database, po.Table)
+		}
+		tree.AddMetaNode("table", tableInfo)
+		catalogTable, err := tpchCatalog().Table(po.Database, po.Table)
+		if err != nil {
+			panic("no table")
+		}
+		printColumns := func(cols []string) string {
+			t := strings.Builder{}
+			t.WriteByte('\n')
+			for i, col := range cols {
+				t.WriteString(fmt.Sprintf("col %d %v", i, col))
+				t.WriteByte('\n')
+			}
+			return t.String()
+		}
+		if len(po.Columns) > 0 {
+			tree.AddMetaNode("columns", printColumns(po.Columns))
+		} else {
+			tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
+		}
+		node := tree.AddBranch("filters")
+		listExprsToTree(node, po.Filters)
 		//printStats := func(columns []string) string {
 		//	sb := strings.Builder{}
 		//	sb.WriteString(fmt.Sprintf("rowcount %v\n", po.Stats.RowCount))
@@ -1848,35 +1867,39 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 		//}
 
 	case POT_Join:
-		//tree = tree.AddBranch(fmt.Sprintf("Join (%v):", po.JoinTyp))
-		//if len(po.OnConds) > 0 {
-		//	node := tree.AddMetaBranch("On", "")
-		//	listExprsToTree(node, po.OnConds)
-		//}
+		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", po.JoinTyp))
+		printPhyOutputs(tree, po)
+		if len(po.OnConds) > 0 {
+			node := tree.AddMetaBranch("On", "")
+			listExprsToTree(node, po.OnConds)
+		}
 		//if po.Stats != nil {
 		//	tree.AddMetaNode("Stats", po.Stats.String())
 		//}
 	case POT_Agg:
 		tree = tree.AddBranch("Aggregate:")
-		//if len(po.GroupBys) > 0 {
-		//	node := tree.AddBranch(fmt.Sprintf("groupExprs, index %d", po.Index))
-		//	listExprsToTree(node, po.GroupBys)
-		//}
-		//if len(po.Aggs) > 0 {
-		//	node := tree.AddBranch(fmt.Sprintf("aggExprs, index %d", po.Index2))
-		//	listExprsToTree(node, po.Aggs)
-		//}
-		//if len(po.Filters) > 0 {
-		//	node := tree.AddBranch("filters")
-		//	listExprsToTree(node, po.Filters)
-		//}
+		printPhyOutputs(tree, po)
+		if len(po.GroupBys) > 0 {
+			node := tree.AddBranch(fmt.Sprintf("groupExprs, index %d", po.Index))
+			listExprsToTree(node, po.GroupBys)
+		}
+		if len(po.Aggs) > 0 {
+			node := tree.AddBranch(fmt.Sprintf("aggExprs, index %d", po.Index2))
+			listExprsToTree(node, po.Aggs)
+		}
+		if len(po.Filters) > 0 {
+			node := tree.AddBranch("filters")
+			listExprsToTree(node, po.Filters)
+		}
 
 	case POT_Order:
 		tree = tree.AddBranch("Order:")
+		printPhyOutputs(tree, po)
 		node := tree.AddMetaBranch("exprs", "")
 		listExprsToTree(node, po.OrderBys)
 	case POT_Limit:
-		//tree = tree.AddBranch(fmt.Sprintf("Limit: %v", po.Limit.String()))
+		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", po.Limit.String()))
+		printPhyOutputs(tree, po)
 	default:
 		panic(fmt.Sprintf("usp %v", po.Typ))
 	}

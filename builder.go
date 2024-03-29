@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-
 	"github.com/xlab/treeprint"
 )
 
@@ -1678,13 +1677,28 @@ func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error
 		if err != nil {
 			return nil, err
 		}
-	case LOT_Order:
-		proot, err = b.createPhyOrder(root, children)
+	case LOT_Filter:
+		proot, err = b.createPhyFilter(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_Scan:
+		proot, err = b.createPhyScan(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_JOIN:
+		proot, err = b.createPhyJoin(root, children)
 		if err != nil {
 			return nil, err
 		}
 	case LOT_AggGroup:
 		proot, err = b.createPhyAgg(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_Order:
+		proot, err = b.createPhyOrder(root, children)
 		if err != nil {
 			return nil, err
 		}
@@ -1701,19 +1715,61 @@ func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error
 	return proot, nil
 }
 
-func (b *Builder) createPhyOrder(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
-	return &PhysicalOperator{Typ: POT_Order, OrderBys: root.OrderBys, Children: children}, nil
+func (b *Builder) createPhyProject(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:      POT_Project,
+		Index:    root.Index,
+		Projects: root.Projects,
+		Outputs:  root.Outputs,
+		Children: children}, nil
 }
 
-func (b *Builder) createPhyProject(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
-	return &PhysicalOperator{Typ: POT_Project, Projects: root.Projects, Children: children}, nil
+func (b *Builder) createPhyFilter(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{Typ: POT_Filter, Filters: root.Filters, Outputs: root.Outputs, Children: children}, nil
+}
+
+func (b *Builder) createPhyScan(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:      POT_Scan,
+		Index:    root.Index,
+		Database: root.Database,
+		Table:    root.Table,
+		Alias:    root.Alias,
+		Outputs:  root.Outputs,
+		Columns:  root.Columns,
+		Filters:  root.Filters,
+		Children: children}, nil
+}
+
+func (b *Builder) createPhyJoin(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:      POT_Join,
+		JoinTyp:  root.JoinTyp,
+		OnConds:  root.OnConds,
+		Outputs:  root.Outputs,
+		Children: children}, nil
+}
+
+func (b *Builder) createPhyOrder(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:      POT_Order,
+		OrderBys: root.OrderBys,
+		Outputs:  root.Outputs,
+		Children: children}, nil
 }
 
 func (b *Builder) createPhyAgg(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
-
-	return &PhysicalOperator{Typ: POT_Agg, Children: children}, nil
+	return &PhysicalOperator{
+		Typ:      POT_Agg,
+		Index:    root.Index,
+		Index2:   root.Index2,
+		Filters:  root.Filters,
+		Aggs:     root.Aggs,
+		GroupBys: root.GroupBys,
+		Outputs:  root.Outputs,
+		Children: children}, nil
 }
 
 func (b *Builder) createPhyTopN(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
-	return &PhysicalOperator{Typ: POT_Limit, Children: children}, nil
+	return &PhysicalOperator{Typ: POT_Limit, Outputs: root.Outputs, Limit: root.Limit, Children: children}, nil
 }
