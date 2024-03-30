@@ -551,8 +551,8 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 				typ:     BT_TABLE,
 				alias:   alias,
 				index:   uint64(b.GetTag()),
-				typs:    copy(cta.Types),
-				names:   copy(cta.Columns),
+				typs:    copyTo(cta.Types),
+				names:   copyTo(cta.Columns),
 				nameMap: make(map[string]int),
 			}
 			for idx, name := range bind.names {

@@ -10,7 +10,7 @@ func TestTpchQ2(t *testing.T) {
 	//if err != nil {
 	//	t.Fatal(err)
 	//}
-	//bb := &bytes.Buffer{}
+	//bb := &bytes.VecBuffer{}
 	//json.Indent(bb, data, "", "  ")
 	//bb.WriteTo(os.Stdout)
 }

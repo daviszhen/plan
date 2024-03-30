@@ -24,7 +24,7 @@ type JoinRelationSet struct {
 }
 
 func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
-	ret := &JoinRelationSet{relations: copy(rels)}
+	ret := &JoinRelationSet{relations: copyTo(rels)}
 	ret.sort()
 	return ret
 }
@@ -223,7 +223,7 @@ func (edge *queryEdge) Print(prefix []uint64) string {
 		sb.WriteString(fmt.Sprintf("%s -> %s\n", source.String(), neighbor.neighbor.String()))
 	}
 	for k, v := range edge.children {
-		newPrefix := copy(prefix)
+		newPrefix := copyTo(prefix)
 		newPrefix = append(newPrefix, k)
 		sb.WriteString(v.Print(newPrefix))
 	}

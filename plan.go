@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/huandu/go-clone"
 	"github.com/xlab/treeprint"
@@ -61,6 +62,70 @@ func (pt PhyType) String() string {
 		return s
 	}
 	panic(fmt.Sprintf("usp %d", pt))
+}
+
+var (
+	boolSize  int
+	int8Size  int
+	int16Size int
+	int32Size int
+	int64Size int
+)
+
+func init() {
+	b := false
+	boolSize = int(unsafe.Sizeof(b))
+	i := int8(0)
+	int8Size = int(unsafe.Sizeof(i))
+	int16Size = int8Size * 2
+	int32Size = int8Size * 4
+	int64Size = int8Size * 8
+}
+
+func (pt PhyType) size() int {
+	switch pt {
+	case BIT:
+	case BOOL:
+		return boolSize
+	case INT8:
+		return int8Size
+	case INT16:
+		return int16Size
+	case INT32:
+		return int32Size
+	case INT64:
+		return int64Size
+	case UINT8:
+		return int8Size
+	case UINT16:
+		return int16Size
+	case UINT32:
+		return int32Size
+	case UINT64:
+		return int64Size
+	case INT128:
+		panic("usp")
+	case FLOAT:
+		return int32Size
+	case DOUBLE:
+		return int64Size
+	case VARCHAR:
+		panic("usp")
+	case INTERVAL:
+		panic("usp")
+	case STRUCT:
+	case UNKNOWN:
+		return 0
+	case LIST:
+		panic("usp")
+	default:
+		panic("usp")
+	}
+	panic("usp")
+}
+
+func (pt PhyType) isConstant() bool {
+	return pt >= BOOL && pt <= DOUBLE || pt == INTERVAL || pt == INT128
 }
 
 type LTypeId int

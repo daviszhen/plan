@@ -23,7 +23,7 @@ func pop[T any](a []T) []T {
 	return a
 }
 
-func copy[T any](src []T) []T {
+func copyTo[T any](src []T) []T {
 	dst := make([]T, len(src))
 	for i := range src {
 		dst[i] = src[i]
@@ -230,4 +230,27 @@ func erase[T any](a []T, i int) []T {
 	}
 	a[i], a[len(a)-1] = a[len(a)-1], a[i]
 	return a[:len(a)-1]
+}
+
+func assertFunc(b bool) {
+	if !b {
+		panic("need true")
+	}
+}
+
+type Allocator interface {
+	Alloc(sz int) []byte
+	Free([]byte)
+}
+
+var gAlloc Allocator = &DefaultAllocator{}
+
+type DefaultAllocator struct {
+}
+
+func (alloc *DefaultAllocator) Alloc(sz int) []byte {
+	return make([]byte, sz)
+}
+
+func (alloc *DefaultAllocator) Free(bytes []byte) {
 }
