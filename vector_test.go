@@ -49,6 +49,30 @@ func newBoolFlatVectorOdd(b bool, null bool, cnt int) *Vector {
 	})
 }
 
+func newInt32FlatVectorImpl(null bool, cnt int, fun func(i int) bool) *Vector {
+	vec := NewFlatVector(integer(), cnt)
+	data := getSliceInPhyFormatFlat[int32](vec)
+	for i := 0; i < cnt; i++ {
+		data[i] = int32(i)
+		if null && fun(i) {
+			setNullInPhyFormatFlat(vec, uint64(i), null)
+		}
+	}
+	return vec
+}
+
+func newInt32FlatVectorEven(null bool, cnt int) *Vector {
+	return newInt32FlatVectorImpl(null, cnt, func(i int) bool {
+		return i%2 == 0
+	})
+}
+
+func newInt32FlatVectorOld(null bool, cnt int) *Vector {
+	return newInt32FlatVectorImpl(null, cnt, func(i int) bool {
+		return i%2 != 0
+	})
+}
+
 func Test_booleanNullMask(t *testing.T) {
 	type args struct {
 		left   *Vector
@@ -229,13 +253,7 @@ func Test_booleanNullMask_Flat(t *testing.T) {
 		checkResult func(t *testing.T, arg *args)
 	}
 
-	/*
-		TRUE  AND TRUE   = TRUE
-
-		TRUE  AND FALSE  = FALSE
-		FALSE AND TRUE   = FALSE
-		FALSE AND FALSE  = FALSE
-	*/
+	//TRUE  AND TRUE   = TRUE
 	arg1 := args{
 		left:   newBoolFlatVectorEven(true, false, defaultVectorSize),
 		right:  newBoolConstVector(true, false),
@@ -331,59 +349,111 @@ func Test_booleanNullMask_Flat(t *testing.T) {
 		},
 	}
 
-	/*
-		FALSE AND NULL   = FALSE
-		NULL  AND FALSE  = FALSE
-
-		TRUE  AND NULL   = NULL
-		NULL  AND TRUE   = NULL
-		NULL  AND NULL   = NULL
-	*/
-	//arg5 := args{
-	//	left:       newBoolConstVector(false, false),
-	//	right:      newBoolConstVector(false, true),
-	//	result:     NewConstVector(boolean()),
-	//	count:      defaultVectorSize,
-	//	boolOp:     gAndOp,
-	//	wantNull:   false,
-	//	wantResult: false,
-	//}
-	//arg6 := args{
-	//	left:       newBoolConstVector(false, true),
-	//	right:      newBoolConstVector(false, false),
-	//	result:     NewConstVector(boolean()),
-	//	count:      defaultVectorSize,
-	//	boolOp:     gAndOp,
-	//	wantNull:   false,
-	//	wantResult: false,
-	//}
-	//arg7 := args{
-	//	left:       newBoolConstVector(true, false),
-	//	right:      newBoolConstVector(false, true),
-	//	result:     NewConstVector(boolean()),
-	//	count:      defaultVectorSize,
-	//	boolOp:     gAndOp,
-	//	wantNull:   true,
-	//	wantResult: true,
-	//}
-	//arg8 := args{
-	//	left:       newBoolConstVector(false, true),
-	//	right:      newBoolConstVector(true, false),
-	//	result:     NewConstVector(boolean()),
-	//	count:      defaultVectorSize,
-	//	boolOp:     gAndOp,
-	//	wantNull:   true,
-	//	wantResult: true,
-	//}
-	//arg9 := args{
-	//	left:       newBoolConstVector(false, true),
-	//	right:      newBoolConstVector(true, true),
-	//	result:     NewConstVector(boolean()),
-	//	count:      defaultVectorSize,
-	//	boolOp:     gAndOp,
-	//	wantNull:   true,
-	//	wantResult: true,
-	//}
+	//FALSE AND NULL   = FALSE
+	arg5 := args{
+		left:   newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		right:  newBoolFlatVectorOdd(false, true, defaultVectorSize),
+		result: newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		count:  defaultVectorSize,
+		boolOp: gAndOp,
+		checkResult: func(t *testing.T, arg *args) {
+			assert.True(t, arg.result.phyFormat() == PF_FLAT)
+			result := getSliceInPhyFormatFlat[bool](arg.result)
+			for i := 0; i < defaultVectorSize; i++ {
+				assert.True(t, arg.result._mask.rowIsValid(uint64(i)))
+				assert.False(t, result[i])
+			}
+		},
+	}
+	//NULL  AND FALSE  = FALSE
+	arg6 := args{
+		left:   newBoolFlatVectorOdd(false, true, defaultVectorSize),
+		right:  newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		result: newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		count:  defaultVectorSize,
+		boolOp: gAndOp,
+		checkResult: func(t *testing.T, arg *args) {
+			assert.True(t, arg.result.phyFormat() == PF_FLAT)
+			result := getSliceInPhyFormatFlat[bool](arg.result)
+			for i := 0; i < defaultVectorSize; i++ {
+				assert.True(t, arg.result._mask.rowIsValid(uint64(i)))
+				assert.False(t, result[i])
+			}
+		},
+	}
+	//TRUE  AND NULL   = NULL
+	arg7 := args{
+		left:   newBoolFlatVectorOdd(true, false, defaultVectorSize),
+		right:  newBoolFlatVectorEven(false, true, defaultVectorSize),
+		result: newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		count:  defaultVectorSize,
+		boolOp: gAndOp,
+		checkResult: func(t *testing.T, arg *args) {
+			assert.True(t, arg.result.phyFormat() == PF_FLAT)
+			result := getSliceInPhyFormatFlat[bool](arg.result)
+			for i := 0; i < defaultVectorSize; i++ {
+				if i%2 == 0 {
+					assert.False(t, arg.result._mask.rowIsValid(uint64(i)))
+				} else {
+					assert.False(t, result[i])
+				}
+			}
+		},
+	}
+	//NULL  AND TRUE   = NULL
+	arg8 := args{
+		left:   newBoolFlatVectorEven(false, true, defaultVectorSize),
+		right:  newBoolFlatVectorOdd(true, false, defaultVectorSize),
+		result: newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		count:  defaultVectorSize,
+		boolOp: gAndOp,
+		checkResult: func(t *testing.T, arg *args) {
+			assert.True(t, arg.result.phyFormat() == PF_FLAT)
+			result := getSliceInPhyFormatFlat[bool](arg.result)
+			for i := 0; i < defaultVectorSize; i++ {
+				if i%2 == 0 {
+					assert.False(t, arg.result._mask.rowIsValid(uint64(i)))
+				} else {
+					assert.False(t, result[i])
+				}
+			}
+		},
+	}
+	//NULL  AND NULL   = NULL
+	arg9 := args{
+		left:   newBoolFlatVectorEven(false, true, defaultVectorSize),
+		right:  newBoolFlatVectorEven(true, true, defaultVectorSize),
+		result: newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		count:  defaultVectorSize,
+		boolOp: gAndOp,
+		checkResult: func(t *testing.T, arg *args) {
+			assert.True(t, arg.result.phyFormat() == PF_FLAT)
+			for i := 0; i < defaultVectorSize; i++ {
+				if i%2 == 0 {
+					assert.False(t, arg.result._mask.rowIsValid(uint64(i)))
+				}
+			}
+		},
+	}
+	arg9_0 := args{
+		left:   newBoolFlatVectorEven(false, true, defaultVectorSize),
+		right:  newBoolFlatVectorOdd(true, true, defaultVectorSize),
+		result: newBoolFlatVectorOdd(false, false, defaultVectorSize),
+		count:  defaultVectorSize,
+		boolOp: gAndOp,
+		checkResult: func(t *testing.T, arg *args) {
+			assert.True(t, arg.result.phyFormat() == PF_FLAT)
+			result := getSliceInPhyFormatFlat[bool](arg.result)
+			for i := 0; i < defaultVectorSize; i++ {
+				if i%2 == 0 {
+					assert.False(t, arg.result._mask.rowIsValid(uint64(i)))
+				} else {
+					assert.True(t, arg.result._mask.rowIsValid(uint64(i)))
+					assert.False(t, result[i])
+				}
+			}
+		},
+	}
 
 	tests := []struct {
 		name string
@@ -413,30 +483,30 @@ func Test_booleanNullMask_Flat(t *testing.T) {
 			name: "t4",
 			args: arg4,
 		},
-		//{
-		//	name: "t5",
-		//	args: arg5,
-		//},
-		//{
-		//	name: "t6",
-		//	args: arg6,
-		//},
-		//{
-		//	name: "t7",
-		//	args: arg7,
-		//},
-		//{
-		//	name: "t8",
-		//	args: arg8,
-		//},
-		//{
-		//	name: "t9",
-		//	args: arg9,
-		//},
-		//{
-		//	name: "t1_0",
-		//	args: arg9,
-		//},
+		{
+			name: "t5",
+			args: arg5,
+		},
+		{
+			name: "t6",
+			args: arg6,
+		},
+		{
+			name: "t7",
+			args: arg7,
+		},
+		{
+			name: "t8",
+			args: arg8,
+		},
+		{
+			name: "t9",
+			args: arg9,
+		},
+		{
+			name: "t9_0",
+			args: arg9_0,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

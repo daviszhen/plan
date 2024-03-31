@@ -295,6 +295,10 @@ func (bm *Bitmap) init(count int) {
 	}
 }
 
+func (bm *Bitmap) initWith(other *Bitmap) {
+	bm._bits = other._bits
+}
+
 func (bm *Bitmap) invalid() bool {
 	return len(bm._bits) == 0
 }
@@ -312,6 +316,26 @@ func (bm *Bitmap) getEntryIndex(idx uint64) (uint64, uint64) {
 
 func (bm *Bitmap) entryIsSet(e uint8, pos uint64) bool {
 	return e&(1<<pos) != 0
+}
+
+func (bm *Bitmap) combine(other *Bitmap, count int) {
+	if other.AllValid() {
+		return
+	}
+	if bm.AllValid() {
+		bm.initWith(other)
+		return
+	}
+	oldData := bm._bits
+	bm.init(count)
+	eCnt := bm.entryCount(count)
+	for i := 0; i < eCnt; i++ {
+		bm._bits[i] = oldData[i] & other._bits[i]
+	}
+}
+
+func (bm *Bitmap) rowIsValidInEntry(e uint8, pos uint64) bool {
+	return bm.entryIsSet(e, pos)
 }
 
 func (bm *Bitmap) rowIsValidUnsafe(idx uint64) bool {
@@ -407,6 +431,13 @@ func (bm *Bitmap) setAllInvalid(cnt int) {
 		bm._bits[lastEidx] = 0xFF << lastBits
 	}
 }
+func (bm *Bitmap) NoneValidInEntry(entry uint8) bool {
+	return entry == 0
+}
+
+func (bm *Bitmap) AllValidInEntry(entry uint8) bool {
+	return entry == 0xFF
+}
 
 func (bm *Bitmap) AllValid() bool {
 	return bm.invalid()
@@ -414,6 +445,12 @@ func (bm *Bitmap) AllValid() bool {
 
 type SelectVector struct {
 	_selVec []int
+}
+
+func NewSelectVector(count int) *SelectVector {
+	vec := &SelectVector{}
+	vec.init(count)
+	return vec
 }
 
 func (svec *SelectVector) invalid() bool {
@@ -432,11 +469,29 @@ func (svec *SelectVector) getIndex(idx int) int {
 	}
 }
 
-type Chunk struct {
-	_data []Vector
+func (svec *SelectVector) setIndex(idx int, index int) {
+	svec._selVec[idx] = index
 }
 
-type UnifiedVector struct {
+type Chunk struct {
+	_data  []*Vector
+	_count int
+	_cap   int
+}
+
+func (c *Chunk) init(types []LType) {
+	c._cap = defaultVectorSize
+	for _, lType := range types {
+		c._data = append(c._data, NewVector(lType, c._cap))
+	}
+}
+
+func (c *Chunk) reset() {
+	if len(c._data) == 0 {
+		return
+	}
+	c._cap = defaultVectorSize
+	c._count = 0
 }
 
 func booleanNullMask(left, right, result *Vector, count int, boolOp BooleanOp) {

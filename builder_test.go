@@ -43,7 +43,7 @@ func runTest(t *testing.T, name string, ast *Ast) {
 	assert.NotNil(t, lp)
 	fmt.Println("After Optimize\n", lp.String())
 
-	err = toJson(lp, "./"+name)
+	err = toJson(lp, "./testout/"+name)
 	assert.NoError(t, err)
 
 	pp, err := builder.CreatePhyPlan(lp)
@@ -51,7 +51,7 @@ func runTest(t *testing.T, name string, ast *Ast) {
 	assert.NotNil(t, pp)
 	fmt.Println("\n", pp.String())
 
-	err = toJson(pp, "./p"+name)
+	err = toJson(pp, "./testout/p"+name)
 	assert.NoError(t, err)
 
 }

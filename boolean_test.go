@@ -65,3 +65,78 @@ func Test_andWithNull(t *testing.T) {
 		})
 	}
 }
+
+func Test_selectOperation(t *testing.T) {
+	type args struct {
+		left        *Vector
+		right       *Vector
+		sel         *SelectVector
+		count       int
+		trueSel     *SelectVector
+		falseSel    *SelectVector
+		subTyp      ET_SubTyp
+		checkResult func(t *testing.T, arg *args, ret int)
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "t1 : int32 == int32",
+			args: args{
+				left:     newInt32FlatVectorEven(false, defaultVectorSize),
+				right:    newInt32FlatVectorEven(false, defaultVectorSize),
+				sel:      nil,
+				count:    defaultVectorSize,
+				trueSel:  nil,
+				falseSel: NewSelectVector(defaultVectorSize),
+				subTyp:   ET_Equal,
+				checkResult: func(t *testing.T, arg *args, ret int) {
+					assert.Equal(t, ret, defaultVectorSize)
+				},
+			},
+		},
+		{
+			name: "t2 : int32 == int32",
+			args: args{
+				left:     newInt32FlatVectorEven(false, defaultVectorSize),
+				right:    newInt32FlatVectorEven(true, defaultVectorSize),
+				sel:      nil,
+				count:    defaultVectorSize,
+				trueSel:  nil,
+				falseSel: NewSelectVector(defaultVectorSize),
+				subTyp:   ET_Equal,
+				checkResult: func(t *testing.T, arg *args, ret int) {
+					assert.Equal(t, ret, defaultVectorSize/2)
+					for i := 0; i < defaultVectorSize/2; i++ {
+						fidx := arg.falseSel.getIndex(i)
+						assert.Equal(t, fidx%2, 0)
+					}
+				},
+			},
+		},
+		{
+			name: "t3 : int32 == int32",
+			args: args{
+				left:     newInt32FlatVectorOld(true, defaultVectorSize),
+				right:    newInt32FlatVectorEven(true, defaultVectorSize),
+				sel:      nil,
+				count:    defaultVectorSize,
+				trueSel:  NewSelectVector(defaultVectorSize),
+				falseSel: nil,
+				subTyp:   ET_Equal,
+				checkResult: func(t *testing.T, arg *args, ret int) {
+					assert.Equal(t, 0, ret)
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ret := selectOperation(tt.args.left, tt.args.right, tt.args.sel, tt.args.count, tt.args.trueSel, tt.args.falseSel, tt.args.subTyp)
+			if tt.args.checkResult != nil {
+				tt.args.checkResult(t, &tt.args, ret)
+			}
+		})
+	}
+}
