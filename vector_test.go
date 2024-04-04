@@ -67,7 +67,7 @@ func newInt32FlatVectorEven(null bool, cnt int) *Vector {
 	})
 }
 
-func newInt32FlatVectorOld(null bool, cnt int) *Vector {
+func newInt32FlatVectorOdd(null bool, cnt int) *Vector {
 	return newInt32FlatVectorImpl(null, cnt, func(i int) bool {
 		return i%2 != 0
 	})

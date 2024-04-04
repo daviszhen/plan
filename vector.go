@@ -33,6 +33,10 @@ func (f PhyFormat) isFlat() bool {
 	return f == PF_FLAT
 }
 
+func (f PhyFormat) isDict() bool {
+	return f == PF_DICT
+}
+
 type UnifiedFormat struct {
 	_sel      *SelectVector
 	_data     []byte
@@ -44,26 +48,57 @@ type VecBufferType int
 
 const (
 	//array of data
-	BT_STANDARD VecBufferType = iota
-	BT_DICT
-	BT_CHILD
-	BT_STRING
+	VBT_STANDARD VecBufferType = iota
+	VBT_DICT
+	VBT_CHILD
+	VBT_STRING
 )
 
 type VecBuffer struct {
 	_bufTyp VecBufferType
 	_data   []byte
+	_sel    *SelectVector
+	_child  *Vector
 }
 
 func newBuffer(sz int) *VecBuffer {
 	return &VecBuffer{
-		_bufTyp: BT_STANDARD,
+		_bufTyp: VBT_STANDARD,
 		_data:   gAlloc.Alloc(sz),
 	}
 }
 
 func NewStandardBuffer(lt LType, cap int) *VecBuffer {
 	return newBuffer(lt.getInternalType().size() * cap)
+}
+
+func NewDictBuffer(data []int) *VecBuffer {
+	return &VecBuffer{
+		_bufTyp: VBT_DICT,
+		_sel: &SelectVector{
+			_selVec: data,
+		},
+	}
+}
+
+func NewDictBuffer2(sel *SelectVector) *VecBuffer {
+	buf := &VecBuffer{
+		_bufTyp: VBT_DICT,
+	}
+	buf._sel.init2(sel)
+	return buf
+}
+
+func NewChildBuffer(child *Vector) *VecBuffer {
+	return &VecBuffer{
+		_bufTyp: VBT_CHILD,
+		_child:  child,
+	}
+}
+
+func (buf *VecBuffer) getSelVector() *SelectVector {
+	assertFunc(buf._bufTyp == VBT_DICT)
+	return buf._sel
 }
 
 const (
@@ -212,6 +247,44 @@ func (vec *Vector) toUnifiedFormat(count int, output *UnifiedFormat) {
 		output._mask = getMaskInPhyFormatFlat(vec)
 	}
 }
+func (vec *Vector) sliceOnSelf(sel *SelectVector, count int) {
+	if vec.phyFormat().isConst() {
+	} else if vec.phyFormat().isDict() {
+		//dict
+		curSel := getSelVectorInPhyFormatDict(vec)
+		buf := curSel.slice(sel, count)
+		vec._buf = NewDictBuffer(buf)
+	} else {
+		//flat
+		child := &Vector{
+			_phyFormat: PF_DICT,
+			_typ:       vec.typ(),
+		}
+		child.reference(vec)
+		childRef := NewChildBuffer(child)
+		dictBuf := NewDictBuffer2(sel)
+		vec._buf = dictBuf
+		vec._aux = childRef
+	}
+}
+
+func (vec *Vector) slice(other *Vector, sel *SelectVector, count int) {
+	vec.reference(other)
+	vec.sliceOnSelf(sel, count)
+}
+
+func (vec *Vector) reference(other *Vector) {
+	assertFunc(vec.typ().equal(other.typ()))
+	vec.reinterpret(other)
+}
+
+func (vec *Vector) reinterpret(other *Vector) {
+	vec._phyFormat = other._phyFormat
+	vec._buf = other._buf
+	vec._aux = other._aux
+	vec._data = other._data
+	vec._mask = other._mask
+}
 
 func toSlice[T any](data []byte, pSize int) []T {
 	slen := len(data) / pSize
@@ -259,6 +332,11 @@ func getSliceInPhyFormatFlat[T any](vec *Vector) []T {
 	return getSliceInPhyFormatConst[T](vec)
 }
 
+func setMaskInPhyFormatFlat(vec *Vector, mask *Bitmap) {
+	assertFunc(vec.phyFormat().isFlat())
+	vec._mask.shareWith(mask)
+}
+
 func getMaskInPhyFormatFlat(vec *Vector) *Bitmap {
 	assertFunc(vec.phyFormat().isFlat())
 	return vec._mask
@@ -278,6 +356,12 @@ func incrSelectVectorInPhyFormatFlat() *SelectVector {
 	return &SelectVector{}
 }
 
+// dictionary vector
+func getSelVectorInPhyFormatDict(vec *Vector) *SelectVector {
+	assertFunc(vec.phyFormat().isDict())
+	return vec._buf.getSelVector()
+}
+
 // unified format
 func getSliceInPhyFormatUnifiedFormat[T any](uni *UnifiedFormat) []T {
 	return toSlice[T](uni._data, 1)
@@ -295,7 +379,7 @@ func (bm *Bitmap) init(count int) {
 	}
 }
 
-func (bm *Bitmap) initWith(other *Bitmap) {
+func (bm *Bitmap) shareWith(other *Bitmap) {
 	bm._bits = other._bits
 }
 
@@ -323,7 +407,7 @@ func (bm *Bitmap) combine(other *Bitmap, count int) {
 		return
 	}
 	if bm.AllValid() {
-		bm.initWith(other)
+		bm.shareWith(other)
 		return
 	}
 	oldData := bm._bits
@@ -443,6 +527,16 @@ func (bm *Bitmap) AllValid() bool {
 	return bm.invalid()
 }
 
+func (bm *Bitmap) copyFrom(other *Bitmap, count int) {
+	if other.AllValid() {
+		bm._bits = nil
+	} else {
+		eCnt := bm.entryCount(count)
+		bm._bits = make([]uint8, eCnt)
+		copy(bm._bits, other._bits[:eCnt])
+	}
+}
+
 type SelectVector struct {
 	_selVec []int
 }
@@ -473,6 +567,20 @@ func (svec *SelectVector) setIndex(idx int, index int) {
 	svec._selVec[idx] = index
 }
 
+func (svec *SelectVector) slice(sel *SelectVector, count int) []int {
+	data := make([]int, count)
+	for i := 0; i < count; i++ {
+		newIdx := sel.getIndex(i)
+		idx := svec.getIndex(newIdx)
+		data[i] = idx
+	}
+	return data
+}
+
+func (svec *SelectVector) init2(sel *SelectVector) {
+	svec._selVec = sel._selVec
+}
+
 type Chunk struct {
 	_data  []*Vector
 	_count int
@@ -492,6 +600,10 @@ func (c *Chunk) reset() {
 	}
 	c._cap = defaultVectorSize
 	c._count = 0
+}
+
+func (c *Chunk) setCard(count int) {
+	c._count = count
 }
 
 func booleanNullMask(left, right, result *Vector, count int, boolOp BooleanOp) {

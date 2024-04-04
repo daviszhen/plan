@@ -1161,6 +1161,16 @@ func (lo *LogicalOperator) String() string {
 	return tree.String()
 }
 
+func findExpr(exprs []*Expr, fun func(expr *Expr) bool) []*Expr {
+	ret := make([]*Expr, 0)
+	for _, expr := range exprs {
+		if fun != nil && fun(expr) {
+			ret = append(ret, expr)
+		}
+	}
+	return ret
+}
+
 func checkExprIsValid(root *LogicalOperator) {
 	if root == nil {
 		return
@@ -1573,9 +1583,9 @@ func (e *Expr) Format(ctx *FormatCtx) {
 	switch e.Typ {
 	case ET_Column:
 		//TODO:
-		ctx.Writef("(%s.%s,%s,[%d,%d],%d)", e.Table, e.Name,
+		ctx.Writef("(%s.%s,%s,%v,%d)", e.Table, e.Name,
 			e.DataTyp,
-			e.ColRef[0], e.ColRef[1], e.Depth)
+			e.ColRef, e.Depth)
 	case ET_SConst:
 		ctx.Writef("(%s,%s)", e.Svalue, e.DataTyp)
 	case ET_IConst:
@@ -1646,7 +1656,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 				if i > 1 {
 					ctx.Write(",")
 				}
-				e.Format(ctx)
+				e.Children[i].Format(ctx)
 			}
 			ctx.Write(")")
 		case ET_Exists:
@@ -1656,11 +1666,11 @@ func (e *Expr) Format(ctx *FormatCtx) {
 
 		case ET_SubFunc:
 			ctx.Writef("%s_%d(", e.Svalue, e.FuncId)
-			for idx, e := range e.Children {
+			for idx, child := range e.Children {
 				if idx > 0 {
 					ctx.Write(", ")
 				}
-				e.Format(ctx)
+				child.Format(ctx)
 			}
 			ctx.Write(")")
 			ctx.Write("->")
@@ -1756,16 +1766,16 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 			}
 		case ET_In, ET_NotIn:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
-			for _, e := range e.Children {
-				e.Print(branch, "")
+			for _, child := range e.Children {
+				child.Print(branch, "")
 			}
 		case ET_Exists:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
 			e.Children[0].Print(branch, "")
 		case ET_SubFunc:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.Svalue))
-			for _, e := range e.Children {
-				e.Print(branch, "")
+			for _, child := range e.Children {
+				child.Print(branch, "")
 			}
 		default:
 			//binary operator
@@ -1972,6 +1982,19 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 	for _, child := range po.Children {
 		child.Print(tree)
 	}
+}
+
+func collectFilterExprs(root *PhysicalOperator) []*Expr {
+	if root == nil {
+		return nil
+	}
+	ret := make([]*Expr, 0)
+	ret = append(ret, root.Filters...)
+	ret = append(ret, root.OnConds...)
+	for _, child := range root.Children {
+		ret = append(ret, collectFilterExprs(child)...)
+	}
+	return ret
 }
 
 type Catalog struct {

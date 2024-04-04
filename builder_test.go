@@ -56,6 +56,27 @@ func runTest(t *testing.T, name string, ast *Ast) {
 
 }
 
+func runTest2(t *testing.T, ast *Ast) *PhysicalOperator {
+	builder := NewBuilder()
+	err := builder.buildSelect(ast, builder.rootCtx, 0)
+	assert.NoError(t, err)
+
+	assert.Greater(t, *builder.tag, 0)
+
+	lp, err := builder.CreatePlan(builder.rootCtx, nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, lp)
+	lp, err = builder.Optimize(builder.rootCtx, lp)
+	assert.NoError(t, err)
+	assert.NotNil(t, lp)
+
+	pp, err := builder.CreatePhyPlan(lp)
+	assert.NoError(t, err)
+	assert.NotNil(t, pp)
+	fmt.Println("\n", pp.String())
+	return pp
+}
+
 func TestQ1(t *testing.T) {
 	q1 := tpchQ1()
 	runTest(t, "q1.json", q1)

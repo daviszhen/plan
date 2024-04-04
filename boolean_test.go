@@ -118,7 +118,7 @@ func Test_selectOperation(t *testing.T) {
 		{
 			name: "t3 : int32 == int32",
 			args: args{
-				left:     newInt32FlatVectorOld(true, defaultVectorSize),
+				left:     newInt32FlatVectorOdd(true, defaultVectorSize),
 				right:    newInt32FlatVectorEven(true, defaultVectorSize),
 				sel:      nil,
 				count:    defaultVectorSize,

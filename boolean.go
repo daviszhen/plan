@@ -198,6 +198,7 @@ func selectGenericLoopSelSwitch[T any](
 		)
 	}
 }
+
 func selectGenericLoop[T any](
 	ldata, rdata []T,
 	lsel, rsel *SelectVector,
@@ -451,5 +452,19 @@ func selectFlatLoop[T any](
 		return trueCount
 	} else {
 		return count - falseCount
+	}
+}
+
+func compareOperations(left, right, result *Vector, count int, subTyp ET_SubTyp) {
+	switch subTyp {
+	case ET_Equal:
+		switch left.typ().getInternalType() {
+		case INT32:
+			binaryExecSwitch[int32, bool](left, right, result, count, gBinInt32Equal, nil, gInt32BinarySingleOpWrapper)
+		default:
+			panic("usp")
+		}
+	default:
+		panic("usp")
 	}
 }

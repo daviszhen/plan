@@ -1238,7 +1238,7 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 		}
 	}
 
-	fmt.Println("After pushdown filter\n", root.String())
+	//fmt.Println("After pushdown filter\n", root.String())
 
 	//2. join order
 	root, err = b.joinOrder(root)
@@ -1246,14 +1246,14 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 		return nil, err
 	}
 
-	fmt.Println("After join reorder\n", root.String())
+	//fmt.Println("After join reorder\n", root.String())
 
 	//3. column prune
 	root, err = b.columnPrune(root)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("After prune\n", root.String())
+	//fmt.Println("After prune\n", root.String())
 	root, err = b.generateCounts(root)
 	if err != nil {
 		return nil, err

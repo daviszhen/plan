@@ -506,8 +506,8 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		}
 	}
 
-	fmt.Println("join set manager\n", joinOrder.setManager)
-	fmt.Println("query graph\n", joinOrder.queryGraph)
+	//fmt.Println("join set manager\n", joinOrder.setManager)
+	//fmt.Println("query graph\n", joinOrder.queryGraph)
 
 	//prepare for dp algorithm
 	var nodesOpts []*NodeOp
@@ -525,7 +525,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 	}
 
 	for _, nodeOp := range nodesOpts {
-		fmt.Println("node op set", nodeOp.node.set)
+		//fmt.Println("node op set", nodeOp.node.set)
 		joinOrder.plans.set(nodeOp.node.set, nodeOp.node)
 	}
 	err = joinOrder.solveJoinOrder()
