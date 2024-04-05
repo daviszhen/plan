@@ -1,20 +1,23 @@
 package main
 
 var (
+	// *
+	gBinFloat32Multi binFloat32MultiOp
+
+	// =
 	gBinInt32Equal binInt32EqualOp
 
-	gInt32BinarySingleOpWrapper binarySingleOpWrapper[int32, bool]
+	// >
+	gBinInt32Great   binInt32GreatOp
+	gBinFloat32Great binFloat32GreatOp
+
+	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, bool]
+	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32]
+	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, bool]
 )
 
 type binaryOp[T any, R any] interface {
 	operation(left, right *T, result *R)
-}
-
-type binInt32EqualOp struct {
-}
-
-func (e binInt32EqualOp) operation(left, right *int32, result *bool) {
-	*result = *left == *right
 }
 
 type binaryFunc[T any, R any] interface {
@@ -22,7 +25,7 @@ type binaryFunc[T any, R any] interface {
 }
 
 type binaryWrapper[T any, R any] interface {
-	operation(op binaryOp[T, R], fun binaryFunc[T, R], left, right *T, result *R, mask *Bitmap, idx int)
+	operation(left, right *T, result *R, mask *Bitmap, idx int, op binaryOp[T, R], fun binaryFunc[T, R])
 
 	addsNulls() bool
 }
@@ -30,12 +33,43 @@ type binaryWrapper[T any, R any] interface {
 type binarySingleOpWrapper[T any, R any] struct {
 }
 
-func (b binarySingleOpWrapper[T, R]) operation(op binaryOp[T, R], fun binaryFunc[T, R], left, right *T, result *R, mask *Bitmap, idx int) {
+func (b binarySingleOpWrapper[T, R]) operation(left, right *T, result *R, mask *Bitmap, idx int, op binaryOp[T, R], fun binaryFunc[T, R]) {
 	op.operation(left, right, result)
 }
 
 func (b binarySingleOpWrapper[T, R]) addsNulls() bool {
 	return false
+}
+
+// *
+type binFloat32MultiOp struct{}
+
+func (op binFloat32MultiOp) operation(left, right *float32, result *float32) {
+	*result = *left * *right
+}
+
+// = int32
+type binInt32EqualOp struct {
+}
+
+func (op binInt32EqualOp) operation(left, right *int32, result *bool) {
+	*result = *left == *right
+}
+
+// > int32
+type binInt32GreatOp struct {
+}
+
+func (op binInt32GreatOp) operation(left, right *int32, result *bool) {
+	*result = *left > *right
+}
+
+// > float32
+type binFloat32GreatOp struct {
+}
+
+func (op binFloat32GreatOp) operation(left, right *float32, result *bool) {
+	*result = *left > *right
 }
 
 func binaryExecSwitch[T any, R any](
@@ -74,7 +108,7 @@ func binaryExecConst[T any, R any](
 	rSlice := getSliceInPhyFormatConst[T](right)
 	resSlice := getSliceInPhyFormatConst[R](result)
 
-	wrapper.operation(op, fun, &lSlice[0], &rSlice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0)
+	wrapper.operation(&lSlice[0], &rSlice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, op, fun)
 }
 
 func binaryExecFlat[T any, R any](
@@ -148,11 +182,11 @@ func binaryExecFlatLoop[T any, R any](
 ) {
 	if !mask.AllValid() {
 		baseIdx := 0
-		eCnt := mask.entryCount(count)
+		eCnt := entryCount(count)
 		for i := 0; i < eCnt; i++ {
 			ent := mask.getEntry(uint64(i))
 			next := min(baseIdx+8, count)
-			if mask.AllValidInEntry(ent) {
+			if AllValidInEntry(ent) {
 				for ; baseIdx < next; baseIdx++ {
 					lidx := baseIdx
 					ridx := baseIdx
@@ -162,15 +196,15 @@ func binaryExecFlatLoop[T any, R any](
 					if rconst {
 						ridx = 0
 					}
-					wrapper.operation(op, fun, &ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx)
+					wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx, op, fun)
 				}
-			} else if mask.NoneValidInEntry(ent) {
+			} else if NoneValidInEntry(ent) {
 				baseIdx = next
 				continue
 			} else {
 				start := baseIdx
 				for ; baseIdx < next; baseIdx++ {
-					if mask.rowIsValidInEntry(ent, uint64(baseIdx-start)) {
+					if rowIsValidInEntry(ent, uint64(baseIdx-start)) {
 						lidx := baseIdx
 						ridx := baseIdx
 						if lconst {
@@ -179,7 +213,7 @@ func binaryExecFlatLoop[T any, R any](
 						if rconst {
 							ridx = 0
 						}
-						wrapper.operation(op, fun, &ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx)
+						wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx, op, fun)
 					}
 				}
 			}
@@ -194,7 +228,7 @@ func binaryExecFlatLoop[T any, R any](
 			if rconst {
 				ridx = 0
 			}
-			wrapper.operation(op, fun, &ldata[lidx], &rdata[ridx], &resData[i], mask, i)
+			wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], mask, i, op, fun)
 		}
 	}
 }
@@ -248,7 +282,7 @@ func binaryExecGenericLoop[T any, R any](
 			lidx := lsel.getIndex(i)
 			ridx := rsel.getIndex(i)
 			if lmask.rowIsValid(uint64(lidx)) && rmask.rowIsValid(uint64(ridx)) {
-				wrapper.operation(op, fun, &ldata[lidx], &rdata[ridx], &resData[i], resMask, i)
+				wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], resMask, i, op, fun)
 			} else {
 				resMask.setInvalid(uint64(i))
 			}
@@ -257,7 +291,7 @@ func binaryExecGenericLoop[T any, R any](
 		for i := 0; i < count; i++ {
 			lidx := lsel.getIndex(i)
 			ridx := rsel.getIndex(i)
-			wrapper.operation(op, fun, &ldata[lidx], &rdata[ridx], &resData[i], resMask, i)
+			wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], resMask, i, op, fun)
 		}
 	}
 }

@@ -66,10 +66,11 @@ func runTest2(t *testing.T, ast *Ast) *PhysicalOperator {
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, lp)
+	checkExprIsValid(lp)
 	lp, err = builder.Optimize(builder.rootCtx, lp)
 	assert.NoError(t, err)
 	assert.NotNil(t, lp)
-
+	checkExprIsValid(lp)
 	pp, err := builder.CreatePhyPlan(lp)
 	assert.NoError(t, err)
 	assert.NotNil(t, pp)

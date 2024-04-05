@@ -13,8 +13,16 @@ func TestBitmap(t *testing.T) {
 	mask.set(0, false)
 	assert.True(t, !mask.rowIsValid(0))
 	assert.True(t, mask._bits != nil)
-	mask.set(100, false)
-	assert.True(t, !mask.rowIsValid(100))
+	mask.set(defaultVectorSize, false)
+	assert.True(t, !mask.rowIsValid(defaultVectorSize))
+}
+
+func newInt32ConstVector(v int32, null bool) *Vector {
+	vec := NewConstVector(integer())
+	data := getSliceInPhyFormatConst[int32](vec)
+	data[0] = v
+	setNullInPhyFormatConst(vec, null)
+	return vec
 }
 
 func newBoolConstVector(b bool, null bool) *Vector {
@@ -49,11 +57,11 @@ func newBoolFlatVectorOdd(b bool, null bool, cnt int) *Vector {
 	})
 }
 
-func newInt32FlatVectorImpl(null bool, cnt int, fun func(i int) bool) *Vector {
+func newInt32FlatVectorImpl(null bool, cnt int, fill func(i int) int32, fun func(i int) bool) *Vector {
 	vec := NewFlatVector(integer(), cnt)
 	data := getSliceInPhyFormatFlat[int32](vec)
 	for i := 0; i < cnt; i++ {
-		data[i] = int32(i)
+		data[i] = fill(i)
 		if null && fun(i) {
 			setNullInPhyFormatFlat(vec, uint64(i), null)
 		}
@@ -62,15 +70,27 @@ func newInt32FlatVectorImpl(null bool, cnt int, fun func(i int) bool) *Vector {
 }
 
 func newInt32FlatVectorEven(null bool, cnt int) *Vector {
-	return newInt32FlatVectorImpl(null, cnt, func(i int) bool {
-		return i%2 == 0
-	})
+	return newInt32FlatVectorImpl(
+		null,
+		cnt,
+		func(i int) int32 {
+			return int32(i)
+		},
+		func(i int) bool {
+			return i%2 == 0
+		})
 }
 
 func newInt32FlatVectorOdd(null bool, cnt int) *Vector {
-	return newInt32FlatVectorImpl(null, cnt, func(i int) bool {
-		return i%2 != 0
-	})
+	return newInt32FlatVectorImpl(
+		null,
+		cnt,
+		func(i int) int32 {
+			return int32(i)
+		},
+		func(i int) bool {
+			return i%2 != 0
+		})
 }
 
 func Test_booleanNullMask(t *testing.T) {

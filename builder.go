@@ -779,7 +779,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
 			JoinTyp:  jt,
-			OnConds:  []*Expr{expr.On},
+			OnConds:  []*Expr{expr.On.copy()},
 			Children: []*LogicalOperator{left, right},
 		}, err
 	case ET_Subquery:
@@ -802,6 +802,7 @@ func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperat
 	//1. find subquery and flatten subquery
 	//1. all operators should be changed into (low priority)
 	filters := splitExprByAnd(expr)
+	copyExprs(filters...)
 	var newFilters []*Expr
 	for _, filter := range filters {
 		newFilter, root, err = b.createSubquery(filter, root)
@@ -853,6 +854,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				Svalue:   expr.SubTyp.String(),
 				DataTyp:  expr.DataTyp,
 				Alias:    expr.Alias,
+				FuncId:   expr.FuncId,
 				Children: args,
 			}, root, nil
 		case ET_In, ET_NotIn:
@@ -870,6 +872,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				SubTyp:   expr.SubTyp,
 				DataTyp:  expr.DataTyp,
 				Alias:    expr.Alias,
+				FuncId:   expr.FuncId,
 				Children: args,
 			}, root, nil
 		case ET_Exists, ET_NotExists:

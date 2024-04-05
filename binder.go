@@ -133,28 +133,36 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				return nil, err
 			}
 		case AstExprSubTypeExists:
-			child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+			args := make([]*Expr, 0)
+			argsTypes := make([]ExprDataType, 0)
+			for _, arg := range expr.Expr.Children {
+				child, err = b.bindExpr(ctx, iwc, arg, depth)
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, child)
+				argsTypes = append(argsTypes, child.DataTyp)
+			}
+
+			ret, err = b.bindFunc(ET_Exists.String(), ET_Exists, expr.String(), args, argsTypes)
 			if err != nil {
 				return nil, err
-			}
-			ret = &Expr{
-				Typ:      ET_Func,
-				SubTyp:   ET_Exists,
-				Svalue:   ET_Exists.String(),
-				DataTyp:  ExprDataType{LTyp: boolean()},
-				Children: []*Expr{child},
 			}
 		case AstExprSubTypeNotExists:
-			child, err = b.bindExpr(ctx, iwc, expr.Expr.Children[0], depth)
+			args := make([]*Expr, 0)
+			argsTypes := make([]ExprDataType, 0)
+			for _, arg := range expr.Expr.Children {
+				child, err = b.bindExpr(ctx, iwc, arg, depth)
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, child)
+				argsTypes = append(argsTypes, child.DataTyp)
+			}
+
+			ret, err = b.bindFunc(ET_NotExists.String(), ET_NotExists, expr.String(), args, argsTypes)
 			if err != nil {
 				return nil, err
-			}
-			ret = &Expr{
-				Typ:      ET_Func,
-				SubTyp:   ET_NotExists,
-				Svalue:   ET_NotExists.String(),
-				DataTyp:  ExprDataType{LTyp: boolean()},
-				Children: []*Expr{child},
 			}
 		case AstExprSubTypeBetween:
 			ret, err = b.bindBetweenExpr(ctx, iwc, expr, depth)
@@ -498,6 +506,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	return &Expr{
 		Typ:         ET_Subquery,
 		SubBuilder:  subBuilder,
+		DataTyp:     subBuilder.projectExprs[0].DataTyp,
 		SubCtx:      subBuilder.rootCtx,
 		SubqueryTyp: typ,
 	}, err

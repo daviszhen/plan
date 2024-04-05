@@ -1200,6 +1200,9 @@ func checkExprs(e ...*Expr) {
 				panic("invalid between")
 			}
 		}
+		if expr.Typ == ET_Func && expr.FuncId == INVALID_FUNC {
+			panic("invalid function")
+		}
 		if expr.DataTyp.LTyp.id == LTID_INVALID {
 			panic("invalid logical type")
 		}
@@ -1354,6 +1357,10 @@ type Expr struct {
 func (e *Expr) copy() *Expr {
 	if e == nil {
 		return nil
+	}
+
+	if e.Typ == ET_Func && e.FuncId == INVALID_FUNC {
+		panic("invalid fun in copy")
 	}
 
 	ret := &Expr{
@@ -2072,6 +2079,7 @@ func splitExprByAnd(expr *Expr) []*Expr {
 					Typ:      expr.Typ,
 					SubTyp:   expr.SubTyp,
 					Svalue:   expr.SubTyp.String(),
+					FuncId:   expr.FuncId,
 					Children: []*Expr{expr.Children[0], child},
 				})
 			}
@@ -2131,6 +2139,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				SubTyp:   expr.SubTyp,
 				Svalue:   expr.SubTyp.String(),
 				DataTyp:  expr.DataTyp,
+				FuncId:   expr.FuncId,
 				Children: []*Expr{left, right},
 			}, hasCorCol
 		case ET_SubFunc:

@@ -84,14 +84,7 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *SelectVector, 
 	case ET_Column:
 		return exec.executeColumnRef(expr, eState, sel, count, result)
 	case ET_Func:
-		switch expr.SubTyp {
-		case ET_SubFunc:
-			return exec.executeFunc(expr, eState, sel, count, result)
-		case ET_Equal, ET_In:
-			return exec.executeCompare(expr, eState, sel, count, result)
-		default:
-			panic("usp")
-		}
+		return exec.executeFunc(expr, eState, sel, count, result)
 	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 		return exec.executeConst(expr, eState, sel, count, result)
 	default:
@@ -134,7 +127,7 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *Selec
 	tabId := int64(expr.ColRef.table())
 	if tabId >= 0 {
 		//this node
-		tabId = 0
+		tabId = 2
 	} else {
 		tabId = -tabId
 		tabId -= 1
@@ -150,7 +143,13 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *Selec
 func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVector, count int, result *Vector) error {
 	switch expr.Typ {
 	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
-
+		val := &Value{
+			_typ:     expr.DataTyp.LTyp,
+			_int64:   expr.Ivalue,
+			_float64: expr.Fvalue,
+			_string:  expr.Svalue,
+		}
+		result.referenceValue(val)
 	default:
 		panic("usp")
 	}
@@ -159,8 +158,10 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 
 func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
 	var err error
+	argsTypes := make([]ExprDataType, 0)
 	eState._interChunk.reset()
 	for i, child := range expr.Children {
+		argsTypes = append(argsTypes, child.DataTyp)
 		err = exec.execute(child,
 			eState._children[i],
 			sel,
@@ -171,7 +172,17 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVect
 		}
 	}
 	eState._interChunk.setCard(count)
-	return nil
+	impl, err := GetFunctionImpl(expr.FuncId, argsTypes)
+	if err != nil {
+		return err
+	}
+	if impl == nil {
+		panic(fmt.Sprintf("no function impl: %v %v", expr.FuncId, argsTypes))
+	}
+
+	body := impl.Body()
+	err = body(eState._interChunk, eState, count, result)
+	return err
 }
 
 func (exec *ExprExec) executeSelect(data *Chunk, sel *SelectVector) error {
@@ -294,29 +305,9 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 		ret = NewExprState(expr, eeState)
 	case ET_Join:
 	case ET_Func:
-		switch expr.SubTyp {
-		case ET_SubFunc:
-			ret = NewExprState(expr, eeState)
-			for _, child := range expr.Children {
-				ret.addChild(child)
-			}
-		case ET_Mul:
-			ret = NewExprState(expr, eeState)
-			for _, child := range expr.Children {
-				ret.addChild(child)
-			}
-		case ET_Equal, ET_In, ET_Greater:
-			ret = NewExprState(expr, eeState)
-			for _, child := range expr.Children {
-				ret.addChild(child)
-			}
-		case ET_And:
-			ret = NewExprState(expr, eeState)
-			for _, child := range expr.Children {
-				ret.addChild(child)
-			}
-		default:
-			panic("usp")
+		ret = NewExprState(expr, eeState)
+		for _, child := range expr.Children {
+			ret.addChild(child)
 		}
 	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 		ret = NewExprState(expr, eeState)

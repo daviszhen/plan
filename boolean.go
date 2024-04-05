@@ -377,11 +377,11 @@ func selectFlatLoop[T any](
 ) int {
 	trueCount, falseCount := 0, 0
 	baseIdx := 0
-	entryCount := mask.entryCount(count)
+	entryCount := entryCount(count)
 	for eidx := 0; eidx < entryCount; eidx++ {
 		entry := mask.getEntry(uint64(eidx))
 		next := min(baseIdx+8, count)
-		if mask.AllValidInEntry(entry) {
+		if AllValidInEntry(entry) {
 			//all valid: perform operation
 			for ; baseIdx < next; baseIdx++ {
 				resIdx := sel.getIndex(baseIdx)
@@ -407,7 +407,7 @@ func selectFlatLoop[T any](
 					}
 				}
 			}
-		} else if mask.NoneValidInEntry(entry) {
+		} else if NoneValidInEntry(entry) {
 			//skip all
 			if hasFalseSel {
 				for ; baseIdx < next; baseIdx++ {
@@ -431,7 +431,7 @@ func selectFlatLoop[T any](
 				if rightConst {
 					ridx = 0
 				}
-				res := mask.rowIsValidInEntry(entry, uint64(baseIdx-start)) &&
+				res := rowIsValidInEntry(entry, uint64(baseIdx-start)) &&
 					cmpOp.operation(&ldata[lidx], &rdata[ridx])
 				if hasTrueSel {
 					trueSel.setIndex(trueCount, resIdx)
@@ -460,7 +460,7 @@ func compareOperations(left, right, result *Vector, count int, subTyp ET_SubTyp)
 	case ET_Equal:
 		switch left.typ().getInternalType() {
 		case INT32:
-			binaryExecSwitch[int32, bool](left, right, result, count, gBinInt32Equal, nil, gInt32BinarySingleOpWrapper)
+			binaryExecSwitch[int32, bool](left, right, result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
 		default:
 			panic("usp")
 		}

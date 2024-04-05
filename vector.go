@@ -96,13 +96,17 @@ func NewChildBuffer(child *Vector) *VecBuffer {
 	}
 }
 
+func NewConstBuffer(typ LType) *VecBuffer {
+	return NewStandardBuffer(typ, 1)
+}
+
 func (buf *VecBuffer) getSelVector() *SelectVector {
 	assertFunc(buf._bufTyp == VBT_DICT)
 	return buf._sel
 }
 
 const (
-	defaultVectorSize = 2048
+	defaultVectorSize = 5
 )
 
 type Vector struct {
@@ -278,12 +282,43 @@ func (vec *Vector) reference(other *Vector) {
 	vec.reinterpret(other)
 }
 
+func (vec *Vector) referenceValue(val *Value) {
+	assertFunc(vec.typ().id == val._typ.id)
+	vec.setPhyFormat(PF_CONST)
+	vec._buf = NewConstBuffer(val._typ)
+	vec._aux = nil
+	vec._data = getDataInPhyFormatConst(vec)
+	vec.setValue(0, val)
+}
+
 func (vec *Vector) reinterpret(other *Vector) {
 	vec._phyFormat = other._phyFormat
 	vec._buf = other._buf
 	vec._aux = other._aux
 	vec._data = other._data
 	vec._mask = other._mask
+}
+
+func (vec *Vector) setValue(idx int, val *Value) {
+	if vec.phyFormat().isDict() {
+		sel := getSelVectorInPhyFormatDict(vec)
+		child := getChildInPhyFormatDict(vec)
+		child.setValue(sel.getIndex(idx), val)
+	}
+	assertFunc(val._typ.equal(vec.typ()))
+	assertFunc(val._typ.getInternalType() == vec.typ().getInternalType())
+	vec._mask.set(uint64(idx), !val._isNull)
+	pTyp := vec.typ().getInternalType()
+	switch pTyp {
+	case INT32:
+		slice := toSlice[int32](vec._data, pTyp.size())
+		slice[idx] = int32(val._int64)
+	case FLOAT:
+		slice := toSlice[float32](vec._data, pTyp.size())
+		slice[idx] = float32(val._float64)
+	default:
+		panic("usp")
+	}
 }
 
 func toSlice[T any](data []byte, pSize int) []T {
@@ -362,6 +397,11 @@ func getSelVectorInPhyFormatDict(vec *Vector) *SelectVector {
 	return vec._buf.getSelVector()
 }
 
+func getChildInPhyFormatDict(vec *Vector) *Vector {
+	assertFunc(vec.phyFormat().isDict())
+	return vec._aux._child
+}
+
 // unified format
 func getSliceInPhyFormatUnifiedFormat[T any](uni *UnifiedFormat) []T {
 	return toSlice[T](uni._data, 1)
@@ -372,7 +412,7 @@ type Bitmap struct {
 }
 
 func (bm *Bitmap) init(count int) {
-	cnt := bm.entryCount(count)
+	cnt := entryCount(count)
 	bm._bits = gAlloc.Alloc(cnt)
 	for i, _ := range bm._bits {
 		bm._bits[i] = 0xFF
@@ -398,7 +438,7 @@ func (bm *Bitmap) getEntryIndex(idx uint64) (uint64, uint64) {
 	return idx / 8, idx % 8
 }
 
-func (bm *Bitmap) entryIsSet(e uint8, pos uint64) bool {
+func entryIsSet(e uint8, pos uint64) bool {
 	return e&(1<<pos) != 0
 }
 
@@ -412,20 +452,20 @@ func (bm *Bitmap) combine(other *Bitmap, count int) {
 	}
 	oldData := bm._bits
 	bm.init(count)
-	eCnt := bm.entryCount(count)
+	eCnt := entryCount(count)
 	for i := 0; i < eCnt; i++ {
 		bm._bits[i] = oldData[i] & other._bits[i]
 	}
 }
 
-func (bm *Bitmap) rowIsValidInEntry(e uint8, pos uint64) bool {
-	return bm.entryIsSet(e, pos)
+func rowIsValidInEntry(e uint8, pos uint64) bool {
+	return entryIsSet(e, pos)
 }
 
 func (bm *Bitmap) rowIsValidUnsafe(idx uint64) bool {
 	eIdx, pos := bm.getEntryIndex(idx)
 	e := bm.getEntry(eIdx)
-	return bm.entryIsSet(e, pos)
+	return entryIsSet(e, pos)
 }
 
 func (bm *Bitmap) rowIsValid(idx uint64) bool {
@@ -471,7 +511,7 @@ func (bm *Bitmap) reset() {
 	bm._bits = nil
 }
 
-func (bm *Bitmap) entryCount(cnt int) int {
+func entryCount(cnt int) int {
 	return (cnt + 7) / 8
 }
 
@@ -480,8 +520,8 @@ func (bm *Bitmap) resize(old int, new int) {
 		return
 	}
 	if bm._bits != nil {
-		ncnt := bm.entryCount(new)
-		ocnt := bm.entryCount(old)
+		ncnt := entryCount(new)
+		ocnt := entryCount(old)
 		newData := gAlloc.Alloc(ncnt)
 		copy(newData, bm._bits)
 		for i := ocnt; i < ncnt; i++ {
@@ -504,7 +544,7 @@ func (bm *Bitmap) setAllInvalid(cnt int) {
 	if cnt == 0 {
 		return
 	}
-	lastEidx := bm.entryCount(int(cnt)) - 1
+	lastEidx := entryCount(int(cnt)) - 1
 	for i := 0; i < lastEidx; i++ {
 		bm._bits[i] = 0
 	}
@@ -515,11 +555,11 @@ func (bm *Bitmap) setAllInvalid(cnt int) {
 		bm._bits[lastEidx] = 0xFF << lastBits
 	}
 }
-func (bm *Bitmap) NoneValidInEntry(entry uint8) bool {
+func NoneValidInEntry(entry uint8) bool {
 	return entry == 0
 }
 
-func (bm *Bitmap) AllValidInEntry(entry uint8) bool {
+func AllValidInEntry(entry uint8) bool {
 	return entry == 0xFF
 }
 
@@ -531,7 +571,7 @@ func (bm *Bitmap) copyFrom(other *Bitmap, count int) {
 	if other.AllValid() {
 		bm._bits = nil
 	} else {
-		eCnt := bm.entryCount(count)
+		eCnt := entryCount(count)
 		bm._bits = make([]uint8, eCnt)
 		copy(bm._bits, other._bits[:eCnt])
 	}
@@ -604,6 +644,16 @@ func (c *Chunk) reset() {
 
 func (c *Chunk) setCard(count int) {
 	c._count = count
+}
+
+type Value struct {
+	_typ    LType
+	_isNull bool
+	//value
+	_boolVal bool
+	_int64   int64
+	_float64 float64
+	_string  string
 }
 
 func booleanNullMask(left, right, result *Vector, count int, boolOp BooleanOp) {

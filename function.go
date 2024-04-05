@@ -16,7 +16,7 @@ type Function struct {
 	ImplDecider func(*Function, []ExprDataType) (int, []ExprDataType)
 }
 
-type FunctionBody func() error
+type FunctionBody func(chunk *Chunk, state *ExprState, count int, result *Vector) error
 
 type Impl struct {
 	Desc           string
@@ -55,6 +55,8 @@ const (
 	LIKE
 	NOT_LIKE
 	CASE
+	EXISTS
+	NOT_EXISTS
 	//functions
 	DATE_ADD
 	EXTRACT
@@ -63,34 +65,36 @@ const (
 )
 
 var funcName2Id = map[string]FuncId{
-	"min":       MIN,
-	"date_add":  DATE_ADD,
-	"count":     COUNT,
-	"extract":   EXTRACT,
-	"sum":       SUM,
-	"max":       MAX,
-	"avg":       AVG,
-	"substring": SUBSTRING,
-	"cast":      CAST,
-	"=":         EQUAL,
-	"<>":        NOT_EQUAL,
-	"!=":        NOT_EQUAL,
-	"in":        IN,
-	"not in":    NOT_IN,
-	"between":   BETWEEN,
-	"and":       AND,
-	"or":        OR,
-	"+":         ADD,
-	"-":         SUB,
-	"*":         MUL,
-	"/":         DIV,
-	">=":        GREAT_EQUAL,
-	">":         GREAT,
-	"<=":        LESS_EQUAL,
-	"<":         LESS,
-	"like":      LIKE,
-	"not like":  NOT_LIKE,
-	"case":      CASE,
+	"min":        MIN,
+	"date_add":   DATE_ADD,
+	"count":      COUNT,
+	"extract":    EXTRACT,
+	"sum":        SUM,
+	"max":        MAX,
+	"avg":        AVG,
+	"substring":  SUBSTRING,
+	"cast":       CAST,
+	"=":          EQUAL,
+	"<>":         NOT_EQUAL,
+	"!=":         NOT_EQUAL,
+	"in":         IN,
+	"not in":     NOT_IN,
+	"between":    BETWEEN,
+	"and":        AND,
+	"or":         OR,
+	"+":          ADD,
+	"-":          SUB,
+	"*":          MUL,
+	"/":          DIV,
+	">=":         GREAT_EQUAL,
+	">":          GREAT,
+	"<=":         LESS_EQUAL,
+	"<":          LESS,
+	"like":       LIKE,
+	"not like":   NOT_LIKE,
+	"case":       CASE,
+	"exists":     EXISTS,
+	"not exists": NOT_EXISTS,
 }
 
 var allFunctions = map[FuncId]*Function{}
@@ -243,7 +247,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -260,8 +264,9 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -283,7 +288,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -300,7 +305,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -329,7 +334,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -352,7 +357,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -375,7 +380,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -401,7 +406,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -421,7 +426,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -441,7 +446,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -467,7 +472,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -487,7 +492,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -507,7 +512,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -533,7 +538,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -553,8 +558,9 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Multi, nil, gBinFloat32Float32SingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -579,7 +585,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -599,7 +605,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -625,8 +631,9 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -645,7 +652,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -665,7 +672,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -691,7 +698,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -711,7 +718,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -737,7 +744,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -757,7 +764,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -783,8 +790,9 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[float32, bool](chunk._data[0], chunk._data[1], result, count, gBinFloat32Great, nil, gBinFloat32BoolSingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -803,7 +811,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -823,7 +831,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -843,8 +851,9 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
-						return fmt.Errorf("usp")
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Great, nil, gBinInt32BoolSingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -869,7 +878,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -889,7 +898,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -915,7 +924,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -935,7 +944,27 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "<",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -961,7 +990,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -987,7 +1016,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1010,7 +1039,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1033,7 +1062,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1065,7 +1094,7 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[3].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1091,7 +1120,70 @@ var operators = []*Function{
 					return ExprDataType{LTyp: types[3].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: EXISTS,
+		Impls: []*Impl{
+			{
+				Desc: "exists",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: NOT_EXISTS,
+		Impls: []*Impl{
+			{
+				Desc: "not exists",
+				Idx:  0,
+				Args: []ExprDataType{
+					{
+						LTyp: boolean(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "not exists",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1117,7 +1209,7 @@ var aggFuncs = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1141,7 +1233,7 @@ var aggFuncs = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1165,7 +1257,7 @@ var aggFuncs = []*Function{
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1183,7 +1275,7 @@ var aggFuncs = []*Function{
 					return ExprDataType{LTyp: integer(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1210,7 +1302,7 @@ var aggFuncs = []*Function{
 					}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1237,7 +1329,7 @@ var aggFuncs = []*Function{
 					}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1258,7 +1350,7 @@ var aggFuncs = []*Function{
 					}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1284,7 +1376,7 @@ var funcs = []*Function{
 					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1306,7 +1398,7 @@ var funcs = []*Function{
 					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
@@ -1332,8 +1424,71 @@ var funcs = []*Function{
 					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  1,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  3,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
 					}
 				},
 			},
@@ -1364,7 +1519,7 @@ var funcs = []*Function{
 					}
 				},
 				Body: func() FunctionBody {
-					return func() error {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp")
 					}
 				},
