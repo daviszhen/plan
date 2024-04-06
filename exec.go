@@ -44,6 +44,9 @@ type ExprExec struct {
 func NewExprExec(es ...*Expr) *ExprExec {
 	exec := &ExprExec{}
 	for _, e := range es {
+		if e == nil {
+			continue
+		}
 		exec.addExpr(e)
 	}
 	return exec
@@ -65,7 +68,7 @@ func (exec *ExprExec) executeExprI(data []*Chunk, exprId int, result *Vector) er
 	exec._chunk = data
 	cnt := 1
 	if len(exec._chunk) != 0 {
-		cnt = exec._chunk[0]._count
+		cnt = exec._chunk[0].card()
 	}
 	return exec.execute(
 		exec._exprs[exprId],
@@ -185,16 +188,18 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVect
 	return err
 }
 
-func (exec *ExprExec) executeSelect(data *Chunk, sel *SelectVector) error {
-	_, err := exec.execSelectExpr(
+func (exec *ExprExec) executeSelect(data *Chunk, sel *SelectVector) (int, error) {
+	if len(exec._exprs) == 0 {
+		return data.card(), nil
+	}
+	return exec.execSelectExpr(
 		exec._exprs[0],
 		exec._execStates[0]._root,
 		nil,
-		data._count,
+		data.card(),
 		sel,
 		nil,
 	)
-	return err
 }
 
 func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (retCount int, err error) {

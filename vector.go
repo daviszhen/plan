@@ -272,6 +272,10 @@ func (vec *Vector) sliceOnSelf(sel *SelectVector, count int) {
 	}
 }
 
+func (vec *Vector) slice2(sel *SelectVector, count int) {
+	vec.sliceOnSelf(sel, count)
+}
+
 func (vec *Vector) slice(other *Vector, sel *SelectVector, count int) {
 	vec.reference(other)
 	vec.sliceOnSelf(sel, count)
@@ -297,6 +301,43 @@ func (vec *Vector) reinterpret(other *Vector) {
 	vec._aux = other._aux
 	vec._data = other._data
 	vec._mask = other._mask
+}
+
+func (vec *Vector) getValue(idx int) *Value {
+	switch vec.phyFormat() {
+	case PF_CONST:
+		idx = 0
+	case PF_FLAT:
+	case PF_DICT:
+		sel := getSelVectorInPhyFormatDict(vec)
+		child := getChildInPhyFormatDict(vec)
+		return child.getValue(sel.getIndex(idx))
+	default:
+		panic("usp")
+	}
+	if !vec._mask.rowIsValid(uint64(idx)) {
+		return &Value{
+			_typ:    vec.typ(),
+			_isNull: true,
+		}
+	}
+
+	switch vec.typ().id {
+	case LTID_INTEGER:
+		data := getSliceInPhyFormatFlat[int32](vec)
+		return &Value{
+			_typ:   vec.typ(),
+			_int64: int64(data[idx]),
+		}
+	case LTID_BOOLEAN:
+		data := getSliceInPhyFormatFlat[bool](vec)
+		return &Value{
+			_typ:  vec.typ(),
+			_bool: data[idx],
+		}
+	default:
+		panic("usp")
+	}
 }
 
 func (vec *Vector) setValue(idx int, val *Value) {
@@ -646,14 +687,87 @@ func (c *Chunk) setCard(count int) {
 	c._count = count
 }
 
+func (c *Chunk) card() int {
+	return c._count
+}
+
+func (c *Chunk) columnCount() int {
+	return len(c._data)
+}
+
+func (c *Chunk) referenceIndice(other *Chunk, indice []int) {
+	assertFunc(other.columnCount() <= c.columnCount())
+	c.setCard(other.card())
+	for i, idx := range indice {
+		c._data[i].reference(other._data[idx])
+	}
+}
+
+func (c *Chunk) reference(other *Chunk) {
+	assertFunc(other.columnCount() <= c.columnCount())
+	c.setCard(other.card())
+	for i := 0; i < other.columnCount(); i++ {
+		c._data[i].reference(other._data[i])
+	}
+}
+
+func (c *Chunk) sliceIndice(other *Chunk, sel *SelectVector, count int, colOffset int, indice []int) {
+	assertFunc(other.columnCount() <= colOffset+c.columnCount())
+	c.setCard(count)
+	for i, idx := range indice {
+		if other._data[i].phyFormat().isDict() {
+			c._data[i+colOffset].reference(other._data[idx])
+			c._data[i+colOffset].slice2(sel, count)
+		} else {
+			c._data[i+colOffset].slice(other._data[idx], sel, count)
+		}
+	}
+}
+
+func (c *Chunk) slice(other *Chunk, sel *SelectVector, count int, colOffset int) {
+	assertFunc(other.columnCount() <= colOffset+c.columnCount())
+	c.setCard(count)
+	for i := 0; i < other.columnCount(); i++ {
+		if other._data[i].phyFormat().isDict() {
+			c._data[i+colOffset].reference(other._data[i])
+			c._data[i+colOffset].slice2(sel, count)
+		} else {
+			c._data[i+colOffset].slice(other._data[i], sel, count)
+		}
+	}
+}
+
+func (c *Chunk) print() {
+	for i := 0; i < c.card(); i++ {
+		for j := 0; j < c.columnCount(); j++ {
+			val := c._data[j].getValue(i)
+			fmt.Print(val)
+			fmt.Print(" ")
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+}
+
 type Value struct {
 	_typ    LType
 	_isNull bool
 	//value
-	_boolVal bool
+	_bool    bool
 	_int64   int64
 	_float64 float64
 	_string  string
+}
+
+func (val Value) String() string {
+	switch val._typ.id {
+	case LTID_INTEGER:
+		return fmt.Sprintf("%d", val._int64)
+	case LTID_BOOLEAN:
+		return fmt.Sprintf("%v", val._bool)
+	default:
+		panic("usp")
+	}
 }
 
 func booleanNullMask(left, right, result *Vector, count int, boolOp BooleanOp) {

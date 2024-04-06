@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func makeInt32Chunks(cnt int) []*Chunk {
@@ -18,7 +19,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 		for j := 0; j < cnt; j++ {
 			data._data[j] = newInt32FlatVectorEven(false, defaultVectorSize)
 		}
-		data._count = defaultVectorSize
+		data.setCard(defaultVectorSize)
 		ret = append(ret, data)
 	}
 
