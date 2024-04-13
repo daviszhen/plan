@@ -3,10 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/xlab/treeprint"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/xlab/treeprint"
 )
 
 func (b *Builder) joinOrder(root *LogicalOperator) (*LogicalOperator, error) {

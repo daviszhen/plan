@@ -457,7 +457,18 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 	if err != nil {
 		return nil, err
 	}
-	{
+	var et ET_SubTyp
+	if expr.Expr.SubTyp == AstExprSubTypeAdd &&
+		(left.DataTyp.LTyp.isDate() && right.DataTyp.LTyp.isInterval() ||
+			left.DataTyp.LTyp.isInterval() && right.DataTyp.LTyp.isDate()) {
+		//date + interval or interval + date => date
+		et, _ = decideBinaryOpType(expr.Expr.SubTyp, dateLTyp())
+	} else if expr.Expr.SubTyp == AstExprSubTypeSub &&
+		left.DataTyp.LTyp.isDate() &&
+		right.DataTyp.LTyp.isDate() {
+		//date - date => interval
+		et, _ = decideBinaryOpType(expr.Expr.SubTyp, intervalLType())
+	} else {
 		resultTyp = decideResultType(left.DataTyp.LTyp, right.DataTyp.LTyp)
 		//cast
 		left, err = castExpr(left, resultTyp, resultTyp.id == LTID_ENUM)
@@ -468,13 +479,11 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	var et ET_SubTyp
-	if isCompare(expr.Expr.SubTyp) {
-		et, _ = decideCompareOpType(expr.Expr.SubTyp)
-	} else {
-		et, _ = decideBinaryOpType(expr.Expr.SubTyp, resultTyp)
+		if isCompare(expr.Expr.SubTyp) {
+			et, _ = decideCompareOpType(expr.Expr.SubTyp)
+		} else {
+			et, _ = decideBinaryOpType(expr.Expr.SubTyp, resultTyp)
+		}
 	}
 
 	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []ExprDataType{left.DataTyp, right.DataTyp})

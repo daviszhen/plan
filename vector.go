@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"unsafe"
 )
 
@@ -326,8 +327,8 @@ func (vec *Vector) getValue(idx int) *Value {
 	case LTID_INTEGER:
 		data := getSliceInPhyFormatFlat[int32](vec)
 		return &Value{
-			_typ:   vec.typ(),
-			_int64: int64(data[idx]),
+			_typ: vec.typ(),
+			_i64: int64(data[idx]),
 		}
 	case LTID_BOOLEAN:
 		data := getSliceInPhyFormatFlat[bool](vec)
@@ -353,10 +354,23 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	switch pTyp {
 	case INT32:
 		slice := toSlice[int32](vec._data, pTyp.size())
-		slice[idx] = int32(val._int64)
+		slice[idx] = int32(val._i64)
 	case FLOAT:
 		slice := toSlice[float32](vec._data, pTyp.size())
-		slice[idx] = float32(val._float64)
+		slice[idx] = float32(val._f64)
+	case VARCHAR:
+		slice := toSlice[String](vec._data, pTyp.size())
+		slice[idx] = String{_data: val._str}
+	case INTERVAL:
+		slice := toSlice[Interval](vec._data, pTyp.size())
+		interVal := Interval{}
+		switch strings.ToLower(val._str) {
+		case "year":
+			interVal._months = int32(val._i64 * 12)
+		default:
+			panic("usp")
+		}
+		slice[idx] = interVal
 	default:
 		panic("usp")
 	}
@@ -753,16 +767,16 @@ type Value struct {
 	_typ    LType
 	_isNull bool
 	//value
-	_bool    bool
-	_int64   int64
-	_float64 float64
-	_string  string
+	_bool bool
+	_i64  int64
+	_f64  float64
+	_str  string
 }
 
 func (val Value) String() string {
 	switch val._typ.id {
 	case LTID_INTEGER:
-		return fmt.Sprintf("%d", val._int64)
+		return fmt.Sprintf("%d", val._i64)
 	case LTID_BOOLEAN:
 		return fmt.Sprintf("%v", val._bool)
 	default:

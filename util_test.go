@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/xlab/treeprint"
 	"testing"
+
+	"github.com/xlab/treeprint"
 )
 
 func TestTreePrint(t *testing.T) {

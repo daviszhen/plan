@@ -40,7 +40,7 @@ func Test_scanExec(t *testing.T) {
 	for i, op := range ops {
 
 		//i = 1: finished
-		if i != 1 {
+		if i != 0 {
 			continue
 		}
 

@@ -230,10 +230,12 @@ func fieldToValue(field string, lTyp LType) (*Value, error) {
 	switch lTyp.id {
 	case LTID_DATE:
 	case LTID_INTEGER:
-		val._int64, err = strconv.ParseInt(field, 10, 64)
+		val._i64, err = strconv.ParseInt(field, 10, 64)
 		if err != nil {
 			return nil, err
 		}
+	case LTID_VARCHAR:
+		val._str = field
 	default:
 		panic("usp")
 	}

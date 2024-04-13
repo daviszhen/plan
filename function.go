@@ -399,7 +399,7 @@ var operators = []*Function{
 						LTyp: dateLTyp(),
 					},
 					{
-						LTyp: dateLTyp(),
+						LTyp: intervalLType(),
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
@@ -407,7 +407,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+
 					}
 				},
 			},
@@ -444,6 +444,26 @@ var operators = []*Function{
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
 					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp")
+					}
+				},
+			},
+			{
+				Desc: "+",
+				Idx:  3,
+				Args: []ExprDataType{
+					{
+						LTyp: intervalLType(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {

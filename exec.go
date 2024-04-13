@@ -147,10 +147,10 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 	switch expr.Typ {
 	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 		val := &Value{
-			_typ:     expr.DataTyp.LTyp,
-			_int64:   expr.Ivalue,
-			_float64: expr.Fvalue,
-			_string:  expr.Svalue,
+			_typ: expr.DataTyp.LTyp,
+			_i64: expr.Ivalue,
+			_f64: expr.Fvalue,
+			_str: expr.Svalue,
 		}
 		result.referenceValue(val)
 	default:
@@ -192,6 +192,7 @@ func (exec *ExprExec) executeSelect(data *Chunk, sel *SelectVector) (int, error)
 	if len(exec._exprs) == 0 {
 		return data.card(), nil
 	}
+	exec._chunk = []*Chunk{nil, nil, data}
 	return exec.execSelectExpr(
 		exec._exprs[0],
 		exec._execStates[0]._root,
@@ -209,7 +210,9 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 	switch expr.Typ {
 	case ET_Func:
 		switch expr.SubTyp {
-		case ET_Equal:
+		case ET_Equal,
+			ET_GreaterEqual,
+			ET_Less:
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
 		case ET_And:
 			return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
@@ -240,7 +243,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 	switch expr.Typ {
 	case ET_Func:
 		switch expr.SubTyp {
-		case ET_Equal:
+		case ET_Equal, ET_GreaterEqual:
 			return selectOperation(
 				eState._interChunk._data[0],
 				eState._interChunk._data[1],

@@ -9,6 +9,54 @@ import (
 	"github.com/xlab/treeprint"
 )
 
+type String struct {
+	_data string
+}
+
+func (s *String) equal(o *String) bool {
+	return s._data == o._data
+}
+
+func (s *String) less(o *String) bool {
+	return s._data < o._data
+}
+
+func (s *String) len() int {
+	return len(s._data)
+}
+
+type Interval struct {
+	_months int32
+	_days   int32
+	_micros int32
+}
+
+func (i *Interval) equal(o *Interval) bool {
+	return i._months == o._months &&
+		i._days == o._days &&
+		i._micros == o._micros
+}
+
+func (i *Interval) less(o *Interval) bool {
+	if i._months < o._months {
+		return true
+	}
+	if i._months > o._months {
+		return false
+	}
+
+	if i._days < o._days {
+		return true
+	}
+	if i._days > o._days {
+		return false
+	}
+	if i._micros < o._micros {
+		return true
+	}
+	return false
+}
+
 type PhyType int
 
 const (
@@ -65,11 +113,12 @@ func (pt PhyType) String() string {
 }
 
 var (
-	boolSize  int
-	int8Size  int
-	int16Size int
-	int32Size int
-	int64Size int
+	boolSize     int
+	int8Size     int
+	int16Size    int
+	int32Size    int
+	int64Size    int
+	intervalSize int
 )
 
 func init() {
@@ -80,6 +129,8 @@ func init() {
 	int16Size = int8Size * 2
 	int32Size = int8Size * 4
 	int64Size = int8Size * 8
+	interVal := Interval{}
+	intervalSize = int(unsafe.Sizeof(interVal))
 }
 
 func (pt PhyType) size() int {
@@ -112,7 +163,7 @@ func (pt PhyType) size() int {
 	case VARCHAR:
 		panic("usp")
 	case INTERVAL:
-		panic("usp")
+		return intervalSize
 	case STRUCT:
 	case UNKNOWN:
 		return 0
@@ -317,6 +368,14 @@ var numerics = map[LTypeId]int{
 	LTID_USMALLINT: 0,
 	LTID_UINTEGER:  0,
 	LTID_UBIGINT:   0,
+}
+
+func (lt LType) isDate() bool {
+	return lt.id == LTID_DATE
+}
+
+func (lt LType) isInterval() bool {
+	return lt.id == LTID_INTERVAL
 }
 
 func (lt LType) isNumeric() bool {

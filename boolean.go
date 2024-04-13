@@ -76,7 +76,7 @@ func (e equalOp[T]) operation(left, right *T) bool {
 
 func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, subTyp ET_SubTyp) int {
 	switch subTyp {
-	case ET_Equal:
+	case ET_Equal, ET_GreaterEqual:
 		switch left.typ().getInternalType() {
 		case INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
