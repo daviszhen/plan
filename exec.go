@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type ExprState struct {
 	_expr       *Expr
@@ -27,13 +30,20 @@ func (es *ExprState) finalize() {
 	if len(es._types) == 0 {
 		return
 	}
-	es._interChunk.init(es._types)
+	es._interChunk.init(es._types, defaultVectorSize)
 }
 
 type ExprExecState struct {
 	_root *ExprState
 	_exec *ExprExec
 }
+
+const (
+	//_chunk[0] : result of left child
+	//_chunk[1] : result of right child
+	//_chunk[2] : result of this node
+	chunkOffset = 2
+)
 
 type ExprExec struct {
 	_exprs      []*Expr
@@ -58,6 +68,24 @@ func (exec *ExprExec) addExpr(expr *Expr) {
 	eeState._exec = exec
 	eeState._root = initExprState(expr, eeState)
 	exec._execStates = append(exec._execStates, eeState)
+}
+
+func (exec *ExprExec) executeExprs(data []*Chunk, result *Chunk) error {
+	for i := 0; i < len(exec._exprs); i++ {
+		err := exec.executeExprI(data, i, result._data[i])
+		if err != nil {
+			return err
+		}
+	}
+	for _, d := range data {
+		if d == nil {
+			continue
+		}
+		result.setCard(d.card())
+		break
+	}
+
+	return nil
 }
 
 func (exec *ExprExec) executeExpr(data []*Chunk, result *Vector) error {
@@ -145,7 +173,28 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *Selec
 }
 func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVector, count int, result *Vector) error {
 	switch expr.Typ {
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+	case ET_IConst, ET_SConst, ET_FConst, ET_BConst:
+		val := &Value{
+			_typ: expr.DataTyp.LTyp,
+			_i64: expr.Ivalue,
+			_f64: expr.Fvalue,
+			_str: expr.Svalue,
+		}
+		result.referenceValue(val)
+	case ET_DateConst:
+		d, err := time.Parse(time.DateOnly, expr.Svalue)
+		if err != nil {
+			return err
+		}
+		//TODO: to date
+		val := &Value{
+			_typ:   expr.DataTyp.LTyp,
+			_i64:   int64(d.Year()),
+			_i64_1: int64(d.Month()),
+			_i64_2: int64(d.Day()),
+		}
+		result.referenceValue(val)
+	case ET_IntervalConst:
 		val := &Value{
 			_typ: expr.DataTyp.LTyp,
 			_i64: expr.Ivalue,
@@ -212,7 +261,8 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 		switch expr.SubTyp {
 		case ET_Equal,
 			ET_GreaterEqual,
-			ET_Less:
+			ET_Less,
+			ET_Like:
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
 		case ET_And:
 			return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
@@ -243,7 +293,10 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 	switch expr.Typ {
 	case ET_Func:
 		switch expr.SubTyp {
-		case ET_Equal, ET_GreaterEqual:
+		case ET_Equal,
+			ET_GreaterEqual,
+			ET_Less,
+			ET_Like:
 			return selectOperation(
 				eState._interChunk._data[0],
 				eState._interChunk._data[1],

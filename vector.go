@@ -85,6 +85,7 @@ func NewDictBuffer(data []int) *VecBuffer {
 func NewDictBuffer2(sel *SelectVector) *VecBuffer {
 	buf := &VecBuffer{
 		_bufTyp: VBT_DICT,
+		_sel:    &SelectVector{},
 	}
 	buf._sel.init2(sel)
 	return buf
@@ -236,11 +237,35 @@ func (vec *Vector) flatten(cnt int) {
 	}
 }
 
+func (vec *Vector) flatten2(sel *SelectVector, cnt int) {
+	if vec.phyFormat().isFlat() {
+		return
+	}
+	panic("usp")
+}
+
 func (vec *Vector) toUnifiedFormat(count int, output *UnifiedFormat) {
 	switch vec.phyFormat() {
 	case PF_DICT:
-		//TODO:
-		panic("usp")
+		sel := getSelVectorInPhyFormatDict(vec)
+		child := getChildInPhyFormatDict(vec)
+		if child.phyFormat().isFlat() {
+			output._sel = sel
+			output._data = getDataInPhyFormatFlat(child)
+			output._mask = getMaskInPhyFormatFlat(child)
+		} else {
+			//flatten child
+			childVec := &Vector{
+				_typ: child._typ,
+			}
+			childVec.reference(child)
+			childVec.flatten2(sel, count)
+			childBuf := NewChildBuffer(childVec)
+			output._sel = sel
+			output._data = getDataInPhyFormatFlat(childBuf._child)
+			output._mask = getMaskInPhyFormatFlat(childBuf._child)
+			vec._aux = childVec._aux
+		}
 	case PF_CONST:
 		output._sel = zeroSelectVectorInPhyFormatConst(count, &output._interSel)
 		output._data = getDataInPhyFormatConst(vec)
@@ -262,12 +287,12 @@ func (vec *Vector) sliceOnSelf(sel *SelectVector, count int) {
 	} else {
 		//flat
 		child := &Vector{
-			_phyFormat: PF_DICT,
-			_typ:       vec.typ(),
+			_typ: vec.typ(),
 		}
 		child.reference(vec)
 		childRef := NewChildBuffer(child)
 		dictBuf := NewDictBuffer2(sel)
+		vec._phyFormat = PF_DICT
 		vec._buf = dictBuf
 		vec._aux = childRef
 	}
@@ -336,6 +361,12 @@ func (vec *Vector) getValue(idx int) *Value {
 			_typ:  vec.typ(),
 			_bool: data[idx],
 		}
+	case LTID_VARCHAR:
+		data := getSliceInPhyFormatFlat[String](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_str: data[idx]._data,
+		}
 	default:
 		panic("usp")
 	}
@@ -366,11 +397,19 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		interVal := Interval{}
 		switch strings.ToLower(val._str) {
 		case "year":
-			interVal._months = int32(val._i64 * 12)
+			interVal._year = int32(val._i64)
+			interVal._unit = val._str
 		default:
 			panic("usp")
 		}
 		slice[idx] = interVal
+	case DATE:
+		slice := toSlice[Date](vec._data, pTyp.size())
+		slice[idx] = Date{
+			_year:  int32(val._i64),
+			_month: int32(val._i64_1),
+			_day:   int32(val._i64_2),
+		}
 	default:
 		panic("usp")
 	}
@@ -682,8 +721,8 @@ type Chunk struct {
 	_cap   int
 }
 
-func (c *Chunk) init(types []LType) {
-	c._cap = defaultVectorSize
+func (c *Chunk) init(types []LType, cap int) {
+	c._cap = cap
 	for _, lType := range types {
 		c._data = append(c._data, NewVector(lType, c._cap))
 	}
@@ -697,7 +736,16 @@ func (c *Chunk) reset() {
 	c._count = 0
 }
 
+func (c *Chunk) cap() int {
+	return c._cap
+}
+
+func (c *Chunk) setCap(cap int) {
+	c._cap = cap
+}
+
 func (c *Chunk) setCard(count int) {
+	assertFunc(c._count == 0)
 	c._count = count
 }
 
@@ -710,7 +758,7 @@ func (c *Chunk) columnCount() int {
 }
 
 func (c *Chunk) referenceIndice(other *Chunk, indice []int) {
-	assertFunc(other.columnCount() <= c.columnCount())
+	//assertFunc(other.columnCount() <= c.columnCount())
 	c.setCard(other.card())
 	for i, idx := range indice {
 		c._data[i].reference(other._data[idx])
@@ -719,6 +767,7 @@ func (c *Chunk) referenceIndice(other *Chunk, indice []int) {
 
 func (c *Chunk) reference(other *Chunk) {
 	assertFunc(other.columnCount() <= c.columnCount())
+	c.setCap(other.cap())
 	c.setCard(other.card())
 	for i := 0; i < other.columnCount(); i++ {
 		c._data[i].reference(other._data[i])
@@ -726,7 +775,7 @@ func (c *Chunk) reference(other *Chunk) {
 }
 
 func (c *Chunk) sliceIndice(other *Chunk, sel *SelectVector, count int, colOffset int, indice []int) {
-	assertFunc(other.columnCount() <= colOffset+c.columnCount())
+	//assertFunc(other.columnCount() <= colOffset+c.columnCount())
 	c.setCard(count)
 	for i, idx := range indice {
 		if other._data[i].phyFormat().isDict() {
@@ -760,17 +809,21 @@ func (c *Chunk) print() {
 		}
 		fmt.Println()
 	}
-	fmt.Println()
+	if c.card() > 0 {
+		fmt.Println()
+	}
 }
 
 type Value struct {
 	_typ    LType
 	_isNull bool
 	//value
-	_bool bool
-	_i64  int64
-	_f64  float64
-	_str  string
+	_bool  bool
+	_i64   int64
+	_i64_1 int64
+	_i64_2 int64
+	_f64   float64
+	_str   string
 }
 
 func (val Value) String() string {
@@ -779,6 +832,8 @@ func (val Value) String() string {
 		return fmt.Sprintf("%d", val._i64)
 	case LTID_BOOLEAN:
 		return fmt.Sprintf("%v", val._bool)
+	case LTID_VARCHAR:
+		return fmt.Sprintf("%v", val._str)
 	default:
 		panic("usp")
 	}

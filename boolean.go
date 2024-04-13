@@ -67,6 +67,8 @@ type CompareOp[T any] interface {
 	operation(left, right *T) bool
 }
 
+// =
+
 type equalOp[T comparable] struct {
 }
 
@@ -74,14 +76,140 @@ func (e equalOp[T]) operation(left, right *T) bool {
 	return *left == *right
 }
 
+// =
+type equalStrOp struct {
+}
+
+func (e equalStrOp) operation(left, right *String) bool {
+	return left._data == right._data
+}
+
+// <
+
+// int32
+type lessInt32Op struct {
+}
+
+func (e lessInt32Op) operation(left, right *int32) bool {
+	return *left < *right
+}
+
+// date
+type lessDateOp struct {
+}
+
+func (e lessDateOp) operation(left, right *Date) bool {
+	return left.less(right)
+}
+
+// >=
+
+// int32
+type greatEqualInt32Op struct {
+}
+
+func (e greatEqualInt32Op) operation(left, right *int32) bool {
+	return *left >= *right
+}
+
+// date
+type greatEqualDateOp struct {
+}
+
+func (e greatEqualDateOp) operation(left, right *Date) bool {
+	return right.less(left) || right.equal(left)
+}
+
+// like
+type likeOp struct {
+}
+
+// wildcardMatch
+func wildcardMatch(pattern, target string) bool {
+	var p = 0
+	var t = 0
+	var positionOfPercentPlusOne int = -1
+	var positionOfTargetEncounterPercent int = -1
+	plen := len(pattern)
+	tlen := len(target)
+	for t < tlen {
+		//%
+		if p < plen && pattern[p] == '%' {
+			p++
+			positionOfPercentPlusOne = p
+			if p >= plen {
+				//pattern end with %
+				return true
+			}
+			//means % matches empty
+			positionOfTargetEncounterPercent = t
+		} else if p < plen && (pattern[p] == '_' || pattern[p] == target[t]) { //match or _
+			p++
+			t++
+		} else {
+			if positionOfPercentPlusOne == -1 {
+				//have not matched a %
+				return false
+			}
+			if positionOfTargetEncounterPercent == -1 {
+				return false
+			}
+			//backtrace to last % position + 1
+			p = positionOfPercentPlusOne
+			//means % matches multiple characters
+			positionOfTargetEncounterPercent++
+			t = positionOfTargetEncounterPercent
+		}
+	}
+	//skip %
+	for p < plen && pattern[p] == '%' {
+		p++
+	}
+	return p >= plen
+}
+
+func (e likeOp) operation(left, right *String) bool {
+	return wildcardMatch(right._data, left._data)
+}
 func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, subTyp ET_SubTyp) int {
 	switch subTyp {
-	case ET_Equal, ET_GreaterEqual:
+	case ET_Equal:
 		switch left.typ().getInternalType() {
 		case INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
+		case VARCHAR:
+			return selectBinary[String](left, right, sel, count, trueSel, falseSel, equalStrOp{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+			panic("usp")
+		default:
+			panic("usp")
+		}
+	case ET_GreaterEqual:
+		switch left.typ().getInternalType() {
+		case INT32:
+			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatEqualInt32Op{})
+		case DATE:
+			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, greatEqualDateOp{})
 		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
+		default:
+			panic("usp")
+		}
+	case ET_Less:
+		switch left.typ().getInternalType() {
+		case INT32:
+			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessInt32Op{})
+		case DATE:
+			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessDateOp{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+			panic("usp")
+		default:
+			panic("usp")
+		}
+	case ET_Like:
+		switch left.typ().getInternalType() {
+		case VARCHAR:
+			return selectBinary[String](left, right, sel, count, trueSel, falseSel, likeOp{})
 		default:
 			panic("usp")
 		}
@@ -460,7 +588,7 @@ func compareOperations(left, right, result *Vector, count int, subTyp ET_SubTyp)
 	case ET_Equal:
 		switch left.typ().getInternalType() {
 		case INT32:
-			binaryExecSwitch[int32, bool](left, right, result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+			binaryExecSwitch[int32, int32, bool](left, right, result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
 		default:
 			panic("usp")
 		}

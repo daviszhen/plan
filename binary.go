@@ -1,6 +1,10 @@
 package main
 
 var (
+	//+
+	//date + interval
+	gBinDateIntervalAdd binDateInterAddOp
+
 	// *
 	gBinFloat32Multi binFloat32MultiOp
 
@@ -11,34 +15,53 @@ var (
 	gBinInt32Great   binInt32GreatOp
 	gBinFloat32Great binFloat32GreatOp
 
-	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, bool]
-	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32]
-	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, bool]
+	gBinDateIntervalSingleOpWrapper   binarySingleOpWrapper[Date, Interval, Date]
+	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, int32, bool]
+	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32, float32]
+	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, float32, bool]
 )
 
-type binaryOp[T any, R any] interface {
-	operation(left, right *T, result *R)
+type binaryOp[T any, S any, R any] interface {
+	operation(left *T, right *S, result *R)
 }
 
-type binaryFunc[T any, R any] interface {
-	fun(left, right *T, result *R)
+type binaryFunc[T any, S any, R any] interface {
+	fun(left *T, right *S, result *R)
 }
 
-type binaryWrapper[T any, R any] interface {
-	operation(left, right *T, result *R, mask *Bitmap, idx int, op binaryOp[T, R], fun binaryFunc[T, R])
+type binaryWrapper[T any, S any, R any] interface {
+	operation(left *T, right *S, result *R, mask *Bitmap, idx int,
+		op binaryOp[T, S, R],
+		fun binaryFunc[T, S, R])
 
 	addsNulls() bool
 }
 
-type binarySingleOpWrapper[T any, R any] struct {
+type binarySingleOpWrapper[T any, S any, R any] struct {
 }
 
-func (b binarySingleOpWrapper[T, R]) operation(left, right *T, result *R, mask *Bitmap, idx int, op binaryOp[T, R], fun binaryFunc[T, R]) {
+func (b binarySingleOpWrapper[T, S, R]) operation(left *T, right *S, result *R, mask *Bitmap, idx int,
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R]) {
 	op.operation(left, right, result)
 }
 
-func (b binarySingleOpWrapper[T, R]) addsNulls() bool {
+func (b binarySingleOpWrapper[T, S, R]) addsNulls() bool {
 	return false
+}
+
+// +
+type binDateInterAddOp struct {
+}
+
+func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date) {
+	if right._unit == "year" {
+		result._year = left._year + right._year
+		result._month = left._month
+		result._day = left._day
+	} else {
+		panic("usp")
+	}
 }
 
 // *
@@ -72,31 +95,31 @@ func (op binFloat32GreatOp) operation(left, right *float32, result *bool) {
 	*result = *left > *right
 }
 
-func binaryExecSwitch[T any, R any](
+func binaryExecSwitch[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, R],
-	fun binaryFunc[T, R],
-	wrapper binaryWrapper[T, R],
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R],
+	wrapper binaryWrapper[T, S, R],
 ) {
 	if left.phyFormat().isConst() && right.phyFormat().isConst() {
-		binaryExecConst[T, R](left, right, result, count, op, fun, wrapper)
+		binaryExecConst[T, S, R](left, right, result, count, op, fun, wrapper)
 	} else if left.phyFormat().isFlat() && right.phyFormat().isConst() {
-		binaryExecFlat[T, R](left, right, result, count, op, fun, wrapper, false, true)
+		binaryExecFlat[T, S, R](left, right, result, count, op, fun, wrapper, false, true)
 	} else if left.phyFormat().isConst() && right.phyFormat().isFlat() {
-		binaryExecFlat[T, R](left, right, result, count, op, fun, wrapper, true, false)
+		binaryExecFlat[T, S, R](left, right, result, count, op, fun, wrapper, true, false)
 	} else if left.phyFormat().isFlat() && right.phyFormat().isFlat() {
-		binaryExecFlat[T, R](left, right, result, count, op, fun, wrapper, false, false)
+		binaryExecFlat[T, S, R](left, right, result, count, op, fun, wrapper, false, false)
 	} else {
-		binaryExecGeneric[T, R](left, right, result, count, op, fun, wrapper)
+		binaryExecGeneric[T, S, R](left, right, result, count, op, fun, wrapper)
 	}
 }
-func binaryExecConst[T any, R any](
+func binaryExecConst[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, R],
-	fun binaryFunc[T, R],
-	wrapper binaryWrapper[T, R],
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R],
+	wrapper binaryWrapper[T, S, R],
 ) {
 	result.setPhyFormat(PF_CONST)
 	if isNullInPhyFormatConst(left) ||
@@ -105,22 +128,22 @@ func binaryExecConst[T any, R any](
 		return
 	}
 	lSlice := getSliceInPhyFormatConst[T](left)
-	rSlice := getSliceInPhyFormatConst[T](right)
+	rSlice := getSliceInPhyFormatConst[S](right)
 	resSlice := getSliceInPhyFormatConst[R](result)
 
 	wrapper.operation(&lSlice[0], &rSlice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, op, fun)
 }
 
-func binaryExecFlat[T any, R any](
+func binaryExecFlat[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, R],
-	fun binaryFunc[T, R],
-	wrapper binaryWrapper[T, R],
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R],
+	wrapper binaryWrapper[T, S, R],
 	lconst, rconst bool,
 ) {
 	lSlice := getSliceInPhyFormatFlat[T](left)
-	rSlice := getSliceInPhyFormatFlat[T](right)
+	rSlice := getSliceInPhyFormatFlat[S](right)
 	if lconst && isNullInPhyFormatConst(left) ||
 		rconst && isNullInPhyFormatConst(right) {
 		result.setPhyFormat(PF_CONST)
@@ -156,7 +179,7 @@ func binaryExecFlat[T any, R any](
 			resMask.combine(getMaskInPhyFormatFlat(right), count)
 		}
 	}
-	binaryExecFlatLoop[T, R](
+	binaryExecFlatLoop[T, S, R](
 		lSlice,
 		rSlice,
 		resSlice,
@@ -170,14 +193,14 @@ func binaryExecFlat[T any, R any](
 	)
 }
 
-func binaryExecFlatLoop[T any, R any](
-	ldata, rdata []T,
+func binaryExecFlatLoop[T any, S any, R any](
+	ldata []T, rdata []S,
 	resData []R,
 	count int,
 	mask *Bitmap,
-	op binaryOp[T, R],
-	fun binaryFunc[T, R],
-	wrapper binaryWrapper[T, R],
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R],
+	wrapper binaryWrapper[T, S, R],
 	lconst, rconst bool,
 ) {
 	if !mask.AllValid() {
@@ -233,22 +256,22 @@ func binaryExecFlatLoop[T any, R any](
 	}
 }
 
-func binaryExecGeneric[T any, R any](
+func binaryExecGeneric[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, R],
-	fun binaryFunc[T, R],
-	wrapper binaryWrapper[T, R],
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R],
+	wrapper binaryWrapper[T, S, R],
 ) {
 	var ldata, rdata *UnifiedFormat
 	left.toUnifiedFormat(count, ldata)
 	right.toUnifiedFormat(count, rdata)
 
 	lSlice := getSliceInPhyFormatUnifiedFormat[T](ldata)
-	rSlice := getSliceInPhyFormatUnifiedFormat[T](rdata)
+	rSlice := getSliceInPhyFormatUnifiedFormat[S](rdata)
 	result.setPhyFormat(PF_FLAT)
 	resSlice := getSliceInPhyFormatFlat[R](result)
-	binaryExecGenericLoop[T, R](
+	binaryExecGenericLoop[T, S, R](
 		lSlice,
 		rSlice,
 		resSlice,
@@ -264,8 +287,8 @@ func binaryExecGeneric[T any, R any](
 	)
 }
 
-func binaryExecGenericLoop[T any, R any](
-	ldata, rdata []T,
+func binaryExecGenericLoop[T any, S any, R any](
+	ldata []T, rdata []S,
 	resData []R,
 	lsel *SelectVector,
 	rsel *SelectVector,
@@ -273,9 +296,9 @@ func binaryExecGenericLoop[T any, R any](
 	lmask *Bitmap,
 	rmask *Bitmap,
 	resMask *Bitmap,
-	op binaryOp[T, R],
-	fun binaryFunc[T, R],
-	wrapper binaryWrapper[T, R],
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R],
+	wrapper binaryWrapper[T, S, R],
 ) {
 	if !lmask.AllValid() || !rmask.AllValid() {
 		for i := 0; i < count; i++ {

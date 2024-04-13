@@ -15,7 +15,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 		for j := 0; j < cnt; j++ {
 			ltyps[j] = integer()
 		}
-		data.init(ltyps)
+		data.init(ltyps, defaultVectorSize)
 		for j := 0; j < cnt; j++ {
 			data._data[j] = newInt32FlatVectorEven(false, defaultVectorSize)
 		}

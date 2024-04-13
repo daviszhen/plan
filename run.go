@@ -7,12 +7,14 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 )
 
 type OperatorState struct {
 	//for scan
-	exec *ExprExec
-	sel  *SelectVector
+	exec    *ExprExec
+	sel     *SelectVector
+	showRaw bool
 }
 
 type OperatorResult int
@@ -41,15 +43,35 @@ type Runner struct {
 	reader        *csv.Reader
 	colIndice     []int
 	readedColTyps []LType
-	outputTypes   []LType
-	outputIndice  []int
 	tablePath     string
+
+	//common
+	outputTypes  []LType
+	outputIndice []int
+	children     []*Runner
 }
 
 func (run *Runner) Init() error {
+	for _, output := range run.op.Outputs {
+		run.outputTypes = append(run.outputTypes, output.DataTyp.LTyp)
+		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
+	}
+	for _, child := range run.op.Children {
+		childRun := &Runner{
+			op:    child,
+			state: &OperatorState{},
+		}
+		err := childRun.Init()
+		if err != nil {
+			return err
+		}
+		run.children = append(run.children, childRun)
+	}
 	switch run.op.Typ {
 	case POT_Scan:
 		return run.scanInit()
+	case POT_Project:
+		return run.projInit()
 	default:
 		panic("usp")
 	}
@@ -57,22 +79,86 @@ func (run *Runner) Init() error {
 }
 
 func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (OperatorResult, error) {
+	output.init(run.outputTypes, defaultVectorSize)
 	switch run.op.Typ {
 	case POT_Scan:
 		return run.scanExec(output, state)
+	case POT_Project:
+		return run.projExec(output, state)
 	default:
 		panic("usp")
 	}
 	return Done, nil
 }
 
+func (run *Runner) execChild(child *Runner, output *Chunk, state *OperatorState) (OperatorResult, error) {
+	for output.card() == 0 {
+		res, err := child.Execute(nil, output, child.state)
+		if err != nil {
+			return InvalidOpResult, err
+		}
+		switch res {
+		case Done:
+			break
+		case InvalidOpResult:
+			return InvalidOpResult, nil
+		default:
+			return haveMoreOutput, nil
+		}
+	}
+	return Done, nil
+}
+
 func (run *Runner) Close() error {
+	for _, child := range run.children {
+		err := child.Close()
+		if err != nil {
+			return err
+		}
+	}
 	switch run.op.Typ {
 	case POT_Scan:
 		return run.scanClose()
+	case POT_Project:
+		return run.projClose()
 	default:
 		panic("usp")
 	}
+	return nil
+}
+
+func (run *Runner) projInit() error {
+	run.state = &OperatorState{
+		exec: NewExprExec(run.op.Projects...),
+		sel:  NewSelectVector(defaultVectorSize),
+	}
+	return nil
+}
+
+func (run *Runner) projExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	childChunk := &Chunk{}
+	var res OperatorResult
+	var err error
+	if len(run.children) != 0 {
+		res, err = run.execChild(run.children[0], childChunk, state)
+		if err != nil {
+			return 0, err
+		}
+		if res == InvalidOpResult {
+			return InvalidOpResult, nil
+		}
+	}
+
+	//project list
+	err = run.state.exec.executeExprs([]*Chunk{childChunk, nil, nil}, output)
+	if err != nil {
+		return 0, err
+	}
+
+	return res, nil
+}
+func (run *Runner) projClose() error {
+
 	return nil
 }
 
@@ -91,11 +177,6 @@ func (run *Runner) scanInit() error {
 		} else {
 			return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
 		}
-	}
-
-	for _, output := range run.op.Outputs {
-		run.outputTypes = append(run.outputTypes, output.DataTyp.LTyp)
-		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
 	}
 
 	//open data file
@@ -146,31 +227,49 @@ func (run *Runner) scanInit() error {
 	}
 
 	run.state = &OperatorState{
-		exec: NewExprExec(andFilter),
+		exec:    NewExprExec(andFilter),
+		sel:     NewSelectVector(defaultVectorSize),
+		showRaw: gConf.ShowRaw,
 	}
 
 	return nil
 }
 
 func (run *Runner) scanExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
-	output.init(run.outputTypes)
+
+	for output.card() == 0 {
+		res, err := run.scanRows(output, state, defaultVectorSize)
+		if err != nil {
+			return InvalidOpResult, err
+		}
+		if res {
+			return Done, nil
+		}
+	}
+	return haveMoreOutput, nil
+}
+
+func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bool, error) {
+	if maxCnt == 0 {
+		return false, nil
+	}
 	readed := &Chunk{}
-	readed.init(run.readedColTyps)
+	readed.init(run.readedColTyps, maxCnt)
 	//read table
-	err := run.readTable(readed)
+	err := run.readTable(readed, state, maxCnt)
 	if err != nil {
-		return InvalidOpResult, err
+		return false, err
 	}
 
 	if readed.card() == 0 {
-		return Done, nil
+		return true, nil
 	}
 
 	//filter
 	var count int
 	count, err = state.exec.executeSelect(readed, state.sel)
 	if err != nil {
-		return InvalidOpResult, err
+		return false, err
 	}
 
 	//TODO:remove unnessary row
@@ -181,7 +280,7 @@ func (run *Runner) scanExec(output *Chunk, state *OperatorState) (OperatorResult
 		//slice
 		output.sliceIndice(readed, state.sel, count, 0, run.outputIndice)
 	}
-	return haveMoreOutput, nil
+	return false, nil
 }
 
 func (run *Runner) scanClose() error {
@@ -189,9 +288,9 @@ func (run *Runner) scanClose() error {
 	return run.dataFile.Close()
 }
 
-func (run *Runner) readTable(output *Chunk) error {
+func (run *Runner) readTable(output *Chunk, state *OperatorState, maxCnt int) error {
 	rowCont := 0
-	for i := 0; i < defaultVectorSize; i++ {
+	for i := 0; i < maxCnt; i++ {
 		//read line
 		line, err := run.reader.Read()
 		if err != nil {
@@ -214,6 +313,12 @@ func (run *Runner) readTable(output *Chunk) error {
 				return err
 			}
 			vec.setValue(i, val)
+			if state.showRaw {
+				fmt.Print(field, " ")
+			}
+		}
+		if state.showRaw {
+			fmt.Println()
 		}
 		rowCont++
 	}
@@ -229,6 +334,13 @@ func fieldToValue(field string, lTyp LType) (*Value, error) {
 	}
 	switch lTyp.id {
 	case LTID_DATE:
+		d, err := time.Parse(time.DateOnly, field)
+		if err != nil {
+			return nil, err
+		}
+		val._i64 = int64(d.Year())
+		val._i64_1 = int64(d.Month())
+		val._i64_2 = int64(d.Day())
 	case LTID_INTEGER:
 		val._i64, err = strconv.ParseInt(field, 10, 64)
 		if err != nil {

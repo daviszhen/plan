@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unsafe"
 
 	"github.com/huandu/go-clone"
@@ -25,10 +26,29 @@ func (s *String) len() int {
 	return len(s._data)
 }
 
+type Date struct {
+	_year  int32
+	_month int32
+	_day   int32
+}
+
+func (d *Date) equal(o *Date) bool {
+	return d._year == o._year && d._month == o._month && d._day == o._day
+}
+
+func (d *Date) less(o *Date) bool {
+	d1 := time.Date(int(d._year), time.Month(d._month), int(d._day), 0, 0, 0, 0, time.UTC)
+	o1 := time.Date(int(o._year), time.Month(o._month), int(o._day), 0, 0, 0, 0, time.UTC)
+	return d1.Before(o1)
+}
+
 type Interval struct {
 	_months int32
 	_days   int32
 	_micros int32
+
+	_unit string
+	_year int32
 }
 
 func (i *Interval) equal(o *Interval) bool {
@@ -38,23 +58,7 @@ func (i *Interval) equal(o *Interval) bool {
 }
 
 func (i *Interval) less(o *Interval) bool {
-	if i._months < o._months {
-		return true
-	}
-	if i._months > o._months {
-		return false
-	}
-
-	if i._days < o._days {
-		return true
-	}
-	if i._days > o._days {
-		return false
-	}
-	if i._micros < o._micros {
-		return true
-	}
-	return false
+	panic("usp")
 }
 
 type PhyType int
@@ -79,6 +83,7 @@ const (
 	INT128
 	UNKNOWN
 	BIT
+	DATE
 	INVALID
 )
 
@@ -102,6 +107,7 @@ var pTypeToStr = map[PhyType]string{
 	INT128:   "INT128",
 	UNKNOWN:  "UNKNOWN",
 	BIT:      "BIT",
+	DATE:     "DATE",
 	INVALID:  "INVALID",
 }
 
@@ -119,6 +125,8 @@ var (
 	int32Size    int
 	int64Size    int
 	intervalSize int
+	dateSize     int
+	varcharSize  int
 )
 
 func init() {
@@ -131,6 +139,10 @@ func init() {
 	int64Size = int8Size * 8
 	interVal := Interval{}
 	intervalSize = int(unsafe.Sizeof(interVal))
+	dateVal := Date{}
+	dateSize = int(unsafe.Sizeof(dateVal))
+	varVal := String{}
+	varcharSize = int(unsafe.Sizeof(varVal))
 }
 
 func (pt PhyType) size() int {
@@ -161,7 +173,7 @@ func (pt PhyType) size() int {
 	case DOUBLE:
 		return int64Size
 	case VARCHAR:
-		panic("usp")
+		return varcharSize
 	case INTERVAL:
 		return intervalSize
 	case STRUCT:
@@ -169,6 +181,8 @@ func (pt PhyType) size() int {
 		return 0
 	case LIST:
 		panic("usp")
+	case DATE:
+		return dateSize
 	default:
 		panic("usp")
 	}
@@ -451,8 +465,10 @@ func (lt LType) getInternalType() PhyType {
 		return INT16
 	case LTID_USMALLINT:
 		return UINT16
-	case LTID_NULL, LTID_DATE, LTID_INTEGER:
+	case LTID_NULL, LTID_INTEGER:
 		return INT32
+	case LTID_DATE:
+		return DATE
 	case LTID_UINTEGER:
 		return UINT32
 	case LTID_BIGINT, LTID_TIME,

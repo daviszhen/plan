@@ -265,7 +265,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -407,7 +407,12 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-
+						binaryExecSwitch[Date, Interval, Date](
+							chunk._data[0], chunk._data[1], result, count,
+							gBinDateIntervalAdd,
+							nil,
+							gBinDateIntervalSingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -652,7 +657,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -811,7 +816,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, bool](chunk._data[0], chunk._data[1], result, count, gBinFloat32Great, nil, gBinFloat32BoolSingleOpWrapper)
+						binaryExecSwitch[float32, float32, bool](chunk._data[0], chunk._data[1], result, count, gBinFloat32Great, nil, gBinFloat32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -872,7 +877,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Great, nil, gBinInt32BoolSingleOpWrapper)
+						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Great, nil, gBinInt32BoolSingleOpWrapper)
 						return nil
 					}
 				},

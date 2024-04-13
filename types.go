@@ -4,6 +4,7 @@ import "github.com/BurntSushi/toml"
 
 type Config struct {
 	DataPath string `tag:"dataPath"`
+	ShowRaw  bool   `tag:"showRaw"`
 }
 
 var gConf = &Config{}
