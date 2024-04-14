@@ -94,3 +94,16 @@ func Test_projectExec(t *testing.T) {
 	)
 	runOps(t, ops)
 }
+
+func Test_innerJoin(t *testing.T) {
+	pplan := runTest2(t, tpchQ20())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Join) &&
+				wantedOp(root.Children[0], POT_Scan) &&
+				wantedOp(root.Children[1], POT_Scan)
+		},
+	)
+	runOps(t, ops)
+}
