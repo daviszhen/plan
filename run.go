@@ -38,6 +38,10 @@ type Runner struct {
 	op    *PhysicalOperator
 	state *OperatorState
 
+	//for hash join
+	hjoin    *HashJoin
+	joinKeys *Chunk
+
 	//for scan
 	dataFile      *os.File
 	reader        *csv.Reader
@@ -72,6 +76,8 @@ func (run *Runner) Init() error {
 		return run.scanInit()
 	case POT_Project:
 		return run.projInit()
+	case POT_Join:
+		return run.joinInit()
 	default:
 		panic("usp")
 	}
@@ -85,6 +91,8 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.scanExec(output, state)
 	case POT_Project:
 		return run.projExec(output, state)
+	case POT_Join:
+		return run.joinExec(output, state)
 	default:
 		panic("usp")
 	}
@@ -92,14 +100,17 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 }
 
 func (run *Runner) execChild(child *Runner, output *Chunk, state *OperatorState) (OperatorResult, error) {
+	cnt := 0
 	for output.card() == 0 {
 		res, err := child.Execute(nil, output, child.state)
 		if err != nil {
 			return InvalidOpResult, err
 		}
+		fmt.Println("child result:", res, cnt)
+		cnt++
 		switch res {
 		case Done:
-			break
+			return Done, nil
 		case InvalidOpResult:
 			return InvalidOpResult, nil
 		default:
@@ -121,9 +132,62 @@ func (run *Runner) Close() error {
 		return run.scanClose()
 	case POT_Project:
 		return run.projClose()
+	case POT_Join:
+		return run.joinClose()
 	default:
 		panic("usp")
 	}
+	return nil
+}
+
+func (run *Runner) joinInit() error {
+	run.hjoin = NewHashJoin(run.op, run.op.OnConds)
+	run.state = &OperatorState{}
+	return nil
+}
+
+func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	//1. Build Hash Table on the right child
+	res, err := run.joinBuildHashTable(state)
+	if err != nil {
+		return InvalidOpResult, err
+	}
+	if res == InvalidOpResult {
+		return InvalidOpResult, nil
+	}
+	//2. probe stage
+	//TODO:
+	return 0, nil
+}
+
+func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, error) {
+	var err error
+	var res OperatorResult
+	cnt := 0
+	for {
+		rightChunk := &Chunk{}
+		res, err = run.execChild(run.children[1], rightChunk, state)
+		if err != nil {
+			return 0, err
+		}
+		if res == InvalidOpResult {
+			return InvalidOpResult, nil
+		}
+		if res == Done {
+			break
+		}
+		fmt.Println("build hash table", cnt)
+		cnt++
+		err = run.hjoin.Build(rightChunk)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return Done, nil
+}
+
+func (run *Runner) joinClose() error {
+	run.hjoin = nil
 	return nil
 }
 

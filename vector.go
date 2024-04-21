@@ -800,6 +800,15 @@ func (c *Chunk) slice(other *Chunk, sel *SelectVector, count int, colOffset int)
 	}
 }
 
+func (c *Chunk) ToUnifiedFormat() []*UnifiedFormat {
+	ret := make([]*UnifiedFormat, c.columnCount())
+	for i := 0; i < c.columnCount(); i++ {
+		ret[i] = &UnifiedFormat{}
+		c._data[i].toUnifiedFormat(c.card(), ret[i])
+	}
+	return ret
+}
+
 func (c *Chunk) print() {
 	for i := 0; i < c.card(); i++ {
 		for j := 0; j < c.columnCount(); j++ {
@@ -811,6 +820,13 @@ func (c *Chunk) print() {
 	}
 	if c.card() > 0 {
 		fmt.Println()
+	}
+}
+
+func (c *Chunk) sliceItself(sel *SelectVector, cnt int) {
+	c._count = cnt
+	for i := 0; i < c.columnCount(); i++ {
+		c._data[i].sliceOnSelf(sel, cnt)
 	}
 }
 

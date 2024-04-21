@@ -193,6 +193,10 @@ func (pt PhyType) isConstant() bool {
 	return pt >= BOOL && pt <= DOUBLE || pt == INTERVAL || pt == INT128
 }
 
+func (pt PhyType) isVarchar() bool {
+	return pt == VARCHAR
+}
+
 type LTypeId int
 
 const (
@@ -340,6 +344,10 @@ func integer() LType {
 	return makeLType(LTID_INTEGER)
 }
 
+func hashType() LType {
+	return makeLType(LTID_UBIGINT)
+}
+
 func float() LType {
 	return makeLType(LTID_FLOAT)
 }
@@ -367,6 +375,20 @@ func boolean() LType {
 
 func intervalLType() LType {
 	return makeLType(LTID_INTERVAL)
+}
+
+func pointerType() LType {
+	return makeLType(LTID_POINTER)
+}
+
+func ubigintType() LType {
+	return makeLType(LTID_UBIGINT)
+}
+
+func copyLTypes(typs ...LType) []LType {
+	ret := make([]LType, 0)
+	ret = append(ret, typs...)
+	return ret
 }
 
 var numerics = map[LTypeId]int{

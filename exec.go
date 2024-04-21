@@ -96,7 +96,14 @@ func (exec *ExprExec) executeExprI(data []*Chunk, exprId int, result *Vector) er
 	exec._chunk = data
 	cnt := 1
 	if len(exec._chunk) != 0 {
-		cnt = exec._chunk[0].card()
+		for _, chunk := range exec._chunk {
+			if chunk == nil {
+				continue
+			}
+			cnt = chunk.card()
+			break
+		}
+
 	}
 	return exec.execute(
 		exec._exprs[exprId],
