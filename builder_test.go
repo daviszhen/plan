@@ -74,7 +74,7 @@ func runTest2(t *testing.T, ast *Ast) *PhysicalOperator {
 	pp, err := builder.CreatePhyPlan(lp)
 	assert.NoError(t, err)
 	assert.NotNil(t, pp)
-	fmt.Println("\n", pp.String())
+	//fmt.Println("\n", pp.String())
 	return pp
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/xlab/treeprint"
 	_ "github.com/xlab/treeprint"
@@ -253,4 +254,37 @@ func (alloc *DefaultAllocator) Alloc(sz int) []byte {
 }
 
 func (alloc *DefaultAllocator) Free(bytes []byte) {
+}
+
+func load[T any](ptr *byte) T {
+	var t T
+	t = *(*T)(unsafe.Pointer(ptr))
+	return t
+}
+
+func store[T any](val T, ptr *byte) {
+	*(*T)(unsafe.Pointer(ptr)) = val
+}
+
+func memsetBytes(ptr *byte, val byte, size int) {
+	for i := 0; i < size; i++ {
+		*ptr = val
+		ptr = (*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + 1))
+	}
+}
+
+func nextPowerOfTwo(v uint64) uint64 {
+	v--
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v |= v >> 32
+	v++
+	return v
+}
+
+func isPowerOfTwo(v uint64) bool {
+	return (v & (v - 1)) == 0
 }

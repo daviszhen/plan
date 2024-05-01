@@ -26,6 +26,10 @@ func (s *String) len() int {
 	return len(s._data)
 }
 
+func (s String) nullLen() int {
+	return 0
+}
+
 type Date struct {
 	_year  int32
 	_month int32
@@ -59,6 +63,24 @@ func (i *Interval) equal(o *Interval) bool {
 
 func (i *Interval) less(o *Interval) bool {
 	panic("usp")
+}
+
+type nullValue[T any] interface {
+	value() T
+}
+
+type int32NullValue struct {
+}
+
+func (i int32NullValue) value() int32 {
+	return 0
+}
+
+type uint64NullValue struct {
+}
+
+func (i uint64NullValue) value() uint64 {
+	return 0
 }
 
 type PhyType int

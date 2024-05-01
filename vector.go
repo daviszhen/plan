@@ -528,7 +528,7 @@ func (bm *Bitmap) getEntry(eIdx uint64) uint8 {
 	return bm._bits[eIdx]
 }
 
-func (bm *Bitmap) getEntryIndex(idx uint64) (uint64, uint64) {
+func getEntryIndex(idx uint64) (uint64, uint64) {
 	return idx / 8, idx % 8
 }
 
@@ -557,7 +557,7 @@ func rowIsValidInEntry(e uint8, pos uint64) bool {
 }
 
 func (bm *Bitmap) rowIsValidUnsafe(idx uint64) bool {
-	eIdx, pos := bm.getEntryIndex(idx)
+	eIdx, pos := getEntryIndex(idx)
 	e := bm.getEntry(eIdx)
 	return entryIsSet(e, pos)
 }
@@ -585,7 +585,7 @@ func (bm *Bitmap) set(ridx uint64, valid bool) {
 }
 
 func (bm *Bitmap) setValidUnsafe(ridx uint64) {
-	eIdx, pos := bm.getEntryIndex(ridx)
+	eIdx, pos := getEntryIndex(ridx)
 	bm._bits[eIdx] |= 1 << pos
 }
 
@@ -597,7 +597,7 @@ func (bm *Bitmap) setInvalid(ridx uint64) {
 }
 
 func (bm *Bitmap) setInvalidUnsafe(ridx uint64) {
-	eIdx, pos := bm.getEntryIndex(ridx)
+	eIdx, pos := getEntryIndex(ridx)
 	bm._bits[eIdx] &= ^(1 << pos)
 }
 
@@ -607,6 +607,10 @@ func (bm *Bitmap) reset() {
 
 func entryCount(cnt int) int {
 	return (cnt + 7) / 8
+}
+
+func sizeInBytes(cnt int) int {
+	return entryCount(cnt)
 }
 
 func (bm *Bitmap) resize(old int, new int) {

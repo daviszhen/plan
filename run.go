@@ -163,26 +163,39 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
-	cnt := 0
-	for {
-		rightChunk := &Chunk{}
-		res, err = run.execChild(run.children[1], rightChunk, state)
-		if err != nil {
-			return 0, err
+	if run.hjoin._hjs == HJS_INIT {
+		run.hjoin._hjs = HJS_BUILD
+		cnt := 0
+		for {
+			rightChunk := &Chunk{}
+			res, err = run.execChild(run.children[1], rightChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				run.hjoin._ht.Finalize()
+				break
+			}
+			fmt.Println("build hash table", cnt)
+			cnt++
+			err = run.hjoin.Build(rightChunk)
+			if err != nil {
+				return 0, err
+			}
 		}
-		if res == InvalidOpResult {
-			return InvalidOpResult, nil
-		}
-		if res == Done {
-			break
-		}
-		fmt.Println("build hash table", cnt)
-		cnt++
-		err = run.hjoin.Build(rightChunk)
-		if err != nil {
-			return 0, err
-		}
+		run.hjoin._hjs = HJS_PROBE
 	}
+	//probe
+	if run.hjoin._hjs == HJS_BUILD || run.hjoin._hjs == HJS_PROBE {
+		if run.hjoin._hjs == HJS_BUILD {
+			run.hjoin._hjs = HJS_PROBE
+		}
+
+	}
+
 	return Done, nil
 }
 
