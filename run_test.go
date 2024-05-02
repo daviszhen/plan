@@ -54,10 +54,12 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 			if result == Done {
 				break
 			}
-			assertFunc(output.card() != 0)
-			assert.NotEqual(t, 0, output.card())
-			rowCnt += output.card()
-			output.print()
+			if output.card() > 0 {
+				assertFunc(output.card() != 0)
+				assert.NotEqual(t, 0, output.card())
+				rowCnt += output.card()
+				output.print()
+			}
 		}
 		fmt.Println("row Count", rowCnt)
 		run.Close()

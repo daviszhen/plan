@@ -420,6 +420,10 @@ func toSlice[T any](data []byte, pSize int) []T {
 	return unsafe.Slice((*T)(unsafe.Pointer(&data[0])), slen)
 }
 
+func toBytesSlice(data *byte, blen int) []byte {
+	return unsafe.Slice(data, blen)
+}
+
 // constant vector
 func getDataInPhyFormatConst(vec *Vector) []byte {
 	assertFunc(vec.phyFormat().isConst() || vec.phyFormat().isFlat())

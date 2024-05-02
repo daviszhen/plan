@@ -15,6 +15,9 @@ type OperatorState struct {
 	exec    *ExprExec
 	sel     *SelectVector
 	showRaw bool
+
+	//for join (inner)
+	outputExec *ExprExec
 }
 
 type OperatorResult int
@@ -106,7 +109,7 @@ func (run *Runner) execChild(child *Runner, output *Chunk, state *OperatorState)
 		if err != nil {
 			return InvalidOpResult, err
 		}
-		fmt.Println("child result:", res, cnt)
+		//fmt.Println("child result:", res, cnt)
 		cnt++
 		switch res {
 		case Done:
@@ -142,7 +145,9 @@ func (run *Runner) Close() error {
 
 func (run *Runner) joinInit() error {
 	run.hjoin = NewHashJoin(run.op, run.op.OnConds)
-	run.state = &OperatorState{}
+	run.state = &OperatorState{
+		outputExec: NewExprExec(run.op.Outputs...),
+	}
 	return nil
 }
 
@@ -156,8 +161,82 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 		return InvalidOpResult, nil
 	}
 	//2. probe stage
-	//TODO:
+	//probe
+	if run.hjoin._hjs == HJS_BUILD || run.hjoin._hjs == HJS_PROBE {
+		if run.hjoin._hjs == HJS_BUILD {
+			run.hjoin._hjs = HJS_PROBE
+		}
+
+		//continue unfinished can
+		if run.hjoin._scan != nil {
+			nextChunk := Chunk{}
+			nextChunk.init(run.hjoin._scanNextTyps, defaultVectorSize)
+			run.hjoin._scan.Next(run.hjoin._joinKeys, run.hjoin._scan._leftChunk, &nextChunk)
+			if nextChunk.card() > 0 {
+				err = run.evalOutput(&nextChunk, output)
+				if err != nil {
+					return 0, err
+				}
+				return haveMoreOutput, nil
+			}
+			run.hjoin._scan = nil
+		}
+
+		//probe
+		leftChunk := &Chunk{}
+		res, err = run.execChild(run.children[0], leftChunk, state)
+		if err != nil {
+			return 0, err
+		}
+		switch res {
+		case Done:
+			return Done, nil
+		case InvalidOpResult:
+			return InvalidOpResult, nil
+		}
+
+		run.hjoin._joinKeys.reset()
+		err = run.hjoin._probExec.executeExprs([]*Chunk{leftChunk, nil, nil}, run.hjoin._joinKeys)
+		if err != nil {
+			return 0, err
+		}
+		run.hjoin._scan = run.hjoin._ht.Probe(run.hjoin._joinKeys)
+		run.hjoin._scan._leftChunk = leftChunk
+		nextChunk := Chunk{}
+		nextChunk.init(run.hjoin._scanNextTyps, defaultVectorSize)
+		run.hjoin._scan.Next(run.hjoin._joinKeys, run.hjoin._scan._leftChunk, &nextChunk)
+		if nextChunk.card() > 0 {
+			err = run.evalOutput(&nextChunk, output)
+			if err != nil {
+				return 0, err
+			}
+			return haveMoreOutput, nil
+		} else {
+			run.hjoin._scan = nil
+		}
+		return haveMoreOutput, nil
+	}
 	return 0, nil
+}
+
+func (run *Runner) evalOutput(nextChunk, output *Chunk) (err error) {
+	leftChunk := Chunk{}
+	leftTyps := run.hjoin._scanNextTyps[:len(run.hjoin._leftIndice)]
+	leftChunk.init(leftTyps, defaultVectorSize)
+	leftChunk.referenceIndice(nextChunk, run.hjoin._leftIndice)
+
+	rightChunk := Chunk{}
+	rightChunk.init(run.hjoin._buildTypes, defaultVectorSize)
+	rightChunk.referenceIndice(nextChunk, run.hjoin._rightIndice)
+	err = run.state.outputExec.executeExprs(
+		[]*Chunk{
+			&leftChunk,
+			&rightChunk,
+			nil,
+		},
+		output,
+	)
+	return err
 }
 
 func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, error) {
@@ -187,13 +266,6 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 			}
 		}
 		run.hjoin._hjs = HJS_PROBE
-	}
-	//probe
-	if run.hjoin._hjs == HJS_BUILD || run.hjoin._hjs == HJS_PROBE {
-		if run.hjoin._hjs == HJS_BUILD {
-			run.hjoin._hjs = HJS_PROBE
-		}
-
 	}
 
 	return Done, nil

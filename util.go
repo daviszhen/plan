@@ -269,7 +269,7 @@ func store[T any](val T, ptr *byte) {
 func memsetBytes(ptr *byte, val byte, size int) {
 	for i := 0; i < size; i++ {
 		*ptr = val
-		ptr = (*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + 1))
+		ptr = pointerAdd(ptr, 1)
 	}
 }
 
@@ -287,4 +287,8 @@ func nextPowerOfTwo(v uint64) uint64 {
 
 func isPowerOfTwo(v uint64) bool {
 	return (v & (v - 1)) == 0
+}
+
+func pointerAdd(base *byte, offset int) *byte {
+	return (*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(base)) + uintptr(offset)))
 }

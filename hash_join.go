@@ -28,7 +28,15 @@ type HashJoin struct {
 
 	_buildChunk *Chunk
 
-	_hjs HashJoinStage
+	_hjs      HashJoinStage
+	_scan     *Scan
+	_probExec *ExprExec
+	//types of the output Chunk in Scan.Next
+	_scanNextTyps []LType
+
+	//colIdx of the left(right) Children in the output Chunk in Scan.Next
+	_leftIndice  []int
+	_rightIndice []int
 }
 
 func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
@@ -39,9 +47,17 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		hj._keyTypes = append(hj._keyTypes, cond.Children[0].DataTyp.LTyp)
 	}
 
+	for i, output := range op.Children[0].Outputs {
+		hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp.LTyp)
+		hj._leftIndice = append(hj._leftIndice, i)
+	}
+
 	//right child output types
-	for _, output := range op.Children[1].Outputs {
+	rightIdxOffset := len(hj._scanNextTyps)
+	for i, output := range op.Children[1].Outputs {
 		hj._buildTypes = append(hj._buildTypes, output.DataTyp.LTyp)
+		hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp.LTyp)
+		hj._rightIndice = append(hj._rightIndice, rightIdxOffset+i)
 	}
 
 	//
@@ -59,6 +75,10 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 
 	hj._ht = NewJoinHashTable(conds, hj._buildTypes, op.JoinTyp)
 
+	hj._probExec = &ExprExec{}
+	for _, cond := range hj._conds {
+		hj._probExec.addExpr(cond.Children[0])
+	}
 	return hj
 }
 
@@ -83,13 +103,14 @@ func (hj *HashJoin) Build(input *Chunk) error {
 }
 
 type Scan struct {
-	_keyData    *UnifiedFormat
+	_keyData    []*UnifiedFormat
 	_pointers   *Vector
 	_count      int
 	_selVec     *SelectVector
 	_foundMatch []bool
 	_ht         *JoinHashTable
 	_finished   bool
+	_leftChunk  *Chunk
 }
 
 func NewScan(ht *JoinHashTable) *Scan {
@@ -98,6 +119,23 @@ func NewScan(ht *JoinHashTable) *Scan {
 		_selVec:   NewSelectVector(defaultVectorSize),
 		_ht:       ht,
 	}
+}
+
+func (scan *Scan) initSelVec(curSel *SelectVector) {
+	nonEmptyCnt := 0
+	ptrs := getSliceInPhyFormatFlat[*byte](scan._pointers)
+	cnt := scan._count
+	for i := 0; i < cnt; i++ {
+		idx := curSel.getIndex(i)
+		if ptrs[idx] != nil {
+			t := load[*byte](ptrs[idx])
+			if t != nil {
+				scan._selVec.setIndex(nonEmptyCnt, idx)
+				nonEmptyCnt++
+			}
+		}
+	}
+	scan._count = nonEmptyCnt
 }
 
 func (scan *Scan) Next(keys, left, result *Chunk) {
@@ -119,14 +157,114 @@ func (scan *Scan) NextInnerJoin(keys, left, result *Chunk) {
 		return
 	}
 	resVec := NewSelectVector(defaultVectorSize)
-	resCount := scan.scanInnerJoin(keys, resVec)
-	//TODO:
-
-}
-func (scan *Scan) scanInnerJoin(keys *Chunk, resVec *SelectVector) int {
-	for {
-		//TODO:resolve predicates
+	resCnt := scan.InnerJoin(keys, resVec)
+	if resCnt > 0 {
+		//left part result
+		result.slice(left, resVec, resCnt, 0)
+		//right part result
+		for i := 0; i < len(scan._ht._buildTypes); i++ {
+			vec := result._data[left.columnCount()+i]
+			assertFunc(vec.typ() == scan._ht._buildTypes[i])
+			scan.gatherResult2(
+				vec,
+				resVec,
+				resCnt,
+				i+len(scan._ht._keyTypes))
+		}
+		scan.advancePointers2()
 	}
+}
+
+func (scan *Scan) gatherResult(
+	result *Vector,
+	resVec *SelectVector,
+	selVec *SelectVector,
+	cnt int,
+	colNo int,
+) {
+	scan._ht._dataCollection.gather(
+		scan._pointers,
+		selVec,
+		cnt,
+		colNo,
+		result,
+		resVec,
+	)
+}
+
+func (scan *Scan) gatherResult2(
+	result *Vector,
+	selVec *SelectVector,
+	cnt int,
+	colIdx int,
+) {
+	resVec := incrSelectVectorInPhyFormatFlat()
+	scan.gatherResult(result, resVec, selVec, cnt, colIdx)
+}
+
+func (scan *Scan) InnerJoin(keys *Chunk, resVec *SelectVector) int {
+	for {
+		resCnt := scan.resolvePredicates(
+			keys,
+			resVec,
+			nil,
+		)
+		if len(scan._foundMatch) != 0 {
+			for i := 0; i < resCnt; i++ {
+				idx := resVec.getIndex(i)
+				scan._foundMatch[idx] = true
+			}
+		}
+		if resCnt > 0 {
+			return resCnt
+		}
+
+		scan.advancePointers2()
+		if scan._count == 0 {
+			return 0
+		}
+	}
+}
+
+func (scan *Scan) advancePointers2() {
+	scan.advancePointers(scan._selVec, scan._count)
+}
+
+func (scan *Scan) advancePointers(sel *SelectVector, cnt int) {
+	newCnt := 0
+	ptrs := getSliceInPhyFormatFlat[*byte](scan._pointers)
+	for i := 0; i < cnt; i++ {
+		idx := sel.getIndex(i)
+		temp := pointerAdd(ptrs[idx], scan._ht._pointerOffset)
+		ptrs[idx] = load[*byte](temp)
+		if ptrs[idx] != nil {
+			scan._selVec.setIndex(newCnt, idx)
+			newCnt++
+		}
+	}
+	scan._count = newCnt
+}
+
+func (scan *Scan) resolvePredicates(
+	keys *Chunk,
+	matchSel *SelectVector,
+	noMatchSel *SelectVector,
+) int {
+	for i := 0; i < scan._count; i++ {
+		matchSel.setIndex(i, scan._selVec.getIndex(i))
+	}
+	noMatchCount := 0
+	return Match(
+		keys,
+		scan._keyData,
+		scan._ht._layout,
+		scan._pointers,
+		scan._ht._predTypes,
+		matchSel,
+		scan._count,
+		noMatchSel,
+		&noMatchCount,
+	)
 }
 
 type JoinHashTable struct {
@@ -368,8 +506,61 @@ func (jht *JoinHashTable) ApplyBitmask(hashes *Vector, cnt int) {
 	}
 }
 
-func (jht *JoinHashTable) Probe() {
+func (jht *JoinHashTable) ApplyBitmask2(
+	hashes *Vector,
+	sel *SelectVector,
+	cnt int,
+	pointers *Vector,
+) {
+	var data UnifiedFormat
+	hashes.toUnifiedFormat(cnt, &data)
+	hashSlice := getSliceInPhyFormatUnifiedFormat[uint64](&data)
+	resSlice := getSliceInPhyFormatFlat[*byte](pointers)
+	mainHt := jht._hashMap
+	for i := 0; i < cnt; i++ {
+		rIdx := sel.getIndex(i)
+		hIdx := data._sel.getIndex(rIdx)
+		hVal := hashSlice[hIdx]
+		bucket := mainHt[(hVal & uint64(jht._bitmask))]
+		if bucket != nil {
+			resSlice[rIdx] = &bucket[0]
+		}
+	}
+}
 
+func (jht *JoinHashTable) Probe(keys *Chunk) *Scan {
+	var curSel *SelectVector
+	newScan := jht.initScan(keys, &curSel)
+	if newScan._count == 0 {
+		return newScan
+	}
+	hashes := NewFlatVector(hashType(), defaultVectorSize)
+	jht.hash(keys, curSel, newScan._count, hashes)
+
+	jht.ApplyBitmask2(hashes, curSel, newScan._count, newScan._pointers)
+	newScan.initSelVec(curSel)
+	return newScan
+}
+
+func (jht *JoinHashTable) initScan(keys *Chunk, curSel **SelectVector) *Scan {
+	assertFunc(jht.count() > 0)
+	assertFunc(jht._finalized)
+	newScan := NewScan(jht)
+	if jht._joinType != LOT_JoinTypeInner {
+		newScan._foundMatch = make([]bool, defaultVectorSize)
+	}
+
+	newScan._count = jht.prepareKeys(
+		keys,
+		&newScan._keyData,
+		curSel,
+		newScan._selVec,
+		false)
+	return newScan
+}
+
+func (jht *JoinHashTable) count() int {
+	return jht._dataCollection.Count()
 }
 
 type JoinScan struct {
@@ -666,6 +857,24 @@ func (tuple *TupleDataCollection) evaluateHeapSizes(sizes *Vector, src *Vector, 
 	}
 }
 
+func (tuple *TupleDataCollection) gather(
+	rowLocs *Vector,
+	scanSel *SelectVector,
+	scanCnt int,
+	colId int,
+	result *Vector,
+	targetSel *SelectVector) {
+	TupleDataTemplatedGatherSwitch(
+		tuple._layout,
+		rowLocs,
+		colId,
+		scanSel,
+		scanCnt,
+		result,
+		targetSel,
+	)
+}
+
 func TupleDataTemplatedScatterSwitch(
 	src *Vector,
 	srcFormat *UnifiedFormat,
@@ -739,4 +948,58 @@ func TupleDataTemplatedScatter[T any](
 
 func TupleDataValueStore[T any](src T, rowLoc []byte, offsetInRow int, heapLoc []byte) {
 	store[T](src, &rowLoc[offsetInRow])
+}
+
+func TupleDataTemplatedGatherSwitch(
+	layout *TupleDataLayout,
+	rowLocs *Vector,
+	colIdx int,
+	scanSel *SelectVector,
+	scanCnt int,
+	target *Vector,
+	targetSel *SelectVector,
+) {
+	pTyp := target.typ().getInternalType()
+	switch pTyp {
+	case INT32:
+		TupleDataTemplatedGather[int32](
+			layout,
+			rowLocs,
+			colIdx,
+			scanSel,
+			scanCnt,
+			target,
+			targetSel,
+		)
+	default:
+		panic("usp phy type")
+	}
+}
+
+func TupleDataTemplatedGather[T any](
+	layout *TupleDataLayout,
+	rowLocs *Vector,
+	colIdx int,
+	scanSel *SelectVector,
+	scanCnt int,
+	target *Vector,
+	targetSel *SelectVector,
+) {
+	srcLocs := getSliceInPhyFormatFlat[*byte](rowLocs)
+	targetData := getSliceInPhyFormatFlat[T](target)
+	targetBitmap := getMaskInPhyFormatFlat(target)
+	entryIdx, idxInEntry := getEntryIndex(uint64(colIdx))
+	offsetInRow := layout.offsets()[colIdx]
+	for i := 0; i < scanCnt; i++ {
+		srcRow := toBytesSlice(srcLocs[scanSel.getIndex(i)], layout._rowWidth)
+		targetIdx := targetSel.getIndex(i)
+		rowMask := Bitmap{_bits: srcRow}
+		if rowIsValidInEntry(
+			rowMask.getEntry(entryIdx),
+			idxInEntry) {
+			targetData[targetIdx] = load[T](&srcRow[offsetInRow])
+		} else {
+			targetBitmap.setInvalid(uint64(targetIdx))
+		}
+	}
 }
