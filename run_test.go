@@ -20,6 +20,7 @@ func findOperator(root *PhysicalOperator, fun func(root *PhysicalOperator) bool)
 
 const (
 	maxTestCnt = 20
+	//maxTestCnt = math.MaxInt
 )
 
 func runOps(t *testing.T, ops []*PhysicalOperator) {
@@ -99,6 +100,35 @@ func Test_projectExec(t *testing.T) {
 }
 
 func Test_innerJoin(t *testing.T) {
+	/*
+		equal to:
+
+		select
+			lr.s_suppkey,
+			lr.s_name,
+			lr.s_address
+		from
+		(
+			select
+				s_suppkey,
+				s_name,
+				s_address,
+				s_nationkey
+			from
+				supplier
+		) lr
+		join
+		(
+			select
+			n_nationkey
+			from
+				nation
+			where n_name = 'VIETNAM'
+		) rr
+		on lr.s_nationkey = rr.n_nationkey
+
+		result: tpch1g 399 rows
+	*/
 	pplan := runTest2(t, tpchQ20())
 	ops := findOperator(
 		pplan,
@@ -112,6 +142,31 @@ func Test_innerJoin(t *testing.T) {
 }
 
 func Test_innerJoin2(t *testing.T) {
+	/*
+		equal to:
+		select
+			lr.ps_partkey,
+			lr.ps_suppkey,
+			lr.ps_availqty
+		from
+			(
+				select
+					ps_partkey,
+					ps_suppkey,
+					ps_availqty
+				from partsupp
+			) lr
+			join
+			(
+				select
+					p_partkey
+				from part
+				where p_name like 'lime%'
+			) rr
+			on lr.ps_partkey = rr.p_partkey
+
+		result: tpch1g 8644 rows
+	*/
 	pplan := runTest2(t, tpchQ20())
 	ops := findOperator(
 		pplan,
@@ -119,6 +174,54 @@ func Test_innerJoin2(t *testing.T) {
 			return wantedOp(root, POT_Join) &&
 				wantedOp(root.Children[0], POT_Scan) &&
 				wantedOp(root.Children[1], POT_Project)
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_innerJoin3(t *testing.T) {
+	/*
+		equal to:
+
+			select
+				rr.ps_partkey,
+				rr.ps_suppkey,
+				rr.ps_availqty,
+				lr.l_quantity
+			from
+				(
+					select
+						lineitem.l_partkey,
+						lineitem.l_suppkey,
+						lineitem.l_quantity
+					from lineitem
+					where
+						l_shipdate >= date '1993-01-01' and
+						l_shipdate < date '1993-01-01' + interval '1' year
+
+				) lr
+			join
+				(
+					select
+						partsupp.ps_partkey,
+						partsupp.ps_suppkey,
+						partsupp.ps_availqty
+					from
+						partsupp join part on partsupp.ps_partkey = part.p_partkey
+					where part.p_name like 'lime%'
+				) rr
+				on lr.l_partkey = rr.ps_partkey and
+					lr.l_suppkey = rr.ps_suppkey
+
+		result: tpch1g 9767 rows
+	*/
+	pplan := runTest2(t, tpchQ20())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Join) &&
+				wantedOp(root.Children[0], POT_Scan) &&
+				wantedOp(root.Children[1], POT_Join)
 		},
 	)
 	runOps(t, ops)
