@@ -256,23 +256,6 @@ func (alloc *DefaultAllocator) Alloc(sz int) []byte {
 func (alloc *DefaultAllocator) Free(bytes []byte) {
 }
 
-func load[T any](ptr *byte) T {
-	var t T
-	t = *(*T)(unsafe.Pointer(ptr))
-	return t
-}
-
-func store[T any](val T, ptr *byte) {
-	*(*T)(unsafe.Pointer(ptr)) = val
-}
-
-func memsetBytes(ptr *byte, val byte, size int) {
-	for i := 0; i < size; i++ {
-		*ptr = val
-		ptr = pointerAdd(ptr, 1)
-	}
-}
-
 func nextPowerOfTwo(v uint64) uint64 {
 	v--
 	v |= v >> 1
@@ -289,6 +272,47 @@ func isPowerOfTwo(v uint64) bool {
 	return (v & (v - 1)) == 0
 }
 
-func pointerAdd(base *byte, offset int) *byte {
-	return (*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(base)) + uintptr(offset)))
+func load[T any](ptr unsafe.Pointer) T {
+	var t T
+	t = *(*T)(ptr)
+	return t
+}
+
+func store[T any](val T, ptr unsafe.Pointer) {
+	*(*T)(ptr) = val
+}
+
+func memset(ptr unsafe.Pointer, val byte, size int) {
+	for i := 0; i < size; i++ {
+		store[byte](val, pointerAdd(ptr, i))
+	}
+}
+
+func toSlice[T any](data []byte, pSize int) []T {
+	slen := len(data) / pSize
+	return unsafe.Slice((*T)(unsafe.Pointer(&data[0])), slen)
+}
+
+func bytesSliceToPointer(data []byte) unsafe.Pointer {
+	if len(data) == 0 {
+		return nil
+	}
+	return unsafe.Pointer(&data[0])
+}
+
+func pointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(base) + uintptr(offset))
+}
+
+func pointerToBytesSlice(base unsafe.Pointer, len int) []byte {
+	return unsafe.Slice((*byte)(base), len)
+}
+
+func printPtrs(hint string, data []unsafe.Pointer) {
+	fmt.Printf(hint)
+	fmt.Printf(" ")
+	for i := 0; i < len(data); i++ {
+		fmt.Printf("%d|%x ", data[i], data[i])
+	}
+	fmt.Println()
 }

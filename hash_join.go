@@ -1,5 +1,10 @@
 package main
 
+import (
+	"fmt"
+	"unsafe"
+)
+
 type HashJoinStage int
 
 const (
@@ -123,19 +128,19 @@ func NewScan(ht *JoinHashTable) *Scan {
 
 func (scan *Scan) initSelVec(curSel *SelectVector) {
 	nonEmptyCnt := 0
-	ptrs := getSliceInPhyFormatFlat[*byte](scan._pointers)
+	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
 	cnt := scan._count
 	for i := 0; i < cnt; i++ {
 		idx := curSel.getIndex(i)
 		if ptrs[idx] != nil {
-			t := load[*byte](ptrs[idx])
-			if t != nil {
+			{
 				scan._selVec.setIndex(nonEmptyCnt, idx)
 				nonEmptyCnt++
 			}
 		}
 	}
 	scan._count = nonEmptyCnt
+	//printPtrs("pointers3:", ptrs)
 }
 
 func (scan *Scan) Next(keys, left, result *Chunk) {
@@ -232,16 +237,19 @@ func (scan *Scan) advancePointers2() {
 
 func (scan *Scan) advancePointers(sel *SelectVector, cnt int) {
 	newCnt := 0
-	ptrs := getSliceInPhyFormatFlat[*byte](scan._pointers)
+	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
+	//printPtrs("pointers2-1:", ptrs)
 	for i := 0; i < cnt; i++ {
 		idx := sel.getIndex(i)
 		temp := pointerAdd(ptrs[idx], scan._ht._pointerOffset)
-		ptrs[idx] = load[*byte](temp)
+		ptrs[idx] = load[unsafe.Pointer](temp)
 		if ptrs[idx] != nil {
 			scan._selVec.setIndex(newCnt, idx)
 			newCnt++
 		}
 	}
+	//printPtrs("pointers2-2:", ptrs)
+	//fmt.Println("newCnt", newCnt)
 	scan._count = newCnt
 }
 
@@ -299,7 +307,7 @@ type JoinHashTable struct {
 
 	_dataCollection *TupleDataCollection
 
-	_hashMap [][]byte
+	_hashMap []unsafe.Pointer
 	_bitmask int
 }
 
@@ -313,7 +321,7 @@ func NewJoinHashTable(conds []*Expr,
 	}
 	for _, cond := range conds {
 		typ := cond.Children[0].DataTyp.LTyp
-		if cond.SubTyp == ET_Equal {
+		if cond.SubTyp == ET_Equal || cond.SubTyp == ET_In {
 			assertFunc(len(ht._equalTypes) == len(ht._keyTypes))
 			ht._equalTypes = append(ht._equalTypes, typ)
 		}
@@ -450,7 +458,7 @@ func pointerTableCap(cnt int) int {
 func (jht *JoinHashTable) InitPointerTable() {
 	pCap := pointerTableCap(jht._dataCollection.Count())
 	assertFunc(isPowerOfTwo(uint64(pCap)))
-	jht._hashMap = make([][]byte, pCap)
+	jht._hashMap = make([]unsafe.Pointer, pCap)
 	jht._bitmask = pCap - 1
 }
 
@@ -458,17 +466,52 @@ func (jht *JoinHashTable) Finalize() {
 	jht.InitPointerTable()
 	hashes := NewFlatVector(hashType(), defaultVectorSize)
 	hashSlice := getSliceInPhyFormatFlat[uint64](hashes)
-	for i, part := range jht._dataCollection._parts {
-		rowLocs := getSliceInPhyFormatFlat[[]byte](part.rowLocations)
-		for j := 0; j < part._count; j++ {
-			hashSlice[i] = load[uint64](&rowLocs[j][jht._pointerOffset])
-			jht.InsertHashes(hashes, part._count, rowLocs)
+	dedup := make(map[unsafe.Pointer]struct{})
+	for _, part := range jht._dataCollection._parts {
+		rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
+		for _, loc := range rowLocs {
+			if loc != nil {
+				if _, has := dedup[loc]; has {
+					panic("has dup row loc")
+				}
+				dedup[loc] = struct{}{}
+			}
 		}
+		//reset hashes
+		for i := 0; i < defaultVectorSize; i++ {
+			hashSlice[i] = uint64(0)
+		}
+		for j := 0; j < part._count; j++ {
+			hashSlice[j] = load[uint64](pointerAdd(rowLocs[j], jht._pointerOffset))
+			//fmt.Println("base&hash", rowLocs[j], "hash", hashSlice[j], "index", hashSlice[j]&uint64(jht._bitmask))
+		}
+		jht.InsertHashes(hashes, part._count, rowLocs)
 	}
 	jht._finalized = true
 }
 
-func (jht *JoinHashTable) InsertHashes(hashes *Vector, cnt int, keyLocs [][]byte) {
+func (jht *JoinHashTable) printHashMap() {
+	pointers := jht._hashMap
+	for i, ptr := range pointers {
+		fmt.Println("bucket", i, "base", ptr)
+		next := ptr
+		dedup := make(map[unsafe.Pointer]struct{})
+		dedup[ptr] = struct{}{}
+		for next != nil {
+			val := load[unsafe.Pointer](pointerAdd(next, jht._pointerOffset))
+			fmt.Println("    base", next, "next", val)
+			if _, has := dedup[val]; has {
+				fmt.Println("    base", ptr, "loop")
+				panic("get a loop in bucket")
+				//break
+			}
+			dedup[val] = struct{}{}
+			next = val
+		}
+	}
+}
+
+func (jht *JoinHashTable) InsertHashes(hashes *Vector, cnt int, keyLocs []unsafe.Pointer) {
 	jht.ApplyBitmask(hashes, cnt)
 	hashes.flatten(cnt)
 	assertFunc(hashes.phyFormat().isFlat())
@@ -478,18 +521,25 @@ func (jht *JoinHashTable) InsertHashes(hashes *Vector, cnt int, keyLocs [][]byte
 }
 
 func InsertHashesLoop(
-	pointers [][]byte,
+	pointers []unsafe.Pointer,
 	indices []uint64,
 	cnt int,
-	keyLocs [][]byte,
+	keyLocs []unsafe.Pointer,
 	pointerOffset int,
 ) {
 	for i := 0; i < cnt; i++ {
 		idx := indices[i]
 		//save prev into the pointer in tuple
-		store[[]byte](pointers[idx], &keyLocs[i][pointerOffset])
+
+		store[unsafe.Pointer](pointers[idx], pointerAdd(keyLocs[i], pointerOffset))
 		//pointer to current tuple
 		pointers[idx] = keyLocs[i]
+		base := keyLocs[i]
+		cur := load[unsafe.Pointer](pointerAdd(keyLocs[i], pointerOffset))
+		//fmt.Println("insert base", base, cur)
+		if base == cur {
+			panic("insert loop in bucket")
+		}
 	}
 }
 
@@ -515,17 +565,16 @@ func (jht *JoinHashTable) ApplyBitmask2(
 	var data UnifiedFormat
 	hashes.toUnifiedFormat(cnt, &data)
 	hashSlice := getSliceInPhyFormatUnifiedFormat[uint64](&data)
-	resSlice := getSliceInPhyFormatFlat[*byte](pointers)
+	resSlice := getSliceInPhyFormatFlat[unsafe.Pointer](pointers)
 	mainHt := jht._hashMap
 	for i := 0; i < cnt; i++ {
 		rIdx := sel.getIndex(i)
 		hIdx := data._sel.getIndex(rIdx)
 		hVal := hashSlice[hIdx]
 		bucket := mainHt[(hVal & uint64(jht._bitmask))]
-		if bucket != nil {
-			resSlice[rIdx] = &bucket[0]
-		}
+		resSlice[rIdx] = bucket
 	}
+	//printPtrs("pointers:", resSlice)
 }
 
 func (jht *JoinHashTable) Probe(keys *Chunk) *Scan {
@@ -713,6 +762,7 @@ type TupleDataCollection struct {
 	_layout *TupleDataLayout
 	_count  int
 	_parts  []*TuplePart
+	_dedup  map[unsafe.Pointer]struct{}
 }
 
 type TuplePart struct {
@@ -726,6 +776,7 @@ type TuplePart struct {
 func NewTupleDataCollection(layout *TupleDataLayout) *TupleDataCollection {
 	ret := &TupleDataCollection{
 		_layout: layout.copy(),
+		_dedup:  make(map[unsafe.Pointer]struct{}),
 	}
 	return ret
 }
@@ -756,23 +807,37 @@ func (tuple *TupleDataCollection) Append(chunk *Chunk) {
 	tuple.scatter(part, chunk, chunk.card())
 
 	part._count = chunk.card()
+	tuple.savePart(part)
+}
+
+func (tuple *TupleDataCollection) savePart(part *TuplePart) {
 	tuple._count += part._count
 	tuple._parts = append(tuple._parts, part)
+	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
+	for _, loc := range rowLocs {
+		if loc == nil {
+			continue
+		}
+		if _, has := tuple._dedup[loc]; has {
+			panic("duplicate row location")
+		}
+		tuple._dedup[loc] = struct{}{}
+	}
 }
 
 func (tuple *TupleDataCollection) scatter(part *TuplePart, chunk *Chunk, cnt int) {
-	rowLocations := getSliceInPhyFormatFlat[[]byte](part.rowLocations)
+	rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
 	//set bitmap
 	maskBytes := sizeInBytes(tuple._layout.columnCount())
 	for i := 0; i < cnt; i++ {
-		memsetBytes(&rowLocations[i][0], 0xFF, maskBytes)
+		memset(rowLocations[i], 0xFF, maskBytes)
 	}
 
 	if !tuple._layout.allConst() {
 		heapSizeOffset := tuple._layout.heapSizeOffset()
 		heapSizes := getSliceInPhyFormatFlat[uint64](part.heapSizes)
 		for i := 0; i < cnt; i++ {
-			store[uint64](heapSizes[i], &rowLocations[i][heapSizeOffset])
+			store[uint64](heapSizes[i], pointerAdd(rowLocations[i], heapSizeOffset))
 		}
 	}
 	for i := 0; i < tuple._layout.columnCount(); i++ {
@@ -802,24 +867,30 @@ func (tuple *TupleDataCollection) toUnifiedFormat(part *TuplePart, chunk *Chunk)
 }
 
 func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
-	rowLocs := getSliceInPhyFormatFlat[[]byte](part.rowLocations)
+	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
 	heapSizes := getSliceInPhyFormatFlat[uint64](part.heapSizes)
-	heapLocs := getSliceInPhyFormatFlat[[]byte](part.heapLocations)
+	heapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.heapLocations)
 
 	for i := 0; i < cnt; i++ {
-		rowLocs[i] = make([]byte, tuple._layout.rowWidth())
+		rowLocs[i] = bytesSliceToPointer(make([]byte, tuple._layout.rowWidth()))
+		if rowLocs[i] == nil {
+			panic("row loc is null")
+		}
+		if _, has := tuple._dedup[rowLocs[i]]; has {
+			panic("duplicate row location 2")
+		}
 		if tuple._layout.allConst() {
 			continue
 		}
-		initHeapSizes(rowLocs, heapSizes, cnt, tuple._layout.heapSizeOffset())
-		heapLocs[i] = make([]byte, heapSizes[i])
+		initHeapSizes(rowLocs, heapSizes, i, cnt, tuple._layout.heapSizeOffset())
+		heapLocs[i] = bytesSliceToPointer(make([]byte, heapSizes[i]))
 	}
 }
 
-func initHeapSizes(rowLocs [][]byte, heapSizes []uint64, cnt int, heapSizeOffset int) {
-	for i := 0; i < cnt; i++ {
-		heapSizes[i] = load[uint64](&rowLocs[i][heapSizeOffset])
-	}
+func initHeapSizes(rowLocs []unsafe.Pointer, heapSizes []uint64, row int, cnt int, heapSizeOffset int) {
+	//for i := 0; i < cnt; i++ {
+	heapSizes[row] = load[uint64](pointerAdd(rowLocs[row], heapSizeOffset))
+	//}
 }
 
 func (tuple *TupleDataCollection) computeHeapSizes(part *TuplePart, chunk *Chunk, cnt int) {
@@ -923,8 +994,8 @@ func TupleDataTemplatedScatter[T any](
 	srcSlice := getSliceInPhyFormatUnifiedFormat[T](srcFormat)
 	srcMask := srcFormat._mask
 
-	targetLocs := getSliceInPhyFormatFlat[[]byte](rowLocations)
-	targetHeapLocs := getSliceInPhyFormatFlat[[]byte](heapLocations)
+	targetLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
+	targetHeapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](heapLocations)
 	offsetInRow := layout.offsets()[colIdx]
 	if srcMask.AllValid() {
 		for i := 0; i < cnt; i++ {
@@ -938,7 +1009,8 @@ func TupleDataTemplatedScatter[T any](
 				TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, targetHeapLocs[i])
 			} else {
 				TupleDataValueStore[T](nVal.value(), targetLocs[i], offsetInRow, targetHeapLocs[i])
-				tempMask := Bitmap{_bits: targetLocs[i]}
+				bSlice := pointerToBytesSlice(targetLocs[i], layout._rowWidth)
+				tempMask := Bitmap{_bits: bSlice}
 				tempMask.setInvalidUnsafe(uint64(colIdx))
 			}
 		}
@@ -946,8 +1018,8 @@ func TupleDataTemplatedScatter[T any](
 
 }
 
-func TupleDataValueStore[T any](src T, rowLoc []byte, offsetInRow int, heapLoc []byte) {
-	store[T](src, &rowLoc[offsetInRow])
+func TupleDataValueStore[T any](src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc unsafe.Pointer) {
+	store[T](src, pointerAdd(rowLoc, offsetInRow))
 }
 
 func TupleDataTemplatedGatherSwitch(
@@ -985,19 +1057,20 @@ func TupleDataTemplatedGather[T any](
 	target *Vector,
 	targetSel *SelectVector,
 ) {
-	srcLocs := getSliceInPhyFormatFlat[*byte](rowLocs)
+	srcLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocs)
 	targetData := getSliceInPhyFormatFlat[T](target)
 	targetBitmap := getMaskInPhyFormatFlat(target)
 	entryIdx, idxInEntry := getEntryIndex(uint64(colIdx))
 	offsetInRow := layout.offsets()[colIdx]
 	for i := 0; i < scanCnt; i++ {
-		srcRow := toBytesSlice(srcLocs[scanSel.getIndex(i)], layout._rowWidth)
+		base := srcLocs[scanSel.getIndex(i)]
+		srcRow := pointerToBytesSlice(base, layout._rowWidth)
 		targetIdx := targetSel.getIndex(i)
 		rowMask := Bitmap{_bits: srcRow}
 		if rowIsValidInEntry(
 			rowMask.getEntry(entryIdx),
 			idxInEntry) {
-			targetData[targetIdx] = load[T](&srcRow[offsetInRow])
+			targetData[targetIdx] = load[T](pointerAdd(base, offsetInRow))
 		} else {
 			targetBitmap.setInvalid(uint64(targetIdx))
 		}

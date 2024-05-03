@@ -258,7 +258,7 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 				run.hjoin._ht.Finalize()
 				break
 			}
-			fmt.Println("build hash table", cnt)
+			//fmt.Println("build hash table", cnt)
 			cnt++
 			err = run.hjoin.Build(rightChunk)
 			if err != nil {

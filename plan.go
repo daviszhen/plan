@@ -106,6 +106,7 @@ const (
 	UNKNOWN
 	BIT
 	DATE
+	POINTER
 	INVALID
 )
 
@@ -130,6 +131,7 @@ var pTypeToStr = map[PhyType]string{
 	UNKNOWN:  "UNKNOWN",
 	BIT:      "BIT",
 	DATE:     "DATE",
+	POINTER:  "POINTER",
 	INVALID:  "INVALID",
 }
 
@@ -149,6 +151,7 @@ var (
 	intervalSize int
 	dateSize     int
 	varcharSize  int
+	pointerSize  int
 )
 
 func init() {
@@ -165,6 +168,8 @@ func init() {
 	dateSize = int(unsafe.Sizeof(dateVal))
 	varVal := String{}
 	varcharSize = int(unsafe.Sizeof(varVal))
+	p := unsafe.Pointer(&b)
+	pointerSize = int(unsafe.Sizeof(p))
 }
 
 func (pt PhyType) size() int {
@@ -205,6 +210,8 @@ func (pt PhyType) size() int {
 		panic("usp")
 	case DATE:
 		return dateSize
+	case POINTER:
+		return pointerSize
 	default:
 		panic("usp")
 	}

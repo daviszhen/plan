@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"unsafe"
 )
 
 type PhyFormat int
@@ -413,15 +412,6 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	default:
 		panic("usp")
 	}
-}
-
-func toSlice[T any](data []byte, pSize int) []T {
-	slen := len(data) / pSize
-	return unsafe.Slice((*T)(unsafe.Pointer(&data[0])), slen)
-}
-
-func toBytesSlice(data *byte, blen int) []byte {
-	return unsafe.Slice(data, blen)
 }
 
 // constant vector

@@ -1,5 +1,9 @@
 package main
 
+import (
+	"unsafe"
+)
+
 func Match(
 	columns *Chunk,
 	colData []*UnifiedFormat,
@@ -77,7 +81,7 @@ func TemplatedMatchOp(
 	}
 	colOffset := layout.offsets()[colNo]
 	switch predTyp {
-	case ET_Equal:
+	case ET_Equal, ET_In:
 		switch layout.types()[colNo].getInternalType() {
 		case INT32:
 			TemplatedMatchType[int32](
@@ -117,12 +121,12 @@ func TemplatedMatchType[T any](
 ) {
 	entryIdx, idxInEntry := getEntryIndex(uint64(colNo))
 	dataSlice := getSliceInPhyFormatUnifiedFormat[T](col)
-	ptrs := getSliceInPhyFormatFlat[*byte](rows)
+	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
 	matchCnt := 0
 	if !col._mask.AllValid() {
 		for i := 0; i < *cnt; i++ {
 			idx := sel.getIndex(i)
-			row := toBytesSlice(ptrs[idx], rowWidth)
+			row := pointerToBytesSlice(ptrs[idx], rowWidth)
 			mask := Bitmap{_bits: row}
 			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
 
@@ -138,7 +142,7 @@ func TemplatedMatchType[T any](
 					}
 				}
 			} else {
-				val := load[T](&row[colOffset])
+				val := load[T](pointerAdd(ptrs[idx], colOffset))
 				if !isNull &&
 					cmp.operation(&dataSlice[colIdx], &val) {
 					sel.setIndex(matchCnt, idx)
@@ -154,11 +158,11 @@ func TemplatedMatchType[T any](
 	} else {
 		for i := 0; i < *cnt; i++ {
 			idx := sel.getIndex(i)
-			row := toBytesSlice(ptrs[idx], rowWidth)
+			row := pointerToBytesSlice(ptrs[idx], rowWidth)
 			mask := Bitmap{_bits: row}
 			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
 			colIdx := col._sel.getIndex(idx)
-			val := load[T](&row[colOffset])
+			val := load[T](pointerAdd(ptrs[idx], colOffset))
 			if !isNull && cmp.operation(&dataSlice[colIdx], &val) {
 				sel.setIndex(matchCnt, idx)
 				matchCnt++
