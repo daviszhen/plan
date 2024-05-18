@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unsafe"
 )
 
 type PhyFormat int
@@ -828,6 +829,14 @@ func (c *Chunk) sliceItself(sel *SelectVector, cnt int) {
 	}
 }
 
+func (c *Chunk) Hash(result *Vector) {
+	assertFunc(result.typ().id == hashType().id)
+	HashTypeSwitch(c._data[0], result, nil, c.card(), false)
+	for i := 1; i < c.columnCount(); i++ {
+		CombineHashTypeSwitch(result, c._data[i], nil, c.card(), false)
+	}
+}
+
 type Value struct {
 	_typ    LType
 	_isNull bool
@@ -894,6 +903,26 @@ func booleanNullMask(left, right, result *Vector, count int, boolOp BooleanOp) {
 				res := boolOp.opWithoutNull(lSlice[lidx] > 0, rSlice[ridx] > 0)
 				target[i] = res
 			}
+		}
+	}
+}
+
+// AddInPlace left += delta
+func AddInPlace(input *Vector, right int64, cnt int) {
+	assertFunc(input.typ().id == LTID_POINTER)
+	if right == 0 {
+		return
+	}
+	switch input.phyFormat() {
+	case PF_CONST:
+		assertFunc(!isNullInPhyFormatConst(input))
+		data := getSliceInPhyFormatConst[unsafe.Pointer](input)
+		data[0] = pointerAdd(data[0], int(right))
+	default:
+		assertFunc(input.phyFormat().isFlat())
+		data := getSliceInPhyFormatFlat[unsafe.Pointer](input)
+		for i := 0; i < cnt; i++ {
+			data[i] = pointerAdd(data[i], int(right))
 		}
 	}
 }

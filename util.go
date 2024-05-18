@@ -308,6 +308,10 @@ func pointerToBytesSlice(base unsafe.Pointer, len int) []byte {
 	return unsafe.Slice((*byte)(base), len)
 }
 
+func pointerToSlice[T any](base unsafe.Pointer, len int) []T {
+	return unsafe.Slice((*T)(base), len)
+}
+
 func printPtrs(hint string, data []unsafe.Pointer) {
 	fmt.Printf(hint)
 	fmt.Printf(" ")

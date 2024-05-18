@@ -334,7 +334,7 @@ func NewJoinHashTable(conds []*Expr,
 	layoutTypes = append(layoutTypes, ht._buildTypes...)
 	layoutTypes = append(layoutTypes, hashType())
 	// init layout
-	ht._layout = NewTupleDataLayout(layoutTypes, false, true)
+	ht._layout = NewTupleDataLayout(layoutTypes, nil, false, true)
 	offsets := ht._layout.offsets()
 	ht._tupleSize = offsets[len(ht._keyTypes)+len(ht._buildTypes)]
 
@@ -663,9 +663,11 @@ type TupleDataLayout struct {
 
 	//offset to the heap size of each row
 	_heapSizeOffset int
+
+	_aggregates []*AggrObject
 }
 
-func NewTupleDataLayout(types []LType, align bool, needHeapOffset bool) *TupleDataLayout {
+func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needHeapOffset bool) *TupleDataLayout {
 	layout := &TupleDataLayout{
 		_types: copyLTypes(types...),
 	}
@@ -698,7 +700,11 @@ func NewTupleDataLayout(types []LType, align bool, needHeapOffset bool) *TupleDa
 
 	layout._dataWidth = layout._rowWidth - layout._bitmapWidth
 
-	//TODO: allocate aggr states
+	layout._aggregates = aggrObjs
+	for _, aggrObj := range aggrObjs {
+		layout._offsets = append(layout._offsets, layout._rowWidth)
+		layout._rowWidth += aggrObj._payloadSize
+	}
 
 	layout._aggWidth = layout._rowWidth - layout._dataWidth - layout._bitmapWidth
 
@@ -793,20 +799,47 @@ func (tuple *TupleDataCollection) Append(chunk *Chunk) {
 		heapLocations: NewVector(pointerType(), defaultVectorSize),
 		heapSizes:     NewVector(ubigintType(), defaultVectorSize),
 	}
-	tuple.toUnifiedFormat(part, chunk)
+	toUnifiedFormat(part, chunk)
 
 	//evaluate the heap size
 	if !tuple._layout.allConst() {
-		tuple.computeHeapSizes(part, chunk, chunk.card())
+		tuple.computeHeapSizes(part, chunk, incrSelectVectorInPhyFormatFlat(), chunk.card())
 	}
 
 	//allocate space for every row
 	tuple.buildBufferSpace(part, chunk.card())
 
 	//fill row
-	tuple.scatter(part, chunk, chunk.card())
+	tuple.scatter(part, chunk, incrSelectVectorInPhyFormatFlat(), chunk.card())
 
 	part._count = chunk.card()
+	tuple.savePart(part)
+}
+
+func (tuple *TupleDataCollection) AppendUnified(
+	part *TuplePart,
+	chunk *Chunk,
+	appendSel *SelectVector,
+	cnt int,
+) {
+	if cnt == -1 {
+		cnt = chunk.card()
+	}
+	if cnt == 0 {
+		return
+	}
+	//evaluate the heap size
+	if !tuple._layout.allConst() {
+		tuple.computeHeapSizes(part, chunk, appendSel, cnt)
+	}
+
+	//allocate space for every row
+	tuple.buildBufferSpace(part, cnt)
+
+	//fill row
+	tuple.scatter(part, chunk, appendSel, cnt)
+
+	part._count = cnt
 	tuple.savePart(part)
 }
 
@@ -825,7 +858,11 @@ func (tuple *TupleDataCollection) savePart(part *TuplePart) {
 	}
 }
 
-func (tuple *TupleDataCollection) scatter(part *TuplePart, chunk *Chunk, cnt int) {
+func (tuple *TupleDataCollection) scatter(
+	part *TuplePart,
+	chunk *Chunk,
+	appendSel *SelectVector,
+	cnt int) {
 	rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
 	//set bitmap
 	maskBytes := sizeInBytes(tuple._layout.columnCount())
@@ -841,7 +878,7 @@ func (tuple *TupleDataCollection) scatter(part *TuplePart, chunk *Chunk, cnt int
 		}
 	}
 	for i := 0; i < tuple._layout.columnCount(); i++ {
-		tuple.scatterVector(part, chunk._data[i], i, cnt)
+		tuple.scatterVector(part, chunk._data[i], i, appendSel, cnt)
 	}
 }
 
@@ -849,10 +886,12 @@ func (tuple *TupleDataCollection) scatterVector(
 	part *TuplePart,
 	src *Vector,
 	colIdx int,
+	appendSel *SelectVector,
 	cnt int) {
 	TupleDataTemplatedScatterSwitch(
 		src,
 		&part.data[colIdx],
+		appendSel,
 		cnt,
 		tuple._layout,
 		part.rowLocations,
@@ -860,9 +899,19 @@ func (tuple *TupleDataCollection) scatterVector(
 		colIdx)
 }
 
-func (tuple *TupleDataCollection) toUnifiedFormat(part *TuplePart, chunk *Chunk) {
+func toUnifiedFormat(part *TuplePart, chunk *Chunk) {
 	for i, vec := range chunk._data {
 		vec.toUnifiedFormat(chunk.card(), &part.data[i])
+	}
+}
+
+func getVectorData(part *TuplePart, result []*UnifiedFormat) {
+	vectorData := part.data
+	for i := 0; i < len(vectorData); i++ {
+		target := result[i]
+		target._sel = part.data[i]._sel
+		target._data = part.data[i]._data
+		target._mask = part.data[i]._mask
 	}
 }
 
@@ -893,14 +942,19 @@ func initHeapSizes(rowLocs []unsafe.Pointer, heapSizes []uint64, row int, cnt in
 	//}
 }
 
-func (tuple *TupleDataCollection) computeHeapSizes(part *TuplePart, chunk *Chunk, cnt int) {
+func (tuple *TupleDataCollection) computeHeapSizes(part *TuplePart, chunk *Chunk, appendSel *SelectVector, cnt int) {
 
 	for i := 0; i < chunk.columnCount(); i++ {
-		tuple.evaluateHeapSizes(part.heapSizes, chunk._data[i], &part.data[i], cnt)
+		tuple.evaluateHeapSizes(part.heapSizes, chunk._data[i], &part.data[i], appendSel, cnt)
 	}
 }
 
-func (tuple *TupleDataCollection) evaluateHeapSizes(sizes *Vector, src *Vector, srcUni *UnifiedFormat, cnt int) {
+func (tuple *TupleDataCollection) evaluateHeapSizes(
+	sizes *Vector,
+	src *Vector,
+	srcUni *UnifiedFormat,
+	appendSel *SelectVector,
+	cnt int) {
 	pTyp := src.typ().getInternalType()
 	switch pTyp {
 	case VARCHAR:
@@ -915,7 +969,7 @@ func (tuple *TupleDataCollection) evaluateHeapSizes(sizes *Vector, src *Vector, 
 	case VARCHAR:
 		srcSlice := getSliceInPhyFormatUnifiedFormat[String](srcUni)
 		for i := 0; i < cnt; i++ {
-			srcIdx := srcSel.getIndex(i)
+			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
 			if srcMask.rowIsValid(uint64(srcIdx)) {
 				heapSizeSlice[i] += uint64(srcSlice[srcIdx].len())
 			} else {
@@ -949,6 +1003,7 @@ func (tuple *TupleDataCollection) gather(
 func TupleDataTemplatedScatterSwitch(
 	src *Vector,
 	srcFormat *UnifiedFormat,
+	appendSel *SelectVector,
 	cnt int,
 	layout *TupleDataLayout,
 	rowLocations *Vector,
@@ -959,6 +1014,7 @@ func TupleDataTemplatedScatterSwitch(
 	case INT32:
 		TupleDataTemplatedScatter[int32](
 			srcFormat,
+			appendSel,
 			cnt,
 			layout,
 			rowLocations,
@@ -969,6 +1025,7 @@ func TupleDataTemplatedScatterSwitch(
 	case UINT64:
 		TupleDataTemplatedScatter[uint64](
 			srcFormat,
+			appendSel,
 			cnt,
 			layout,
 			rowLocations,
@@ -983,6 +1040,7 @@ func TupleDataTemplatedScatterSwitch(
 
 func TupleDataTemplatedScatter[T any](
 	srcFormat *UnifiedFormat,
+	appendSel *SelectVector,
 	cnt int,
 	layout *TupleDataLayout,
 	rowLocations *Vector,
@@ -999,12 +1057,12 @@ func TupleDataTemplatedScatter[T any](
 	offsetInRow := layout.offsets()[colIdx]
 	if srcMask.AllValid() {
 		for i := 0; i < cnt; i++ {
-			srcIdx := srcSel.getIndex(i)
+			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
 			TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, targetHeapLocs[i])
 		}
 	} else {
 		for i := 0; i < cnt; i++ {
-			srcIdx := srcSel.getIndex(i)
+			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
 			if srcMask.rowIsValid(uint64(srcIdx)) {
 				TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, targetHeapLocs[i])
 			} else {
