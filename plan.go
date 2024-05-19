@@ -381,6 +381,10 @@ func float() LType {
 	return makeLType(LTID_FLOAT)
 }
 
+func tinyint() LType {
+	return makeLType(LTID_TINYINT)
+}
+
 func smallint() LType {
 	return makeLType(LTID_SMALLINT)
 }
@@ -1455,6 +1459,7 @@ type Expr struct {
 	Typ     ET
 	SubTyp  ET_SubTyp
 	DataTyp ExprDataType
+	AggrTyp AggrType
 
 	Index       uint64
 	Database    string
@@ -1493,6 +1498,7 @@ func (e *Expr) copy() *Expr {
 		Typ:         e.Typ,
 		SubTyp:      e.SubTyp,
 		DataTyp:     e.DataTyp,
+		AggrTyp:     e.AggrTyp,
 		Index:       e.Index,
 		Database:    e.Database,
 		Table:       e.Table,

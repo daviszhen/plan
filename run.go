@@ -41,6 +41,9 @@ type Runner struct {
 	op    *PhysicalOperator
 	state *OperatorState
 
+	//for hash aggr
+	hAggr *HashAggr
+
 	//for hash join
 	hjoin    *HashJoin
 	joinKeys *Chunk
@@ -81,6 +84,8 @@ func (run *Runner) Init() error {
 		return run.projInit()
 	case POT_Join:
 		return run.joinInit()
+	case POT_Agg:
+		return run.aggrInit()
 	default:
 		panic("usp")
 	}
@@ -96,6 +101,8 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.projExec(output, state)
 	case POT_Join:
 		return run.joinExec(output, state)
+	case POT_Agg:
+		return run.aggrExec(output, state)
 	default:
 		panic("usp")
 	}
@@ -137,9 +144,75 @@ func (run *Runner) Close() error {
 		return run.projClose()
 	case POT_Join:
 		return run.joinClose()
+	case POT_Agg:
+		return run.aggrClose()
 	default:
 		panic("usp")
 	}
+	return nil
+}
+
+func (run *Runner) aggrInit() error {
+	if len(run.op.GroupBys) == 0 /*&& groupingSet*/ {
+		run.hAggr = NewHashAggr(
+			run.outputTypes,
+			run.op.Aggs,
+			nil,
+			nil,
+			nil,
+		)
+	} else {
+		run.hAggr = NewHashAggr(
+			run.outputTypes,
+			run.op.Aggs,
+			run.op.GroupBys,
+			nil,
+			nil,
+		)
+	}
+	return nil
+}
+
+func (run *Runner) extractAggrExprs(
+	aggregates []*Expr,
+	groups []*Expr,
+) {
+	//TODO:
+	//exprs := make([]*Expr, 0)
+
+	//rewrite group exprs to refer project
+
+}
+
+func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	var err error
+	var res OperatorResult
+	{
+		cnt := 0
+		for {
+			childChunk := &Chunk{}
+			res, err = run.execChild(run.children[0], childChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				break
+			}
+			fmt.Println("build aggr", cnt)
+			run.hAggr.Sink(childChunk)
+
+			cnt++
+		}
+	}
+
+	return Done, nil
+}
+
+func (run *Runner) aggrClose() error {
+	run.hAggr = nil
 	return nil
 }
 

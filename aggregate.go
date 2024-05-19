@@ -1,8 +1,349 @@
 package main
 
 import (
+	"math"
 	"unsafe"
 )
+
+type IntSet map[int]struct{}
+
+func (is IntSet) insert(id int) {
+	is[id] = struct{}{}
+}
+
+func (is IntSet) max() int {
+	maxKey := math.MinInt
+	for key, _ := range is {
+		maxKey = max(maxKey, key)
+	}
+	return maxKey
+}
+
+type GroupingSet map[int]struct{}
+
+func (gs GroupingSet) insert(id int) {
+	gs[id] = struct{}{}
+}
+
+func (gs GroupingSet) find(id int) bool {
+	_, ok := gs[id]
+	return ok
+}
+
+func (gs GroupingSet) empty() bool {
+	return len(gs) == 0
+}
+
+type GroupedAggrData struct {
+	_groups          []*Expr
+	_groupingFuncs   [][]int //GROUPING functions
+	_groupTypes      []LType
+	_aggregates      []*Expr
+	_payloadTypes    []LType
+	_aggrReturnTypes []LType
+	_bindings        []*Expr //pointer to aggregates
+}
+
+func (gad *GroupedAggrData) GroupCount() int {
+	return len(gad._groups)
+}
+
+func (gad *GroupedAggrData) InitGroupby(
+	groups []*Expr,
+	exprs []*Expr,
+	groupingFuncs [][]int,
+) {
+	gad.InitGroupbyGroups(groups)
+	gad.SetGroupingFuncs(groupingFuncs)
+
+	//aggr exprs
+	for _, aggr := range exprs {
+		gad._bindings = append(gad._bindings, aggr)
+		gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp.LTyp)
+		for _, child := range aggr.Children {
+			gad._payloadTypes = append(gad._payloadTypes, child.DataTyp.LTyp)
+		}
+		gad._aggregates = append(gad._aggregates, aggr)
+	}
+}
+
+func (gad *GroupedAggrData) InitDistinct(
+	aggr *Expr,
+	groups []*Expr,
+) {
+	gad.InitDistinctGroups(groups)
+	gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp.LTyp)
+	for _, child := range aggr.Children {
+		gad._groupTypes = append(gad._groupTypes, child.DataTyp.LTyp)
+		gad._groups = append(gad._groups, child.copy())
+		gad._payloadTypes = append(gad._payloadTypes, child.DataTyp.LTyp)
+	}
+}
+
+func (gad *GroupedAggrData) InitDistinctGroups(
+	groups []*Expr,
+) {
+	if len(groups) == 0 {
+		return
+	}
+
+	for _, group := range groups {
+		gad._groupTypes = append(gad._groupTypes, group.DataTyp.LTyp)
+		gad._groups = append(gad._groups, group.copy())
+	}
+}
+
+func (gad *GroupedAggrData) SetGroupingFuncs(funcs [][]int) {
+	gad._groupingFuncs = funcs
+}
+
+func (gad *GroupedAggrData) InitGroupbyGroups(groups []*Expr) {
+	for _, g := range groups {
+		gad._groupTypes = append(gad._groupTypes, g.DataTyp.LTyp)
+	}
+	gad._groups = groups
+}
+
+type HashAggrGroupingData struct {
+	_tableData    *RadixPartitionedHashTable
+	_distinctData *DistinctAggrData
+}
+
+func NewHashAggrGroupingData(
+	groupingSet GroupingSet,
+	aggrData *GroupedAggrData,
+	info *DistinctAggrCollectionInfo,
+) *HashAggrGroupingData {
+	ret := &HashAggrGroupingData{}
+	ret._tableData = NewRadixPartitionedHashTable(groupingSet, aggrData)
+	if info != nil {
+		ret._distinctData = NewDistinctAggrData(info, groupingSet, aggrData._groups)
+	}
+
+	return ret
+}
+
+type DistinctAggrData struct {
+	_groupedAggrData []*GroupedAggrData
+	_radixTables     []*RadixPartitionedHashTable
+	_groupingSets    []GroupingSet
+	_info            *DistinctAggrCollectionInfo
+}
+
+func NewDistinctAggrData(
+	info *DistinctAggrCollectionInfo,
+	groups GroupingSet,
+	groupExprs []*Expr,
+) *DistinctAggrData {
+	ret := new(DistinctAggrData)
+	ret._info = info
+
+	ret._groupedAggrData = make([]*GroupedAggrData, info._tableCount)
+	ret._radixTables = make([]*RadixPartitionedHashTable, info._tableCount)
+	ret._groupingSets = make([]GroupingSet, info._tableCount)
+	for i := 0; i < len(ret._groupingSets); i++ {
+		ret._groupingSets[i] = make(GroupingSet)
+	}
+
+	//init hash table
+	for _, index := range info._indices {
+		aggr := info._aggregates[index]
+		if _, ok := info._tableMap[index]; !ok {
+			panic("no such index in table map")
+		}
+		tableIdx := info._tableMap[index]
+		if ret._radixTables[tableIdx] != nil {
+			continue
+		}
+		groupingSet := ret._groupingSets[tableIdx]
+		for group, _ := range groups {
+			groupingSet.insert(group)
+		}
+
+		groupBySize := len(groupExprs)
+		for gIdx := 0; gIdx < len(aggr.Children); gIdx++ {
+			groupingSet.insert(gIdx + groupBySize)
+		}
+
+		//create hash table
+		ret._groupedAggrData[tableIdx] = &GroupedAggrData{}
+		ret._groupedAggrData[tableIdx].InitDistinct(aggr, groupExprs)
+		ret._radixTables[tableIdx] = NewRadixPartitionedHashTable(groupingSet, ret._groupedAggrData[tableIdx])
+	}
+
+	return ret
+}
+
+type DistinctAggrCollectionInfo struct {
+	_indices         []int //distinct aggr indice
+	_tableCount      int
+	_tableIndices    []int
+	_tableMap        map[int]int
+	_aggregates      []*Expr
+	_totalChildCount int
+}
+
+func (daci *DistinctAggrCollectionInfo) CreateTableIndexMap() int {
+	//create table for every distinct aggr
+	//some aggrs may share same table
+	tableInputs := make([]*Expr, 0)
+	for _, aggrIdx := range daci._indices {
+		aggr := daci._aggregates[aggrIdx]
+		found := findIf[*Expr](tableInputs, func(t *Expr) bool {
+			if len(aggr.Children) != len(t.Children) {
+				return false
+			}
+			for i := 0; i < len(aggr.Children); i++ {
+				child := aggr.Children[i]
+				oChild := t.Children[i]
+				if child.ColRef.column() != oChild.ColRef.column() {
+					return false
+				}
+			}
+			return true
+		})
+		if found != -1 {
+			daci._tableMap[aggrIdx] = found
+			continue
+		}
+		daci._tableMap[aggrIdx] = len(tableInputs)
+		tableInputs = append(tableInputs, aggr)
+	}
+	assertFunc(len(daci._tableMap) == len(daci._indices))
+	assertFunc(len(tableInputs) <= len(daci._indices))
+
+	return len(tableInputs)
+}
+
+func NewDistinctAggrCollectionInfo(
+	aggregates []*Expr,
+	indices []int,
+) *DistinctAggrCollectionInfo {
+	ret := &DistinctAggrCollectionInfo{}
+	ret._indices = indices
+	ret._aggregates = aggregates
+	ret._tableCount = ret.CreateTableIndexMap()
+
+	for _, aggr := range aggregates {
+		if aggr.AggrTyp == NON_DISTINCT {
+			continue
+		}
+		ret._totalChildCount += len(aggr.Children)
+	}
+
+	return ret
+}
+
+func GetDistinctIndices(aggregates []*Expr) []int {
+	indices := make([]int, 0)
+	for i, aggr := range aggregates {
+		if aggr.AggrTyp == NON_DISTINCT {
+			continue
+		}
+		indices = append(indices, i)
+	}
+	return indices
+}
+
+func CreateDistinctAggrCollectionInfo(aggregates []*Expr) *DistinctAggrCollectionInfo {
+	indices := GetDistinctIndices(aggregates)
+	if len(indices) == 0 {
+		return nil
+	}
+	return NewDistinctAggrCollectionInfo(aggregates, indices)
+}
+
+type HashAggr struct {
+	_types                  []LType
+	_groupedAggrData        *GroupedAggrData
+	_groupingSets           []GroupingSet
+	_groupings              []*HashAggrGroupingData
+	_distinctCollectionInfo *DistinctAggrCollectionInfo
+	_inputGroupTypes        []LType
+	_nonDistinctFilter      []int
+	_distinctFilter         []int
+}
+
+func NewHashAggr(
+	types []LType,
+	aggrExprs []*Expr,
+	groups []*Expr,
+	groupingSets []GroupingSet,
+	groupingFuncs [][]int,
+) *HashAggr {
+	ha := &HashAggr{}
+	ha._types = types
+	ha._groupingSets = groupingSets
+
+	//prepare grouping sets
+	if len(ha._groupingSets) == 0 {
+		set := make(GroupingSet)
+		for i := 0; i < len(groups); i++ {
+			set.insert(i)
+		}
+		ha._groupingSets = append(ha._groupingSets, set)
+	}
+
+	//prepare input group types
+	ha._inputGroupTypes = createGroupChunkTypes(groups)
+
+	//prepare grouped aggr data
+	ha._groupedAggrData = &GroupedAggrData{}
+	ha._groupedAggrData.InitGroupby(groups, aggrExprs, groupingFuncs)
+
+	//prepare distinct or non-distinct filter
+	for i, aggr := range ha._groupedAggrData._aggregates {
+		if aggr.AggrTyp == DISTINCT {
+			ha._distinctFilter = append(ha._distinctFilter, i)
+		} else if aggr.AggrTyp == NON_DISTINCT {
+			ha._nonDistinctFilter = append(ha._nonDistinctFilter, i)
+		}
+	}
+
+	ha._distinctCollectionInfo = CreateDistinctAggrCollectionInfo(ha._groupedAggrData._aggregates)
+
+	for i := 0; i < len(ha._groupingSets); i++ {
+		ha._groupings = append(ha._groupings,
+			NewHashAggrGroupingData(
+				ha._groupingSets[i],
+				ha._groupedAggrData,
+				ha._distinctCollectionInfo))
+	}
+
+	return ha
+}
+
+// TODO: add project on aggregate
+func createGroupChunkTypes(groups []*Expr) []LType {
+	if len(groups) == 0 {
+		return nil
+	}
+	groupIndices := make(IntSet)
+	for _, group := range groups {
+		groupIndices.insert(int(group.ColRef.column()))
+	}
+	maxIdx := groupIndices.max()
+	assertFunc(maxIdx >= 0)
+	types := make([]LType, maxIdx+1)
+	for i := 0; i < len(types); i++ {
+		types[i] = null()
+	}
+	for _, group := range groups {
+		types[group.ColRef.column()] = group.DataTyp.LTyp
+	}
+	return types
+}
+
+func (haggr *HashAggr) Sink(chunk *Chunk) {
+	if haggr._distinctCollectionInfo != nil {
+		panic("usp")
+	}
+	//TODO: evaluate groupby exprs
+	//TODO: evaluate payload (param exprs of aggrs)
+	for _, grouping := range haggr._groupings {
+		grouping._tableData.Sink(chunk, haggr._nonDistinctFilter)
+	}
+}
 
 const (
 	LOAD_FACTOR = 1.5
@@ -38,7 +379,101 @@ type AggrHTAppendState struct {
 	_chunkState         *TuplePart
 }
 
-type AggrHashTable struct {
+func NewAggrHTAppendState() *AggrHTAppendState {
+	ret := new(AggrHTAppendState)
+	ret._htOffsets = NewFlatVector(bigint(), defaultVectorSize)
+	ret._hashSalts = NewFlatVector(smallint(), defaultVectorSize)
+	ret._groupCompareVector = NewSelectVector(defaultVectorSize)
+	ret._noMatchVector = NewSelectVector(defaultVectorSize)
+	ret._emptyVector = NewSelectVector(defaultVectorSize)
+	ret._newGroups = NewSelectVector(defaultVectorSize)
+	ret._addresses = NewVector(pointerType(), defaultVectorSize)
+	return ret
+}
+
+type RadixPartitionedHashTable struct {
+	_groupingSet     GroupingSet
+	_nullGroups      []int
+	_groupedAggrData *GroupedAggrData
+	_groupTypes      []LType
+	_radixLimit      int
+	_groupingValues  []*Value
+	_finalizedHT     *GroupedAggrHashTable
+}
+
+func NewRadixPartitionedHashTable(
+	groupingSet GroupingSet,
+	aggrData *GroupedAggrData,
+) *RadixPartitionedHashTable {
+	ret := new(RadixPartitionedHashTable)
+	ret._groupingSet = groupingSet
+	ret._groupedAggrData = aggrData
+
+	for i := 0; i < aggrData.GroupCount(); i++ {
+		if !ret._groupingSet.find(i) {
+			ret._nullGroups = append(ret._nullGroups, i)
+		}
+	}
+
+	ret._radixLimit = 10000
+
+	if ret._groupingSet.empty() {
+		ret._groupTypes = append(ret._groupTypes, tinyint())
+	}
+
+	for ent, _ := range ret._groupingSet {
+		assertFunc(ent < len(ret._groupedAggrData._groupTypes))
+		ret._groupTypes = append(ret._groupTypes,
+			ret._groupedAggrData._groupTypes[ent])
+	}
+	ret.SetGroupingValues()
+	return ret
+}
+
+func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
+	groupFuncs := rpht._groupedAggrData._groupingFuncs
+	for _, group := range groupFuncs {
+		assertFunc(len(group) < 64)
+		for i, gval := range group {
+			groupingValue := int64(0)
+			if !rpht._groupingSet.find(gval) {
+				//do not group on this value
+				groupingValue += 1 << (len(group) - (i + 1))
+			}
+			rpht._groupingValues = append(rpht._groupingValues,
+				&Value{
+					_typ: bigint(),
+					_i64: groupingValue,
+				})
+		}
+
+	}
+}
+
+func (rpht *RadixPartitionedHashTable) Sink(chunk *Chunk, filter []int) {
+	if rpht._finalizedHT == nil {
+		//prepare aggr objs
+		aggrObjs := CreateAggrObjects(rpht._groupedAggrData._bindings)
+
+		rpht._finalizedHT = NewGroupedAggrHashTable(
+			rpht._groupTypes,
+			rpht._groupedAggrData._payloadTypes,
+			aggrObjs,
+			2*defaultVectorSize,
+		)
+	}
+
+	//TODO:fix payload
+	state := NewAggrHTAppendState()
+	rpht._finalizedHT.AddChunk2(
+		state,
+		chunk,
+		nil,
+		filter,
+	)
+}
+
+type GroupedAggrHashTable struct {
 	_layout       *TupleDataLayout
 	_payloadTypes []LType
 
@@ -58,7 +493,7 @@ type AggrHashTable struct {
 type AggrType int
 
 const (
-	NON_DISTINCT AggrType = iota + 1
+	NON_DISTINCT AggrType = iota
 	DISTINCT
 )
 
@@ -68,6 +503,25 @@ type AggrObject struct {
 	_payloadSize int
 	_aggrType    AggrType
 	_retType     PhyType
+}
+
+func NewAggrObject(aggr *Expr) *AggrObject {
+	assertFunc(aggr.SubTyp == ET_SubFunc)
+	ret := new(AggrObject)
+	ret._func = nil //TODO: fix me
+	ret._childCount = len(aggr.Children)
+	ret._payloadSize = 0 //TOOD: fix me
+	ret._aggrType = aggr.AggrTyp
+	ret._retType = aggr.DataTyp.LTyp.getInternalType()
+	return ret
+}
+
+func CreateAggrObjects(aggregates []*Expr) []*AggrObject {
+	ret := make([]*AggrObject, 0)
+	for _, aggr := range aggregates {
+		ret = append(ret, NewAggrObject(aggr))
+	}
+	return ret
 }
 
 type AggrInputData struct {
@@ -91,13 +545,13 @@ type AggrFunc struct {
 	_window       aggrWindow
 }
 
-func NewAggrHashTable(
+func NewGroupedAggrHashTable(
 	groupTypes []LType,
 	payloadTypes []LType,
 	aggrObjs []*AggrObject,
 	initCap int,
-) *AggrHashTable {
-	ret := new(AggrHashTable)
+) *GroupedAggrHashTable {
+	ret := new(GroupedAggrHashTable)
 	//hash column in the end of tuple
 	groupTypes = append(groupTypes, hashType())
 	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, false, true)
@@ -118,10 +572,11 @@ func NewAggrHashTable(
 	return ret
 }
 
-func (aht *AggrHashTable) AddChunk2(
+func (aht *GroupedAggrHashTable) AddChunk2(
 	state *AggrHTAppendState,
 	groups *Chunk,
 	payload *Chunk,
+	filter []int,
 ) int {
 	hashes := NewFlatVector(hashType(), defaultVectorSize)
 	groups.Hash(hashes)
@@ -131,14 +586,17 @@ func (aht *AggrHashTable) AddChunk2(
 		groups,
 		hashes,
 		payload,
+		filter,
 	)
 }
 
-func (aht *AggrHashTable) AddChunk(
+func (aht *GroupedAggrHashTable) AddChunk(
 	state *AggrHTAppendState,
 	groups *Chunk,
 	groupHashes *Vector,
-	payload *Chunk) int {
+	payload *Chunk,
+	filter []int,
+) int {
 	assertFunc(!aht._finalized)
 	if groups.card() == 0 {
 		return 0
@@ -152,8 +610,15 @@ func (aht *AggrHashTable) AddChunk(
 		state._newGroups)
 	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.card())
 
+	filterIdx := 0
 	payloadIdx := 0
-	for _, aggr := range aht._layout._aggregates {
+	for i, aggr := range aht._layout._aggregates {
+		if filterIdx >= len(filter) || i < filter[filterIdx] {
+			payloadIdx += aggr._childCount
+			AddInPlace(state._addresses, int64(aggr._payloadSize), payload.card())
+			continue
+		}
+		assertFunc(i == filter[filterIdx])
 		UpdateStates(
 			aggr,
 			state._addresses,
@@ -167,7 +632,7 @@ func (aht *AggrHashTable) AddChunk(
 	return newGroupCount
 }
 
-func (aht *AggrHashTable) FindOrCreateGroups(
+func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	state *AggrHTAppendState,
 	groups *Chunk,
 	groupHashes *Vector,
@@ -217,6 +682,10 @@ func (aht *AggrHashTable) FindOrCreateGroups(
 
 	state._groupChunk._data[groups.columnCount()].reference(groupHashes)
 	state._groupChunk.setCard(groups.card())
+
+	if state._chunkState == nil {
+		state._chunkState = NewTuplePart(aht._layout.columnCount())
+	}
 
 	toUnifiedFormat(state._chunkState, state._groupChunk)
 
@@ -325,7 +794,7 @@ func (aht *AggrHashTable) FindOrCreateGroups(
 	return newGroupCount
 }
 
-func (aht *AggrHashTable) Resize(size int) {
+func (aht *GroupedAggrHashTable) Resize(size int) {
 	assertFunc(!aht._finalized)
 	assertFunc(size >= defaultVectorSize)
 	assertFunc(isPowerOfTwo(uint64(size)))
@@ -343,11 +812,11 @@ func (aht *AggrHashTable) Resize(size int) {
 	}
 }
 
-func (aht *AggrHashTable) Count() int {
+func (aht *GroupedAggrHashTable) Count() int {
 	return aht._dataCollection.Count()
 }
 
-func (aht *AggrHashTable) ResizeThreshold() int {
+func (aht *GroupedAggrHashTable) ResizeThreshold() int {
 	return int(float32(aht._capacity) / LOAD_FACTOR)
 }
 

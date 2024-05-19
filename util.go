@@ -320,3 +320,12 @@ func printPtrs(hint string, data []unsafe.Pointer) {
 	}
 	fmt.Println()
 }
+
+func findIf[T ~*Expr | ~string | ~int](data []T, pred func(t T) bool) int {
+	for i, ele := range data {
+		if pred(ele) {
+			return i
+		}
+	}
+	return -1
+}

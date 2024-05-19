@@ -108,7 +108,7 @@ func (buf *VecBuffer) getSelVector() *SelectVector {
 }
 
 const (
-	defaultVectorSize = 5
+	defaultVectorSize = 8
 )
 
 type Vector struct {

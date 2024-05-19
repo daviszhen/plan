@@ -779,6 +779,16 @@ type TuplePart struct {
 	_count        int
 }
 
+func NewTuplePart(cnt int) *TuplePart {
+	ret := &TuplePart{
+		data:          make([]UnifiedFormat, cnt),
+		rowLocations:  NewVector(pointerType(), defaultVectorSize),
+		heapLocations: NewVector(pointerType(), defaultVectorSize),
+		heapSizes:     NewVector(ubigintType(), defaultVectorSize),
+	}
+	return ret
+}
+
 func NewTupleDataCollection(layout *TupleDataLayout) *TupleDataCollection {
 	ret := &TupleDataCollection{
 		_layout: layout.copy(),
@@ -793,12 +803,7 @@ func (tuple *TupleDataCollection) Count() int {
 
 func (tuple *TupleDataCollection) Append(chunk *Chunk) {
 	//to unified format
-	part := &TuplePart{
-		data:          make([]UnifiedFormat, chunk.columnCount()),
-		rowLocations:  NewVector(pointerType(), defaultVectorSize),
-		heapLocations: NewVector(pointerType(), defaultVectorSize),
-		heapSizes:     NewVector(ubigintType(), defaultVectorSize),
-	}
+	part := NewTuplePart(chunk.columnCount())
 	toUnifiedFormat(part, chunk)
 
 	//evaluate the heap size
