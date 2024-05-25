@@ -548,6 +548,13 @@ func CreateAggrObjects(aggregates []*Expr) []*AggrObject {
 type AggrInputData struct {
 }
 
+type AggrFinalizeData struct {
+}
+
+func (*AggrFinalizeData) ReturnNull() {
+
+}
+
 type aggrStateSize func() int
 type aggrInit func(pointer unsafe.Pointer)
 type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
