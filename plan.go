@@ -70,9 +70,8 @@ type Hugeint struct {
 	_upper int64
 }
 
-func (h *Hugeint) Add(o *Hugeint) {
-	//TODO:
-}
+func (h *Hugeint) Add(o, s *Hugeint) {}
+func (h *Hugeint) Mul(o, s *Hugeint) {}
 
 type nullValue[T any] interface {
 	value() T

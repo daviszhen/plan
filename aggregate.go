@@ -548,6 +548,20 @@ func CreateAggrObjects(aggregates []*Expr) []*AggrObject {
 type AggrInputData struct {
 }
 
+type AggrUnaryInput struct {
+	_input     *AggrInputData
+	_inputMask *Bitmap
+	_inputIdx  int
+}
+
+func NewAggrUnaryInput(input *AggrInputData, mask *Bitmap) *AggrUnaryInput {
+	return &AggrUnaryInput{
+		_input:     input,
+		_inputMask: mask,
+		_inputIdx:  0,
+	}
+}
+
 type AggrFinalizeData struct {
 }
 

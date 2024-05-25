@@ -10,52 +10,48 @@ func StateSize[T any, STATE State[T]]() int {
 	return int(size)
 }
 
-func StateInit[T any, STATE State[T], OP AggrOp[T]](
-	pointer unsafe.Pointer,
-	aop AggrOp[T],
-	sop StateOp[T],
-) {
-	aop.Init(*(*STATE)(pointer), sop)
-}
-
-func UnaryScatterUpdate[T any, STATE State[T], InputT any, OP AggrOp[T]]([]*Vector, *AggrInputData, int, *Vector, int) {
-
-}
-
-func StateCombine[T any, STATE State[T], OP AggrOp[T]](*Vector, *Vector, *AggrInputData, int) {}
-
-func StateFinalize[T any, STATE State[T], ResultT any, OP AggrOp[T]](*Vector, *AggrInputData, *Vector, int, int) {
-}
-
-func UnaryUpdate[T any, STATE State[T], InputT any, OP AggrOp[T]]([]*Vector, *AggrInputData, int, unsafe.Pointer, int) {
-
-}
-
-func UnaryAggregate[T any, STATE State[T], InputT any, ResultT any, OP AggrOp[T]](
+func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	inputTyp LType,
 	retTyp LType,
 	nullHandling FuncNullHandling,
+	aop AggrOp[ResultT, InputT],
+	sop StateOp[ResultT],
+	addOp AddOp[ResultT, InputT],
+	top TypeOp[ResultT],
 ) *AggrFunc {
+	var init aggrInit
+	var update aggrUpdate
+	init = func(pointer unsafe.Pointer) {
+		aop.Init(*(*STATE)(pointer), sop)
+	}
+	update = func(inputs []*Vector, data *AggrInputData, inputCount int, states *Vector, count int) {
+		assertFunc(inputCount == 1)
+		UnaryScatter[ResultT, STATE, InputT, OP](inputs[0], states, data, count, aop, sop, addOp, top)
+	}
 	return &AggrFunc{
 		_args:         []LType{inputTyp},
 		_retType:      retTyp,
-		_stateSize:    StateSize[T, STATE],
-		_init:         StateInit[T, STATE, OP],
-		_update:       UnaryScatterUpdate[T, STATE, InputT, OP],
-		_combine:      StateCombine[T, STATE, OP],
-		_finalize:     StateFinalize[T, STATE, ResultT, OP],
+		_stateSize:    StateSize[ResultT, STATE],
+		_init:         init,
+		_update:       update,
+		_combine:      nil,
+		_finalize:     nil,
 		_nullHandling: nullHandling,
-		_simpleUpdate: UnaryUpdate[T, STATE, InputT, OP],
+		_simpleUpdate: nil,
 	}
 }
 
 func GetSumAggr(pTyp PhyType) *AggrFunc {
 	switch pTyp {
 	case INT32:
-		fun := UnaryAggregate[Hugeint, *SumState[Hugeint], int32, Hugeint, SumOp[Hugeint]](
+		fun := UnaryAggregate[Hugeint, *SumState[Hugeint], int32, SumOp[Hugeint, int32]](
 			integer(),
 			hugeint(),
 			DEFAULT_NULL_HANDLING,
+			SumOp[Hugeint, int32]{},
+			&SumStateOp[Hugeint]{},
+			&HugeintAdd{},
+			&Hugeint{},
 		)
 		return fun
 	default:
@@ -113,17 +109,17 @@ type StateOp[T any] interface {
 	AddValues(State[T], int)
 }
 
-type AddOp[T any] interface {
-	AddNumber(State[T], *T, TypeOp[T])
-	AddConstant(State[T], *T, int, TypeOp[T])
+type AddOp[ResultT any, InputT any] interface {
+	AddNumber(State[ResultT], *InputT, TypeOp[ResultT])
+	AddConstant(State[ResultT], *InputT, int, TypeOp[ResultT])
 }
 
-type AggrOp[T any] interface {
-	Init(State[T], StateOp[T])
-	Combine(State[T], State[T], *AggrInputData, StateOp[T], TypeOp[T])
-	Operation(State[T], *T, *AggrInputData, StateOp[T], AddOp[T], TypeOp[T])
-	ConstantOperation(State[T], *T, *AggrInputData, int, StateOp[T], AddOp[T], TypeOp[T])
-	Finalize(State[T], *T, *AggrFinalizeData)
+type AggrOp[ResultT any, InputT any] interface {
+	Init(State[ResultT], StateOp[ResultT])
+	Combine(State[ResultT], State[ResultT], *AggrInputData, StateOp[ResultT], TypeOp[ResultT])
+	Operation(State[ResultT], *InputT, *AggrUnaryInput, StateOp[ResultT], AddOp[ResultT, InputT], TypeOp[ResultT])
+	ConstantOperation(State[ResultT], *InputT, *AggrUnaryInput, int, StateOp[ResultT], AddOp[ResultT, InputT], TypeOp[ResultT])
+	Finalize(State[ResultT], *ResultT, *AggrFinalizeData)
 	IgnoreNull() bool
 }
 
@@ -143,39 +139,39 @@ func (SumStateOp[T]) AddValues(s State[T], _ int) {
 type HugeintAdd struct {
 }
 
-func (*HugeintAdd) AddNumber(State[Hugeint], *Hugeint, TypeOp[Hugeint]) {}
+func (*HugeintAdd) AddNumber(State[Hugeint], *int32, TypeOp[Hugeint]) {}
 
-func (*HugeintAdd) AddConstant(State[Hugeint], *Hugeint, int, TypeOp[Hugeint]) {
+func (*HugeintAdd) AddConstant(State[Hugeint], *int32, int, TypeOp[Hugeint]) {
 
 }
 
-type SumOp[T any] struct {
+type SumOp[ResultT any, InputT any] struct {
 }
 
-func (s SumOp[T]) Init(s2 State[T], sop StateOp[T]) {
-	var val T
+func (s SumOp[ResultT, InputT]) Init(s2 State[ResultT], sop StateOp[ResultT]) {
+	var val ResultT
 	s2.SetValue(val)
 	sop.Init(s2)
 }
 
-func (s SumOp[T]) Combine(src State[T], target State[T], data *AggrInputData,
-	sop StateOp[T], top TypeOp[T]) {
+func (s SumOp[ResultT, InputT]) Combine(src State[ResultT], target State[ResultT], data *AggrInputData,
+	sop StateOp[ResultT], top TypeOp[ResultT]) {
 	sop.Combine(src, target, data, top)
 }
 
-func (s SumOp[T]) Operation(s3 State[T], input *T, data *AggrInputData,
-	sop StateOp[T], aop AddOp[T], top TypeOp[T]) {
+func (s SumOp[ResultT, InputT]) Operation(s3 State[ResultT], input *InputT, data *AggrUnaryInput,
+	sop StateOp[ResultT], aop AddOp[ResultT, InputT], top TypeOp[ResultT]) {
 	sop.AddValues(s3, 1)
 	aop.AddNumber(s3, input, top)
 }
 
-func (s SumOp[T]) ConstantOperation(s3 State[T], input *T, data *AggrInputData, count int,
-	sop StateOp[T], aop AddOp[T], top TypeOp[T]) {
+func (s SumOp[ResultT, InputT]) ConstantOperation(s3 State[ResultT], input *InputT, data *AggrUnaryInput, count int,
+	sop StateOp[ResultT], aop AddOp[ResultT, InputT], top TypeOp[ResultT]) {
 	sop.AddValues(s3, count)
 	aop.AddConstant(s3, input, count, top)
 }
 
-func (s SumOp[T]) Finalize(s3 State[T], target *T, data *AggrFinalizeData) {
+func (s SumOp[ResultT, InputT]) Finalize(s3 State[ResultT], target *ResultT, data *AggrFinalizeData) {
 	if s3.Isset() {
 		data.ReturnNull()
 	} else {
@@ -183,6 +179,31 @@ func (s SumOp[T]) Finalize(s3 State[T], target *T, data *AggrFinalizeData) {
 	}
 }
 
-func (s SumOp[T]) IgnoreNull() bool {
+func (s SumOp[ResultT, InputT]) IgnoreNull() bool {
 	return true
+}
+
+func UnaryScatter[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
+	input *Vector,
+	states *Vector,
+	data *AggrInputData,
+	count int,
+	aop AggrOp[ResultT, InputT],
+	sop StateOp[ResultT],
+	addOp AddOp[ResultT, InputT],
+	top TypeOp[ResultT],
+) {
+	if input.phyFormat().isConst() && states.phyFormat().isConst() {
+		if aop.IgnoreNull() && isNullInPhyFormatConst(input) {
+			return
+		}
+		inputSlice := getSliceInPhyFormatConst[InputT](input)
+		statesSlice := getSliceInPhyFormatConst[STATE](states)
+		inputData := NewAggrUnaryInput(data, getMaskInPhyFormatConst(input))
+		aop.ConstantOperation(statesSlice[0], &inputSlice[0], inputData, count, sop, addOp, top)
+	} else if input.phyFormat().isFlat() && states.phyFormat().isFlat() {
+		//TODO:
+	} else {
+		//TODO:
+	}
 }
