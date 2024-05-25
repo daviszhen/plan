@@ -11,6 +11,9 @@ import (
 )
 
 type OperatorState struct {
+	//for aggregate
+	groupExec *ExprExec
+
 	//for scan
 	exec    *ExprExec
 	sel     *SelectVector
@@ -153,6 +156,7 @@ func (run *Runner) Close() error {
 }
 
 func (run *Runner) aggrInit() error {
+	run.state = &OperatorState{}
 	if len(run.op.GroupBys) == 0 /*&& groupingSet*/ {
 		run.hAggr = NewHashAggr(
 			run.outputTypes,
@@ -169,6 +173,11 @@ func (run *Runner) aggrInit() error {
 			nil,
 			nil,
 		)
+		//groupby exprs + param exprs of aggr functions
+		groupExprs := make([]*Expr, 0)
+		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._groups...)
+		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._paramExprs...)
+		run.state.groupExec = NewExprExec(groupExprs...)
 	}
 	return nil
 }
@@ -201,8 +210,21 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			if res == Done {
 				break
 			}
+			if childChunk.card() == 0 {
+				continue
+			}
 			fmt.Println("build aggr", cnt)
-			run.hAggr.Sink(childChunk)
+
+			typs := make([]LType, 0)
+			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
+			typs = append(typs, run.hAggr._groupedAggrData._payloadTypes...)
+			groupChunk := &Chunk{}
+			groupChunk.init(typs, defaultVectorSize)
+			err = run.state.groupExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
+			if err != nil {
+				return InvalidOpResult, err
+			}
+			run.hAggr.Sink(groupChunk)
 
 			cnt++
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"sort"
 	"unsafe"
 )
 
@@ -33,6 +34,14 @@ func (gs GroupingSet) find(id int) bool {
 func (gs GroupingSet) empty() bool {
 	return len(gs) == 0
 }
+func (gs GroupingSet) ordered() []int {
+	ret := make([]int, 0, len(gs))
+	for id := range gs {
+		ret = append(ret, id)
+	}
+	sort.Ints(ret)
+	return ret
+}
 
 type GroupedAggrData struct {
 	_groups          []*Expr
@@ -40,6 +49,7 @@ type GroupedAggrData struct {
 	_groupTypes      []LType
 	_aggregates      []*Expr
 	_payloadTypes    []LType
+	_paramExprs      []*Expr //param exprs of the aggr function
 	_aggrReturnTypes []LType
 	_bindings        []*Expr //pointer to aggregates
 }
@@ -62,6 +72,7 @@ func (gad *GroupedAggrData) InitGroupby(
 		gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp.LTyp)
 		for _, child := range aggr.Children {
 			gad._payloadTypes = append(gad._payloadTypes, child.DataTyp.LTyp)
+			gad._paramExprs = append(gad._paramExprs, child)
 		}
 		gad._aggregates = append(gad._aggregates, aggr)
 	}
@@ -338,10 +349,15 @@ func (haggr *HashAggr) Sink(chunk *Chunk) {
 	if haggr._distinctCollectionInfo != nil {
 		panic("usp")
 	}
-	//TODO: evaluate groupby exprs
-	//TODO: evaluate payload (param exprs of aggrs)
+	payload := &Chunk{}
+	payload.init(haggr._groupedAggrData._payloadTypes, defaultVectorSize)
+	offset := len(haggr._groupedAggrData._groupTypes)
+	for i := 0; i < len(haggr._groupedAggrData._payloadTypes); i++ {
+		payload._data[i].reference(chunk._data[offset+i])
+	}
+	payload.setCard(chunk.card())
 	for _, grouping := range haggr._groupings {
-		grouping._tableData.Sink(chunk, haggr._nonDistinctFilter)
+		grouping._tableData.Sink(chunk, payload, haggr._nonDistinctFilter)
 	}
 }
 
@@ -388,6 +404,7 @@ func NewAggrHTAppendState() *AggrHTAppendState {
 	ret._emptyVector = NewSelectVector(defaultVectorSize)
 	ret._newGroups = NewSelectVector(defaultVectorSize)
 	ret._addresses = NewVector(pointerType(), defaultVectorSize)
+	ret._groupChunk = &Chunk{}
 	return ret
 }
 
@@ -421,7 +438,7 @@ func NewRadixPartitionedHashTable(
 		ret._groupTypes = append(ret._groupTypes, tinyint())
 	}
 
-	for ent, _ := range ret._groupingSet {
+	for ent := range ret._groupingSet.ordered() {
 		assertFunc(ent < len(ret._groupedAggrData._groupTypes))
 		ret._groupTypes = append(ret._groupTypes,
 			ret._groupedAggrData._groupTypes[ent])
@@ -450,7 +467,7 @@ func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
 	}
 }
 
-func (rpht *RadixPartitionedHashTable) Sink(chunk *Chunk, filter []int) {
+func (rpht *RadixPartitionedHashTable) Sink(chunk, payload *Chunk, filter []int) {
 	if rpht._finalizedHT == nil {
 		//prepare aggr objs
 		aggrObjs := CreateAggrObjects(rpht._groupedAggrData._bindings)
@@ -462,13 +479,17 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk *Chunk, filter []int) {
 			2*defaultVectorSize,
 		)
 	}
-
-	//TODO:fix payload
+	groupChunk := &Chunk{}
+	groupChunk.init(rpht._groupTypes, defaultVectorSize)
+	for i, idx := range rpht._groupingSet.ordered() {
+		groupChunk._data[i].reference(chunk._data[idx])
+	}
+	groupChunk.setCard(chunk.card())
 	state := NewAggrHTAppendState()
 	rpht._finalizedHT.AddChunk2(
 		state,
-		chunk,
-		nil,
+		groupChunk,
+		payload,
 		filter,
 	)
 }
@@ -530,19 +551,31 @@ type AggrInputData struct {
 type aggrStateSize func() int
 type aggrInit func(pointer unsafe.Pointer)
 type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
+type aggrCombine func(*Vector, *Vector, *AggrInputData, int)
 type aggrFinalize func(*Vector, *AggrInputData, *Vector, int, int)
 type aggrFunction func(*AggrFunc, []*Expr)
 type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
 type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
 
+type FuncNullHandling int
+
+const (
+	DEFAULT_NULL_HANDLING FuncNullHandling = 0
+	SPECIAL_HANDLING                       = 1
+)
+
 type AggrFunc struct {
+	_args         []LType
+	_retType      LType
 	_stateSize    aggrStateSize
 	_init         aggrInit
 	_update       aggrUpdate
+	_combine      aggrCombine
 	_finalize     aggrFinalize
 	_func         aggrFunction
 	_simpleUpdate aggrSimpleUpdate
 	_window       aggrWindow
+	_nullHandling FuncNullHandling
 }
 
 func NewGroupedAggrHashTable(
@@ -670,7 +703,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 
 	selVec := incrSelectVectorInPhyFormatFlat()
 	if state._groupChunk.columnCount() == 0 {
-		state._groupChunk.init(aht._layout.types(), 0)
+		state._groupChunk.init(aht._layout.types(), defaultVectorSize)
 	}
 
 	assertFunc(state._groupChunk.columnCount() ==
@@ -691,6 +724,9 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 
 	if state._groupData == nil {
 		state._groupData = make([]*UnifiedFormat, state._groupChunk.columnCount())
+		for i := 0; i < state._groupChunk.columnCount(); i++ {
+			state._groupData[i] = &UnifiedFormat{}
+		}
 	}
 
 	getVectorData(state._chunkState, state._groupData)

@@ -227,7 +227,7 @@ func Test_innerJoin3(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_innerAggr(t *testing.T) {
+func Test_HashAggr(t *testing.T) {
 	/*
 		PhysicalPlan:
 		└── Aggregate:

@@ -65,6 +65,15 @@ func (i *Interval) less(o *Interval) bool {
 	panic("usp")
 }
 
+type Hugeint struct {
+	_lower uint64
+	_upper int64
+}
+
+func (h *Hugeint) Add(o *Hugeint) {
+	//TODO:
+}
+
 type nullValue[T any] interface {
 	value() T
 }
