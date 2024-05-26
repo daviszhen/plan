@@ -462,6 +462,10 @@ func (lt LType) isNumeric() bool {
 	return false
 }
 
+func (lt LType) isPointer() bool {
+	return lt.id == LTID_POINTER
+}
+
 func (lt LType) getDecimalSize() (bool, int, int) {
 	switch lt.id {
 	case LTID_NULL:

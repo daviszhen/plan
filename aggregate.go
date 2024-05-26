@@ -529,11 +529,17 @@ type AggrObject struct {
 func NewAggrObject(aggr *Expr) *AggrObject {
 	assertFunc(aggr.SubTyp == ET_SubFunc)
 	ret := new(AggrObject)
-	ret._func = nil //TODO: fix me
 	ret._childCount = len(aggr.Children)
-	ret._payloadSize = 0 //TOOD: fix me
 	ret._aggrType = aggr.AggrTyp
 	ret._retType = aggr.DataTyp.LTyp.getInternalType()
+	switch aggr.Svalue {
+	case "sum":
+		ret._func = GetSumAggr(aggr.DataTyp.LTyp.getInternalType())
+		ret._payloadSize = ret._func._stateSize()
+	default:
+		panic("usp")
+	}
+
 	return ret
 }
 
@@ -563,10 +569,27 @@ func NewAggrUnaryInput(input *AggrInputData, mask *Bitmap) *AggrUnaryInput {
 }
 
 type AggrFinalizeData struct {
+	_result    *Vector
+	_input     *AggrInputData
+	_resultIdx int
 }
 
-func (*AggrFinalizeData) ReturnNull() {
+func NewAggrFinalizeData(result *Vector, input *AggrInputData) *AggrFinalizeData {
+	return &AggrFinalizeData{
+		_result: result,
+		_input:  input,
+	}
+}
 
+func (data *AggrFinalizeData) ReturnNull() {
+	switch data._result.phyFormat() {
+	case PF_FLAT:
+		setNullInPhyFormatFlat(data._result, uint64(data._resultIdx), true)
+	case PF_CONST:
+		setNullInPhyFormatConst(data._result, true)
+	default:
+		panic("usp")
+	}
 }
 
 type aggrStateSize func() int
