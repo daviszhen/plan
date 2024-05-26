@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unsafe"
@@ -70,8 +71,42 @@ type Hugeint struct {
 	_upper int64
 }
 
-func (h *Hugeint) Add(o, s *Hugeint) {}
-func (h *Hugeint) Mul(o, s *Hugeint) {}
+// addInplace
+// return
+//
+//	false : overflow
+func addInplace(lhs, rhs *Hugeint) bool {
+	ladd := lhs._lower + rhs._lower
+	overflow := int64(0)
+	if ladd < lhs._lower {
+		overflow = 1
+	}
+	if rhs._upper >= 0 {
+		//rhs is positive
+		if lhs._upper > (math.MaxInt64 - rhs._upper - overflow) {
+			return false
+		}
+		lhs._upper = lhs._upper + overflow + rhs._upper
+	} else {
+		//rhs is negative
+		if lhs._upper < (math.MinInt64 - rhs._upper - overflow) {
+			return false
+		}
+		lhs._upper = lhs._upper + (overflow + rhs._upper)
+	}
+	lhs._lower += rhs._lower
+	if lhs._upper == math.MinInt64 && lhs._lower == 0 {
+		return false
+	}
+	return true
+}
+
+func (h *Hugeint) Add(lhs, rhs *Hugeint) {
+	if !addInplace(lhs, rhs) {
+		panic("hugint and overflow")
+	}
+}
+func (h *Hugeint) Mul(lhs, rhs *Hugeint) {}
 
 type nullValue[T any] interface {
 	value() T
