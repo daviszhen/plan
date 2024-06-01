@@ -160,6 +160,7 @@ func (SumStateOp[T]) Combine(src *State[T], target *State[T], _ *AggrInputData, 
 	src.Combine(target, top)
 }
 func (SumStateOp[T]) AddValues(s *State[T], _ int) {
+	//fmt.Printf("add 0x%p\n", s)
 	s.SetIsset(true)
 }
 
@@ -216,6 +217,7 @@ func (s SumOp[ResultT, InputT]) ConstantOperation(s3 *State[ResultT], input *Inp
 }
 
 func (s SumOp[ResultT, InputT]) Finalize(s3 *State[ResultT], target *ResultT, data *AggrFinalizeData) {
+	//fmt.Printf("finalize 0x%p\n", s3)
 	if !s3.GetIsset() {
 		data.ReturnNull()
 	} else {
@@ -520,5 +522,25 @@ func UnaryUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Re
 			input._inputIdx = selVec.getIndex(i)
 			aop.Operation((*State[ResultT])(statePtr), &inputSlice[input._inputIdx], input, sop, addOp, top)
 		}
+	}
+}
+
+func FinalizeStates(
+	layout *TupleDataLayout,
+	addresses *Vector,
+	result *Chunk,
+	aggrIdx int,
+) {
+	AddInPlace(addresses, int64(layout.aggrOffset()), result.card())
+
+	aggrObjs := layout._aggregates
+	for i := 0; i < len(aggrObjs); i++ {
+		target := result._data[aggrIdx+i]
+		aggr := aggrObjs[i]
+
+		aggr._func._finalize(addresses, NewAggrInputData(), target, result.card(), 0)
+
+		//next aggr state
+		AddInPlace(addresses, int64(aggr._payloadSize), result.card())
 	}
 }

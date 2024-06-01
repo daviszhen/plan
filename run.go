@@ -12,7 +12,12 @@ import (
 
 type OperatorState struct {
 	//for aggregate
-	groupExec *ExprExec
+	haScanstate           *HashAggrScanState
+	groupbyWithParamsExec *ExprExec
+	groupbyExec           *ExprExec
+	filterExec            *ExprExec
+	filterSel             *SelectVector
+	aggrOutputExec        *ExprExec
 
 	//for scan
 	exec    *ExprExec
@@ -64,11 +69,8 @@ type Runner struct {
 	children     []*Runner
 }
 
-func (run *Runner) Init() error {
-	for _, output := range run.op.Outputs {
-		run.outputTypes = append(run.outputTypes, output.DataTyp.LTyp)
-		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
-	}
+func (run *Runner) initChildren() error {
+	run.children = []*Runner{}
 	for _, child := range run.op.Children {
 		childRun := &Runner{
 			op:    child,
@@ -79,6 +81,18 @@ func (run *Runner) Init() error {
 			return err
 		}
 		run.children = append(run.children, childRun)
+	}
+	return nil
+}
+
+func (run *Runner) Init() error {
+	for _, output := range run.op.Outputs {
+		run.outputTypes = append(run.outputTypes, output.DataTyp.LTyp)
+		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
+	}
+	err := run.initChildren()
+	if err != nil {
+		return err
 	}
 	switch run.op.Typ {
 	case POT_Scan:
@@ -177,26 +191,19 @@ func (run *Runner) aggrInit() error {
 		groupExprs := make([]*Expr, 0)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._groups...)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._paramExprs...)
-		run.state.groupExec = NewExprExec(groupExprs...)
+		run.state.groupbyWithParamsExec = NewExprExec(groupExprs...)
+		run.state.groupbyExec = NewExprExec(run.hAggr._groupedAggrData._groups...)
+		run.state.filterExec = NewExprExec(run.op.Filters...)
+		run.state.filterSel = NewSelectVector(defaultVectorSize)
+		run.state.aggrOutputExec = NewExprExec(run.op.Outputs...)
 	}
 	return nil
-}
-
-func (run *Runner) extractAggrExprs(
-	aggregates []*Expr,
-	groups []*Expr,
-) {
-	//TODO:
-	//exprs := make([]*Expr, 0)
-
-	//rewrite group exprs to refer project
-
 }
 
 func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
-	{
+	if run.hAggr._has == HAS_INIT {
 		cnt := 0
 		for {
 			childChunk := &Chunk{}
@@ -213,20 +220,116 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			if childChunk.card() == 0 {
 				continue
 			}
-			fmt.Println("build aggr", cnt)
+			//fmt.Println("build aggr", cnt, childChunk.card())
 
 			typs := make([]LType, 0)
 			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
 			typs = append(typs, run.hAggr._groupedAggrData._payloadTypes...)
 			groupChunk := &Chunk{}
 			groupChunk.init(typs, defaultVectorSize)
-			err = run.state.groupExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
+			err = run.state.groupbyWithParamsExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
 			if err != nil {
 				return InvalidOpResult, err
 			}
 			run.hAggr.Sink(groupChunk)
 
 			cnt++
+		}
+		run.hAggr._has = HAS_SCAN
+	}
+	if run.hAggr._has == HAS_SCAN {
+		if run.state.haScanstate == nil {
+			run.state.haScanstate = NewHashAggrScanState()
+			err = run.initChildren()
+			if err != nil {
+				return InvalidOpResult, err
+			}
+		}
+
+		for {
+			//1.get child chunk from children[0]
+			childChunk := &Chunk{}
+			res, err = run.execChild(run.children[0], childChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				break
+			}
+			if childChunk.card() == 0 {
+				continue
+			}
+
+			//2.eval the group by exprs for the child chunk
+			typs := make([]LType, 0)
+			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
+			groupChunk := &Chunk{}
+			groupChunk.init(typs, defaultVectorSize)
+			err = run.state.groupbyExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
+			if err != nil {
+				return InvalidOpResult, err
+			}
+
+			//3.get aggr states for the group
+			aggrStatesChunk := &Chunk{}
+			aggrStatesTyps := make([]LType, 0)
+			aggrStatesTyps = append(aggrStatesTyps, run.hAggr._groupedAggrData._aggrReturnTypes...)
+			aggrStatesChunk.init(aggrStatesTyps, defaultVectorSize)
+			res = run.hAggr.FetechAggregates(run.state.haScanstate, groupChunk, aggrStatesChunk)
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				return res, nil
+			}
+
+			//4.eval the filter on (child chunk + aggr states)
+			var count int
+			count, err = state.filterExec.executeSelect2([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
+			if err != nil {
+				return InvalidOpResult, err
+			}
+
+			if count == 0 {
+				continue
+			}
+
+			var childChunk2 *Chunk
+			var aggrStatesChunk2 *Chunk
+			if count == childChunk.card() {
+				childChunk2 = childChunk
+				aggrStatesChunk2 = aggrStatesChunk
+			} else {
+				childChunkIndice := make([]int, 0)
+				for i := 0; i < childChunk.columnCount(); i++ {
+					childChunkIndice = append(childChunkIndice, i)
+				}
+				aggrStatesChunkIndice := make([]int, 0)
+				for i := 0; i < aggrStatesChunk.columnCount(); i++ {
+					aggrStatesChunkIndice = append(aggrStatesChunkIndice, i)
+				}
+				childChunk2 = &Chunk{}
+				childChunk2.init(run.children[0].outputTypes, defaultVectorSize)
+				aggrStatesChunk2 = &Chunk{}
+				aggrStatesChunk2.init(aggrStatesTyps, defaultVectorSize)
+
+				//slice
+				childChunk2.sliceIndice(childChunk, state.filterSel, count, 0, childChunkIndice)
+				aggrStatesChunk2.sliceIndice(aggrStatesChunk, state.filterSel, count, 0, aggrStatesChunkIndice)
+
+			}
+
+			//5. eval the output
+			err = run.state.aggrOutputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk2}, output)
+			if err != nil {
+				return InvalidOpResult, err
+			}
+			if output.card() > 0 {
+				return haveMoreOutput, nil
+			}
 		}
 	}
 
@@ -268,7 +371,7 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 			nextChunk.init(run.hjoin._scanNextTyps, defaultVectorSize)
 			run.hjoin._scan.Next(run.hjoin._joinKeys, run.hjoin._scan._leftChunk, &nextChunk)
 			if nextChunk.card() > 0 {
-				err = run.evalOutput(&nextChunk, output)
+				err = run.evalJoinOutput(&nextChunk, output)
 				if err != nil {
 					return 0, err
 				}
@@ -301,7 +404,7 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 		nextChunk.init(run.hjoin._scanNextTyps, defaultVectorSize)
 		run.hjoin._scan.Next(run.hjoin._joinKeys, run.hjoin._scan._leftChunk, &nextChunk)
 		if nextChunk.card() > 0 {
-			err = run.evalOutput(&nextChunk, output)
+			err = run.evalJoinOutput(&nextChunk, output)
 			if err != nil {
 				return 0, err
 			}
@@ -314,7 +417,7 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 	return 0, nil
 }
 
-func (run *Runner) evalOutput(nextChunk, output *Chunk) (err error) {
+func (run *Runner) evalJoinOutput(nextChunk, output *Chunk) (err error) {
 	leftChunk := Chunk{}
 	leftTyps := run.hjoin._scanNextTyps[:len(run.hjoin._leftIndice)]
 	leftChunk.init(leftTyps, defaultVectorSize)

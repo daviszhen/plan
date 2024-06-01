@@ -1005,6 +1005,25 @@ func (tuple *TupleDataCollection) gather(
 	)
 }
 
+func (tuple *TupleDataCollection) Gather(
+	rowLocs *Vector,
+	scanSel *SelectVector,
+	scanCnt int,
+	colIds []int,
+	result *Chunk,
+	targetSel *SelectVector,
+) {
+	for i := 0; i < len(colIds); i++ {
+		tuple.gather(
+			rowLocs,
+			scanSel,
+			scanCnt,
+			colIds[i],
+			result._data[i],
+			targetSel)
+	}
+}
+
 func TupleDataTemplatedScatterSwitch(
 	src *Vector,
 	srcFormat *UnifiedFormat,
@@ -1138,4 +1157,28 @@ func TupleDataTemplatedGather[T any](
 			targetBitmap.setInvalid(uint64(targetIdx))
 		}
 	}
+}
+
+func (tuple *TupleDataCollection) InitScan(state *AggrHashTableScanState) {
+	state._partIdx = 0
+	state._partCnt = len(tuple._parts)
+	state._init = true
+}
+
+func (tuple *TupleDataCollection) Scan(state *AggrHashTableScanState, result *Chunk) bool {
+	if state._partIdx >= len(tuple._parts) {
+		return false
+	}
+	part := tuple._parts[state._partIdx]
+	state._rowLocs = part.rowLocations
+	tuple.Gather(
+		state._rowLocs,
+		incrSelectVectorInPhyFormatFlat(),
+		part._count,
+		state._colIds,
+		result,
+		incrSelectVectorInPhyFormatFlat(),
+	)
+	result.setCard(part._count)
+	return true
 }

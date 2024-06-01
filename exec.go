@@ -259,6 +259,21 @@ func (exec *ExprExec) executeSelect(data *Chunk, sel *SelectVector) (int, error)
 	)
 }
 
+func (exec *ExprExec) executeSelect2(datas []*Chunk, sel *SelectVector) (int, error) {
+	if len(exec._exprs) == 0 {
+		return datas[0].card(), nil
+	}
+	exec._chunk = datas
+	return exec.execSelectExpr(
+		exec._exprs[0],
+		exec._execStates[0]._root,
+		nil,
+		datas[0].card(),
+		sel,
+		nil,
+	)
+}
+
 func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (retCount int, err error) {
 	if count == 0 {
 		return 0, nil
@@ -267,6 +282,7 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 	case ET_Func:
 		switch expr.SubTyp {
 		case ET_Equal,
+			ET_Greater,
 			ET_GreaterEqual,
 			ET_Less,
 			ET_Like:
@@ -301,6 +317,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 	case ET_Func:
 		switch expr.SubTyp {
 		case ET_Equal,
+			ET_Greater,
 			ET_GreaterEqual,
 			ET_Less,
 			ET_Like:
