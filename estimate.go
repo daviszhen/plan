@@ -53,7 +53,7 @@ func (set ColumnBindSet) insert(bind ColumnBind) {
 	set[bind] = true
 }
 func (set ColumnBindSet) merge(other ColumnBindSet) {
-	for bind, _ := range other {
+	for bind := range other {
 		set.insert(bind)
 	}
 }

@@ -341,9 +341,208 @@ func Test_HashAggr(t *testing.T) {
 
 	*/
 	/*
-		equal to:
+		1. after sort and dedup the result.
+		it is equal to(also sort and dedup): result rows count 4454
+			select
+			-- 		partsupp.ps_partkey,
+					distinct partsupp.ps_suppkey
+			-- 		partsupp.ps_availqty,
+			-- 		gby.qty,
+			-- 		gby.qty * 2,
+			-- 		cnt
 
+				from
+					partsupp
+					join
+					(
+						select
+							agg.ps_partkey,
+							agg.ps_suppkey,
+							0.5 * sum(l_quantity) as qty,
+							count(*) as cnt
+						from
 
+								(
+									select
+										rr.ps_partkey as ps_partkey,
+										rr.ps_suppkey as ps_suppkey,
+										rr.ps_availqty as ps_availqty,
+										lr.l_quantity as l_quantity
+									from
+										(
+											select
+												lineitem.l_partkey,
+												lineitem.l_suppkey,
+												lineitem.l_quantity
+											from lineitem
+											where
+												l_shipdate >= date '1993-01-01' and
+												l_shipdate < date '1993-01-01' + interval '1' year
+
+										) lr
+									join
+										(
+											select
+												partsupp.ps_partkey,
+												partsupp.ps_suppkey,
+												partsupp.ps_availqty
+											from
+												partsupp join part on partsupp.ps_partkey = part.p_partkey
+											where part.p_name like 'lime%'
+										) rr
+										on lr.l_partkey = rr.ps_partkey and
+											lr.l_suppkey = rr.ps_suppkey
+
+								) as agg
+						group by agg.ps_partkey,agg.ps_suppkey
+					) as gby
+					on
+						partsupp.ps_partkey = gby.ps_partkey
+						and
+						partsupp.ps_suppkey = gby.ps_suppkey
+				where partsupp.ps_availqty > gby.qty
+				order by
+			-- 		partsupp.ps_partkey,
+					partsupp.ps_suppkey
+			-- 		partsupp.ps_availqty,
+			-- 		gby.qty
+
+		2. research sql: result rows count 5838
+
+			select
+				partsupp.ps_partkey,
+				partsupp.ps_suppkey,
+				partsupp.ps_availqty,
+				gby.qty,
+				gby.qty * 2,
+				cnt
+			from
+				partsupp
+				join
+				(
+					select
+						agg.ps_partkey,
+						agg.ps_suppkey,
+						0.5 * sum(l_quantity) as qty,
+						count(*) as cnt
+					from
+
+							(
+								select
+									rr.ps_partkey as ps_partkey,
+									rr.ps_suppkey as ps_suppkey,
+									rr.ps_availqty as ps_availqty,
+									lr.l_quantity as l_quantity
+								from
+									(
+										select
+											lineitem.l_partkey,
+											lineitem.l_suppkey,
+											lineitem.l_quantity
+										from lineitem
+										where
+											l_shipdate >= date '1993-01-01' and
+											l_shipdate < date '1993-01-01' + interval '1' year
+
+									) lr
+								join
+									(
+										select
+											partsupp.ps_partkey,
+											partsupp.ps_suppkey,
+											partsupp.ps_availqty
+										from
+											partsupp join part on partsupp.ps_partkey = part.p_partkey
+										where part.p_name like 'lime%'
+									) rr
+									on lr.l_partkey = rr.ps_partkey and
+										lr.l_suppkey = rr.ps_suppkey
+
+							) as agg
+					group by agg.ps_partkey,agg.ps_suppkey
+				) as gby
+				on
+					partsupp.ps_partkey = gby.ps_partkey
+					and
+					partsupp.ps_suppkey = gby.ps_suppkey
+			where partsupp.ps_availqty > gby.qty
+			order by
+				partsupp.ps_partkey,
+				partsupp.ps_suppkey ,
+				partsupp.ps_availqty,
+				gby.qty
+
+		3. research sql : result rows count9747
+
+			select
+				sum(sumCnt.cnt)
+			from
+
+			(
+				select
+					partsupp.ps_partkey,
+					partsupp.ps_suppkey,
+					partsupp.ps_availqty,
+					gby.qty,
+					gby.qty * 2,
+					cnt
+				from
+					partsupp
+					join
+					(
+						select
+							agg.ps_partkey,
+							agg.ps_suppkey,
+							0.5 * sum(l_quantity) as qty,
+							count(*) as cnt
+						from
+
+								(
+									select
+										rr.ps_partkey as ps_partkey,
+										rr.ps_suppkey as ps_suppkey,
+										rr.ps_availqty as ps_availqty,
+										lr.l_quantity as l_quantity
+									from
+										(
+											select
+												lineitem.l_partkey,
+												lineitem.l_suppkey,
+												lineitem.l_quantity
+											from lineitem
+											where
+												l_shipdate >= date '1993-01-01' and
+												l_shipdate < date '1993-01-01' + interval '1' year
+
+										) lr
+									join
+										(
+											select
+												partsupp.ps_partkey,
+												partsupp.ps_suppkey,
+												partsupp.ps_availqty
+											from
+												partsupp join part on partsupp.ps_partkey = part.p_partkey
+											where part.p_name like 'lime%'
+										) rr
+										on lr.l_partkey = rr.ps_partkey and
+											lr.l_suppkey = rr.ps_suppkey
+
+								) as agg
+						group by agg.ps_partkey,agg.ps_suppkey
+					) as gby
+					on
+						partsupp.ps_partkey = gby.ps_partkey
+						and
+						partsupp.ps_suppkey = gby.ps_suppkey
+				where partsupp.ps_availqty > gby.qty
+				order by
+					partsupp.ps_partkey,
+					partsupp.ps_suppkey ,
+					partsupp.ps_availqty,
+					gby.qty
+
+			) as sumCnt
 
 		result:
 	*/

@@ -71,6 +71,10 @@ type Hugeint struct {
 	_upper int64
 }
 
+func (h Hugeint) String() string {
+	return fmt.Sprintf("[%d %d]", h._upper, h._lower)
+}
+
 // addInplace
 // return
 //
@@ -191,6 +195,7 @@ var (
 	int16Size    int
 	int32Size    int
 	int64Size    int
+	int128Size   int
 	intervalSize int
 	dateSize     int
 	varcharSize  int
@@ -205,6 +210,8 @@ func init() {
 	int16Size = int8Size * 2
 	int32Size = int8Size * 4
 	int64Size = int8Size * 8
+	hint := Hugeint{}
+	int128Size = int(unsafe.Sizeof(hint))
 	interVal := Interval{}
 	intervalSize = int(unsafe.Sizeof(interVal))
 	dateVal := Date{}
@@ -237,7 +244,7 @@ func (pt PhyType) size() int {
 	case UINT64:
 		return int64Size
 	case INT128:
-		panic("usp")
+		return int128Size
 	case FLOAT:
 		return int32Size
 	case DOUBLE:

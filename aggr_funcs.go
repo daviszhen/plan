@@ -188,6 +188,7 @@ func (hadd *HugeintAdd) AddNumber(state *State[Hugeint], input *int32, top TypeO
 
 func (*HugeintAdd) AddConstant(*State[Hugeint], *int32, int, TypeOp[Hugeint]) {
 	//TODO:
+	panic("usp")
 }
 
 type SumOp[ResultT any, InputT any] struct {
@@ -534,11 +535,24 @@ func FinalizeStates(
 	AddInPlace(addresses, int64(layout.aggrOffset()), result.card())
 
 	aggrObjs := layout._aggregates
+	var target *Vector
 	for i := 0; i < len(aggrObjs); i++ {
-		target := result._data[aggrIdx+i]
 		aggr := aggrObjs[i]
+		sameType := aggr._retType == aggr._func._retType.getInternalType()
+		targetOffset := aggrIdx + i
+		if sameType {
+			target = result._data[targetOffset]
+		} else {
+			target = NewVector(aggr._func._retType, defaultVectorSize)
+		}
 
 		aggr._func._finalize(addresses, NewAggrInputData(), target, result.card(), 0)
+
+		if !sameType {
+			//TODO: put the cast in build plan stage
+			//cast
+			castExec(target, result._data[targetOffset], result.card())
+		}
 
 		//next aggr state
 		AddInPlace(addresses, int64(aggr._payloadSize), result.card())

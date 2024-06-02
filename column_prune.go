@@ -36,7 +36,7 @@ func (ccount ColumnBindCountMap) removeColumnBind(bind ColumnBind) {
 
 func (ccount ColumnBindCountMap) removeNotIn(other ColumnBindCountMap) {
 	res := make([]ColumnBind, 0)
-	for bind, _ := range ccount {
+	for bind := range ccount {
 		if _, has := other[bind]; !has {
 			res = append(res, bind)
 		}
@@ -48,7 +48,7 @@ func (ccount ColumnBindCountMap) removeNotIn(other ColumnBindCountMap) {
 
 func (ccount ColumnBindCountMap) removeByTableIdx(tblIdx uint64, equal bool) {
 	res := make([]ColumnBind, 0)
-	for bind, _ := range ccount {
+	for bind := range ccount {
 		if equal {
 			if bind.table() == tblIdx {
 				res = append(res, bind)
@@ -71,7 +71,7 @@ func (ccount ColumnBindCountMap) splitByTableIdx(tblIdx uint64) ColumnBindCountM
 			res[bind] = i
 		}
 	}
-	for bind, _ := range res {
+	for bind := range res {
 		delete(ccount, bind)
 	}
 	return res
@@ -120,7 +120,7 @@ func (ccount ColumnBindCountMap) copy() ColumnBindCountMap {
 func (ccount ColumnBindCountMap) sortByColumnBind() ColumnBindPosMap {
 	posMap := make(ColumnBindPosMap)
 	binds := make([]ColumnBind, 0)
-	for bind, _ := range ccount {
+	for bind := range ccount {
 		binds = append(binds, bind)
 	}
 	sort.Slice(binds, func(i, j int) bool {
@@ -155,7 +155,7 @@ func (posmap ColumnBindPosMap) pos(bind ColumnBind) (bool, int) {
 }
 func (posmap ColumnBindPosMap) sortByColumnBind() []ColumnBind {
 	res := make([]ColumnBind, 0)
-	for bind, _ := range posmap {
+	for bind := range posmap {
 		res = append(res, bind)
 	}
 	sort.Slice(res, func(i, j int) bool {
@@ -437,7 +437,7 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 		collectColRefs2(bSet, exprs...)
 
 		//add counts of the column referred by this node
-		for bind, _ := range bSet {
+		for bind := range bSet {
 			counts.addColumnBind(bind)
 		}
 
@@ -451,7 +451,7 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 		resCounts.merge(colRefOnThisNode)
 		counts.merge(colRefOnThisNode)
 		resCounts.removeNotIn(upCounts)
-		for bind, _ := range bSet {
+		for bind := range bSet {
 			counts.removeColumnBind(bind)
 			resCounts.removeColumnBind(bind)
 		}

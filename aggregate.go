@@ -14,7 +14,7 @@ func (is IntSet) insert(id int) {
 
 func (is IntSet) max() int {
 	maxKey := math.MinInt
-	for key, _ := range is {
+	for key := range is {
 		maxKey = max(maxKey, key)
 	}
 	return maxKey
@@ -171,7 +171,7 @@ func NewDistinctAggrData(
 			continue
 		}
 		groupingSet := ret._groupingSets[tableIdx]
-		for group, _ := range groups {
+		for group := range groups {
 			groupingSet.insert(group)
 		}
 
@@ -269,8 +269,14 @@ func CreateDistinctAggrCollectionInfo(aggregates []*Expr) *DistinctAggrCollectio
 }
 
 type HashAggrScanState struct {
-	_radixIdx int
-	_state    *AggrHashTableScanState
+	_radixIdx     int
+	_state        *AggrHashTableScanState
+	_childCnt     int
+	_childCnt2    int
+	_outputCnt    int
+	_filteredCnt1 int
+	_filteredCnt2 int
+	_childCnt3    int
 }
 
 func NewHashAggrScanState() *HashAggrScanState {
@@ -449,6 +455,13 @@ type aggrHTEntry struct {
 	_pageOffset uint16
 	_pageNr     uint32
 	_rowPtr     unsafe.Pointer
+}
+
+func (ent *aggrHTEntry) clean() {
+	ent._salt = 0
+	ent._pageOffset = 0
+	ent._pageNr = 0
+	ent._rowPtr = nil
 }
 
 var (
@@ -904,9 +917,9 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	state._groupChunk._data[groups.columnCount()].reference(groupHashes)
 	state._groupChunk.setCard(groups.card())
 
-	if state._chunkState == nil {
-		state._chunkState = NewTuplePart(aht._layout.columnCount())
-	}
+	//if state._chunkState == nil {
+	state._chunkState = NewTuplePart(aht._layout.columnCount())
+	//}
 
 	toUnifiedFormat(state._chunkState, state._groupChunk)
 
@@ -930,7 +943,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 		htEntrySlice := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
 		for i := 0; i < remainingEntries; i++ {
 			idx := selVec.getIndex(i)
-			htEntry := htEntrySlice[htOffsetsPtr[idx]]
+			htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 
 			if htEntry._pageNr == 0 {
 				//empty cell
@@ -973,12 +986,19 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 
 			//update htEntry & save address
 			rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._chunkState.rowLocations)
+			dedup := make(map[int]struct{})
 			for j := 0; j < newEntryCount; j++ {
 				idx := state._emptyVector.getIndex(j)
-				htEntry := htEntrySlice[htOffsetsPtr[idx]]
+				if _, has := dedup[idx]; has {
+					panic("dup idx")
+				}
+				dedup[idx] = struct{}{}
+
+				htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 				htEntry._pageNr = 1 //TOOD: refine. do not mean anything
 				htEntry._rowPtr = rowLocations[j]
 				addresessSlice[idx] = rowLocations[j]
+				//fmt.Println("loc", aht._bitmask, groupHashesSlice[idx], htOffsetsPtr[idx], hashSaltsPtr[idx], htEntry._rowPtr)
 			}
 		}
 
@@ -986,7 +1006,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 			//get address
 			for j := 0; j < needCompareCount; j++ {
 				idx := state._groupCompareVector.getIndex(j)
-				htEntry := htEntrySlice[htOffsetsPtr[idx]]
+				htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 				addresessSlice[idx] = htEntry._rowPtr
 			}
 
@@ -1062,10 +1082,39 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 	if byteSize > BLOCK_SIZE {
 		aht._hashesHdlPtr = bytesSliceToPointer(make([]byte, byteSize))
 	}
-
+	htEntrySlice := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
+	for i := 0; i < len(htEntrySlice); i++ {
+		htEntrySlice[i].clean()
+	}
 	if aht.Count() != 0 {
-		//TODO:
-		panic("todo")
+		aht._dataCollection.checkDupAll()
+		for _, part := range aht._dataCollection._parts {
+			rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
+			for _, loc := range rowLocs {
+				if uintptr(loc) == 0 {
+					continue
+				}
+
+				hash := load[uint64](pointerAdd(loc, aht._hashOffset))
+				assertFunc((hash & aht._bitmask) == (hash % uint64(aht._capacity)))
+				assertFunc((hash >> aht._hashPrefixShift) <= math.MaxUint16)
+				entIdx := hash & aht._bitmask
+				for htEntrySlice[entIdx]._pageNr > 0 {
+					entIdx++
+					if entIdx >= uint64(aht._capacity) {
+						entIdx = 0
+					}
+				}
+				htEnt := &htEntrySlice[entIdx]
+				assertFunc(htEnt._pageNr == 0)
+				htEnt._salt = uint16(hash >> aht._hashPrefixShift)
+				htEnt._pageNr = 1
+				htEnt._rowPtr = loc
+				//if aht._capacity == 16384 {
+				//	fmt.Println("resize loc", aht._capacity, hash, entIdx, htEnt._salt, loc)
+				//}
+			}
+		}
 	}
 }
 

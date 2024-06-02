@@ -767,8 +767,13 @@ func (layout *TupleDataLayout) copy() *TupleDataLayout {
 type TupleDataCollection struct {
 	_layout *TupleDataLayout
 	_count  int
-	_parts  []*TuplePart
+	_parts  []*TupleRows
 	_dedup  map[unsafe.Pointer]struct{}
+}
+
+type TupleRows struct {
+	rowLocations *Vector
+	_count       int
 }
 
 type TuplePart struct {
@@ -786,6 +791,16 @@ func NewTuplePart(cnt int) *TuplePart {
 		heapLocations: NewVector(pointerType(), defaultVectorSize),
 		heapSizes:     NewVector(ubigintType(), defaultVectorSize),
 	}
+	return ret
+}
+
+func (part *TuplePart) toTupleRows() *TupleRows {
+	ret := &TupleRows{
+		rowLocations: NewVector(pointerType(), defaultVectorSize),
+		_count:       part._count,
+	}
+	dst := ret.rowLocations.getData()
+	copy(dst, part.rowLocations.getData())
 	return ret
 }
 
@@ -849,17 +864,40 @@ func (tuple *TupleDataCollection) AppendUnified(
 }
 
 func (tuple *TupleDataCollection) savePart(part *TuplePart) {
-	tuple._count += part._count
-	tuple._parts = append(tuple._parts, part)
-	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
+	rows := part.toTupleRows()
+	tuple._count += rows._count
+	tuple._parts = append(tuple._parts, rows)
+	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rows.rowLocations)
 	for _, loc := range rowLocs {
 		if loc == nil {
 			continue
 		}
+		//fmt.Println("save loc", loc)
 		if _, has := tuple._dedup[loc]; has {
 			panic("duplicate row location")
 		}
 		tuple._dedup[loc] = struct{}{}
+	}
+	tuple.checkDupAll()
+}
+
+func (tuple *TupleDataCollection) checkDupAll() {
+	cnt := 0
+	//all dup
+	dedup := make(map[unsafe.Pointer]int)
+	for xid, xpart := range tuple._parts {
+		xrowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](xpart.rowLocations)
+		for _, loc := range xrowLocs {
+			if uintptr(loc) == 0 {
+				continue
+			}
+			if xcnt, has := dedup[loc]; has {
+				fmt.Println("duplicate2", xid, len(tuple._parts), xcnt, cnt, loc)
+				panic("dup loc2")
+			}
+			dedup[loc] = cnt
+			cnt++
+		}
 	}
 }
 

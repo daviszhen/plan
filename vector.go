@@ -503,7 +503,7 @@ type Bitmap struct {
 func (bm *Bitmap) init(count int) {
 	cnt := entryCount(count)
 	bm._bits = gAlloc.Alloc(cnt)
-	for i, _ := range bm._bits {
+	for i := range bm._bits {
 		bm._bits[i] = 0xFF
 	}
 }

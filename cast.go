@@ -1,11 +1,19 @@
 package main
 
+import (
+	"fmt"
+)
+
 var (
 	// int32 => ...
 	gTryCastInt32ToInt32            tryCastInt32ToInt32
 	gTryCastInt32ToInt32OpWrapper   tryCastOpWrapper[int32, int32]
 	gTryCastInt32ToFloat32          tryCastInt32ToFloat32
 	gTryCastInt32ToFloat32OpWrapper tryCastOpWrapper[int32, float32]
+
+	// bigint =>
+	gTryCastBigintToInt32          tryCastBigintToInt32
+	gTryCastBigintToInt32OpWrapper tryCastOpWrapper[Hugeint, int32]
 
 	// float32 => ...
 	gTryCastFloat32ToInt32          tryCastFloat32ToInt32
@@ -37,6 +45,16 @@ type tryCastInt32ToFloat32 struct {
 
 func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32) {
 	*result = float32(*input)
+}
+
+type tryCastBigintToInt32 struct{}
+
+func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32) {
+	val := int32(input._lower)
+	if uint64(val) != input._lower {
+		fmt.Println(input)
+	}
+	*result = val
 }
 
 type tryCastFloat32ToInt32 struct {
@@ -87,6 +105,21 @@ func castExec(
 				gTryCastFloat32ToInt32,
 				nil,
 				gTryCastFloat32ToInt32OpWrapper,
+			)
+		default:
+			panic("usp")
+		}
+	case LTID_HUGEINT:
+		switch result.typ().id {
+		case LTID_INTEGER:
+			unaryGenericExec[Hugeint, int32](
+				source,
+				result,
+				count,
+				false,
+				gTryCastBigintToInt32,
+				nil,
+				gTryCastBigintToInt32OpWrapper,
 			)
 		default:
 			panic("usp")
