@@ -72,6 +72,8 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 	//
 	hj._buildExec = &ExprExec{}
 	for _, cond := range hj._conds {
+		//FIXME: Children[1] may not be from right part
+		//FIX it in the build stage.
 		hj._buildExec.addExpr(cond.Children[1])
 	}
 

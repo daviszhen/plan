@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,8 +20,8 @@ func findOperator(root *PhysicalOperator, fun func(root *PhysicalOperator) bool)
 }
 
 const (
-	maxTestCnt = 20
-	//maxTestCnt = math.MaxInt
+	//maxTestCnt = 20
+	maxTestCnt = math.MaxInt
 )
 
 func runOps(t *testing.T, ops []*PhysicalOperator) {
@@ -30,7 +31,7 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 		//	continue
 		//}
 
-		//fmt.Println(op.String())
+		fmt.Println(op.String())
 
 		run := &Runner{
 			op:    op,
@@ -552,6 +553,158 @@ func Test_HashAggr(t *testing.T) {
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Agg)
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_ProjectAndAggr(t *testing.T) {
+	/*
+		PhysicalPlan:
+		└── Project:
+		    ├── [outputs]
+		    │   └── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[0 0],0)
+		    ├── [estCard]  24004860
+		    ├── [index]  6
+		    ├── [exprs]
+		    │   └── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-1 0],0)
+		    └── Aggregate:
+		        ├── [outputs]
+		        │   └── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-1 1],0)
+		        ├── [estCard]  24004860
+		        ├── groupExprs, index 15
+		        │   ├── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[-1 0],0)
+		        │   └── [1  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-1 1],0)
+		        ├── aggExprs, index 16
+		        │   └── [0  {(LTID_INTEGER INT32 0 0),null}]  sum
+		        │       └── [ {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_quantity,[-1 3],0)
+		        ├── filters
+		        │   └── [0  {(LTID_BOOLEAN BOOL 0 0),not null}]  >
+		        │       ├── [ {(LTID_FLOAT FLOAT 0 0),null}]  cast
+		        │       │   ├── [ {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_availqty,[-1 2],0)
+		        │       │   └── [ {(LTID_FLOAT FLOAT 0 0),null}]  (0)
+		        │       └── [ {(LTID_FLOAT FLOAT 0 0),not null}]  *
+		        │           ├── [ {(LTID_FLOAT FLOAT 0 0),null}]  (0.5)
+		        │           └── [ {(LTID_FLOAT FLOAT 0 0),null}]  cast
+		        │               ├── [ {(LTID_INTEGER INT32 0 0),null}]  (AggNode_16.sum(l_quantity),[16 0],0)
+		        │               └── [ {(LTID_FLOAT FLOAT 0 0),null}]  (0)
+		        └── Join (inner):
+		            ├── [outputs]
+		            │   ├── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[-2 0],0)
+		            │   ├── [1  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-2 1],0)
+		            │   ├── [2  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_availqty,[-2 2],0)
+		            │   └── [3  {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_quantity,[-1 2],0)
+		            ├── [estCard]  24004860
+		            ├── [On]
+		            │   ├── [0  {(LTID_BOOLEAN BOOL 0 0),null}]  =
+		            │   │   ├── [ {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_partkey,[-1 0],0)
+		            │   │   └── [ {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[-2 0],0)
+		            │   ├── [1  {(LTID_BOOLEAN BOOL 0 0),null}]  =
+		            │   │   ├── [ {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_suppkey,[-1 1],0)
+		            │   │   └── [ {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-2 1],0)
+		            │   ├── [2  {(LTID_BOOLEAN BOOL 0 0),null}]  =
+		            │   │   ├── [ {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_partkey,[-1 0],0)
+		            │   │   └── [ {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[-2 0],0)
+		            │   └── [3  {(LTID_BOOLEAN BOOL 0 0),null}]  =
+		            │       ├── [ {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_suppkey,[-1 1],0)
+		            │       └── [ {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-2 1],0)
+		            ├── Scan:
+		            │   ├── [outputs]
+		            │   │   ├── [0  {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_partkey,[0 0],0)
+		            │   │   ├── [1  {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_suppkey,[0 1],0)
+		            │   │   └── [2  {(LTID_INTEGER INT32 0 0),not null}]  (lineitem.l_quantity,[0 2],0)
+		            │   ├── [estCard]  6001215
+		            │   ├── [index]  17
+		            │   ├── [table]  tpch.lineitem
+		            │   ├── [columns]
+		            │   │   col 0 l_partkey
+		            │   │   col 1 l_suppkey
+		            │   │   col 2 l_quantity
+		            │   │   col 3 l_shipdate
+		            │   │
+		            │   └── filters
+		            │       ├── [0  {(LTID_BOOLEAN BOOL 0 0),not null}]  >=
+		            │       │   ├── [ {(LTID_DATE DATE 0 0),not null}]  (lineitem.l_shipdate,[17 3],0)
+		            │       │   └── [ {(LTID_DATE DATE 0 0),null}]  (1993-01-01)
+		            │       └── [1  {(LTID_BOOLEAN BOOL 0 0),null}]  <
+		            │           ├── [ {(LTID_DATE DATE 0 0),not null}]  (lineitem.l_shipdate,[17 3],0)
+		            │           └── [ {(LTID_DATE DATE 0 0),not null}]  +
+		            │               ├── [ {(LTID_DATE DATE 0 0),null}]  (1993-01-01)
+		            │               └── [ {(LTID_INTERVAL INTERVAL 0 0),null}]  (1 year)
+		            └── Join (inner):
+		                ├── [outputs]
+		                │   ├── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[-1 0],0)
+		                │   ├── [1  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[-1 1],0)
+		                │   └── [2  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_availqty,[-1 2],0)
+		                ├── [estCard]  800000
+		                ├── [On]
+		                │   └── [0  {(LTID_BOOLEAN BOOL 0 0),null}]  in
+		                │       ├── [ {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[-1 0],0)
+		                │       └── [ {(LTID_INTEGER INT32 0 0),not null}]  (part.p_partkey,[-2 0],0)
+		                ├── Scan:
+		                │   ├── [outputs]
+		                │   │   ├── [0  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_partkey,[0 0],0)
+		                │   │   ├── [1  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_suppkey,[0 1],0)
+		                │   │   └── [2  {(LTID_INTEGER INT32 0 0),not null}]  (partsupp.ps_availqty,[0 2],0)
+		                │   ├── [estCard]  800000
+		                │   ├── [index]  9
+		                │   ├── [table]  tpch.partsupp
+		                │   ├── [columns]
+		                │   │   col 0 ps_partkey
+		                │   │   col 1 ps_suppkey
+		                │   │   col 2 ps_availqty
+		                │   │
+		                │   └── filters
+		                └── Project:
+		                    ├── [outputs]
+		                    │   └── [0  {(LTID_INTEGER INT32 0 0),not null}]  (part.p_partkey,[0 0],0)
+		                    ├── [estCard]  200000
+		                    ├── [index]  10
+		                    ├── [exprs]
+		                    │   └── [0  {(LTID_INTEGER INT32 0 0),not null}]  (part.p_partkey,[-1 0],0)
+		                    └── Scan:
+		                        ├── [outputs]
+		                        │   └── [0  {(LTID_INTEGER INT32 0 0),not null}]  (part.p_partkey,[0 0],0)
+		                        ├── [estCard]  0
+		                        ├── [index]  13
+		                        ├── [table]  tpch.part
+		                        ├── [columns]
+		                        │   col 0 p_partkey
+		                        │   col 1 p_name
+		                        │
+		                        └── filters
+		                            └── [0  {(LTID_BOOLEAN BOOL 0 0),not null}]  like
+		                                ├── [ {(LTID_VARCHAR VARCHAR 55 0),not null}]  (part.p_name,[13 1],0)
+		                                └── [ {(LTID_VARCHAR VARCHAR 0 0),null}]  (lime%)
+
+
+
+	*/
+
+	pplan := runTest2(t, tpchQ20())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Project) && wantedOp(root.Children[0], POT_Agg)
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_innerJoin4(t *testing.T) {
+	/*
+
+	 */
+
+	pplan := runTest2(t, tpchQ20())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Join) &&
+				wantedOp(root.Children[0], POT_Project) &&
+				wantedOp(root.Children[1], POT_Join)
 		},
 	)
 	runOps(t, ops)
