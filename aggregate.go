@@ -796,7 +796,7 @@ func NewGroupedAggrHashTable(
 	ret._hashOffset = ret._layout._offsets[ret._layout.columnCount()-1]
 	ret._dataCollection = NewTupleDataCollection(ret._layout)
 	//allocate hash header
-	ret._hashesHdlPtr = bytesSliceToPointer(make([]byte, BLOCK_SIZE))
+	ret._hashesHdlPtr = cAlloc(BLOCK_SIZE)
 	ret._hashPrefixShift = (HASH_WIDTH - 2) * 8
 	ret.Resize(initCap)
 	ret._predicates = make([]ET_SubTyp, ret._layout.columnCount()-1)
@@ -1080,7 +1080,7 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 	aht._bitmask = uint64(aht._capacity - 1)
 	byteSize := aht._capacity * aggrEntrySize
 	if byteSize > BLOCK_SIZE {
-		aht._hashesHdlPtr = bytesSliceToPointer(make([]byte, byteSize))
+		aht._hashesHdlPtr = cAlloc(byteSize)
 	}
 	htEntrySlice := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
 	for i := 0; i < len(htEntrySlice); i++ {

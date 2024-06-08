@@ -762,6 +762,43 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 		replaceColRef3(root.OnConds, root.Children[0].ColRefToPos, LeftChild)
 		replaceColRef3(root.OnConds, root.Children[1].ColRefToPos, RightChild)
 
+		//switch onConds left & right
+		for _, cond := range root.OnConds {
+			lset := make(ColumnBindSet)
+			rset := make(ColumnBindSet)
+			switch cond.Typ {
+			case ET_Func:
+				switch cond.SubTyp {
+				case ET_In, ET_NotIn:
+					collectColRefs(cond.Children[0], lset)
+					collectColRefs(cond.Children[1], rset)
+				case ET_SubFunc:
+				case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
+					collectColRefs(cond.Children[0], lset)
+					collectColRefs(cond.Children[1], rset)
+				default:
+					panic(fmt.Sprintf("usp %v", cond.SubTyp))
+				}
+			default:
+				panic(fmt.Sprintf("usp operator type %d", cond.Typ))
+			}
+
+			lLeftYes := lset.hasTableId(LeftChild)
+			lRightYes := lset.hasTableId(RightChild)
+			rLeftYes := rset.hasTableId(LeftChild)
+			rRightYes := rset.hasTableId(RightChild)
+			if lLeftYes && lRightYes {
+				panic("left child has two data source")
+			}
+			if rLeftYes && rRightYes {
+				panic("right child has two data source")
+			}
+			if lRightYes && rLeftYes {
+				//switch
+				cond.Children[0], cond.Children[1] = cond.Children[1], cond.Children[0]
+			}
+		}
+
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
 			//bind pos in the children

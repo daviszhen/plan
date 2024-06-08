@@ -365,7 +365,7 @@ func (vec *Vector) getValue(idx int) *Value {
 		data := getSliceInPhyFormatFlat[String](vec)
 		return &Value{
 			_typ: vec.typ(),
-			_str: data[idx]._data,
+			_str: data[idx].String(),
 		}
 	default:
 		panic("usp")
@@ -391,7 +391,17 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		slice[idx] = float32(val._f64)
 	case VARCHAR:
 		slice := toSlice[String](vec._data, pTyp.size())
-		slice[idx] = String{_data: val._str}
+		byteSlice := []byte(val._str)
+		dstMem := cAlloc(len(byteSlice))
+		dst := pointerToSlice[byte](dstMem, len(byteSlice))
+		copy(dst, byteSlice)
+		slice[idx] = String{
+			_data: dstMem,
+			_len:  len(dst),
+		}
+		again := slice[idx].String()
+		assertFunc(again == val._str)
+		//fmt.Println(val._str, again)
 	case INTERVAL:
 		slice := toSlice[Interval](vec._data, pTyp.size())
 		interVal := Interval{}

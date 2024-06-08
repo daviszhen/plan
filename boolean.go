@@ -81,7 +81,7 @@ type equalStrOp struct {
 }
 
 func (e equalStrOp) operation(left, right *String) bool {
-	return left._data == right._data
+	return left.equal(right)
 }
 
 // <
@@ -195,7 +195,7 @@ func wildcardMatch(pattern, target string) bool {
 }
 
 func (e likeOp) operation(left, right *String) bool {
-	return wildcardMatch(right._data, left._data)
+	return wildcardMatch(right.String(), left.String())
 }
 func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, subTyp ET_SubTyp) int {
 	switch subTyp {

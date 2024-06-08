@@ -68,6 +68,15 @@ func (set ColumnBindSet) clear() {
 	}
 }
 
+func (set ColumnBindSet) hasTableId(tableId SourceType) bool {
+	for key := range set {
+		if key.table() == uint64(tableId) {
+			return true
+		}
+	}
+	return false
+}
+
 func (cmap ColumnBindMap) find(bind ColumnBind) bool {
 	if _, has := cmap[bind]; has {
 		return true

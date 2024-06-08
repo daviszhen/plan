@@ -126,7 +126,7 @@ func TemplatedMatchType[T any](
 	if !col._mask.AllValid() {
 		for i := 0; i < *cnt; i++ {
 			idx := sel.getIndex(i)
-			row := pointerToBytesSlice(ptrs[idx], rowWidth)
+			row := pointerToSlice[uint8](ptrs[idx], rowWidth)
 			mask := Bitmap{_bits: row}
 			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
 
@@ -158,7 +158,7 @@ func TemplatedMatchType[T any](
 	} else {
 		for i := 0; i < *cnt; i++ {
 			idx := sel.getIndex(i)
-			row := pointerToBytesSlice(ptrs[idx], rowWidth)
+			row := pointerToSlice[uint8](ptrs[idx], rowWidth)
 			mask := Bitmap{_bits: row}
 			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
 			colIdx := col._sel.getIndex(idx)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -12,19 +13,39 @@ import (
 )
 
 type String struct {
-	_data string
+	_len  int
+	_data unsafe.Pointer
+}
+
+func (s *String) dataSlice() []byte {
+	return pointerToSlice[byte](s._data, s._len)
+}
+
+func (s *String) data() unsafe.Pointer {
+	return s._data
+}
+func (s *String) String() string {
+	t := s.dataSlice()
+	return string(t)
 }
 
 func (s *String) equal(o *String) bool {
-	return s._data == o._data
+	if s._len != o._len {
+		return false
+	}
+	sSlice := pointerToSlice[byte](s._data, s._len)
+	oSlice := pointerToSlice[byte](o._data, o._len)
+	return bytes.Equal(sSlice, oSlice)
 }
 
 func (s *String) less(o *String) bool {
-	return s._data < o._data
+	sSlice := pointerToSlice[byte](s._data, s._len)
+	oSlice := pointerToSlice[byte](o._data, o._len)
+	return bytes.Compare(sSlice, oSlice) < 0
 }
 
 func (s *String) len() int {
-	return len(s._data)
+	return s._len
 }
 
 func (s String) nullLen() int {
@@ -112,22 +133,59 @@ func (h *Hugeint) Add(lhs, rhs *Hugeint) {
 }
 func (h *Hugeint) Mul(lhs, rhs *Hugeint) {}
 
-type nullValue[T any] interface {
-	value() T
+type ScatterOp[T any] interface {
+	nullValue() T
+	store(src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer)
 }
 
-type int32NullValue struct {
+type int32ScatterOp struct {
 }
 
-func (i int32NullValue) value() int32 {
+func (i int32ScatterOp) nullValue() int32 {
 	return 0
 }
 
-type uint64NullValue struct {
+func (i int32ScatterOp) store(src int32, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	store[int32](src, pointerAdd(rowLoc, offsetInRow))
 }
 
-func (i uint64NullValue) value() uint64 {
+type uint64ScatterOp struct {
+}
+
+func (i uint64ScatterOp) nullValue() uint64 {
 	return 0
+}
+
+func (i uint64ScatterOp) store(src uint64, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	store[uint64](src, pointerAdd(rowLoc, offsetInRow))
+}
+
+type stringScatterOp struct {
+}
+
+func (i stringScatterOp) nullValue() String {
+	return String{_data: unsafe.Pointer(uintptr(0))}
+}
+
+func (i stringScatterOp) store(src String, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	if heapLoc == nil || *heapLoc == nil {
+		panic("invalid heap location")
+	}
+	dst := pointerToSlice[byte](*heapLoc, src.len())
+	srcSlice := pointerToSlice[byte](src.data(), src.len())
+	copy(dst, srcSlice)
+	newS := String{
+		_data: *heapLoc,
+		_len:  src.len(),
+	}
+	store[String](newS, pointerAdd(rowLoc, offsetInRow))
+	//test
+	lstr := load[String](pointerAdd(rowLoc, offsetInRow))
+
+	assertFunc(newS.String() == src.String())
+	assertFunc(lstr.String() == src.String())
+
+	*heapLoc = pointerAdd(*heapLoc, src.len())
 }
 
 type PhyType int

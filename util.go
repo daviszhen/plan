@@ -1,13 +1,17 @@
 package main
 
+import "C"
 import (
 	"fmt"
 	"strings"
 	"unsafe"
 
 	"github.com/xlab/treeprint"
-	_ "github.com/xlab/treeprint"
 )
+
+//#include <stdio.h>
+//#include <stdlib.h>
+import "C"
 
 func swap[T any](a []T, i, j int) {
 	if i >= 0 && i < len(a) && j >= 0 && j < len(a) {
@@ -290,22 +294,15 @@ func memset(ptr unsafe.Pointer, val byte, size int) {
 
 func toSlice[T any](data []byte, pSize int) []T {
 	slen := len(data) / pSize
-	return unsafe.Slice((*T)(unsafe.Pointer(&data[0])), slen)
+	return unsafe.Slice((*T)(unsafe.Pointer(unsafe.SliceData(data))), slen)
 }
 
 func bytesSliceToPointer(data []byte) unsafe.Pointer {
-	if len(data) == 0 {
-		return nil
-	}
-	return unsafe.Pointer(&data[0])
+	return unsafe.Pointer(unsafe.SliceData(data))
 }
 
 func pointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
-	return unsafe.Pointer(uintptr(base) + uintptr(offset))
-}
-
-func pointerToBytesSlice(base unsafe.Pointer, len int) []byte {
-	return unsafe.Slice((*byte)(base), len)
+	return unsafe.Add(base, offset)
 }
 
 func pointerToSlice[T any](base unsafe.Pointer, len int) []T {
@@ -328,4 +325,12 @@ func findIf[T ~*Expr | ~string | ~int](data []T, pred func(t T) bool) int {
 		}
 	}
 	return -1
+}
+
+func cAlloc(sz int) unsafe.Pointer {
+	return C.calloc(C.size_t(sz), 1)
+}
+
+func cFree(ptr unsafe.Pointer) {
+	C.free(ptr)
 }

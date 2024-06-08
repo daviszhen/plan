@@ -685,7 +685,7 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 
 	if needHeapOffset && !layout._allConst {
 		layout._heapSizeOffset = layout._rowWidth
-		layout._rowWidth += int32Size
+		layout._rowWidth += int64Size
 	}
 
 	//data columns
@@ -966,7 +966,7 @@ func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
 	heapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.heapLocations)
 
 	for i := 0; i < cnt; i++ {
-		rowLocs[i] = bytesSliceToPointer(make([]byte, tuple._layout.rowWidth()))
+		rowLocs[i] = cAlloc(tuple._layout.rowWidth())
 		if rowLocs[i] == nil {
 			panic("row loc is null")
 		}
@@ -976,8 +976,15 @@ func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
 		if tuple._layout.allConst() {
 			continue
 		}
-		initHeapSizes(rowLocs, heapSizes, i, cnt, tuple._layout.heapSizeOffset())
-		heapLocs[i] = bytesSliceToPointer(make([]byte, heapSizes[i]))
+		//FIXME: do not init heapSizes here
+		//initHeapSizes(rowLocs, heapSizes, i, cnt, tuple._layout.heapSizeOffset())
+		if heapSizes[i] == 0 {
+			continue
+		}
+		heapLocs[i] = cAlloc(int(heapSizes[i]))
+		if heapLocs[i] == nil {
+			panic("heap loc is null")
+		}
 	}
 }
 
@@ -1084,7 +1091,7 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			int32NullValue{},
+			int32ScatterOp{},
 		)
 	case UINT64:
 		TupleDataTemplatedScatter[uint64](
@@ -1095,7 +1102,18 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			uint64NullValue{},
+			uint64ScatterOp{},
+		)
+	case VARCHAR:
+		TupleDataTemplatedScatter[String](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			stringScatterOp{},
 		)
 	default:
 		panic("usp ")
@@ -1110,7 +1128,7 @@ func TupleDataTemplatedScatter[T any](
 	rowLocations *Vector,
 	heapLocations *Vector,
 	colIdx int,
-	nVal nullValue[T],
+	nVal ScatterOp[T],
 ) {
 	srcSel := srcFormat._sel
 	srcSlice := getSliceInPhyFormatUnifiedFormat[T](srcFormat)
@@ -1122,16 +1140,16 @@ func TupleDataTemplatedScatter[T any](
 	if srcMask.AllValid() {
 		for i := 0; i < cnt; i++ {
 			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
-			TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, targetHeapLocs[i])
+			TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
 		}
 	} else {
 		for i := 0; i < cnt; i++ {
 			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
 			if srcMask.rowIsValid(uint64(srcIdx)) {
-				TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, targetHeapLocs[i])
+				TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
 			} else {
-				TupleDataValueStore[T](nVal.value(), targetLocs[i], offsetInRow, targetHeapLocs[i])
-				bSlice := pointerToBytesSlice(targetLocs[i], layout._rowWidth)
+				TupleDataValueStore[T](nVal.nullValue(), targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
+				bSlice := pointerToSlice[uint8](targetLocs[i], layout._rowWidth)
 				tempMask := Bitmap{_bits: bSlice}
 				tempMask.setInvalidUnsafe(uint64(colIdx))
 			}
@@ -1140,8 +1158,8 @@ func TupleDataTemplatedScatter[T any](
 
 }
 
-func TupleDataValueStore[T any](src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc unsafe.Pointer) {
-	store[T](src, pointerAdd(rowLoc, offsetInRow))
+func TupleDataValueStore[T any](src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer, nVal ScatterOp[T]) {
+	nVal.store(src, rowLoc, offsetInRow, heapLoc)
 }
 
 func TupleDataTemplatedGatherSwitch(
@@ -1157,6 +1175,16 @@ func TupleDataTemplatedGatherSwitch(
 	switch pTyp {
 	case INT32:
 		TupleDataTemplatedGather[int32](
+			layout,
+			rowLocs,
+			colIdx,
+			scanSel,
+			scanCnt,
+			target,
+			targetSel,
+		)
+	case VARCHAR:
+		TupleDataTemplatedGather[String](
 			layout,
 			rowLocs,
 			colIdx,
@@ -1186,7 +1214,7 @@ func TupleDataTemplatedGather[T any](
 	offsetInRow := layout.offsets()[colIdx]
 	for i := 0; i < scanCnt; i++ {
 		base := srcLocs[scanSel.getIndex(i)]
-		srcRow := pointerToBytesSlice(base, layout._rowWidth)
+		srcRow := pointerToSlice[byte](base, layout._rowWidth)
 		targetIdx := targetSel.getIndex(i)
 		rowMask := Bitmap{_bits: srcRow}
 		if rowIsValidInEntry(
