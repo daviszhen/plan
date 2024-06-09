@@ -11,21 +11,19 @@ import (
 )
 
 type OperatorState struct {
+	projExec   *ExprExec
+	outputExec *ExprExec
+
+	//filter projExec used in aggr, filter, scan
+	filterExec *ExprExec
+	filterSel  *SelectVector
+
 	//for aggregate
-	haScanstate           *HashAggrScanState
+	haScanState           *HashAggrScanState
 	groupbyWithParamsExec *ExprExec
 	groupbyExec           *ExprExec
-	filterExec            *ExprExec
-	filterSel             *SelectVector
-	aggrOutputExec        *ExprExec
 
-	//for scan
-	exec    *ExprExec
-	sel     *SelectVector
 	showRaw bool
-
-	//for join (inner)
-	outputExec *ExprExec
 }
 
 type OperatorResult int
@@ -103,6 +101,8 @@ func (run *Runner) Init() error {
 		return run.joinInit()
 	case POT_Agg:
 		return run.aggrInit()
+	case POT_Filter:
+		return run.filterInit()
 	default:
 		panic("usp")
 	}
@@ -120,6 +120,8 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.joinExec(output, state)
 	case POT_Agg:
 		return run.aggrExec(output, state)
+	case POT_Filter:
+		return run.filterExec(output, state)
 	default:
 		panic("usp")
 	}
@@ -163,9 +165,119 @@ func (run *Runner) Close() error {
 		return run.joinClose()
 	case POT_Agg:
 		return run.aggrClose()
+	case POT_Filter:
+		return run.filterClose()
 	default:
 		panic("usp")
 	}
+	return nil
+}
+
+func (run *Runner) filterInit() error {
+	var err error
+	var filterExec *ExprExec
+	filterExec, err = initFilterExec(run.op.Filters)
+	if err != nil {
+		return err
+	}
+	run.state = &OperatorState{
+		filterExec: filterExec,
+		filterSel:  NewSelectVector(defaultVectorSize),
+	}
+	return nil
+}
+
+func initFilterExec(filters []*Expr) (*ExprExec, error) {
+	//init filter
+	//convert filters into "... AND ..."
+	var err error
+	var andFilter *Expr
+	if len(filters) > 0 {
+		var impl *Impl
+		andFilter = filters[0]
+		for i, filter := range filters {
+			if i > 0 {
+				if andFilter.DataTyp.LTyp.id != LTID_BOOLEAN ||
+					filter.DataTyp.LTyp.id != LTID_BOOLEAN {
+					return nil, fmt.Errorf("need boolean expr")
+				}
+				argsTypes := []ExprDataType{
+					andFilter.DataTyp,
+					filter.DataTyp,
+				}
+				impl, err = GetFunctionImpl(
+					AND,
+					argsTypes)
+				if err != nil {
+					return nil, err
+				}
+				andFilter = &Expr{
+					Typ:     ET_Func,
+					SubTyp:  ET_And,
+					DataTyp: impl.RetTypeDecider(argsTypes),
+					FuncId:  AND,
+					Children: []*Expr{
+						andFilter,
+						filter,
+					},
+				}
+			}
+		}
+	}
+	return NewExprExec(andFilter), nil
+}
+
+func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool) error {
+	//filter
+	var err error
+	var count int
+	if filterOnLocal {
+		count, err = run.state.filterExec.executeSelect([]*Chunk{nil, nil, input}, run.state.filterSel)
+		if err != nil {
+			return err
+		}
+	} else {
+		count, err = run.state.filterExec.executeSelect([]*Chunk{input, nil, nil}, run.state.filterSel)
+		if err != nil {
+			return err
+		}
+	}
+
+	if count == input.card() {
+		//reference
+		output.referenceIndice(input, run.outputIndice)
+	} else {
+		//slice
+		output.sliceIndice(input, run.state.filterSel, count, 0, run.outputIndice)
+	}
+	return nil
+}
+
+func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	childChunk := &Chunk{}
+	var res OperatorResult
+	var err error
+	if len(run.children) != 0 {
+		res, err = run.execChild(run.children[0], childChunk, state)
+		if err != nil {
+			return 0, err
+		}
+		if res == InvalidOpResult {
+			return InvalidOpResult, nil
+		}
+		if res == Done {
+			return res, nil
+		}
+	}
+
+	err = run.runFilterExec(childChunk, output, false)
+	if err != nil {
+		return 0, err
+	}
+	return haveMoreOutput, nil
+}
+
+func (run *Runner) filterClose() error {
 	return nil
 }
 
@@ -195,7 +307,7 @@ func (run *Runner) aggrInit() error {
 		run.state.groupbyExec = NewExprExec(run.hAggr._groupedAggrData._groups...)
 		run.state.filterExec = NewExprExec(run.op.Filters...)
 		run.state.filterSel = NewSelectVector(defaultVectorSize)
-		run.state.aggrOutputExec = NewExprExec(run.op.Outputs...)
+		run.state.outputExec = NewExprExec(run.op.Outputs...)
 	}
 	return nil
 }
@@ -239,8 +351,8 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 		fmt.Println("child cnt", cnt)
 	}
 	if run.hAggr._has == HAS_SCAN {
-		if run.state.haScanstate == nil {
-			run.state.haScanstate = NewHashAggrScanState()
+		if run.state.haScanState == nil {
+			run.state.haScanState = NewHashAggrScanState()
 			err = run.initChildren()
 			if err != nil {
 				return InvalidOpResult, err
@@ -267,7 +379,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//fmt.Println("scan aggr", childChunk.card())
 			//childChunk.print()
 			x := childChunk.card()
-			run.state.haScanstate._childCnt += childChunk.card()
+			run.state.haScanState._childCnt += childChunk.card()
 
 			//2.eval the group by exprs for the child chunk
 			typs := make([]LType, 0)
@@ -284,7 +396,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			aggrStatesTyps := make([]LType, 0)
 			aggrStatesTyps = append(aggrStatesTyps, run.hAggr._groupedAggrData._aggrReturnTypes...)
 			aggrStatesChunk.init(aggrStatesTyps, defaultVectorSize)
-			res = run.hAggr.FetechAggregates(run.state.haScanstate, groupChunk, aggrStatesChunk)
+			res = run.hAggr.FetechAggregates(run.state.haScanState, groupChunk, aggrStatesChunk)
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil
 			}
@@ -297,13 +409,13 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//childChunk.print()
 			//aggrStatesChunk.print()
 			var count int
-			count, err = state.filterExec.executeSelect2([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
+			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
 			if err != nil {
 				return InvalidOpResult, err
 			}
 
 			if count == 0 {
-				run.state.haScanstate._filteredCnt1 += childChunk.card() - count
+				run.state.haScanState._filteredCnt1 += childChunk.card() - count
 				continue
 			}
 
@@ -315,7 +427,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				aggrStatesChunk2 = aggrStatesChunk
 			} else {
 				filtered = count - childChunk.card()
-				run.state.haScanstate._filteredCnt2 += filtered
+				run.state.haScanState._filteredCnt2 += filtered
 
 				childChunkIndice := make([]int, 0)
 				for i := 0; i < childChunk.columnCount(); i++ {
@@ -340,7 +452,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			assertFunc(childChunk2.card() == aggrStatesChunk2.card())
 
 			//5. eval the output
-			err = run.state.aggrOutputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk2}, output)
+			err = run.state.outputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk2}, output)
 			if err != nil {
 				return InvalidOpResult, err
 			}
@@ -353,9 +465,9 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			assertFunc(x == childChunk.card())
 			assertFunc(output.card() == childChunk.card())
 
-			run.state.haScanstate._outputCnt += output.card()
-			run.state.haScanstate._childCnt2 += childChunk.card()
-			run.state.haScanstate._childCnt3 += x
+			run.state.haScanState._outputCnt += output.card()
+			run.state.haScanState._childCnt2 += childChunk.card()
+			run.state.haScanState._childCnt3 += x
 			if output.card() > 0 {
 				return haveMoreOutput, nil
 			}
@@ -363,17 +475,17 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 	}
 	fmt.Println("scan cnt",
 		"childCnt",
-		run.state.haScanstate._childCnt,
+		run.state.haScanState._childCnt,
 		"childCnt2",
-		run.state.haScanstate._childCnt2,
+		run.state.haScanState._childCnt2,
 		"childCnt3",
-		run.state.haScanstate._childCnt3,
+		run.state.haScanState._childCnt3,
 		"outputCnt",
-		run.state.haScanstate._outputCnt,
+		run.state.haScanState._outputCnt,
 		"filteredCnt1",
-		run.state.haScanstate._filteredCnt1,
+		run.state.haScanState._filteredCnt1,
 		"filteredCnt2",
-		run.state.haScanstate._filteredCnt2,
+		run.state.haScanState._filteredCnt2,
 	)
 	return Done, nil
 }
@@ -518,8 +630,7 @@ func (run *Runner) joinClose() error {
 
 func (run *Runner) projInit() error {
 	run.state = &OperatorState{
-		exec: NewExprExec(run.op.Projects...),
-		sel:  NewSelectVector(defaultVectorSize),
+		projExec: NewExprExec(run.op.Projects...),
 	}
 	return nil
 }
@@ -539,7 +650,7 @@ func (run *Runner) projExec(output *Chunk, state *OperatorState) (OperatorResult
 	}
 
 	//project list
-	err = run.state.exec.executeExprs([]*Chunk{childChunk, nil, nil}, output)
+	err = run.state.projExec.executeExprs([]*Chunk{childChunk, nil, nil}, output)
 	if err != nil {
 		return 0, err
 	}
@@ -579,46 +690,16 @@ func (run *Runner) scanInit() error {
 	run.reader = csv.NewReader(run.dataFile)
 	run.reader.Comma = '|'
 
-	//init filter
-	//TODO: convert filters into "... AND ..."
-	var andFilter *Expr
-	if len(run.op.Filters) > 0 {
-		var impl *Impl
-		andFilter = run.op.Filters[0]
-		for i, filter := range run.op.Filters {
-			if i > 0 {
-				if andFilter.DataTyp.LTyp.id != LTID_BOOLEAN ||
-					filter.DataTyp.LTyp.id != LTID_BOOLEAN {
-					return fmt.Errorf("need boolean expr")
-				}
-				argsTypes := []ExprDataType{
-					andFilter.DataTyp,
-					filter.DataTyp,
-				}
-				impl, err = GetFunctionImpl(
-					AND,
-					argsTypes)
-				if err != nil {
-					return err
-				}
-				andFilter = &Expr{
-					Typ:     ET_Func,
-					SubTyp:  ET_And,
-					DataTyp: impl.RetTypeDecider(argsTypes),
-					FuncId:  AND,
-					Children: []*Expr{
-						andFilter,
-						filter,
-					},
-				}
-			}
-		}
+	var filterExec *ExprExec
+	filterExec, err = initFilterExec(run.op.Filters)
+	if err != nil {
+		return err
 	}
 
 	run.state = &OperatorState{
-		exec:    NewExprExec(andFilter),
-		sel:     NewSelectVector(defaultVectorSize),
-		showRaw: gConf.ShowRaw,
+		filterExec: filterExec,
+		filterSel:  NewSelectVector(defaultVectorSize),
+		showRaw:    gConf.ShowRaw,
 	}
 
 	return nil
@@ -654,20 +735,9 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 		return true, nil
 	}
 
-	//filter
-	var count int
-	count, err = state.exec.executeSelect(readed, state.sel)
+	err = run.runFilterExec(readed, output, true)
 	if err != nil {
 		return false, err
-	}
-
-	//TODO:remove unnessary row
-	if count == readed.card() {
-		//reference
-		output.referenceIndice(readed, run.outputIndice)
-	} else {
-		//slice
-		output.sliceIndice(readed, state.sel, count, 0, run.outputIndice)
 	}
 	return false, nil
 }

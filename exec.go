@@ -244,31 +244,25 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVect
 	return err
 }
 
-func (exec *ExprExec) executeSelect(data *Chunk, sel *SelectVector) (int, error) {
-	if len(exec._exprs) == 0 {
-		return data.card(), nil
+func (exec *ExprExec) executeSelect(datas []*Chunk, sel *SelectVector) (int, error) {
+	card := 0
+	for _, data := range datas {
+		if data == nil {
+			continue
+		}
+		card = data.card()
+		break
 	}
-	exec._chunk = []*Chunk{nil, nil, data}
-	return exec.execSelectExpr(
-		exec._exprs[0],
-		exec._execStates[0]._root,
-		nil,
-		data.card(),
-		sel,
-		nil,
-	)
-}
+	if len(exec._exprs) == 0 {
+		return card, nil
+	}
 
-func (exec *ExprExec) executeSelect2(datas []*Chunk, sel *SelectVector) (int, error) {
-	if len(exec._exprs) == 0 {
-		return datas[0].card(), nil
-	}
 	exec._chunk = datas
 	return exec.execSelectExpr(
 		exec._exprs[0],
 		exec._execStates[0]._root,
 		nil,
-		datas[0].card(),
+		card,
 		sel,
 		nil,
 	)
@@ -285,7 +279,8 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 			ET_Greater,
 			ET_GreaterEqual,
 			ET_Less,
-			ET_Like:
+			ET_Like,
+			ET_In:
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
 		case ET_And:
 			return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
@@ -320,7 +315,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 			ET_Greater,
 			ET_GreaterEqual,
 			ET_Less,
-			ET_Like:
+			ET_Like, ET_In:
 			return selectOperation(
 				eState._interChunk._data[0],
 				eState._interChunk._data[1],

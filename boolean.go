@@ -76,11 +76,25 @@ func (e equalOp[T]) operation(left, right *T) bool {
 	return *left == *right
 }
 
-// =
+// String
 type equalStrOp struct {
 }
 
 func (e equalStrOp) operation(left, right *String) bool {
+	return left.equal(right)
+}
+
+// in
+type inOp[T comparable] struct{}
+
+func (e inOp[T]) operation(left, right *T) bool {
+	return *left == *right
+}
+
+// String
+type inStrOp struct{}
+
+func (e inStrOp) operation(left, right *String) bool {
 	return left.equal(right)
 }
 
@@ -205,6 +219,17 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
 		case VARCHAR:
 			return selectBinary[String](left, right, sel, count, trueSel, falseSel, equalStrOp{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+			panic("usp")
+		default:
+			panic("usp")
+		}
+	case ET_In:
+		switch left.typ().getInternalType() {
+		case INT32:
+			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, inOp[int32]{})
+		case VARCHAR:
+			return selectBinary[String](left, right, sel, count, trueSel, falseSel, inStrOp{})
 		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:

@@ -78,7 +78,7 @@ func wantedOp(root *PhysicalOperator, pt POT) bool {
 	return false
 }
 
-func Test_scanExec(t *testing.T) {
+func Test_1g_q20_scanExec(t *testing.T) {
 	pplan := runTest2(t, tpchQ20())
 	ops := findOperator(
 		pplan,
@@ -89,7 +89,7 @@ func Test_scanExec(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_projectExec(t *testing.T) {
+func Test_1g_q20_projectExec(t *testing.T) {
 	pplan := runTest2(t, tpchQ20())
 	ops := findOperator(
 		pplan,
@@ -100,7 +100,7 @@ func Test_projectExec(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_innerJoin(t *testing.T) {
+func Test_1g_q20_innerJoin(t *testing.T) {
 	/*
 		equal to:
 
@@ -142,7 +142,7 @@ func Test_innerJoin(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_innerJoin2(t *testing.T) {
+func Test_1g_q20_innerJoin2(t *testing.T) {
 	/*
 		equal to:
 		select
@@ -180,7 +180,7 @@ func Test_innerJoin2(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_innerJoin3(t *testing.T) {
+func Test_1g_q20_innerJoin3(t *testing.T) {
 	/*
 		equal to:
 
@@ -228,7 +228,7 @@ func Test_innerJoin3(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_HashAggr(t *testing.T) {
+func Test_1g_q20_HashAggr(t *testing.T) {
 	/*
 		PhysicalPlan:
 		└── Aggregate:
@@ -558,7 +558,7 @@ func Test_HashAggr(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_ProjectAndAggr(t *testing.T) {
+func Test_1g_q20_ProjectAndAggr(t *testing.T) {
 	/*
 		PhysicalPlan:
 		└── Project:
@@ -692,7 +692,7 @@ func Test_ProjectAndAggr(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_innerJoin4(t *testing.T) {
+func Test_1g_q20_innerJoin4(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
 	//debug.SetMemoryLimit(math.MaxInt64)
@@ -974,7 +974,7 @@ func Test_innerJoin4(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_filter(t *testing.T) {
+func Test_1g_q20_filter(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
 	//debug.SetMemoryLimit(math.MaxInt64)
@@ -986,6 +986,39 @@ func Test_filter(t *testing.T) {
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Filter) &&
 				wantedOp(root.Children[0], POT_Join)
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_1g_q20_projectAndFilter(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ20())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Project) &&
+				wantedOp(root.Children[0], POT_Filter)
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_1g_q20_order(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ20())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
 		},
 	)
 	runOps(t, ops)
