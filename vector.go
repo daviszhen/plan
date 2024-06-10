@@ -392,7 +392,7 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	case VARCHAR:
 		slice := toSlice[String](vec._data, pTyp.size())
 		byteSlice := []byte(val._str)
-		dstMem := cAlloc(len(byteSlice))
+		dstMem := cMalloc(len(byteSlice))
 		dst := pointerToSlice[byte](dstMem, len(byteSlice))
 		copy(dst, byteSlice)
 		slice[idx] = String{

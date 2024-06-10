@@ -309,6 +309,13 @@ func pointerToSlice[T any](base unsafe.Pointer, len int) []T {
 	return unsafe.Slice((*T)(base), len)
 }
 
+func invertBits(base unsafe.Pointer, offset int) {
+	ptr := pointerAdd(base, offset)
+	b := load[byte](ptr)
+	b = ^b
+	store[byte](b, ptr)
+}
+
 func printPtrs(hint string, data []unsafe.Pointer) {
 	fmt.Printf(hint)
 	fmt.Printf(" ")
@@ -327,10 +334,18 @@ func findIf[T ~*Expr | ~string | ~int](data []T, pred func(t T) bool) int {
 	return -1
 }
 
-func cAlloc(sz int) unsafe.Pointer {
+func cMalloc(sz int) unsafe.Pointer {
 	return C.calloc(C.size_t(sz), 1)
 }
 
 func cFree(ptr unsafe.Pointer) {
 	C.free(ptr)
+}
+
+func cRealloc(ptr unsafe.Pointer, sz int) unsafe.Pointer {
+	return C.realloc(ptr, C.size_t(sz))
+}
+
+func EntriesPerBlock(width int) int {
+	return BLOCK_SIZE / width
 }

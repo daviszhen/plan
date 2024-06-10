@@ -966,7 +966,7 @@ func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
 	heapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.heapLocations)
 
 	for i := 0; i < cnt; i++ {
-		rowLocs[i] = cAlloc(tuple._layout.rowWidth())
+		rowLocs[i] = cMalloc(tuple._layout.rowWidth())
 		if rowLocs[i] == nil {
 			panic("row loc is null")
 		}
@@ -981,7 +981,7 @@ func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
 		if heapSizes[i] == 0 {
 			continue
 		}
-		heapLocs[i] = cAlloc(int(heapSizes[i]))
+		heapLocs[i] = cMalloc(int(heapSizes[i]))
 		if heapLocs[i] == nil {
 			panic("heap loc is null")
 		}

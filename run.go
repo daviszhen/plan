@@ -103,6 +103,8 @@ func (run *Runner) Init() error {
 		return run.aggrInit()
 	case POT_Filter:
 		return run.filterInit()
+	case POT_Order:
+		return run.orderInit()
 	default:
 		panic("usp")
 	}
@@ -122,6 +124,8 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.aggrExec(output, state)
 	case POT_Filter:
 		return run.filterExec(output, state)
+	case POT_Order:
+		return run.orderExec(output, state)
 	default:
 		panic("usp")
 	}
@@ -167,9 +171,23 @@ func (run *Runner) Close() error {
 		return run.aggrClose()
 	case POT_Filter:
 		return run.filterClose()
+	case POT_Order:
+		return run.orderClose()
 	default:
 		panic("usp")
 	}
+	return nil
+}
+
+func (run *Runner) orderInit() error {
+	return nil
+}
+
+func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	return 0, nil
+}
+
+func (run *Runner) orderClose() error {
 	return nil
 }
 
