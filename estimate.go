@@ -8,13 +8,13 @@ import (
 
 type RelationAttributes struct {
 	originalName string
-	columns      Set
+	columns      UnorderedSet
 	cardinality  float64
 }
 
 func NewRelationAttributes() *RelationAttributes {
 	return &RelationAttributes{
-		columns: make(Set),
+		columns: make(UnorderedSet),
 	}
 }
 
@@ -408,7 +408,7 @@ func (est *CardinalityEstimator) EstimateCrossProduct(left, right *JoinNode) flo
 
 func (est *CardinalityEstimator) EstimateCardWithSet(newset *JoinRelationSet) float64 {
 	numerator := float64(1)
-	actualset := make(Set)
+	actualset := make(UnorderedSet)
 	for _, relId := range newset.relations {
 		numerator *= est.relationAttributes[relId].cardinality
 		actualset.insert(relId)
@@ -581,13 +581,13 @@ func (e EstimatedProperties) getCard() float64 {
 }
 
 type Subgraph2Denominator struct {
-	relations Set
+	relations UnorderedSet
 	denom     float64
 }
 
 func NewSubgraph2Denominator() *Subgraph2Denominator {
 	return &Subgraph2Denominator{
-		relations: make(Set),
+		relations: make(UnorderedSet),
 		denom:     1,
 	}
 }

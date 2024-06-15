@@ -292,6 +292,12 @@ func memset(ptr unsafe.Pointer, val byte, size int) {
 	}
 }
 
+func fill[T any](data []T, count int, val T) {
+	for i := 0; i < count; i++ {
+		data[i] = val
+	}
+}
+
 func toSlice[T any](data []byte, pSize int) []T {
 	slen := len(data) / pSize
 	return unsafe.Slice((*T)(unsafe.Pointer(unsafe.SliceData(data))), slen)
@@ -303,6 +309,10 @@ func bytesSliceToPointer(data []byte) unsafe.Pointer {
 
 func pointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
 	return unsafe.Add(base, offset)
+}
+
+func pointerSub(lhs, rhs unsafe.Pointer) int64 {
+	return int64(uintptr(lhs) - uintptr(rhs))
 }
 
 func pointerToSlice[T any](base unsafe.Pointer, len int) []T {

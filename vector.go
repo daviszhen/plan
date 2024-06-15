@@ -680,6 +680,23 @@ func (bm *Bitmap) copyFrom(other *Bitmap, count int) {
 	}
 }
 
+func (bm *Bitmap) setAllValid(cnt int) {
+	bm.prepareSpace(cnt)
+	if cnt == 0 {
+		return
+	}
+	lastEidx := entryCount(int(cnt)) - 1
+	for i := 0; i < lastEidx; i++ {
+		bm._bits[i] = 0xFF
+	}
+	lastBits := cnt % 8
+	if lastBits == 0 {
+		bm._bits[lastEidx] = 0xFF
+	} else {
+		bm._bits[lastEidx] = ^(0xFF << lastBits)
+	}
+}
+
 type SelectVector struct {
 	_selVec []int
 }

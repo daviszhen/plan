@@ -76,9 +76,9 @@ func (jrs *JoinRelationSet) String() string {
 	return bb.String()
 }
 
-type Set map[uint64]bool
+type UnorderedSet map[uint64]bool
 
-func (set Set) orderedKeys() []uint64 {
+func (set UnorderedSet) orderedKeys() []uint64 {
 	keys := make([]uint64, 0, len(set))
 	for key := range set {
 		keys = append(keys, key)
@@ -89,28 +89,28 @@ func (set Set) orderedKeys() []uint64 {
 	return keys
 }
 
-func (set Set) insert(keys ...uint64) {
+func (set UnorderedSet) insert(keys ...uint64) {
 	for _, key := range keys {
 		set[key] = true
 	}
 }
 
-func (set Set) find(key uint64) bool {
+func (set UnorderedSet) find(key uint64) bool {
 	_, has := set[key]
 	return has
 }
 
-func (set Set) clear() {
+func (set UnorderedSet) clear() {
 	for key := range set {
 		delete(set, key)
 	}
 }
 
-func (set Set) empty() bool {
+func (set UnorderedSet) empty() bool {
 	return len(set) == 0
 }
 
-func (set Set) size() int {
+func (set UnorderedSet) size() int {
 	return len(set)
 }
 
@@ -151,13 +151,13 @@ func NewJoinRelationSetManager() *JoinRelationSetManager {
 }
 
 func (jrsm *JoinRelationSetManager) union(left, right *JoinRelationSet) *JoinRelationSet {
-	dedup := make(Set)
+	dedup := make(UnorderedSet)
 	dedup.insert(left.relations...)
 	dedup.insert(right.relations...)
 	return NewJoinRelationSet(dedup.orderedKeys())
 }
 
-func (jrsm *JoinRelationSetManager) getRelation(relations Set) *JoinRelationSet {
+func (jrsm *JoinRelationSetManager) getRelation(relations UnorderedSet) *JoinRelationSet {
 	curNode := jrsm.root
 	keys := relations.orderedKeys()
 	for _, relId := range keys {
@@ -176,7 +176,7 @@ func (jrsm *JoinRelationSetManager) getRelation(relations Set) *JoinRelationSet 
 }
 
 func (jrsm *JoinRelationSetManager) getRelation2(relation uint64) *JoinRelationSet {
-	set := make(Set)
+	set := make(UnorderedSet)
 	set[relation] = true
 	return jrsm.getRelation(set)
 }
@@ -305,8 +305,8 @@ func (graph *QueryGraph) enumNeighbors(node *JoinRelationSet, callback func(info
 	}
 }
 
-func (graph *QueryGraph) GetNeighbors(node *JoinRelationSet, excludeSet Set) (ret []uint64) {
-	dedup := make(Set)
+func (graph *QueryGraph) GetNeighbors(node *JoinRelationSet, excludeSet UnorderedSet) (ret []uint64) {
+	dedup := make(UnorderedSet)
 	graph.enumNeighbors(node, func(info *neighborInfo) bool {
 		if !joinRelationSetIsExcluded(info.neighbor, excludeSet) {
 			dedup.insert(info.neighbor.relations[0])
@@ -329,7 +329,7 @@ func (graph *QueryGraph) GetConnections(node, other *JoinRelationSet) (conns []*
 	return
 }
 
-func joinRelationSetIsExcluded(node *JoinRelationSet, set Set) bool {
+func joinRelationSetIsExcluded(node *JoinRelationSet, set UnorderedSet) bool {
 	if _, has := set[node.relations[0]]; has {
 		return true
 	}
@@ -907,7 +907,7 @@ func (joinOrder *JoinOrderOptimizer) greedy() (err error) {
 func (joinOrder *JoinOrderOptimizer) updateDPTree(newPlan *JoinNode) error {
 	//TODO: full plan
 	newSet := newPlan.set
-	excludeSet := make(Set)
+	excludeSet := make(UnorderedSet)
 	excludeSet.insert(newSet.relations...)
 	neighbors := joinOrder.queryGraph.GetNeighbors(newSet, excludeSet)
 	allNeighbors := joinOrder.getAllNeighborSets(excludeSet, neighbors)
@@ -935,17 +935,17 @@ func (joinOrder *JoinOrderOptimizer) updateDPTree(newPlan *JoinNode) error {
 	return nil
 }
 
-func (joinOrder *JoinOrderOptimizer) getAllNeighborSets(excludeSet Set, neighbors []uint64) []Set {
+func (joinOrder *JoinOrderOptimizer) getAllNeighborSets(excludeSet UnorderedSet, neighbors []uint64) []UnorderedSet {
 	sort.Slice(neighbors, func(i, j int) bool {
 		return neighbors[i] < neighbors[j]
 	})
-	var ret []Set
-	var added []Set
+	var ret []UnorderedSet
+	var added []UnorderedSet
 	for _, nei := range neighbors {
-		x := make(Set)
+		x := make(UnorderedSet)
 		x.insert(nei)
 		added = append(added, x)
-		y := make(Set)
+		y := make(UnorderedSet)
 		y.insert(nei)
 		ret = append(ret, y)
 	}
@@ -960,8 +960,8 @@ func (joinOrder *JoinOrderOptimizer) getAllNeighborSets(excludeSet Set, neighbor
 	return ret
 }
 
-func (joinOrder *JoinOrderOptimizer) addSuperSets(current []Set, allNeighbors []uint64) []Set {
-	var ret []Set
+func (joinOrder *JoinOrderOptimizer) addSuperSets(current []UnorderedSet, allNeighbors []uint64) []UnorderedSet {
+	var ret []UnorderedSet
 	for _, nei := range allNeighbors {
 		for _, cur := range current {
 			keys := cur.orderedKeys()
@@ -969,7 +969,7 @@ func (joinOrder *JoinOrderOptimizer) addSuperSets(current []Set, allNeighbors []
 				continue
 			}
 			if _, has := cur[nei]; !has {
-				newSet := make(Set)
+				newSet := make(UnorderedSet)
 				for x := range cur {
 					newSet.insert(x)
 				}
@@ -1104,7 +1104,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 			cmaps = append(cmaps, cmap)
 		}
 		//get all table
-		tables := make(Set)
+		tables := make(UnorderedSet)
 		getTableRefers(root, tables)
 		relation := &SingleJoinRelation{op: root, parent: parent}
 		relId := len(joinOrder.relations)
@@ -1211,7 +1211,7 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 	}
 }
 
-func getTableRefers(root *LogicalOperator, set Set) {
+func getTableRefers(root *LogicalOperator, set UnorderedSet) {
 	if root == nil {
 		return
 	}
@@ -1253,13 +1253,13 @@ func getTableRefers(root *LogicalOperator, set Set) {
 
 }
 
-func collectTableRefersOfExprs(exprs []*Expr, set Set) {
+func collectTableRefersOfExprs(exprs []*Expr, set UnorderedSet) {
 	for _, expr := range exprs {
 		collectTableRefers(expr, set)
 	}
 }
 
-func collectTableRefers(e *Expr, set Set) {
+func collectTableRefers(e *Expr, set UnorderedSet) {
 	if e == nil {
 		return
 	}

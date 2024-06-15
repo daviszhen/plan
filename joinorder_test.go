@@ -19,10 +19,10 @@ func TestTreeNode(t *testing.T) {
 
 func TestNewJoinRelationSetManager(t *testing.T) {
 	m := NewJoinRelationSetManager()
-	set := make(Set)
+	set := make(UnorderedSet)
 	set.insert(1, 2, 3, 4, 5, 6, 7)
 	m.getRelation(set)
-	set = make(Set)
+	set = make(UnorderedSet)
 	set.insert(1, 2, 3, 4)
 	m.getRelation(set)
 	fmt.Println(m)
@@ -30,16 +30,16 @@ func TestNewJoinRelationSetManager(t *testing.T) {
 
 func TestGraph(t *testing.T) {
 	m := NewJoinRelationSetManager()
-	set := make(Set)
+	set := make(UnorderedSet)
 	set.insert(1, 2, 3, 4, 5, 6, 7)
 	jset1 := m.getRelation(set)
-	set = make(Set)
+	set = make(UnorderedSet)
 	set.insert(1, 2, 3, 4)
 	jset2 := m.getRelation(set)
-	set = make(Set)
+	set = make(UnorderedSet)
 	set.insert(3, 4, 5)
 	jset3 := m.getRelation(set)
-	set = make(Set)
+	set = make(UnorderedSet)
 	set.insert(9, 8)
 	jset4 := m.getRelation(set)
 	fmt.Println(m)
