@@ -2,6 +2,7 @@ package main
 
 import "C"
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"unsafe"
@@ -311,12 +312,36 @@ func pointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
 	return unsafe.Add(base, offset)
 }
 
+func pointerComp(lhs, rhs unsafe.Pointer) bool {
+	return uintptr(lhs) < uintptr(rhs)
+}
+
 func pointerSub(lhs, rhs unsafe.Pointer) int64 {
-	return int64(uintptr(lhs) - uintptr(rhs))
+	a := uint64(uintptr(lhs))
+	b := uint64(uintptr(rhs))
+	//uint64
+	ret0 := a - b
+	ret := int64(ret0)
+	if a < b {
+		ret = -ret
+	}
+	return ret
 }
 
 func pointerToSlice[T any](base unsafe.Pointer, len int) []T {
 	return unsafe.Slice((*T)(base), len)
+}
+
+func pointerCopy(dst, src unsafe.Pointer, len int) {
+	dstSlice := pointerToSlice[byte](dst, len)
+	srcSlice := pointerToSlice[byte](src, len)
+	copy(dstSlice, srcSlice)
+}
+
+func pointerCompBytes(lAddr, rAddr unsafe.Pointer, len int) int {
+	lSlice := pointerToSlice[byte](lAddr, len)
+	rSlice := pointerToSlice[byte](rAddr, len)
+	return bytes.Compare(lSlice, rSlice)
 }
 
 func invertBits(base unsafe.Pointer, offset int) {
