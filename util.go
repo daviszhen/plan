@@ -338,7 +338,7 @@ func pointerCopy(dst, src unsafe.Pointer, len int) {
 	copy(dstSlice, srcSlice)
 }
 
-func pointerCompBytes(lAddr, rAddr unsafe.Pointer, len int) int {
+func pointerMemcmp(lAddr, rAddr unsafe.Pointer, len int) int {
 	lSlice := pointerToSlice[byte](lAddr, len)
 	rSlice := pointerToSlice[byte](rAddr, len)
 	return bytes.Compare(lSlice, rSlice)
@@ -383,4 +383,14 @@ func cRealloc(ptr unsafe.Pointer, sz int) unsafe.Pointer {
 
 func EntriesPerBlock(width int) int {
 	return BLOCK_SIZE / width
+}
+
+func back[T any](data []T) T {
+	l := len(data)
+	if l == 0 {
+		panic("empty slice")
+	} else if l == 1 {
+		return data[0]
+	}
+	return data[l-1]
 }

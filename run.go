@@ -11,6 +11,11 @@ import (
 )
 
 type OperatorState struct {
+	//order
+	orderKeyExec *ExprExec
+	keyTypes     []LType
+	payloadTypes []LType
+
 	projExec   *ExprExec
 	outputExec *ExprExec
 
@@ -46,6 +51,8 @@ type OperatorExec interface {
 type Runner struct {
 	op    *PhysicalOperator
 	state *OperatorState
+	//for order
+	localSort *LocalSort
 
 	//for hash aggr
 	hAggr *HashAggr
@@ -180,14 +187,115 @@ func (run *Runner) Close() error {
 }
 
 func (run *Runner) orderInit() error {
+	//TODO: asc or desc
+	keyTypes := make([]LType, 0)
+	realOrderByExprs := make([]*Expr, 0)
+	for _, by := range run.op.OrderBys {
+		child := by.Children[0]
+		keyTypes = append(keyTypes, child.DataTyp.LTyp)
+		realOrderByExprs = append(realOrderByExprs, child)
+	}
+
+	payLoadTypes := make([]LType, 0)
+	for _, output := range run.op.Outputs {
+		payLoadTypes = append(payLoadTypes,
+			output.DataTyp.LTyp)
+	}
+
+	run.localSort = NewLocalSort(
+		NewSortLayout(run.op.OrderBys),
+		NewRowLayout(payLoadTypes, nil),
+	)
+
+	run.state = &OperatorState{
+		keyTypes:     keyTypes,
+		payloadTypes: payLoadTypes,
+		orderKeyExec: NewExprExec(realOrderByExprs...),
+		outputExec:   NewExprExec(run.op.Outputs...),
+	}
+
 	return nil
 }
 
 func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
-	return 0, nil
+	var err error
+	var res OperatorResult
+	if run.localSort._sortState == SS_INIT {
+		for {
+			childChunk := &Chunk{}
+			res, err = run.execChild(run.children[0], childChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				break
+			}
+			if childChunk.card() == 0 {
+				continue
+			}
+
+			//evaluate order by expr
+			key := &Chunk{}
+			key.init(run.state.keyTypes, defaultVectorSize)
+			err = run.state.orderKeyExec.executeExprs(
+				[]*Chunk{childChunk, nil, nil},
+				key,
+			)
+			if err != nil {
+				return 0, err
+			}
+
+			//evaluate payload expr
+			payload := &Chunk{}
+			payload.init(run.state.payloadTypes, defaultVectorSize)
+
+			err = run.state.outputExec.executeExprs(
+				[]*Chunk{childChunk, nil, nil},
+				payload,
+			)
+			if err != nil {
+				return 0, err
+			}
+
+			run.localSort.SinkChunk(key, payload)
+		}
+		run.localSort._sortState = SS_SORT
+	}
+
+	if run.localSort._sortState == SS_SORT {
+		//get all chunks from child
+		run.localSort.Sort(true)
+		run.localSort._sortState = SS_SCAN
+	}
+
+	if run.localSort._sortState == SS_SCAN {
+		if run.localSort._scanner != nil &&
+			run.localSort._scanner.Remaining() == 0 {
+			run.localSort._scanner = nil
+		}
+
+		if run.localSort._scanner == nil {
+			run.localSort._scanner = NewPayloadScanner(
+				run.localSort._sortedBlocks[0]._payloadData,
+				run.localSort,
+				true,
+			)
+		}
+
+		run.localSort._scanner.Scan(output)
+	}
+
+	if output.card() == 0 {
+		return Done, nil
+	}
+	return haveMoreOutput, nil
 }
 
 func (run *Runner) orderClose() error {
+	run.localSort = nil
 	return nil
 }
 

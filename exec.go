@@ -392,6 +392,9 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
 		ret = NewExprState(expr, eeState)
 	case ET_Orderby:
+		//TODO: asc or desc
+		ret = NewExprState(expr, eeState)
+		ret.addChild(expr.Children[0])
 	default:
 		panic("usp")
 	}
