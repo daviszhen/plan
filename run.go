@@ -271,10 +271,10 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 			assertFunc(key.card() != 0 && payload.card() != 0)
 			cnt += key.card()
 			assertFunc(key.card() == payload.card())
-			fmt.Println("key2:")
-			key.print()
-			fmt.Println("payload:")
-			payload.print()
+			//fmt.Println("key2:")
+			//key.print()
+			//fmt.Println("payload:")
+			//payload.print()
 
 			run.localSort.SinkChunk(key, payload)
 		}
