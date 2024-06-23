@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"unsafe"
 )
 
@@ -58,7 +59,7 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 	blobLayoutTypes := make([]LType, 0)
 	for i := 0; i < ret._columnCount; i++ {
 		order := orders[i]
-
+		realOrder := order.Children[0]
 		if order.Desc {
 			ret._orderTypes = append(ret._orderTypes, OT_DESC)
 		} else {
@@ -66,9 +67,9 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 		}
 
 		ret._orderByNullTypes = append(ret._orderByNullTypes, OBNT_NULLS_FIRST)
-		ret._logicalTypes = append(ret._logicalTypes, order.DataTyp.LTyp)
+		ret._logicalTypes = append(ret._logicalTypes, realOrder.DataTyp.LTyp)
 
-		interTyp := order.DataTyp.LTyp.getInternalType()
+		interTyp := realOrder.DataTyp.LTyp.getInternalType()
 		ret._constantSize = append(ret._constantSize, interTyp.isConstant())
 
 		ret._hasNull = append(ret._hasNull, true)
@@ -301,7 +302,7 @@ func (cdc *RowDataCollection) Build(
 		//to last block
 		cdc._count += remaining
 		if len(cdc._blocks) != 0 {
-			lastBlock := cdc._blocks[len(cdc._blocks)-1]
+			lastBlock := back(cdc._blocks)
 			if lastBlock._count < lastBlock._capacity {
 				appendCnt := cdc.AppendToBlock(lastBlock, &appendEntries, remaining, entrySizes)
 				remaining -= appendCnt
@@ -378,6 +379,7 @@ func (cdc *RowDataCollection) AppendToBlock(
 
 func (cdc *RowDataCollection) CreateBlock() *RowDataBlock {
 	nb := NewRowDataBlock(cdc._blockCapacity, cdc._entrySize)
+	cdc._blocks = append(cdc._blocks, nb)
 	return nb
 }
 
@@ -453,12 +455,15 @@ func NewLocalSort(slayout *SortLayout, playout *RowLayout) *LocalSort {
 func (ls *LocalSort) SinkChunk(sort, payload *Chunk) {
 	assertFunc(sort.card() == payload.card())
 	dataPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](ls._addresses)
+	//alloc space on the block
 	ls._radixSortingData.Build(sort.card(), dataPtrs, nil, incrSelectVectorInPhyFormatFlat())
 	//scatter
 	for sortCol := 0; sortCol < sort.columnCount(); sortCol++ {
 		hasNull := ls._sortLayout._hasNull[sortCol]
 		nullsFirst := ls._sortLayout._orderByNullTypes[sortCol] == OBNT_NULLS_FIRST
 		desc := ls._sortLayout._orderTypes[sortCol] == OT_DESC
+		//copy data from input to the block
+		//only copy prefix for varchar
 		RadixScatter(
 			sort._data[sortCol],
 			sort.card(),
@@ -537,14 +542,17 @@ func (ls *LocalSort) Sort(reorderHeap bool) {
 }
 
 func (ls *LocalSort) SortInMemory() {
-	lastSBk := ls._sortedBlocks[len(ls._sortedBlocks)-1]
-	lastBlock := lastSBk._radixSortingData[len(lastSBk._radixSortingData)-1]
+	lastSBk := back(ls._sortedBlocks)
+	lastBlock := back(lastSBk._radixSortingData)
 	count := lastBlock._count
+	//sort addr of row in the sort block
 	dataPtr := lastBlock._ptr
+	//locate to the addr of the row index
 	idxPtr := pointerAdd(dataPtr, ls._sortLayout._comparisonSize)
+	//for every row
 	for i := 0; i < count; i++ {
 		store[uint32](uint32(i), idxPtr)
-		idxPtr = pointerAdd(dataPtr, ls._sortLayout._entrySize)
+		idxPtr = pointerAdd(idxPtr, ls._sortLayout._entrySize)
 	}
 
 	//radix sort
@@ -701,6 +709,7 @@ func (ls *LocalSort) ReOrder2(
 			heapRowPtr := load[unsafe.Pointer](
 				pointerAdd(orderedDataPtr, heapPointerOffset),
 			)
+			assertFunc(pointerValid(heapRowPtr))
 			heapRowSize := load[uint64](heapRowPtr)
 			pointerCopy(orderedHeapPtr, heapRowPtr, int(heapRowSize))
 			orderedHeapPtr = pointerAdd(orderedHeapPtr, int(heapRowSize))
@@ -789,8 +798,36 @@ func RadixSort(
 	}
 }
 
-func SubSortTiedTuples(ptr unsafe.Pointer, count int, offset int, size int, ties []bool, layout *SortLayout, containsString bool) {
-	panic("usp")
+func SubSortTiedTuples(
+	dataPtr unsafe.Pointer,
+	count int,
+	colOffset int,
+	sortingSize int,
+	ties []bool,
+	layout *SortLayout,
+	containsString bool) {
+	assertFunc(!ties[count-1])
+	for i := 0; i < count; i++ {
+		if !ties[i] {
+			continue
+		}
+
+		var j int
+		for j = i + 1; j < count; j++ {
+			if !ties[j] {
+				break
+			}
+		}
+		RadixSort(
+			pointerAdd(dataPtr, i*layout._entrySize),
+			j-i+1,
+			colOffset,
+			sortingSize,
+			layout,
+			containsString,
+		)
+		i = j
+	}
 }
 
 func ComputeTies(
@@ -863,8 +900,72 @@ func SortTiedBlobs2(
 		blobPtr,
 		x*rowWidth,
 	)
-	//TODO:
+	if !TieIsBreakable(
+		tieCol,
+		blobRowPtr,
+		layout,
+	) {
+		return
+	}
 
+	entryPtrsBase := cMalloc((end - start) * pointerSize)
+	defer cFree(entryPtrsBase)
+
+	//prepare pointer
+	entryPtrs := pointerToSlice[unsafe.Pointer](entryPtrsBase, end-start)
+	for i := start; i < end; i++ {
+		entryPtrs[i-start] = rowPtr
+		rowPtr = pointerAdd(rowPtr, layout._entrySize)
+	}
+
+	//sort string
+	order := 1
+	if layout._orderTypes[tieCol] == OT_DESC {
+		order = -1
+	}
+	colIdx := layout._sortingToBlobCol[tieCol]
+	tieColOffset := layout._blobLayout.GetOffsets()[colIdx]
+	logicalType := layout._blobLayout.GetTypes()[colIdx]
+	sort.Slice(entryPtrs, func(i, j int) bool {
+		lPtr := entryPtrs[i]
+		rPtr := entryPtrs[j]
+		lIdx := load[uint32](pointerAdd(lPtr, layout._comparisonSize))
+		rIdx := load[uint32](pointerAdd(rPtr, layout._comparisonSize))
+		leftPtr := pointerAdd(blobPtr, int(lIdx)*rowWidth+tieColOffset)
+		rightPtr := pointerAdd(blobPtr, int(rIdx)*rowWidth+tieColOffset)
+		return order*CompareVal(leftPtr, rightPtr, logicalType) < 0
+	})
+
+	//reorder
+	tempBasePtr := cMalloc((end - start) * layout._entrySize)
+	defer cFree(tempBasePtr)
+	tempPtr := tempBasePtr
+
+	for i := 0; i < end-start; i++ {
+		pointerCopy(tempPtr, entryPtrs[i], layout._entrySize)
+		tempPtr = pointerAdd(tempPtr, layout._entrySize)
+	}
+
+	pointerCopy(
+		pointerAdd(dataPtr, start*layout._entrySize),
+		tempBasePtr,
+		(end-start)*layout._entrySize,
+	)
+	//check ties
+	if tieCol < layout._columnCount-1 {
+		idxPtr := pointerAdd(dataPtr,
+			start*layout._entrySize+layout._comparisonSize)
+		idxVal := load[uint32](idxPtr)
+		currentPtr := pointerAdd(blobPtr, int(idxVal)*rowWidth+tieColOffset)
+		for i := 0; i < (end - start - 1); i++ {
+			idxPtr = pointerAdd(idxPtr, layout._entrySize)
+			idxVal2 := load[uint32](idxPtr)
+			nextPtr := pointerAdd(blobPtr, int(idxVal2)*rowWidth+tieColOffset)
+			ret := CompareVal(currentPtr, nextPtr, logicalType) == 0
+			ties[start+i] = ret
+			currentPtr = nextPtr
+		}
+	}
 }
 
 func AnyTies(ties []bool, count int) bool {
@@ -1005,7 +1106,7 @@ func Scatter(
 	dataLocs := make([]unsafe.Pointer, defaultVectorSize)
 	if !layout.AllConstant() {
 		entrySizes := make([]int, defaultVectorSize)
-		fill(entrySizes, count, 4)
+		fill(entrySizes, count, int32Size)
 		for colNo := 0; colNo < len(types); colNo++ {
 			if types[colNo].getInternalType().isConstant() {
 				continue
@@ -1027,7 +1128,7 @@ func Scatter(
 			rowPtr := ptrs[rowIdx]
 			store[unsafe.Pointer](dataLocs[i], pointerAdd(rowPtr, heapPointerOffset))
 			store[uint32](uint32(entrySizes[i]), dataLocs[i])
-			dataLocs[i] = pointerAdd(dataLocs[i], 4)
+			dataLocs[i] = pointerAdd(dataLocs[i], int32Size)
 		}
 	}
 
@@ -1048,18 +1149,59 @@ func Scatter(
 				int32ScatterOp{},
 			)
 		case VARCHAR:
-			TemplatedScatter[String](
+			ScatterStringVector(
 				col,
 				rows,
+				dataLocs,
 				sel,
 				count,
 				colOffset,
 				colNo,
 				layout,
-				stringScatterOp{},
 			)
 		default:
 			panic("usp")
+		}
+	}
+}
+
+func ScatterStringVector(
+	col *UnifiedFormat,
+	rows *Vector,
+	strLocs []unsafe.Pointer,
+	sel *SelectVector,
+	count int,
+	colOffset int,
+	colNo int,
+	layout *RowLayout,
+) {
+	strSlice := getSliceInPhyFormatUnifiedFormat[String](col)
+	ptrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
+
+	nullStr := stringScatterOp{}.nullValue()
+	for i := 0; i < count; i++ {
+		idx := sel.getIndex(i)
+		colIdx := col._sel.getIndex(idx)
+		rowPtr := ptrSlice[idx]
+		if !col._mask.rowIsValid(uint64(colIdx)) {
+			colMask := Bitmap{
+				_bits: pointerToSlice[byte](rowPtr, layout._flagWidth),
+			}
+			colMask.setInvalidUnsafe(uint64(colNo))
+			store[String](nullStr, pointerAdd(rowPtr, colOffset))
+		} else {
+			str := strSlice[colIdx]
+			newStr := String{
+				_len:  str.len(),
+				_data: strLocs[i],
+			}
+			//copy varchar data from input chunk to
+			//the location on the string heap
+			pointerCopy(newStr._data, str.data(), str.len())
+			//move strLocs[i] to the next position
+			strLocs[i] = pointerAdd(strLocs[i], str.len())
+			//store new String obj to the row in the blob sort block
+			store[String](newStr, pointerAdd(rowPtr, colOffset))
 		}
 	}
 }
@@ -1282,7 +1424,7 @@ func (iter PDQIterator) plusCopy(n int) PDQIterator {
 }
 
 func pdqIterLess(lhs, rhs *PDQIterator) bool {
-	return pointerComp(lhs.ptr(), rhs.ptr())
+	return pointerLess(lhs.ptr(), rhs.ptr())
 }
 
 func pdqIterDiff(lhs, rhs *PDQIterator) int {
@@ -1779,7 +1921,7 @@ func partitionLeft(begin *PDQIterator, end *PDQIterator, constants *PDQConstants
 		}
 	}
 	//last + 1 == end. A[pivot] >= A[end-1]
-	if pdqIterDiff(&last, end) == -1 {
+	if pdqIterDiff(&last, end) == 1 {
 		for pdqIterLess(&first, &last) {
 			first.plus(1)
 			//pass A[pivot] >= A[first]
@@ -1834,12 +1976,12 @@ func comp(l, r unsafe.Pointer, constants *PDQConstants) bool {
 	assertFunc(
 		l == constants._tmpBuf ||
 			l == constants._swapOffsetsBuf ||
-			pointerComp(l, constants._end))
+			pointerLess(l, constants._end))
 
 	assertFunc(
 		r == constants._tmpBuf ||
 			r == constants._swapOffsetsBuf ||
-			pointerComp(r, constants._end))
+			pointerLess(r, constants._end))
 
 	lAddr := pointerAdd(l, constants._compOffset)
 	rAddr := pointerAdd(r, constants._compOffset)
@@ -1849,7 +1991,7 @@ func comp(l, r unsafe.Pointer, constants *PDQConstants) bool {
 func GetTmp(src unsafe.Pointer, constants *PDQConstants) unsafe.Pointer {
 	assertFunc(src != constants._tmpBuf &&
 		src != constants._swapOffsetsBuf &&
-		pointerComp(src, constants._end))
+		pointerLess(src, constants._end))
 	pointerCopy(constants._tmpBuf, src, constants._entrySize)
 	return constants._tmpBuf
 }
@@ -1857,7 +1999,7 @@ func GetTmp(src unsafe.Pointer, constants *PDQConstants) unsafe.Pointer {
 func SwapOffsetsGetTmp(src unsafe.Pointer, constants *PDQConstants) unsafe.Pointer {
 	assertFunc(src != constants._tmpBuf &&
 		src != constants._swapOffsetsBuf &&
-		pointerComp(src, constants._end))
+		pointerLess(src, constants._end))
 	pointerCopy(constants._swapOffsetsBuf, src, constants._entrySize)
 	return constants._swapOffsetsBuf
 }
@@ -1866,10 +2008,10 @@ func Move(dst, src unsafe.Pointer, constants *PDQConstants) {
 	assertFunc(
 		dst == constants._tmpBuf ||
 			dst == constants._swapOffsetsBuf ||
-			pointerComp(dst, constants._end))
+			pointerLess(dst, constants._end))
 	assertFunc(src == constants._tmpBuf ||
 		src == constants._swapOffsetsBuf ||
-		pointerComp(src, constants._end))
+		pointerLess(src, constants._end))
 	pointerCopy(dst, src, constants._entrySize)
 }
 
@@ -1887,8 +2029,8 @@ func sort2(a *PDQIterator, b *PDQIterator, constants *PDQConstants) {
 }
 
 func iterSwap(lhs *PDQIterator, rhs *PDQIterator, constants *PDQConstants) {
-	assertFunc(pointerComp(lhs.ptr(), constants._end))
-	assertFunc(pointerComp(rhs.ptr(), constants._end))
+	assertFunc(pointerLess(lhs.ptr(), constants._end))
+	assertFunc(pointerLess(rhs.ptr(), constants._end))
 	pointerCopy(constants._iterSwapBuf, lhs.ptr(), constants._entrySize)
 	pointerCopy(lhs.ptr(), rhs.ptr(), constants._entrySize)
 	pointerCopy(rhs.ptr(), constants._iterSwapBuf, constants._entrySize)
@@ -2497,6 +2639,76 @@ func GatherVarchar(
 		}
 	}
 
+}
+
+func TieIsBreakable(
+	tieCol int,
+	rowPtr unsafe.Pointer,
+	layout *SortLayout,
+) bool {
+	colIdx := layout._sortingToBlobCol[tieCol]
+	rowMask := Bitmap{
+		_bits: pointerToSlice[byte](rowPtr, layout._blobLayout._flagWidth),
+	}
+	entryIdx, idxInEntry := getEntryIndex(uint64(colIdx))
+	if !rowIsValidInEntry(
+		rowMask.getEntry(entryIdx),
+		idxInEntry,
+	) {
+		//can not create a NULL tie
+		return false
+	}
+
+	rowLayout := layout._blobLayout
+	if !rowLayout.GetTypes()[colIdx].getInternalType().isVarchar() {
+		//nested type
+		return true
+	}
+
+	tieColOffset := rowLayout.GetOffsets()[colIdx]
+	tieString := load[String](pointerAdd(rowPtr, tieColOffset))
+	if tieString.len() < layout._prefixLengths[tieCol] {
+		//no need to break
+		return false
+	}
+	return true
+}
+
+func CompareVal(
+	lPtr, rPtr unsafe.Pointer,
+	typ LType,
+) int {
+	switch typ.getInternalType() {
+	case VARCHAR:
+		return TemplatedCompareVal[String](
+			lPtr,
+			rPtr,
+			gBinStringEqual,
+			gBinStringLessOp,
+		)
+	default:
+		panic("usp")
+	}
+}
+
+func TemplatedCompareVal[T any](
+	lPtr, rPtr unsafe.Pointer,
+	equalOp binaryOp[T, T, bool],
+	lessOp binaryOp[T, T, bool],
+) int {
+	lVal := load[T](lPtr)
+	rVal := load[T](rPtr)
+	eRet := false
+	equalOp.operation(&lVal, &rVal, &eRet)
+	if eRet {
+		return 0
+	}
+	lRet := false
+	lessOp.operation(&lVal, &rVal, &lRet)
+	if lRet {
+		return -1
+	}
+	return 1
 }
 
 type Encoder[T any] interface {

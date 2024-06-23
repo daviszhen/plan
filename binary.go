@@ -9,11 +9,15 @@ var (
 	gBinFloat32Multi binFloat32MultiOp
 
 	// =
-	gBinInt32Equal binInt32EqualOp
+	gBinInt32Equal  binInt32EqualOp
+	gBinStringEqual binStringEqualOp
 
 	// >
 	gBinInt32Great   binInt32GreatOp
 	gBinFloat32Great binFloat32GreatOp
+
+	//<
+	gBinStringLessOp binStringLessOp
 
 	gBinDateIntervalSingleOpWrapper   binarySingleOpWrapper[Date, Interval, Date]
 	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, int32, bool]
@@ -79,6 +83,14 @@ func (op binInt32EqualOp) operation(left, right *int32, result *bool) {
 	*result = *left == *right
 }
 
+// = string
+type binStringEqualOp struct {
+}
+
+func (op binStringEqualOp) operation(left, right *String, result *bool) {
+	*result = left.equal(right)
+}
+
 // > int32
 type binInt32GreatOp struct {
 }
@@ -93,6 +105,14 @@ type binFloat32GreatOp struct {
 
 func (op binFloat32GreatOp) operation(left, right *float32, result *bool) {
 	*result = *left > *right
+}
+
+// < string
+type binStringLessOp struct {
+}
+
+func (op binStringLessOp) operation(left, right *String, result *bool) {
+	*result = left.less(right)
 }
 
 func binaryExecSwitch[T any, S any, R any](

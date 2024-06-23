@@ -71,9 +71,9 @@ func Test_comp(t *testing.T) {
 		bPtr := unsafe.Pointer(&test.b[0])
 		enc.EncodeData(bPtr, &test.bVal)
 		cPtr := unsafe.Pointer(uintptr(math.MaxUint64))
-		require.True(t, pointerComp(aPtr, cPtr))
+		require.True(t, pointerLess(aPtr, cPtr))
 		require.True(t, pointerSub(bPtr, cPtr) < 0)
-		require.True(t, pointerComp(bPtr, cPtr))
+		require.True(t, pointerLess(bPtr, cPtr))
 		require.True(t, pointerSub(bPtr, cPtr) < 0)
 		ret := comp(
 			unsafe.Pointer(&test.a[0]),

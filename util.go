@@ -312,7 +312,7 @@ func pointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
 	return unsafe.Add(base, offset)
 }
 
-func pointerComp(lhs, rhs unsafe.Pointer) bool {
+func pointerLess(lhs, rhs unsafe.Pointer) bool {
 	return uintptr(lhs) < uintptr(rhs)
 }
 
@@ -336,6 +336,10 @@ func pointerCopy(dst, src unsafe.Pointer, len int) {
 	dstSlice := pointerToSlice[byte](dst, len)
 	srcSlice := pointerToSlice[byte](src, len)
 	copy(dstSlice, srcSlice)
+}
+
+func pointerValid(ptr unsafe.Pointer) bool {
+	return uintptr(ptr) != 0
 }
 
 func pointerMemcmp(lAddr, rAddr unsafe.Pointer, len int) int {

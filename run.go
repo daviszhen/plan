@@ -16,6 +16,7 @@ type OperatorState struct {
 	keyTypes     []LType
 	payloadTypes []LType
 
+	projTypes  []LType
 	projExec   *ExprExec
 	outputExec *ExprExec
 
@@ -221,6 +222,7 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 	var err error
 	var res OperatorResult
 	if run.localSort._sortState == SS_INIT {
+		cnt := 0
 		for {
 			childChunk := &Chunk{}
 			res, err = run.execChild(run.children[0], childChunk, state)
@@ -237,6 +239,9 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 				continue
 			}
 
+			//fmt.Println("childChunk:")
+			//childChunk.print()
+
 			//evaluate order by expr
 			key := &Chunk{}
 			key.init(run.state.keyTypes, defaultVectorSize)
@@ -247,6 +252,9 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 			if err != nil {
 				return 0, err
 			}
+
+			//fmt.Println("key1:")
+			//key.print()
 
 			//evaluate payload expr
 			payload := &Chunk{}
@@ -260,8 +268,17 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 				return 0, err
 			}
 
+			assertFunc(key.card() != 0 && payload.card() != 0)
+			cnt += key.card()
+			assertFunc(key.card() == payload.card())
+			fmt.Println("key2:")
+			key.print()
+			fmt.Println("payload:")
+			payload.print()
+
 			run.localSort.SinkChunk(key, payload)
 		}
+		fmt.Println("total count", cnt)
 		run.localSort._sortState = SS_SORT
 	}
 
@@ -755,8 +772,14 @@ func (run *Runner) joinClose() error {
 }
 
 func (run *Runner) projInit() error {
+	projTypes := make([]LType, 0)
+	for _, proj := range run.op.Projects {
+		projTypes = append(projTypes, proj.DataTyp.LTyp)
+	}
 	run.state = &OperatorState{
-		projExec: NewExprExec(run.op.Projects...),
+		projTypes:  projTypes,
+		projExec:   NewExprExec(run.op.Projects...),
+		outputExec: NewExprExec(run.op.Outputs...),
 	}
 	return nil
 }
@@ -776,7 +799,14 @@ func (run *Runner) projExec(output *Chunk, state *OperatorState) (OperatorResult
 	}
 
 	//project list
-	err = run.state.projExec.executeExprs([]*Chunk{childChunk, nil, nil}, output)
+	projChunk := &Chunk{}
+	projChunk.init(run.state.projTypes, defaultVectorSize)
+	err = run.state.projExec.executeExprs([]*Chunk{childChunk, nil, nil}, projChunk)
+	if err != nil {
+		return 0, err
+	}
+
+	err = run.state.outputExec.executeExprs([]*Chunk{childChunk, nil, projChunk}, output)
 	if err != nil {
 		return 0, err
 	}
