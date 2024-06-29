@@ -8,6 +8,7 @@ import (
 	"time"
 	"unsafe"
 
+	dec "github.com/govalues/decimal"
 	"github.com/huandu/go-clone"
 	"github.com/xlab/treeprint"
 )
@@ -133,6 +134,10 @@ func (h *Hugeint) Add(lhs, rhs *Hugeint) {
 }
 func (h *Hugeint) Mul(lhs, rhs *Hugeint) {}
 
+type Decimal struct {
+	dec.Decimal
+}
+
 type ScatterOp[T any] interface {
 	nullValue() T
 	store(src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer)
@@ -212,6 +217,7 @@ const (
 	BIT
 	DATE
 	POINTER
+	DECIMAL
 	INVALID
 )
 
@@ -258,6 +264,7 @@ var (
 	dateSize     int
 	varcharSize  int
 	pointerSize  int
+	decimalSize  int
 )
 
 func init() {
@@ -278,6 +285,8 @@ func init() {
 	varcharSize = int(unsafe.Sizeof(varVal))
 	p := unsafe.Pointer(&b)
 	pointerSize = int(unsafe.Sizeof(p))
+	dec := Decimal{}
+	decimalSize = int(unsafe.Sizeof(dec))
 }
 
 func (pt PhyType) size() int {
@@ -320,6 +329,8 @@ func (pt PhyType) size() int {
 		return dateSize
 	case POINTER:
 		return pointerSize
+	case DECIMAL:
+		return decimalSize
 	default:
 		panic("usp")
 	}
@@ -652,17 +663,18 @@ func (lt LType) getInternalType() PhyType {
 	case LTID_DOUBLE:
 		return DOUBLE
 	case LTID_DECIMAL:
-		if lt.width <= DecimalMaxWidthInt16 {
-			return INT16
-		} else if lt.width <= DecimalMaxWidthInt32 {
-			return INT32
-		} else if lt.width <= DecimalMaxWidthInt64 {
-			return INT64
-		} else if lt.width <= DecimalMaxWidthInt128 {
-			return INT128
-		} else {
-			panic(fmt.Sprintf("usp decimal width %d", lt.width))
-		}
+		//if lt.width <= DecimalMaxWidthInt16 {
+		//	return INT16
+		//} else if lt.width <= DecimalMaxWidthInt32 {
+		//	return INT32
+		//} else if lt.width <= DecimalMaxWidthInt64 {
+		//	return INT64
+		//} else if lt.width <= DecimalMaxWidthInt128 {
+		//	return INT128
+		//} else {
+		//	panic(fmt.Sprintf("usp decimal width %d", lt.width))
+		//}
+		return DECIMAL
 	case LTID_VARCHAR, LTID_CHAR, LTID_BLOB, LTID_BIT:
 		return VARCHAR
 	case LTID_INTERVAL:

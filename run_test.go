@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	dec "github.com/govalues/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1029,4 +1030,58 @@ func Test_date(t *testing.T) {
 	i := 9568
 	ti := time.Date(1970, 1, 1+i, 0, 0, 0, 0, time.UTC)
 	fmt.Println(ti.Date())
+}
+
+func Test_1g_q19_scan1(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ19())
+	fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Scan) && root.Table == "part"
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_1g_q19_scan2(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ19())
+	fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Scan) && root.Table == "lineitem"
+		},
+	)
+	runOps(t, ops)
+}
+
+func Test_decimal(t *testing.T) {
+	i := 2116823
+	val := dec.MustNew(int64(i), 2)
+	fmt.Println(val)
+}
+
+func Test_1g_q19_crossJoin(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ19())
+	fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Join)
+		},
+	)
+	runOps(t, ops)
 }

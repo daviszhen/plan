@@ -1077,6 +1077,16 @@ func parquetColToValue(field any, lTyp LType) (*Value, error) {
 		}
 
 		val._str = field.(string)
+	case LTID_DECIMAL:
+		switch v := field.(type) {
+		case int32:
+			val._i64 = int64(v)
+		case int64:
+			val._i64 = v
+		default:
+			panic("usp")
+		}
+
 	default:
 		panic("usp")
 	}

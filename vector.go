@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unsafe"
+
+	dec "github.com/govalues/decimal"
 )
 
 type PhyFormat int
@@ -367,6 +369,12 @@ func (vec *Vector) getValue(idx int) *Value {
 			_typ: vec.typ(),
 			_str: data[idx].String(),
 		}
+	case LTID_DECIMAL:
+		data := getSliceInPhyFormatFlat[Decimal](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_str: data[idx].String(),
+		}
 	default:
 		panic("usp")
 	}
@@ -419,6 +427,12 @@ func (vec *Vector) setValue(idx int, val *Value) {
 			_year:  int32(val._i64),
 			_month: int32(val._i64_1),
 			_day:   int32(val._i64_2),
+		}
+	case DECIMAL:
+		slice := toSlice[Decimal](vec._data, pTyp.size())
+		decVal := dec.MustNew(val._i64, vec._typ.scale)
+		slice[idx] = Decimal{
+			decVal,
 		}
 	default:
 		panic("usp")
@@ -883,7 +897,9 @@ func (val Value) String() string {
 	case LTID_BOOLEAN:
 		return fmt.Sprintf("%v", val._bool)
 	case LTID_VARCHAR:
-		return fmt.Sprintf("%v", val._str)
+		return val._str
+	case LTID_DECIMAL:
+		return val._str
 	default:
 		panic("usp")
 	}
