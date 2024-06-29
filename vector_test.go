@@ -7,9 +7,11 @@ import (
 )
 
 func TestBitmap(t *testing.T) {
-	mask := &Bitmap{}
+	mask := &Bitmap{
+		_bits: []uint8{0, 0},
+	}
 	mask.set(0, true)
-	assert.True(t, mask._bits == nil)
+	assert.True(t, len(mask._bits) == 2)
 	assert.True(t, mask.rowIsValid(0))
 	mask.set(0, false)
 	assert.True(t, !mask.rowIsValid(0))

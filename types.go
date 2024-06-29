@@ -3,6 +3,7 @@ package main
 import "github.com/BurntSushi/toml"
 
 type Config struct {
+	Format   string `tag:"format"`
 	DataPath string `tag:"dataPath"`
 	ShowRaw  bool   `tag:"showRaw"`
 }

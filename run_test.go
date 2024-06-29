@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -1022,4 +1023,10 @@ func Test_1g_q20_order(t *testing.T) {
 		},
 	)
 	runOps(t, ops)
+}
+
+func Test_date(t *testing.T) {
+	i := 9568
+	ti := time.Date(1970, 1, 1+i, 0, 0, 0, 0, time.UTC)
+	fmt.Println(ti.Date())
 }

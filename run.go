@@ -8,6 +8,10 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	pqLocal "github.com/xitongsys/parquet-go-source/local"
+	pqReader "github.com/xitongsys/parquet-go/reader"
+	"github.com/xitongsys/parquet-go/source"
 )
 
 type OperatorState struct {
@@ -63,6 +67,8 @@ type Runner struct {
 	joinKeys *Chunk
 
 	//for scan
+	pqFile        source.ParquetFile
+	pqReader      *pqReader.ParquetReader
 	dataFile      *os.File
 	reader        *csv.Reader
 	colIndice     []int
@@ -836,15 +842,30 @@ func (run *Runner) scanInit() error {
 	}
 
 	//open data file
-	run.tablePath = gConf.DataPath + "/" + run.op.Table + ".tbl"
-	run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
-	if err != nil {
-		return err
-	}
+	switch gConf.Format {
+	case "parquet":
+		run.pqFile, err = pqLocal.NewLocalFileReader(gConf.DataPath + "/" + run.op.Table + ".parquet")
+		if err != nil {
+			return err
+		}
 
-	//init csv reader
-	run.reader = csv.NewReader(run.dataFile)
-	run.reader.Comma = '|'
+		run.pqReader, err = pqReader.NewParquetColumnReader(run.pqFile, 1)
+		if err != nil {
+			return err
+		}
+	case "csv":
+		run.tablePath = gConf.DataPath + "/" + run.op.Table + ".tbl"
+		run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
+		if err != nil {
+			return err
+		}
+
+		//init csv reader
+		run.reader = csv.NewReader(run.dataFile)
+		run.reader.Comma = '|'
+	default:
+		panic("usp format")
+	}
 
 	var filterExec *ExprExec
 	filterExec, err = initFilterExec(run.op.Filters)
@@ -881,10 +902,21 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 	}
 	readed := &Chunk{}
 	readed.init(run.readedColTyps, maxCnt)
+	var err error
 	//read table
-	err := run.readTable(readed, state, maxCnt)
-	if err != nil {
-		return false, err
+	switch gConf.Format {
+	case "parquet":
+		err = run.readParquetTable(readed, state, maxCnt)
+		if err != nil {
+			return false, err
+		}
+	case "csv":
+		err = run.readCsvTable(readed, state, maxCnt)
+		if err != nil {
+			return false, err
+		}
+	default:
+		panic("usp format")
 	}
 
 	if readed.card() == 0 {
@@ -899,11 +931,62 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 }
 
 func (run *Runner) scanClose() error {
-	run.reader = nil
-	return run.dataFile.Close()
+	switch gConf.Format {
+	case "csv":
+		run.reader = nil
+		return run.dataFile.Close()
+	case "parquet":
+		run.pqReader.ReadStop()
+		return run.pqFile.Close()
+	default:
+		panic("usp format")
+	}
+	return nil
+}
+func (run *Runner) readParquetTable(output *Chunk, state *OperatorState, maxCnt int) error {
+	rowCont := -1
+	var err error
+	var values []interface{}
+
+	//fill field into vector
+	for j, idx := range run.colIndice {
+		values, _, _, err = run.pqReader.ReadColumnByIndex(int64(idx), int64(maxCnt))
+		if err != nil {
+			//EOF
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return err
+		}
+
+		if rowCont < 0 {
+			rowCont = len(values)
+		} else if len(values) != rowCont {
+			return fmt.Errorf("column %d has different count of values %d with previous columns %d", idx, len(values), rowCont)
+		}
+
+		vec := output._data[j]
+		for i := 0; i < len(values); i++ {
+			//[row i, col j]
+			val, err := parquetColToValue(values[i], vec.typ())
+			if err != nil {
+				return err
+			}
+			vec.setValue(i, val)
+			if state.showRaw {
+				fmt.Print(values[i], " ")
+			}
+		}
+		if state.showRaw {
+			fmt.Println()
+		}
+	}
+	output.setCard(rowCont)
+
+	return nil
 }
 
-func (run *Runner) readTable(output *Chunk, state *OperatorState, maxCnt int) error {
+func (run *Runner) readCsvTable(output *Chunk, state *OperatorState, maxCnt int) error {
 	rowCont := 0
 	for i := 0; i < maxCnt; i++ {
 		//read line
@@ -963,6 +1046,37 @@ func fieldToValue(field string, lTyp LType) (*Value, error) {
 		}
 	case LTID_VARCHAR:
 		val._str = field
+	default:
+		panic("usp")
+	}
+	return val, nil
+}
+
+func parquetColToValue(field any, lTyp LType) (*Value, error) {
+	val := &Value{
+		_typ: lTyp,
+	}
+	switch lTyp.id {
+	case LTID_DATE:
+		if _, ok := field.(int32); !ok {
+			panic("usp")
+		}
+
+		d := time.Date(1970, 1, int(1+field.(int32)), 0, 0, 0, 0, time.UTC)
+		val._i64 = int64(d.Year())
+		val._i64_1 = int64(d.Month())
+		val._i64_2 = int64(d.Day())
+	case LTID_INTEGER:
+		if _, ok := field.(int32); !ok {
+			panic("usp")
+		}
+		val._i64 = int64(field.(int32))
+	case LTID_VARCHAR:
+		if _, ok := field.(string); !ok {
+			panic("usp")
+		}
+
+		val._str = field.(string)
 	default:
 		panic("usp")
 	}

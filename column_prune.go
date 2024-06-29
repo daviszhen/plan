@@ -773,7 +773,7 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 					collectColRefs(cond.Children[0], lset)
 					collectColRefs(cond.Children[1], rset)
 				case ET_SubFunc:
-				case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
+				case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_NotLike, ET_GreaterEqual, ET_Less, ET_Greater:
 					collectColRefs(cond.Children[0], lset)
 					collectColRefs(cond.Children[1], rset)
 				default:

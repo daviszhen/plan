@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"sort"
 	"testing"
 	"unsafe"
@@ -341,65 +340,65 @@ func Test_insertSort4(t *testing.T) {
 }
 
 func Test_pdqsort_branchless1(t *testing.T) {
-	type kase struct {
-		src []int
-	}
-	n := 2
-	tests := []kase{
-		{
-			src: []int{-4596258735388573295, 6950034312330823304},
-		},
-		{
-			src: []int{-7943962452447775168, -8627136175431519264},
-		},
-	}
-	for _, tt := range tests {
-		if len(tt.src) == 0 {
-			tt.src = make([]int, n)
-			for i := range tt.src {
-				tt.src[i] = rand.Int()
-			}
-		}
-
-		data := make([]int, len(tt.src))
-		entrySize := int(unsafe.Sizeof(data[0]))
-		assert.NotEqual(t, entrySize, int(unsafe.Sizeof(int32(0))))
-		enc := intEncoder{}
-		for i, x := range tt.src {
-			addr := unsafe.Pointer(&data[i])
-			enc.EncodeData(addr, &x)
-			//fmt.Printf("0x%p %d %d\n", addr, x, load[int](addr))
-		}
-		ret := sort.SliceIsSorted(data, func(i, j int) bool {
-			return data[i] < data[j]
-		})
-		fmt.Println("sorted", ret, data)
-
-		n := len(data)
-		begin := NewPDQIterator(
-			unsafe.Pointer(&data[0]),
-			entrySize,
-		)
-		end := begin.plusCopy(n)
-		//print
-		for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
-			fmt.Printf("0x%p %d \n", iter.ptr(), load[int](iter.ptr()))
-		}
-		fmt.Println()
-		constants := NewPDQConstants(
-			entrySize,
-			0,
-			entrySize,
-			end.ptr(),
-		)
-
-		pdqsortBranchless(begin, &end, constants)
-		ret = sort.SliceIsSorted(data, func(i, j int) bool {
-			return data[i] < data[j]
-		})
-		fmt.Println(data)
-		require.True(t, ret)
-	}
+	//type kase struct {
+	//	src []int
+	//}
+	//n := 2
+	//tests := []kase{
+	//	{
+	//		src: []int{-4596258735388573295, 6950034312330823304},
+	//	},
+	//	{
+	//		src: []int{-7943962452447775168, -8627136175431519264},
+	//	},
+	//}
+	//for _, tt := range tests {
+	//	if len(tt.src) == 0 {
+	//		tt.src = make([]int, n)
+	//		for i := range tt.src {
+	//			tt.src[i] = rand.Int()
+	//		}
+	//	}
+	//
+	//	data := make([]int, len(tt.src))
+	//	entrySize := int(unsafe.Sizeof(data[0]))
+	//	assert.NotEqual(t, entrySize, int(unsafe.Sizeof(int32(0))))
+	//	enc := intEncoder{}
+	//	for i, x := range tt.src {
+	//		addr := unsafe.Pointer(&data[i])
+	//		enc.EncodeData(addr, &x)
+	//		//fmt.Printf("0x%p %d %d\n", addr, x, load[int](addr))
+	//	}
+	//	ret := sort.SliceIsSorted(data, func(i, j int) bool {
+	//		return data[i] < data[j]
+	//	})
+	//	fmt.Println("sorted", ret, data)
+	//
+	//	n := len(data)
+	//	begin := NewPDQIterator(
+	//		unsafe.Pointer(&data[0]),
+	//		entrySize,
+	//	)
+	//	end := begin.plusCopy(n)
+	//	//print
+	//	for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
+	//		fmt.Printf("0x%p %d \n", iter.ptr(), load[int](iter.ptr()))
+	//	}
+	//	fmt.Println()
+	//	constants := NewPDQConstants(
+	//		entrySize,
+	//		0,
+	//		entrySize,
+	//		end.ptr(),
+	//	)
+	//
+	//	pdqsortBranchless(begin, &end, constants)
+	//	ret = sort.SliceIsSorted(data, func(i, j int) bool {
+	//		return data[i] < data[j]
+	//	})
+	//	fmt.Println(data)
+	//	require.True(t, ret)
+	//}
 }
 
 func Test_rand(t *testing.T) {

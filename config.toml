@@ -1,2 +1,3 @@
-dataPath = "/home/pengzhen/Documents/mo-tpch/data/1"
+format = "parquet"
+dataPath = "/home/pengzhen/Documents/tpch-parquet/"
 showRaw = false
