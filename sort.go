@@ -673,7 +673,7 @@ func (ls *LocalSort) ReOrder2(
 	)
 
 	orderedDBlock._count = count
-	orderedDataPtr := unorderedDBlock._ptr
+	orderedDataPtr := orderedDBlock._ptr
 
 	//reorder fix row
 	rowWidth := sd._layout.rowWidth()
@@ -704,13 +704,15 @@ func (ls *LocalSort) ReOrder2(
 		orderedHeapBlock._count = count
 		orderedHeapBlock._byteOffset = totalByteOffset
 		orderedHeapPtr := orderedHeapBlock._ptr
+		//fill heap
+		orderedDataPtr = orderedDBlock._ptr
 		heapPointerOffset := sd._layout.GetHeapOffset()
 		for i := 0; i < count; i++ {
 			heapRowPtr := load[unsafe.Pointer](
 				pointerAdd(orderedDataPtr, heapPointerOffset),
 			)
 			assertFunc(pointerValid(heapRowPtr))
-			heapRowSize := load[uint64](heapRowPtr)
+			heapRowSize := load[uint32](heapRowPtr)
 			pointerCopy(orderedHeapPtr, heapRowPtr, int(heapRowSize))
 			orderedHeapPtr = pointerAdd(orderedHeapPtr, int(heapRowSize))
 			orderedDataPtr = pointerAdd(orderedDataPtr, rowWidth)
@@ -2342,7 +2344,8 @@ type RowDataCollectionScanner struct {
 }
 
 func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
-	count := min(defaultVectorSize, scan._totalCount-scan._totalScanned)
+	count := min(defaultVectorSize,
+		scan._totalCount-scan._totalScanned)
 	if count == 0 {
 		output.setCard(count)
 		return
@@ -2352,6 +2355,7 @@ func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
 	dataPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._addresses)
 	for scanned < count {
 		dataBlock := scan._rows._blocks[scan._readState._blockIdx]
+		scan._readState._ptr = dataBlock._ptr
 		next := min(
 			dataBlock._count-scan._readState._entryIdx,
 			count-scanned,
