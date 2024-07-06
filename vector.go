@@ -471,6 +471,25 @@ func getMaskInPhyFormatConst(vec *Vector) *Bitmap {
 	return vec._mask
 }
 
+func referenceInPhyFormatConst(
+	vec *Vector,
+	src *Vector,
+	pos int,
+	count int,
+) {
+	srcTyp := src.typ().getInternalType()
+	switch srcTyp {
+	case LIST:
+		panic("usp")
+	case STRUCT:
+		panic("usp")
+	default:
+		assertFunc(vec.phyFormat().isConst())
+		value := src.getValue(pos)
+		vec.referenceValue(value)
+	}
+}
+
 // flat vector
 func getDataInPhyFormatFlat(vec *Vector) []byte {
 	return getDataInPhyFormatConst(vec)
@@ -763,6 +782,7 @@ type Chunk struct {
 
 func (c *Chunk) init(types []LType, cap int) {
 	c._cap = cap
+	c._data = nil
 	for _, lType := range types {
 		c._data = append(c._data, NewVector(lType, c._cap))
 	}
