@@ -284,7 +284,8 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
 		case ET_And:
 			return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
-
+		case ET_Or:
+			return exec.execSelectOr(expr, eState, sel, count, trueSel, falseSel)
 		default:
 			panic("usp")
 		}
@@ -377,6 +378,50 @@ func (exec *ExprExec) execSelectAnd(expr *Expr, eState *ExprState, sel *SelectVe
 	}
 
 	return curCount, nil
+}
+
+func (exec *ExprExec) execSelectOr(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
+	var err error
+	curSel := sel
+	curCount := count
+	resCount := 0
+	trueCount := 0
+
+	var tempTrue *SelectVector
+	var tempFalse *SelectVector
+	if trueSel != nil {
+		tempTrue = NewSelectVector(defaultVectorSize)
+	}
+
+	if falseSel == nil {
+		tempFalse = NewSelectVector(defaultVectorSize)
+		falseSel = tempFalse
+	}
+
+	for i, child := range expr.Children {
+		trueCount, err = exec.execSelectExpr(
+			child,
+			eState._children[i],
+			curSel,
+			curCount,
+			tempTrue,
+			falseSel)
+		if err != nil {
+			return 0, err
+		}
+		if trueCount > 0 {
+			if trueSel != nil {
+				for j := 0; j < trueCount; j++ {
+					trueSel.setIndex(resCount, tempTrue.getIndex(j))
+					resCount++
+				}
+			}
+			curCount -= trueCount
+			curSel = falseSel
+		}
+	}
+
+	return resCount, nil
 }
 
 func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {

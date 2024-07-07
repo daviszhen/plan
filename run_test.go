@@ -1093,3 +1093,23 @@ func Test_1g_q19_crossJoin(t *testing.T) {
 	}()
 	runOps(t, ops)
 }
+
+func Test_1g_q19_filter(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ19())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Filter)
+		},
+	)
+	gConf.EnableMaxScanRows = true
+	defer func() {
+		gConf.EnableMaxScanRows = false
+	}()
+	runOps(t, ops)
+}
