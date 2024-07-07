@@ -62,6 +62,8 @@ type Runner struct {
 	//for hash aggr
 	hAggr *HashAggr
 
+	//for cross product
+	cross *CrossProduct
 	//for hash join
 	hjoin    *HashJoin
 	joinKeys *Chunk
@@ -74,6 +76,8 @@ type Runner struct {
 	colIndice     []int
 	readedColTyps []LType
 	tablePath     string
+	//for test cross product
+	maxRows int
 
 	//common
 	outputTypes  []LType
@@ -645,7 +649,16 @@ func (run *Runner) aggrClose() error {
 }
 
 func (run *Runner) joinInit() error {
-	run.hjoin = NewHashJoin(run.op, run.op.OnConds)
+	if len(run.op.OnConds) != 0 {
+		run.hjoin = NewHashJoin(run.op, run.op.OnConds)
+	} else {
+		types := make([]LType, len(run.op.Children[1].Outputs))
+		for i, e := range run.op.Children[1].Outputs {
+			types[i] = e.DataTyp.LTyp
+		}
+		run.cross = NewCrossProduct(types)
+	}
+
 	run.state = &OperatorState{
 		outputExec: NewExprExec(run.op.Outputs...),
 	}
@@ -653,6 +666,14 @@ func (run *Runner) joinInit() error {
 }
 
 func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	if run.cross == nil {
+		return run.hashJoinExec(output, state)
+	} else {
+		return run.crossProductExec(output, state)
+	}
+}
+
+func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
 	//1. Build Hash Table on the right child
 	res, err := run.joinBuildHashTable(state)
 	if err != nil {
@@ -720,6 +741,96 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 	return 0, nil
 }
 
+func (run *Runner) crossProductExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	//1. Build Hash Table on the right child
+	res, err := run.crossBuild(state)
+	if err != nil {
+		return InvalidOpResult, err
+	}
+	if res == InvalidOpResult {
+		return InvalidOpResult, nil
+	}
+	//2. probe stage
+	//probe
+	if run.cross._crossStage == CROSS_BUILD || run.cross._crossStage == CROSS_PROBE {
+		if run.cross._crossStage == CROSS_BUILD {
+			run.cross._crossStage = CROSS_PROBE
+		}
+
+		nextInput := false
+
+		//probe
+		for {
+			if run.cross._input == nil || nextInput {
+				nextInput = false
+				run.cross._input = &Chunk{}
+				res, err = run.execChild(run.children[0], run.cross._input, state)
+				if err != nil {
+					return 0, err
+				}
+				switch res {
+				case Done:
+					return Done, nil
+				case InvalidOpResult:
+					return InvalidOpResult, nil
+				}
+				//fmt.Println("input")
+				//run.cross._input.print()
+			}
+
+			res = run.cross.Execute(run.cross._input, output)
+			switch res {
+			case Done:
+				return Done, nil
+			case NeedMoreInput:
+				nextInput = true
+			case InvalidOpResult:
+				return InvalidOpResult, nil
+			}
+			if !nextInput {
+				break
+			}
+		}
+		return res, nil
+	}
+	return 0, nil
+}
+
+func (run *Runner) crossBuild(state *OperatorState) (OperatorResult, error) {
+	var err error
+	var res OperatorResult
+	if run.cross._crossStage == CROSS_INIT {
+		run.cross._crossStage = CROSS_BUILD
+		cnt := 0
+		for {
+			rightChunk := &Chunk{}
+			res, err = run.execChild(run.children[1], rightChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				break
+			}
+
+			if rightChunk.card() == 0 {
+				continue
+			}
+			//fmt.Println("build cross", cnt)
+			cnt += rightChunk.card()
+			//fmt.Println("right")
+			//rightChunk.print()
+			run.cross.Sink(rightChunk)
+		}
+		fmt.Println("right count", cnt)
+		run.cross._crossStage = CROSS_PROBE
+	}
+
+	return Done, nil
+}
+
 func (run *Runner) evalJoinOutput(nextChunk, output *Chunk) (err error) {
 	leftChunk := Chunk{}
 	leftTyps := run.hjoin._scanNextTyps[:len(run.hjoin._leftIndice)]
@@ -774,6 +885,7 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 
 func (run *Runner) joinClose() error {
 	run.hjoin = nil
+	run.cross = nil
 	return nil
 }
 
@@ -900,6 +1012,12 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 	if maxCnt == 0 {
 		return false, nil
 	}
+	if gConf.EnableMaxScanRows {
+		if run.maxRows > gConf.MaxScanRows {
+			return true, nil
+		}
+	}
+
 	readed := &Chunk{}
 	readed.init(run.readedColTyps, maxCnt)
 	var err error
@@ -921,6 +1039,10 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 
 	if readed.card() == 0 {
 		return true, nil
+	}
+
+	if gConf.EnableMaxScanRows {
+		run.maxRows += readed.card()
 	}
 
 	err = run.runFilterExec(readed, output, true)

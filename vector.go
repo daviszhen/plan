@@ -439,6 +439,10 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	}
 }
 
+func (vec *Vector) reset() {
+	vec._mask.reset()
+}
+
 // constant vector
 func getDataInPhyFormatConst(vec *Vector) []byte {
 	assertFunc(vec.phyFormat().isConst() || vec.phyFormat().isFlat())
@@ -484,9 +488,9 @@ func referenceInPhyFormatConst(
 	case STRUCT:
 		panic("usp")
 	default:
-		assertFunc(vec.phyFormat().isConst())
 		value := src.getValue(pos)
 		vec.referenceValue(value)
+		assertFunc(vec.phyFormat().isConst())
 	}
 }
 
@@ -730,6 +734,13 @@ func (bm *Bitmap) setAllValid(cnt int) {
 	}
 }
 
+func (bm *Bitmap) isMaskSet() bool {
+	if bm._bits != nil {
+		return true
+	}
+	return false
+}
+
 type SelectVector struct {
 	_selVec []int
 }
@@ -774,6 +785,10 @@ func (svec *SelectVector) init2(sel *SelectVector) {
 	svec._selVec = sel._selVec
 }
 
+func (svec *SelectVector) init3(data []int) {
+	svec._selVec = data
+}
+
 type Chunk struct {
 	_data  []*Vector
 	_count int
@@ -791,6 +806,9 @@ func (c *Chunk) init(types []LType, cap int) {
 func (c *Chunk) reset() {
 	if len(c._data) == 0 {
 		return
+	}
+	for _, vec := range c._data {
+		vec.reset()
 	}
 	c._cap = defaultVectorSize
 	c._count = 0
@@ -874,7 +892,7 @@ func (c *Chunk) print() {
 		for j := 0; j < c.columnCount(); j++ {
 			val := c._data[j].getValue(i)
 			fmt.Print(val)
-			fmt.Print(" ")
+			fmt.Print(" | ")
 		}
 		fmt.Println()
 	}
@@ -992,4 +1010,141 @@ func AddInPlace(input *Vector, right int64, cnt int) {
 
 func And(left, right, result *Vector, count int) {
 
+}
+
+func Copy(
+	srcP *Vector,
+	dstP *Vector,
+	selP *SelectVector,
+	srcCount int,
+	srcOffset int,
+	dstOffset int,
+) {
+	assertFunc(srcOffset <= srcCount)
+	assertFunc(srcP.typ().id == dstP.typ().id)
+	copyCount := srcCount - srcOffset
+	finished := false
+
+	ownedSel := &SelectVector{}
+	sel := selP
+	src := srcP
+
+	for !finished {
+		switch src.phyFormat() {
+		case PF_DICT:
+			//dict vector
+			child := getChildInPhyFormatDict(src)
+			dictSel := getSelVectorInPhyFormatDict(src)
+			//
+			newBuff := dictSel.slice(sel, srcCount)
+			ownedSel.init3(newBuff)
+			sel = ownedSel
+			src = child
+		case PF_CONST:
+			sel = zeroSelectVectorInPhyFormatConst(copyCount, ownedSel)
+			finished = true
+		case PF_FLAT:
+			finished = true
+		default:
+			panic("usp")
+		}
+	}
+
+	if copyCount == 0 {
+		return
+	}
+
+	dstVecType := dstP.phyFormat()
+	if copyCount == 1 && dstVecType == PF_DICT {
+		dstOffset = 0
+		dstP.setPhyFormat(PF_FLAT)
+	}
+
+	assertFunc(dstP.phyFormat().isFlat())
+
+	//copy bitmap
+	dstBitmap := getMaskInPhyFormatFlat(dstP)
+	if src.phyFormat().isConst() {
+		valid := !isNullInPhyFormatConst(src)
+		for i := 0; i < copyCount; i++ {
+			dstBitmap.set(uint64(dstOffset+i), valid)
+		}
+	} else {
+		srcBitmap := CopyBitmap(src)
+		if srcBitmap.isMaskSet() {
+			for i := 0; i < copyCount; i++ {
+				idx := sel.getIndex(srcOffset + i)
+
+				if srcBitmap.rowIsValid(uint64(idx)) {
+					if !dstBitmap.AllValid() {
+						dstBitmap.setValidUnsafe(uint64(dstOffset + i))
+					}
+				} else {
+					if dstBitmap.AllValid() {
+						initSize := max(defaultVectorSize,
+							dstOffset+copyCount)
+						dstBitmap.init(initSize)
+					}
+					dstBitmap.setInvalidUnsafe(uint64(dstOffset + i))
+				}
+			}
+		}
+	}
+
+	assertFunc(sel != nil)
+
+	//copy data
+	switch src.typ().getInternalType() {
+	case INT32:
+		TemplatedCopy[int32](
+			src,
+			sel,
+			dstP,
+			srcOffset,
+			dstOffset,
+			copyCount,
+		)
+	case VARCHAR:
+		srcSlice := getSliceInPhyFormatFlat[String](src)
+		dstSlice := getSliceInPhyFormatFlat[String](dstP)
+
+		for i := 0; i < copyCount; i++ {
+			srcIdx := sel.getIndex(srcOffset + i)
+			dstIdx := dstOffset + i
+			if dstBitmap.rowIsValid(uint64(dstIdx)) {
+				srcStr := srcSlice[srcIdx]
+				ptr := cMalloc(srcStr.len())
+				pointerCopy(ptr, srcStr.data(), srcStr.len())
+				dstSlice[dstIdx] = String{_data: ptr, _len: srcStr.len()}
+			}
+		}
+	default:
+		panic("usp")
+	}
+}
+
+func TemplatedCopy[T any](
+	src *Vector,
+	sel *SelectVector,
+	dst *Vector,
+	srcOffset int,
+	dstOffset int,
+	copyCount int,
+) {
+	srcSlice := getSliceInPhyFormatFlat[T](src)
+	dstSlice := getSliceInPhyFormatFlat[T](dst)
+
+	for i := 0; i < copyCount; i++ {
+		srcIdx := sel.getIndex(srcOffset + i)
+		dstSlice[dstOffset+i] = srcSlice[srcIdx]
+	}
+}
+
+func CopyBitmap(v *Vector) *Bitmap {
+	switch v.phyFormat() {
+	case PF_FLAT:
+		return getMaskInPhyFormatFlat(v)
+	default:
+		panic("usp")
+	}
 }

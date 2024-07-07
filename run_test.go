@@ -62,7 +62,9 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 				assertFunc(output.card() != 0)
 				assert.NotEqual(t, 0, output.card())
 				rowCnt += output.card()
-				output.print()
+				if !gConf.SkipOutput {
+					output.print()
+				}
 			}
 		}
 		fmt.Println("row Count", rowCnt)
@@ -1076,12 +1078,18 @@ func Test_1g_q19_crossJoin(t *testing.T) {
 	//debug.SetMemoryLimit(math.MaxInt64)
 
 	pplan := runTest2(t, tpchQ19())
-	fmt.Println(pplan.String())
+	//fmt.Println(pplan.String())
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Join)
 		},
 	)
+	gConf.EnableMaxScanRows = true
+	gConf.SkipOutput = true
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
 	runOps(t, ops)
 }

@@ -138,6 +138,10 @@ type Decimal struct {
 	dec.Decimal
 }
 
+func (dec *Decimal) String() string {
+	return dec.Decimal.String()
+}
+
 type ScatterOp[T any] interface {
 	nullValue() T
 	store(src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer)
@@ -243,6 +247,7 @@ var pTypeToStr = map[PhyType]string{
 	BIT:      "BIT",
 	DATE:     "DATE",
 	POINTER:  "POINTER",
+	DECIMAL:  "DECIMAL",
 	INVALID:  "INVALID",
 }
 

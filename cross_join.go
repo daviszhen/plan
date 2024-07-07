@@ -4,8 +4,34 @@ import (
 	"unsafe"
 )
 
+type CrossStage int
+
+const (
+	CROSS_INIT CrossStage = iota
+	CROSS_BUILD
+	CROSS_PROBE
+)
+
 type CrossProduct struct {
+	_crossStage  CrossStage
 	_dataCollect *ColumnDataCollection
+	_crossExec   *CrossProductExec
+	_input       *Chunk
+}
+
+func NewCrossProduct(types []LType) *CrossProduct {
+	ret := &CrossProduct{}
+	ret._dataCollect = NewColumnDataCollection(types)
+	ret._crossExec = NewCrossProductExec(ret._dataCollect)
+	return ret
+}
+
+func (cross *CrossProduct) Sink(input *Chunk) {
+	cross._dataCollect.Append(input)
+}
+
+func (cross *CrossProduct) Execute(input, output *Chunk) OperatorResult {
+	return cross._crossExec.Execute(input, output)
 }
 
 type CrossProductExec struct {
@@ -20,7 +46,9 @@ type CrossProductExec struct {
 
 func NewCrossProductExec(rhs *ColumnDataCollection) *CrossProductExec {
 	ret := &CrossProductExec{
-		_rhs: rhs,
+		_rhs:       rhs,
+		_scanChunk: &Chunk{},
+		_scanState: &ColumnDataScanState{},
 	}
 	ret._rhs.initScanChunk(ret._scanChunk)
 	return ret
@@ -29,7 +57,7 @@ func NewCrossProductExec(rhs *ColumnDataCollection) *CrossProductExec {
 func (cross *CrossProductExec) Reset() {
 	cross._init = true
 	cross._finish = false
-	cross._scanInputChunk = true
+	cross._scanInputChunk = false
 	cross._rhs.initScan(cross._scanState)
 	cross._positionInChunk = 0
 	cross._scanChunk.reset()
@@ -55,6 +83,7 @@ func (cross *CrossProductExec) NextValue(input, output *Chunk) bool {
 	if cross._scanChunk.card() == 0 {
 		return false
 	}
+	cross._scanInputChunk = true
 	return true
 }
 
@@ -149,6 +178,11 @@ func (cdc *ColumnDataCollection) Append(input *Chunk) {
 
 	remaining := input.card()
 	for remaining > 0 {
+		if len(cdc._chunks) == 0 {
+			newChunk := &Chunk{}
+			newChunk.init(cdc._types, defaultVectorSize)
+			cdc._chunks = append(cdc._chunks, newChunk)
+		}
 		chunkData := back(cdc._chunks)
 		appendAmount := min(remaining, defaultVectorSize-chunkData.card())
 		if appendAmount > 0 {
@@ -249,7 +283,13 @@ func (cdc *ColumnDataCollection) ReadVector(
 	dstBitmap.copyFrom(srcVec._mask, count)
 
 	if dstInterType == VARCHAR {
-		panic("copy vector")
+		Copy(dstVec,
+			dstVec,
+			incrSelectVectorInPhyFormatFlat(),
+			count,
+			0,
+			0,
+		)
 	}
 
 	return count
@@ -267,8 +307,8 @@ func (cdc *ColumnDataCollection) NextScanIndex(
 	}
 
 	state.nextRowIdx += cdc._chunks[state.chunkIdx].card()
-	state.chunkIdx++
 	*chunkIdx = state.chunkIdx
+	state.chunkIdx++
 	return true
 }
 
@@ -389,7 +429,7 @@ func TemplatedColumnDataCopy[T any](
 		vec := metaData._dst._data[metaData._vecIdx]
 		appendCount := min(defaultVectorSize-metaData._dst.card(), remaining)
 		if metaData._dst.card() == 0 {
-			vec._mask.setAllInvalid(defaultVectorSize)
+			vec._mask.setAllValid(defaultVectorSize)
 		}
 		for i := 0; i < appendCount; i++ {
 			srcIdx := srcData._sel.getIndex(offset + i)
@@ -404,7 +444,6 @@ func TemplatedColumnDataCopy[T any](
 				vec._mask.setInvalid(uint64(metaData._dst.card() + i))
 			}
 		}
-		metaData._dst._count += appendCount
 		offset += appendCount
 		remaining -= appendCount
 		if remaining > 0 {
