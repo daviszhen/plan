@@ -398,3 +398,20 @@ func back[T any](data []T) T {
 	}
 	return data[l-1]
 }
+
+// removeIf removes the one that pred is true.
+func removeIf[T any](data []T, pred func(t T) bool) []T {
+	if len(data) == 0 {
+		return data
+	}
+	res := 0
+	for i := 0; i < len(data); i++ {
+		if !pred(data[i]) {
+			if res != i {
+				data[res] = data[i]
+			}
+			res++
+		}
+	}
+	return data[:res]
+}

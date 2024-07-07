@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"time"
 	"unsafe"
@@ -1614,6 +1615,16 @@ type Expr struct {
 	On        *Expr        //JoinOn
 }
 
+func (e *Expr) equal(o *Expr) bool {
+	if e == nil && o == nil {
+		return true
+	} else if e != nil && o != nil {
+		return reflect.DeepEqual(e, o)
+	} else {
+		return false
+	}
+}
+
 func (e *Expr) copy() *Expr {
 	if e == nil {
 		return nil
@@ -2358,6 +2369,59 @@ func splitExprsByAnd(exprs []*Expr) []*Expr {
 		ret = append(ret, splitExprByAnd(e)...)
 	}
 	return ret
+}
+
+func splitExprByOr(expr *Expr) []*Expr {
+	if expr.Typ == ET_Func {
+		if expr.SubTyp == ET_Or {
+			return append(splitExprByOr(expr.Children[0]), splitExprByOr(expr.Children[1])...)
+		}
+	}
+	return []*Expr{expr.copy()}
+}
+
+func andExpr(a, b *Expr) *Expr {
+	return &Expr{
+		Typ:      ET_Func,
+		SubTyp:   ET_And,
+		FuncId:   AND,
+		DataTyp:  ExprDataType{LTyp: boolean()},
+		Children: []*Expr{a, b},
+	}
+}
+
+func combineExprsByAnd(exprs ...*Expr) *Expr {
+	if len(exprs) == 1 {
+		return exprs[0]
+	} else if len(exprs) == 2 {
+		return andExpr(exprs[0], exprs[1])
+	} else {
+		return andExpr(
+			combineExprsByAnd(exprs[:len(exprs)-1]...),
+			combineExprsByAnd(exprs[len(exprs)-1]))
+	}
+}
+
+func orExpr(a, b *Expr) *Expr {
+	return &Expr{
+		Typ:      ET_Func,
+		SubTyp:   ET_Or,
+		FuncId:   OR,
+		DataTyp:  ExprDataType{LTyp: boolean()},
+		Children: []*Expr{a, b},
+	}
+}
+
+func combineExprsByOr(exprs ...*Expr) *Expr {
+	if len(exprs) == 1 {
+		return exprs[0]
+	} else if len(exprs) == 2 {
+		return orExpr(exprs[0], exprs[1])
+	} else {
+		return orExpr(
+			combineExprsByOr(exprs[:len(exprs)-1]...),
+			combineExprsByOr(exprs[len(exprs)-1]))
+	}
 }
 
 // removeCorrExprs remove correlated columns from exprs

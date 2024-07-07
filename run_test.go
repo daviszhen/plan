@@ -33,7 +33,7 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 		//	continue
 		//}
 
-		//fmt.Println(op.String())
+		fmt.Println(op.String())
 
 		run := &Runner{
 			op:    op,
@@ -1085,7 +1085,7 @@ func Test_1g_q19_crossJoin(t *testing.T) {
 			return wantedOp(root, POT_Join)
 		},
 	)
-	gConf.EnableMaxScanRows = true
+	//gConf.EnableMaxScanRows = true
 	gConf.SkipOutput = true
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -1107,9 +1107,12 @@ func Test_1g_q19_filter(t *testing.T) {
 			return wantedOp(root, POT_Filter)
 		},
 	)
-	gConf.EnableMaxScanRows = true
+	//gConf.EnableMaxScanRows = true
+	gConf.SkipOutput = true
+	//gConf.MaxScanRows = 100000
 	defer func() {
 		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
 	}()
 	runOps(t, ops)
 }

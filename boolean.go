@@ -116,6 +116,24 @@ func (e lessDateOp) operation(left, right *Date) bool {
 	return left.less(right)
 }
 
+// <=
+
+// int32
+type lessEqualInt32Op struct {
+}
+
+func (e lessEqualInt32Op) operation(left, right *int32) bool {
+	return *left <= *right
+}
+
+// date
+type lessEqualDateOp struct {
+}
+
+func (e lessEqualDateOp) operation(left, right *Date) bool {
+	return left.less(right) || left.equal(right)
+}
+
 //>
 
 // float32
@@ -265,6 +283,17 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessInt32Op{})
 		case DATE:
 			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessDateOp{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+			panic("usp")
+		default:
+			panic("usp")
+		}
+	case ET_LessEqual:
+		switch left.typ().getInternalType() {
+		case INT32:
+			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessEqualInt32Op{})
+		case DATE:
+			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessEqualDateOp{})
 		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:

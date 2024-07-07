@@ -777,10 +777,14 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 		default:
 			panic(fmt.Sprintf("usp join type %d", jt))
 		}
+
+		onExpr := expr.On.copy()
+		onExpr = distributeExpr(onExpr)
+
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
 			JoinTyp:  jt,
-			OnConds:  []*Expr{expr.On.copy()},
+			OnConds:  []*Expr{onExpr.copy()},
 			Children: []*LogicalOperator{left, right},
 		}, err
 	case ET_Subquery:
@@ -812,6 +816,8 @@ func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperat
 		}
 		newFilters = append(newFilters, newFilter)
 	}
+
+	newFilters = distributeExprs(newFilters...)
 
 	return &LogicalOperator{
 		Typ:      LOT_Filter,
@@ -1229,6 +1235,11 @@ func hasCorrColInRoot(root *LogicalOperator) bool {
 func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	var left []*Expr
+	////0. apply distribute
+	//root, err = b.applyDistribute(root)
+	//if err != nil {
+	//	return nil, err
+	//}
 	//1. pushdown filter
 	root, left, err = b.pushdownFilters(root, nil)
 	if err != nil {
@@ -1265,6 +1276,22 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	root, err = b.generateOutputs(root)
 	if err != nil {
 		return nil, err
+	}
+	return root, nil
+}
+
+func (b *Builder) applyDistribute(root *LogicalOperator) (*LogicalOperator, error) {
+	var err error
+	if root == nil {
+		return root, nil
+	}
+	root.Filters = distributeExprs(root.Filters...)
+	root.OnConds = distributeExprs(root.OnConds...)
+	for i, child := range root.Children {
+		root.Children[i], err = b.applyDistribute(child)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return root, nil
 }
