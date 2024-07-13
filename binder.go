@@ -436,10 +436,27 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast
 		}
 	}
 
-	params := []*Expr{betExpr, left, right}
-	paramsTypes := []ExprDataType{betExpr.DataTyp, left.DataTyp, right.DataTyp}
+	//>=
+	params := []*Expr{betExpr, left}
+	paramsTypes := []ExprDataType{betExpr.DataTyp, left.DataTyp}
+	ret0, err := b.bindFunc(ET_GreaterEqual.String(), ET_GreaterEqual, expr.String(), params, paramsTypes)
+	if err != nil {
+		return nil, err
+	}
 
-	ret, err := b.bindFunc(ET_Between.String(), ET_Between, expr.String(), params, paramsTypes)
+	//<=
+	params = []*Expr{betExpr, right}
+	paramsTypes = []ExprDataType{betExpr.DataTyp, right.DataTyp}
+	ret1, err := b.bindFunc(ET_LessEqual.String(), ET_LessEqual, expr.String(), params, paramsTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	// >= && <=
+	params = []*Expr{ret0, ret1}
+	paramsTypes = []ExprDataType{ret0.DataTyp, ret1.DataTyp}
+
+	ret, err := b.bindFunc(ET_And.String(), ET_And, expr.String(), params, paramsTypes)
 	if err != nil {
 		return nil, err
 	}

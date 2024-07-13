@@ -1094,11 +1094,71 @@ func Test_1g_q19_crossJoin(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_1g_q19_filter(t *testing.T) {
+func Test_1g_q19_filter_or_expr(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
 	//debug.SetMemoryLimit(math.MaxInt64)
+	/**
+	Equal to:
 
+	select
+		l_extendedprice ,
+		l_discount
+	from
+	(
+		select
+			l_quantity ,
+			l_extendedprice ,
+			l_discount,
+			p_brand ,
+			p_size ,
+			p_container
+		from
+		(
+			select
+				l_partkey ,
+				l_quantity ,
+				l_extendedprice ,
+				l_discount,
+				l_shipinstruct ,
+				l_shipmode
+			from
+				lineitem l where l.l_shipmode in ('AIR', 'AIR REG') and l_shipinstruct = 'DELIVER IN PERSON'
+		) as L
+		join
+		(
+			select
+				part.p_partkey ,
+				part.p_brand ,
+				part.p_size ,
+				part.p_container
+			from part where part.p_size  >= 1
+		) as P
+		on L.l_partkey = P.p_partkey
+		where
+			(
+				p_brand = 'Brand#23'
+				and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+				and l_quantity >= 5 and l_quantity <= 5 + 10
+				and p_size <= 5
+			)
+			or
+			(
+				p_brand = 'Brand#15'
+				and p_container in ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+				and l_quantity >= 14 and l_quantity <= 14 + 10
+				and p_size <= 10
+			)
+			or
+			(
+				p_brand = 'Brand#44'
+				and p_container in ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+				and l_quantity >= 28 and l_quantity <= 28 + 10
+				and p_size <= 15
+			)
+
+	)
+	*/
 	pplan := runTest2(t, tpchQ19())
 	//fmt.Println(pplan.String())
 	ops := findOperator(
@@ -1108,7 +1168,146 @@ func Test_1g_q19_filter(t *testing.T) {
 		},
 	)
 	//gConf.EnableMaxScanRows = true
-	gConf.SkipOutput = true
+	//gConf.SkipOutput = true
+	//gConf.MaxScanRows = 100000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+
+	//!!!CUT
+	//filter := ops[0].Filters[0]
+	//filter = filter.Children[0].Children[1]
+	//runOps(t, ops)
+	for _, filter := range ops[0].Filters {
+		fmt.Println(filter.String())
+	}
+	filterExec, err := initFilterExec(ops[0].Filters)
+	assert.NoError(t, err)
+	filterSel := NewSelectVector(defaultVectorSize)
+
+	input := &Chunk{}
+	input.init([]LType{
+		integer(),
+		decimal(DecimalMaxWidthInt64, 0),
+		decimal(DecimalMaxWidthInt64, 0),
+		varchar(),
+		integer(),
+		varchar(),
+	}, defaultVectorSize)
+	input.setCard(1)
+	input._data[0].setValue(0, &Value{_typ: input._data[0].typ(), _i64: 32})
+	input._data[1].setValue(0, &Value{_typ: input._data[1].typ(), _i64: 6021888})
+	input._data[2].setValue(0, &Value{_typ: input._data[2].typ(), _i64: 4})
+	input._data[3].setValue(0, &Value{_typ: input._data[3].typ(), _str: "Brand#44"})
+	input._data[4].setValue(0, &Value{_typ: input._data[4].typ(), _i64: 11})
+	input._data[5].setValue(0, &Value{_typ: input._data[5].typ(), _str: "LG PACK"})
+	input.print()
+
+	count, err := filterExec.executeSelect([]*Chunk{input, nil, nil}, filterSel)
+	assert.NoError(t, err)
+	fmt.Println(count)
+}
+
+func Test_1g_q19_filter(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+	/**
+	Equal to:
+
+	select
+		l_extendedprice ,
+		l_discount
+	from
+	(
+		select
+			l_quantity ,
+			l_extendedprice ,
+			l_discount,
+			p_brand ,
+			p_size ,
+			p_container
+		from
+		(
+			select
+				l_partkey ,
+				l_quantity ,
+				l_extendedprice ,
+				l_discount,
+				l_shipinstruct ,
+				l_shipmode
+			from
+				lineitem l where l.l_shipmode in ('AIR', 'AIR REG') and l_shipinstruct = 'DELIVER IN PERSON'
+		) as L
+		join
+		(
+			select
+				part.p_partkey ,
+				part.p_brand ,
+				part.p_size ,
+				part.p_container
+			from part where part.p_size  >= 1
+		) as P
+		on L.l_partkey = P.p_partkey
+		where
+			(
+				p_brand = 'Brand#23'
+				and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+				and l_quantity >= 5 and l_quantity <= 5 + 10
+				and p_size <= 5
+			)
+			or
+			(
+				p_brand = 'Brand#15'
+				and p_container in ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+				and l_quantity >= 14 and l_quantity <= 14 + 10
+				and p_size <= 10
+			)
+			or
+			(
+				p_brand = 'Brand#44'
+				and p_container in ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+				and l_quantity >= 28 and l_quantity <= 28 + 10
+				and p_size <= 15
+			)
+
+	)
+	*/
+	pplan := runTest2(t, tpchQ19())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Filter)
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	//gConf.MaxScanRows = 100000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+
+	runOps(t, ops)
+}
+
+func Test_1g_q19_aggr(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ19())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Agg)
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
 	//gConf.MaxScanRows = 100000
 	defer func() {
 		gConf.EnableMaxScanRows = false

@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+
+	dec "github.com/govalues/decimal"
 )
 
 var (
@@ -10,6 +12,8 @@ var (
 	gTryCastInt32ToInt32OpWrapper   tryCastOpWrapper[int32, int32]
 	gTryCastInt32ToFloat32          tryCastInt32ToFloat32
 	gTryCastInt32ToFloat32OpWrapper tryCastOpWrapper[int32, float32]
+	gTryCastInt32ToDecimal          tryCastInt32ToDecimal
+	gTryCastInt32ToDecimalWrapper   tryCastOpWrapper[int32, Decimal]
 
 	// bigint =>
 	gTryCastBigintToInt32          tryCastBigintToInt32
@@ -45,6 +49,15 @@ type tryCastInt32ToFloat32 struct {
 
 func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32) {
 	*result = float32(*input)
+}
+
+type tryCastInt32ToDecimal struct {
+}
+
+func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
+	*result = Decimal{
+		dec.MustNew(int64(*input), result.Scale()),
+	}
 }
 
 type tryCastBigintToInt32 struct{}
@@ -90,6 +103,16 @@ func castExec(
 				gTryCastInt32ToFloat32,
 				nil,
 				gTryCastInt32ToFloat32OpWrapper,
+			)
+		case LTID_DECIMAL:
+			unaryGenericExec[int32, Decimal](
+				source,
+				result,
+				count,
+				false,
+				gTryCastInt32ToDecimal,
+				nil,
+				gTryCastInt32ToDecimalWrapper,
 			)
 		default:
 			panic("usp")

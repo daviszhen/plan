@@ -37,7 +37,7 @@ func distributeExpr(expr *Expr) *Expr {
 		}
 	}
 	var newRoot *Expr
-	assertFunc(len(resChildren) > 0)
+	//assertFunc(len(resChildren) > 0)
 	//result: candidates && (resChildren[0] || resChildren[1] ...)
 	if len(resChildren) == 1 {
 		newRoot = andExpr(combineExprsByAnd(candidates...), resChildren[0])
@@ -45,6 +45,8 @@ func distributeExpr(expr *Expr) *Expr {
 		newCandidates := combineExprsByAnd(candidates...)
 		newChildren := combineExprsByOr(resChildren...)
 		newRoot = andExpr(newCandidates, newChildren)
+	} else {
+		newRoot = combineExprsByAnd(candidates...)
 	}
 	if len(newRoot.Children) == 1 {
 		return newRoot.Children[0]

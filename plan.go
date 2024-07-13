@@ -135,6 +135,8 @@ func (h *Hugeint) Add(lhs, rhs *Hugeint) {
 }
 func (h *Hugeint) Mul(lhs, rhs *Hugeint) {}
 
+var _ TypeOp[Decimal] = new(Decimal)
+
 type Decimal struct {
 	dec.Decimal
 }
@@ -143,9 +145,36 @@ func (dec *Decimal) String() string {
 	return dec.Decimal.String()
 }
 
+func (dec *Decimal) Add(lhs *Decimal, rhs *Decimal) {
+	res, err := lhs.Decimal.Add(rhs.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	lhs.Decimal = res
+}
+
+func (dec *Decimal) Mul(lhs *Decimal, rhs *Decimal) {
+	res, err := lhs.Decimal.Mul(rhs.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	lhs.Decimal = res
+}
+
 type ScatterOp[T any] interface {
 	nullValue() T
 	store(src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer)
+}
+
+type int8ScatterOp struct {
+}
+
+func (i int8ScatterOp) nullValue() int8 {
+	return 0
+}
+
+func (i int8ScatterOp) store(src int8, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	store[int8](src, pointerAdd(rowLoc, offsetInRow))
 }
 
 type int32ScatterOp struct {

@@ -36,6 +36,13 @@ func (hfun HashFuncInt32) fun(value int32) uint64 {
 	return murmurhash32(uint32(value))
 }
 
+type HashFuncInt8 struct {
+}
+
+func (hfun HashFuncInt8) fun(value int8) uint64 {
+	return murmurhash32(uint32(value))
+}
+
 type HashOpInt32 struct {
 }
 
@@ -44,6 +51,17 @@ func (op HashOpInt32) operation(input int32, isNull bool) uint64 {
 		return NULL_HASH
 	} else {
 		return HashFuncInt32{}.fun(input)
+	}
+}
+
+type HashOpInt8 struct {
+}
+
+func (op HashOpInt8) operation(input int8, isNull bool) uint64 {
+	if isNull {
+		return NULL_HASH
+	} else {
+		return HashFuncInt8{}.fun(input)
 	}
 }
 
@@ -57,6 +75,8 @@ func HashTypeSwitch(
 	switch input.typ().getInternalType() {
 	case INT32:
 		TemplatedLoopHash[int32](input, result, rsel, count, hasRsel, HashOpInt32{}, HashFuncInt32{})
+	case INT8:
+		TemplatedLoopHash[int8](input, result, rsel, count, hasRsel, HashOpInt8{}, HashFuncInt8{})
 	default:
 		panic("Unknown input type")
 	}

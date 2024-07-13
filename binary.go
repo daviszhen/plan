@@ -5,8 +5,14 @@ var (
 	//date + interval
 	gBinDateIntervalAdd binDateInterAddOp
 
+	//decimal - decimal
+	gBinDecimalDecimalSubOp binDecimalDecimalSubOp
+
 	// *
 	gBinFloat32Multi binFloat32MultiOp
+
+	//decimal * decimal
+	gBinDecimalDecimalMulOp binDecimalDecimalMulOp
 
 	// =
 	gBinInt32Equal  binInt32EqualOp
@@ -23,6 +29,7 @@ var (
 	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, int32, bool]
 	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32, float32]
 	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, float32, bool]
+	gBinDecimalDecimalOpWrapper       binarySingleOpWrapper[Decimal, Decimal, Decimal]
 )
 
 type binaryOp[T any, S any, R any] interface {
@@ -68,11 +75,35 @@ func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date)
 	}
 }
 
+// -
+type binDecimalDecimalSubOp struct {
+}
+
+func (op binDecimalDecimalSubOp) operation(left *Decimal, right *Decimal, result *Decimal) {
+	d, err := left.Sub(right.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	result.Decimal = d
+}
+
 // *
 type binFloat32MultiOp struct{}
 
 func (op binFloat32MultiOp) operation(left, right *float32, result *float32) {
 	*result = *left * *right
+}
+
+// *
+type binDecimalDecimalMulOp struct {
+}
+
+func (op binDecimalDecimalMulOp) operation(left *Decimal, right *Decimal, result *Decimal) {
+	d, err := left.Decimal.Mul(right.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	result.Decimal = d
 }
 
 // = int32
@@ -283,12 +314,12 @@ func binaryExecGeneric[T any, S any, R any](
 	fun binaryFunc[T, S, R],
 	wrapper binaryWrapper[T, S, R],
 ) {
-	var ldata, rdata *UnifiedFormat
-	left.toUnifiedFormat(count, ldata)
-	right.toUnifiedFormat(count, rdata)
+	var ldata, rdata UnifiedFormat
+	left.toUnifiedFormat(count, &ldata)
+	right.toUnifiedFormat(count, &rdata)
 
-	lSlice := getSliceInPhyFormatUnifiedFormat[T](ldata)
-	rSlice := getSliceInPhyFormatUnifiedFormat[S](rdata)
+	lSlice := getSliceInPhyFormatUnifiedFormat[T](&ldata)
+	rSlice := getSliceInPhyFormatUnifiedFormat[S](&rdata)
 	result.setPhyFormat(PF_FLAT)
 	resSlice := getSliceInPhyFormatFlat[R](result)
 	binaryExecGenericLoop[T, S, R](

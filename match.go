@@ -82,7 +82,8 @@ func TemplatedMatchOp(
 	colOffset := layout.offsets()[colNo]
 	switch predTyp {
 	case ET_Equal, ET_In:
-		switch layout.types()[colNo].getInternalType() {
+		pTyp := layout.types()[colNo].getInternalType()
+		switch pTyp {
 		case INT32:
 			TemplatedMatchType[int32](
 				col,
@@ -96,6 +97,20 @@ func TemplatedMatchOp(
 				noMatchCnt,
 				noMatchSel,
 				equalOp[int32]{},
+			)
+		case INT8:
+			TemplatedMatchType[int8](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				equalOp[int8]{},
 			)
 		default:
 			panic("usp")

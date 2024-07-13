@@ -248,7 +248,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp in varchar")
 					}
 				},
 			},
@@ -289,7 +289,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp not in varchar")
 					}
 				},
 			},
@@ -306,7 +306,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp not in int")
 					}
 				},
 			},
@@ -335,7 +335,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp between float,float,float")
 					}
 				},
 			},
@@ -358,7 +358,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp between int,int,int")
 					}
 				},
 			},
@@ -381,7 +381,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp between date,date,date")
 					}
 				},
 			},
@@ -432,7 +432,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp float + float")
 					}
 				},
 			},
@@ -452,7 +452,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp decimal + decimal")
 					}
 				},
 			},
@@ -472,7 +472,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp interval + date")
 					}
 				},
 			},
@@ -498,7 +498,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp float - float")
 					}
 				},
 			},
@@ -518,7 +518,12 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						binaryExecSwitch[Decimal, Decimal, Decimal](
+							chunk._data[0], chunk._data[1], result, count,
+							gBinDecimalDecimalSubOp,
+							nil,
+							gBinDecimalDecimalOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -538,7 +543,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp date - date")
 					}
 				},
 			},
@@ -564,7 +569,12 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						binaryExecSwitch[Decimal, Decimal, Decimal](
+							chunk._data[0], chunk._data[1], result, count,
+							gBinDecimalDecimalMulOp,
+							nil,
+							gBinDecimalDecimalOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -611,7 +621,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp decimal / decimal")
 					}
 				},
 			},
@@ -631,7 +641,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp float / float")
 					}
 				},
 			},
@@ -678,7 +688,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp varchar = varchar")
 					}
 				},
 			},
@@ -698,7 +708,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp deciaml = decimal")
 					}
 				},
 			},
@@ -724,7 +734,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp int <> int")
 					}
 				},
 			},
@@ -744,7 +754,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp varchar <> varchar")
 					}
 				},
 			},
@@ -770,7 +780,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp date >= date")
 					}
 				},
 			},
@@ -790,7 +800,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp int >= int")
 					}
 				},
 			},
@@ -837,7 +847,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp decimal > decimal")
 					}
 				},
 			},
@@ -857,7 +867,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp date > date")
 					}
 				},
 			},
@@ -904,7 +914,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp date <= date")
 					}
 				},
 			},
@@ -924,7 +934,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp int <= int")
 					}
 				},
 			},
@@ -950,7 +960,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp date < date")
 					}
 				},
 			},
@@ -970,7 +980,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp int < int")
 					}
 				},
 			},
@@ -990,7 +1000,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp float < float")
 					}
 				},
 			},
@@ -1016,7 +1026,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp bool and bool")
 					}
 				},
 			},
@@ -1042,7 +1052,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp bool or bool")
 					}
 				},
 			},
@@ -1065,7 +1075,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp like varchar")
 					}
 				},
 			},
@@ -1088,7 +1098,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp not like varchar")
 					}
 				},
 			},
@@ -1120,7 +1130,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp case 1")
 					}
 				},
 			},
@@ -1146,7 +1156,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp case 2")
 					}
 				},
 			},
@@ -1169,7 +1179,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp exists int")
 					}
 				},
 			},
@@ -1192,7 +1202,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp not exists bool")
 					}
 				},
 			},
@@ -1209,7 +1219,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp not exists int")
 					}
 				},
 			},
@@ -1235,7 +1245,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp max (decimal)")
 					}
 				},
 				IsAgg: true,
@@ -1259,7 +1269,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp min (decimal)")
 					}
 				},
 				IsAgg: true,
@@ -1283,7 +1293,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp sum(decimal)")
 					}
 				},
 				IsAgg: true,
@@ -1301,7 +1311,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp sum(int)")
 					}
 				},
 				IsAgg: true,
@@ -1328,7 +1338,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp count(decimal)")
 					}
 				},
 				IsAgg: true,
@@ -1355,7 +1365,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp avg(decimal)")
 					}
 				},
 				IsAgg: true,
@@ -1376,7 +1386,7 @@ var aggFuncs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp avg(int)")
 					}
 				},
 				IsAgg: true,
@@ -1402,7 +1412,7 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp date_add(date,interval)")
 					}
 				},
 			},
@@ -1424,7 +1434,7 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp extract(varchar,date)")
 					}
 				},
 			},
@@ -1450,7 +1460,7 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp cast(decimal,int)")
 					}
 				},
 			},
@@ -1517,6 +1527,27 @@ var funcs = []*Function{
 					}
 				},
 			},
+			{
+				Desc: "cast",
+				Idx:  4,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},
@@ -1545,7 +1576,7 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp")
+						return fmt.Errorf("usp substring(varchar,int,int)")
 					}
 				},
 			},

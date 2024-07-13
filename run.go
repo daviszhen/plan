@@ -436,15 +436,29 @@ func (run *Runner) filterClose() error {
 
 func (run *Runner) aggrInit() error {
 	run.state = &OperatorState{}
-	if len(run.op.GroupBys) == 0 /*&& groupingSet*/ {
-		run.hAggr = NewHashAggr(
-			run.outputTypes,
-			run.op.Aggs,
-			nil,
-			nil,
-			nil,
-		)
-	} else {
+	//if len(run.op.GroupBys) == 0 /*&& groupingSet*/ {
+	//	run.hAggr = NewHashAggr(
+	//		run.outputTypes,
+	//		run.op.Aggs,
+	//		nil,
+	//		nil,
+	//		nil,
+	//	)
+	//} else
+	{
+
+		if len(run.op.GroupBys) == 0 {
+			//group by 1
+			constExpr := &Expr{
+				Typ: ET_IConst,
+				DataTyp: ExprDataType{
+					LTyp: integer(),
+				},
+				Ivalue: 1,
+			}
+			run.op.GroupBys = append(run.op.GroupBys, constExpr)
+		}
+
 		run.hAggr = NewHashAggr(
 			run.outputTypes,
 			run.op.Aggs,

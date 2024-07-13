@@ -72,6 +72,17 @@ func GetSumAggr(pTyp PhyType) *AggrFunc {
 			&Hugeint{},
 		)
 		return fun
+	case DECIMAL:
+		fun := UnaryAggregate[Decimal, State[Decimal], Decimal, SumOp[Decimal, Decimal]](
+			decimal(DecimalMaxWidth, 0),
+			decimal(DecimalMaxWidth, 0),
+			DEFAULT_NULL_HANDLING,
+			SumOp[Decimal, Decimal]{},
+			&SumStateOp[Decimal]{},
+			&DecimalAdd{},
+			&Decimal{},
+		)
+		return fun
 	default:
 		panic("usp")
 	}
@@ -189,6 +200,16 @@ func (hadd *HugeintAdd) AddNumber(state *State[Hugeint], input *int32, top TypeO
 func (*HugeintAdd) AddConstant(*State[Hugeint], *int32, int, TypeOp[Hugeint]) {
 	//TODO:
 	panic("usp")
+}
+
+type DecimalAdd struct {
+}
+
+func (dAdd *DecimalAdd) AddNumber(state *State[Decimal], input *Decimal, top TypeOp[Decimal]) {
+	state._value.Add(&state._value, input)
+}
+func (*DecimalAdd) AddConstant(*State[Decimal], *Decimal, int, TypeOp[Decimal]) {
+	panic("usp decimalAdd addconstant")
 }
 
 type SumOp[ResultT any, InputT any] struct {

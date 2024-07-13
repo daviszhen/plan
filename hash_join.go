@@ -884,23 +884,23 @@ func (tuple *TupleDataCollection) savePart(part *TuplePart) {
 }
 
 func (tuple *TupleDataCollection) checkDupAll() {
-	cnt := 0
-	//all dup
-	dedup := make(map[unsafe.Pointer]int)
-	for xid, xpart := range tuple._parts {
-		xrowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](xpart.rowLocations)
-		for _, loc := range xrowLocs {
-			if uintptr(loc) == 0 {
-				continue
-			}
-			if xcnt, has := dedup[loc]; has {
-				fmt.Println("duplicate2", xid, len(tuple._parts), xcnt, cnt, loc)
-				panic("dup loc2")
-			}
-			dedup[loc] = cnt
-			cnt++
-		}
-	}
+	//cnt := 0
+	////all dup
+	//dedup := make(map[unsafe.Pointer]int)
+	//for xid, xpart := range tuple._parts {
+	//	xrowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](xpart.rowLocations)
+	//	for _, loc := range xrowLocs {
+	//		if uintptr(loc) == 0 {
+	//			continue
+	//		}
+	//		if xcnt, has := dedup[loc]; has {
+	//			fmt.Println("duplicate2", xid, len(tuple._parts), xcnt, cnt, loc)
+	//			panic("dup loc2")
+	//		}
+	//		dedup[loc] = cnt
+	//		cnt++
+	//	}
+	//}
 }
 
 func (tuple *TupleDataCollection) scatter(
@@ -1114,6 +1114,17 @@ func TupleDataTemplatedScatterSwitch(
 			heapLocations,
 			colIdx,
 			stringScatterOp{},
+		)
+	case INT8:
+		TupleDataTemplatedScatter[int8](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			int8ScatterOp{},
 		)
 	default:
 		panic("usp ")

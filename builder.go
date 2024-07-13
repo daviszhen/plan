@@ -1657,11 +1657,23 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 	default:
 		panic("unhandled default case")
 	}
-	ret, err := b.bindFunc(et.String(), et, expr.String(), params, paramTypes)
-	if err != nil {
-		return nil, err
+	//convert into ... = ... or ... = ...
+	orChildren := make([]*Expr, 0)
+	for i, param := range params {
+		if i == 0 {
+			continue
+		}
+		equalParams := []*Expr{params[0], param}
+		equalTypes := []ExprDataType{paramTypes[0], paramTypes[i]}
+		ret0, err := b.bindFunc(et.String(), et, expr.String(), equalParams, equalTypes)
+		if err != nil {
+			return nil, err
+		}
+		orChildren = append(orChildren, ret0)
 	}
-	return ret, nil
+
+	bigOrExpr := combineExprsByOr(orChildren...)
+	return bigOrExpr, nil
 }
 
 func collectTags(root *LogicalOperator, set map[uint64]bool) {
