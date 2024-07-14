@@ -515,6 +515,7 @@ func NewRadixPartitionedHashTable(
 	ret := new(RadixPartitionedHashTable)
 	ret._groupingSet = groupingSet
 	ret._groupedAggrData = aggrData
+	ret._finalizedHT = nil
 
 	for i := 0; i < aggrData.GroupCount(); i++ {
 		if !ret._groupingSet.find(i) {

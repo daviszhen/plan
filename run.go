@@ -29,6 +29,10 @@ type OperatorState struct {
 	filterSel  *SelectVector
 
 	//for aggregate
+	referChildren         bool
+	constGroupby          bool
+	ungroupAggr           bool
+	ungroupAggrDone       bool
 	haScanState           *HashAggrScanState
 	groupbyWithParamsExec *ExprExec
 	groupbyExec           *ExprExec
@@ -457,6 +461,8 @@ func (run *Runner) aggrInit() error {
 				Ivalue: 1,
 			}
 			run.op.GroupBys = append(run.op.GroupBys, constExpr)
+
+			run.state.constGroupby = true
 		}
 
 		run.hAggr = NewHashAggr(
@@ -475,6 +481,18 @@ func (run *Runner) aggrInit() error {
 		run.state.filterExec = NewExprExec(run.op.Filters...)
 		run.state.filterSel = NewSelectVector(defaultVectorSize)
 		run.state.outputExec = NewExprExec(run.op.Outputs...)
+
+		//check output exprs have any colref refers the children node
+		bSet := make(ColumnBindSet)
+		collectColRefs2(bSet, run.op.Outputs...)
+
+		for bind, _ := range bSet {
+			if bind.table() < 0 {
+				run.state.referChildren = true
+				break
+			}
+		}
+		run.state.ungroupAggr = !run.state.referChildren && run.state.constGroupby
 	}
 	return nil
 }
@@ -527,22 +545,29 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 		}
 
 		for {
-			//1.get child chunk from children[0]
 			childChunk := &Chunk{}
-			res, err = run.execChild(run.children[0], childChunk, state)
-			if err != nil {
-				return 0, err
+			if !run.state.ungroupAggr {
+				//1.get child chunk from children[0]
+				res, err = run.execChild(run.children[0], childChunk, state)
+				if err != nil {
+					return 0, err
+				}
+				if res == InvalidOpResult {
+					return InvalidOpResult, nil
+				}
+				if res == Done {
+					break
+				}
+				if childChunk.card() == 0 {
+					continue
+				}
+			} else {
+				if run.state.ungroupAggrDone {
+					return Done, nil
+				}
+				run.state.ungroupAggrDone = true
+				childChunk.setCard(1)
 			}
-			if res == InvalidOpResult {
-				return InvalidOpResult, nil
-			}
-			if res == Done {
-				break
-			}
-			if childChunk.card() == 0 {
-				continue
-			}
-
 			//fmt.Println("scan aggr", childChunk.card())
 			//childChunk.print()
 			x := childChunk.card()
