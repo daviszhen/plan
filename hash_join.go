@@ -870,11 +870,14 @@ func (tuple *TupleDataCollection) savePart(part *TuplePart) {
 	tuple._count += rows._count
 	tuple._parts = append(tuple._parts, rows)
 	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rows.rowLocations)
-	for _, loc := range rowLocs {
+	for i, loc := range rowLocs {
+		if i >= rows._count {
+			break
+		}
 		if loc == nil {
 			continue
 		}
-		//fmt.Println("save loc", loc)
+		//fmt.Println("save loc", i, loc)
 		if _, has := tuple._dedup[loc]; has {
 			panic("duplicate row location")
 		}
@@ -924,6 +927,14 @@ func (tuple *TupleDataCollection) scatter(
 	}
 	for i := 0; i < tuple._layout.columnCount(); i++ {
 		tuple.scatterVector(part, chunk._data[i], i, appendSel, cnt)
+		//for j := 0; j < tuple._layout.columnCount(); j++ {
+		//	if chunk._data[j].typ().getInternalType() == DATE && tuple._layout.offsets()[j] == 33 {
+		//		rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
+		//		dt := load[Date](pointerAdd(rowPtrs[0], 33))
+		//		fmt.Println("check date", dt, "rowPtrs", rowPtrs[0], 33)
+		//	}
+		//}
+
 	}
 }
 
@@ -973,6 +984,7 @@ func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
 		if _, has := tuple._dedup[rowLocs[i]]; has {
 			panic("duplicate row location 2")
 		}
+		//fmt.Println("rowLoc", i, rowLocs[i])
 		if tuple._layout.allConst() {
 			continue
 		}
@@ -1126,6 +1138,33 @@ func TupleDataTemplatedScatterSwitch(
 			colIdx,
 			int8ScatterOp{},
 		)
+	case DECIMAL:
+		TupleDataTemplatedScatter[Decimal](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			decimalScatterOp{},
+		)
+	case DATE:
+		TupleDataTemplatedScatter[Date](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			dateScatterOp{},
+		)
+		//if layout.offsets()[colIdx] == 33 {
+		//	rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
+		//	dt := load[Date](pointerAdd(rowPtrs[0], 33))
+		//	fmt.Println("dt", dt, "rowPtrs", rowPtrs[0], 33)
+		//}
 	default:
 		panic("usp ")
 	}
@@ -1196,6 +1235,26 @@ func TupleDataTemplatedGatherSwitch(
 		)
 	case VARCHAR:
 		TupleDataTemplatedGather[String](
+			layout,
+			rowLocs,
+			colIdx,
+			scanSel,
+			scanCnt,
+			target,
+			targetSel,
+		)
+	case DECIMAL:
+		TupleDataTemplatedGather[Decimal](
+			layout,
+			rowLocs,
+			colIdx,
+			scanSel,
+			scanCnt,
+			target,
+			targetSel,
+		)
+	case DATE:
+		TupleDataTemplatedGather[Date](
 			layout,
 			rowLocs,
 			colIdx,

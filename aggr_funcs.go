@@ -194,7 +194,9 @@ func (hadd *HugeintAdd) AddNumber(state *State[Hugeint], input *int32, top TypeO
 	if *input >= 0 {
 		pos = 1
 	}
+	//fmt.Println("hugeint before", state._value, *input)
 	hadd.addValue(&state._value, uint64(*input), pos)
+	//fmt.Println("hugeint after", state._value)
 }
 
 func (*HugeintAdd) AddConstant(*State[Hugeint], *int32, int, TypeOp[Hugeint]) {

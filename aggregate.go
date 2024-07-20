@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"unsafe"
@@ -303,6 +304,7 @@ type HashAggr struct {
 	_inputGroupTypes        []LType
 	_nonDistinctFilter      []int
 	_distinctFilter         []int
+	_printHash              bool
 }
 
 func NewHashAggr(
@@ -387,6 +389,7 @@ func (haggr *HashAggr) Sink(chunk *Chunk) {
 	}
 	payload.setCard(chunk.card())
 	for _, grouping := range haggr._groupings {
+		grouping._tableData._printHash = haggr._printHash
 		grouping._tableData.Sink(chunk, payload, haggr._nonDistinctFilter)
 	}
 }
@@ -464,6 +467,10 @@ func (ent *aggrHTEntry) clean() {
 	ent._rowPtr = nil
 }
 
+func (ent *aggrHTEntry) String() string {
+	return fmt.Sprintf("salt:%d offset:%d nr:%d rowPtr:%x", ent._salt, ent._pageOffset, ent._pageNr, ent._rowPtr)
+}
+
 var (
 	aggrEntrySize int
 )
@@ -506,6 +513,7 @@ type RadixPartitionedHashTable struct {
 	_radixLimit      int
 	_groupingValues  []*Value
 	_finalizedHT     *GroupedAggrHashTable
+	_printHash       bool
 }
 
 func NewRadixPartitionedHashTable(
@@ -569,6 +577,7 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk, payload *Chunk, filter []int)
 			aggrObjs,
 			2*defaultVectorSize,
 		)
+		rpht._finalizedHT._printHash = rpht._printHash
 	}
 	groupChunk := &Chunk{}
 	groupChunk.init(rpht._groupTypes, defaultVectorSize)
@@ -662,6 +671,7 @@ type GroupedAggrHashTable struct {
 	_bitmask         uint64
 	_finalized       bool
 	_predicates      []ET_SubTyp
+	_printHash       bool
 }
 
 type AggrType int
@@ -816,6 +826,10 @@ func (aht *GroupedAggrHashTable) AddChunk2(
 	hashes := NewFlatVector(hashType(), defaultVectorSize)
 	groups.Hash(hashes)
 
+	//if aht._printHash {
+	//	fmt.Println("hash")
+	//	hashes.print(groups.card())
+	//}
 	return aht.AddChunk(
 		state,
 		groups,
@@ -844,6 +858,10 @@ func (aht *GroupedAggrHashTable) AddChunk(
 		state._addresses,
 		state._newGroups)
 	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.card())
+
+	//if aht._printHash {
+	//	fmt.Println("new group count", newGroupCount)
+	//}
 
 	filterIdx := 0
 	payloadIdx := 0
@@ -945,6 +963,10 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 		for i := 0; i < remainingEntries; i++ {
 			idx := selVec.getIndex(i)
 			htEntry := &htEntrySlice[htOffsetsPtr[idx]]
+
+			//if aht._printHash {
+			//	fmt.Println(idx, htOffsetsPtr[idx], newGroupCount, htEntry.String())
+			//}
 
 			if htEntry._pageNr == 0 {
 				//empty cell
@@ -1053,11 +1075,21 @@ func (aht *GroupedAggrHashTable) FetchAggregates(groups, result *Chunk) {
 	addresses := NewVector(pointerType(), defaultVectorSize)
 	hashes := NewFlatVector(hashType(), defaultVectorSize)
 	groups.Hash(hashes)
+	if aht._printHash {
+		println("scan hash")
+		hashes.print(groups.card())
+		groups.print()
+	}
+
 	newGroupCnt := aht.FindOrCreateGroups(appendState, groups, hashes, addresses, appendState._newGroups)
 	assertFunc(newGroupCnt == 0)
 
 	//fetch the agg
 	FinalizeStates(aht._layout, addresses, result, 0)
+	if aht._printHash {
+		fmt.Println("scan result")
+		result.print()
+	}
 }
 
 func (aht *GroupedAggrHashTable) Scan(state *AggrHashTableScanState, result *Chunk) int {

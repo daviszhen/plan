@@ -472,6 +472,9 @@ func (run *Runner) aggrInit() error {
 			nil,
 			nil,
 		)
+		if run.op.Children[0].Typ == POT_Filter {
+			run.hAggr._printHash = true
+		}
 		//groupby exprs + param exprs of aggr functions
 		groupExprs := make([]*Expr, 0)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._groups...)
@@ -493,6 +496,7 @@ func (run *Runner) aggrInit() error {
 			}
 		}
 		run.state.ungroupAggr = !run.state.referChildren && run.state.constGroupby
+
 	}
 	return nil
 }
@@ -517,8 +521,12 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			if childChunk.card() == 0 {
 				continue
 			}
-			//fmt.Println("build aggr", cnt, childChunk.card())
-			//childChunk.print()
+			//if run.op.Children[0].Typ == POT_Filter {
+			//
+			//	fmt.Println("build aggr", cnt, childChunk.card())
+			//	childChunk.print()
+			//}
+
 			cnt += childChunk.card()
 
 			typs := make([]LType, 0)
@@ -561,6 +569,10 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				if childChunk.card() == 0 {
 					continue
 				}
+				//if run.op.Children[0].Typ == POT_Filter {
+				//	fmt.Println("scan aggr", childChunk.card())
+				//	childChunk.print()
+				//}
 			} else {
 				if run.state.ungroupAggrDone {
 					return Done, nil
@@ -617,8 +629,12 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			if count == childChunk.card() {
 				childChunk2 = childChunk
 				aggrStatesChunk2 = aggrStatesChunk
+
+				assertFunc(childChunk.card() == childChunk2.card())
+				assertFunc(aggrStatesChunk.card() == aggrStatesChunk2.card())
+				assertFunc(childChunk2.card() == aggrStatesChunk2.card())
 			} else {
-				filtered = count - childChunk.card()
+				filtered = childChunk.card() - count
 				run.state.haScanState._filteredCnt2 += filtered
 
 				childChunkIndice := make([]int, 0)
@@ -638,10 +654,10 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				childChunk2.sliceIndice(childChunk, state.filterSel, count, 0, childChunkIndice)
 				aggrStatesChunk2.sliceIndice(aggrStatesChunk, state.filterSel, count, 0, aggrStatesChunkIndice)
 
+				assertFunc(count == childChunk2.card())
+				assertFunc(count == aggrStatesChunk2.card())
+				assertFunc(childChunk2.card() == aggrStatesChunk2.card())
 			}
-			assertFunc(childChunk.card() == childChunk2.card())
-			assertFunc(aggrStatesChunk.card() == aggrStatesChunk2.card())
-			assertFunc(childChunk2.card() == aggrStatesChunk2.card())
 
 			//5. eval the output
 			err = run.state.outputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk2}, output)
@@ -653,9 +669,9 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				assertFunc(output.card() == childChunk2.card())
 				assertFunc(x >= childChunk2.card())
 			}
-			assertFunc(output.card()+filtered == childChunk2.card())
+			assertFunc(output.card()+filtered == childChunk.card())
 			assertFunc(x == childChunk.card())
-			assertFunc(output.card() == childChunk.card())
+			assertFunc(output.card() == childChunk2.card())
 
 			run.state.haScanState._outputCnt += output.card()
 			run.state.haScanState._childCnt2 += childChunk.card()
@@ -1228,10 +1244,14 @@ func parquetColToValue(field any, lTyp LType) (*Value, error) {
 		val._i64_1 = int64(d.Month())
 		val._i64_2 = int64(d.Day())
 	case LTID_INTEGER:
-		if _, ok := field.(int32); !ok {
+		switch field.(type) {
+		case int32:
+			val._i64 = int64(field.(int32))
+		case int64:
+			val._i64 = field.(int64)
+		default:
 			panic("usp")
 		}
-		val._i64 = int64(field.(int32))
 	case LTID_VARCHAR:
 		if _, ok := field.(string); !ok {
 			panic("usp")

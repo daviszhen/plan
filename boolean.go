@@ -84,6 +84,22 @@ func (e equalStrOp) operation(left, right *String) bool {
 	return left.equal(right)
 }
 
+// Date
+type equalDateOp struct {
+}
+
+func (e equalDateOp) operation(left, right *Date) bool {
+	return left.equal(right)
+}
+
+// Decimal
+type equalDecimalOp struct {
+}
+
+func (e equalDecimalOp) operation(left, right *Decimal) bool {
+	return left.equal(right)
+}
+
 // in
 type inOp[T comparable] struct{}
 

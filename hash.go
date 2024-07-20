@@ -1,5 +1,9 @@
 package main
 
+import (
+	"unsafe"
+)
+
 const (
 	NULL_HASH = 0xbf58476d1ce4e5b9
 )
@@ -65,6 +69,126 @@ func (op HashOpInt8) operation(input int8, isNull bool) uint64 {
 	}
 }
 
+const (
+	M    uint64 = 0xc6a4a7935bd1e995
+	SEED uint64 = 0xe17a1465
+	R    uint64 = 47
+)
+
+func HashBytes(ptr unsafe.Pointer, len uint64) uint64 {
+	data64 := ptr
+	h := SEED ^ (len * M)
+
+	n_blocks := len / 8
+	for i := uint64(0); i < n_blocks; i++ {
+		k := load[uint64](pointerAdd(data64, int(i*uint64(int64Size))))
+		k *= M
+		k ^= k >> R
+		k *= M
+
+		h ^= k
+		h *= M
+	}
+	data8 := pointerAdd(data64, int(n_blocks*uint64(int64Size)))
+	switch len & 7 {
+	case 7:
+		val := load[byte](pointerAdd(data8, 6))
+		h ^= uint64(val) << 48
+		fallthrough
+	case 6:
+		val := load[byte](pointerAdd(data8, 5))
+		h ^= uint64(val) << 40
+		fallthrough
+	case 5:
+		val := load[byte](pointerAdd(data8, 4))
+		h ^= uint64(val) << 32
+		fallthrough
+	case 4:
+		val := load[byte](pointerAdd(data8, 3))
+		h ^= uint64(val) << 24
+		fallthrough
+	case 3:
+		val := load[byte](pointerAdd(data8, 2))
+		h ^= uint64(val) << 16
+		fallthrough
+	case 2:
+		val := load[byte](pointerAdd(data8, 1))
+		h ^= uint64(val) << 8
+		fallthrough
+	case 1:
+		val := load[byte](data8)
+		h ^= uint64(val)
+		h *= M
+		fallthrough
+	default:
+		break
+	}
+	h ^= h >> R
+	h *= M
+	h ^= h >> R
+	return h
+}
+
+type HashFuncString struct {
+}
+
+func (hfun HashFuncString) fun(value String) uint64 {
+	return HashBytes(value.data(), uint64(value.len()))
+}
+
+type HashOpString struct {
+}
+
+func (op HashOpString) operation(input String, isNull bool) uint64 {
+	if isNull {
+		return NULL_HASH
+	} else {
+		return HashFuncString{}.fun(input)
+	}
+}
+
+type HashFuncDate struct {
+}
+
+func (hfun HashFuncDate) fun(value Date) uint64 {
+	return murmurhash64(uint64(value._year)) ^ murmurhash64(uint64(value._month)) ^ murmurhash64(uint64(value._day))
+}
+
+type HashOpDate struct {
+}
+
+func (op HashOpDate) operation(input Date, isNull bool) uint64 {
+	if isNull {
+		return NULL_HASH
+	} else {
+		return HashFuncDate{}.fun(input)
+	}
+}
+
+type HashFuncDecimal struct {
+}
+
+func (hfun HashFuncDecimal) fun(value Decimal) uint64 {
+	neg := 0
+	if value.Decimal.IsNeg() {
+		neg = 1
+	}
+	coef := value.Coef()
+	scale := value.Scale()
+	return murmurhash64(uint64(neg)) ^ murmurhash64(uint64(coef)) ^ murmurhash64(uint64(scale))
+}
+
+type HashOpDecimal struct {
+}
+
+func (op HashOpDecimal) operation(input Decimal, isNull bool) uint64 {
+	if isNull {
+		return NULL_HASH
+	} else {
+		return HashFuncDecimal{}.fun(input)
+	}
+}
+
 func HashTypeSwitch(
 	input, result *Vector,
 	rsel *SelectVector,
@@ -77,6 +201,8 @@ func HashTypeSwitch(
 		TemplatedLoopHash[int32](input, result, rsel, count, hasRsel, HashOpInt32{}, HashFuncInt32{})
 	case INT8:
 		TemplatedLoopHash[int8](input, result, rsel, count, hasRsel, HashOpInt8{}, HashFuncInt8{})
+	case VARCHAR:
+		TemplatedLoopHash[String](input, result, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
 	default:
 		panic("Unknown input type")
 	}
@@ -157,6 +283,10 @@ func CombineHashTypeSwitch(
 	switch input.typ().getInternalType() {
 	case INT32:
 		TemplatedLoopCombineHash[int32](input, hashes, rsel, count, hasRsel, HashOpInt32{}, HashFuncInt32{})
+	case DATE:
+		TemplatedLoopCombineHash[Date](input, hashes, rsel, count, hasRsel, HashOpDate{}, HashFuncDate{})
+	case DECIMAL:
+		TemplatedLoopCombineHash[Decimal](input, hashes, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
 	default:
 		panic("Unknown input type")
 	}

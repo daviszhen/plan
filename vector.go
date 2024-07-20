@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unsafe"
 
 	dec "github.com/govalues/decimal"
@@ -375,6 +376,20 @@ func (vec *Vector) getValue(idx int) *Value {
 			_typ: vec.typ(),
 			_str: data[idx].String(),
 		}
+	case LTID_DATE:
+		data := getSliceInPhyFormatFlat[Date](vec)
+		return &Value{
+			_typ:   vec.typ(),
+			_i64:   int64(data[idx]._year),
+			_i64_1: int64(data[idx]._month),
+			_i64_2: int64(data[idx]._day),
+		}
+	case LTID_UBIGINT:
+		data := getSliceInPhyFormatFlat[uint64](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_i64: int64(data[idx]),
+		}
 	default:
 		panic("usp")
 	}
@@ -441,6 +456,14 @@ func (vec *Vector) setValue(idx int, val *Value) {
 
 func (vec *Vector) reset() {
 	vec._mask.reset()
+}
+
+func (vec *Vector) print(rowCount int) {
+	for j := 0; j < rowCount; j++ {
+		val := vec.getValue(j)
+		fmt.Println(val)
+	}
+	fmt.Println()
 }
 
 // constant vector
@@ -938,6 +961,12 @@ func (val Value) String() string {
 		return val._str
 	case LTID_DECIMAL:
 		return val._str
+	case LTID_DATE:
+		dat := time.Date(int(val._i64), time.Month(val._i64_1), int(val._i64_2),
+			0, 0, 0, 0, time.UTC)
+		return dat.String()
+	case LTID_UBIGINT:
+		return fmt.Sprintf("0x%x %d", val._i64, val._i64)
 	default:
 		panic("usp")
 	}

@@ -141,6 +141,14 @@ type Decimal struct {
 	dec.Decimal
 }
 
+func (dec *Decimal) equal(o *Decimal) bool {
+	d, err := dec.Decimal.Sub(o.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	return d.IsZero()
+}
+
 func (dec *Decimal) String() string {
 	return dec.Decimal.String()
 }
@@ -227,6 +235,42 @@ func (i stringScatterOp) store(src String, rowLoc unsafe.Pointer, offsetInRow in
 	*heapLoc = pointerAdd(*heapLoc, src.len())
 }
 
+type decimalScatterOp struct {
+}
+
+func (i decimalScatterOp) nullValue() Decimal {
+	zero := dec.Zero
+	return Decimal{zero}
+}
+
+func (i decimalScatterOp) store(src Decimal, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	dst := src.Decimal
+	store[Decimal](Decimal{dst}, pointerAdd(rowLoc, offsetInRow))
+
+	tDec := load[Decimal](pointerAdd(rowLoc, offsetInRow))
+	//fmt.Println("save decimal:", tDec.String(), "to rowLoc", rowLoc, "offset", offsetInRow)
+	assertFunc(tDec.equal(&src))
+}
+
+type dateScatterOp struct {
+}
+
+func (i dateScatterOp) nullValue() Date {
+	return Date{_year: 1970, _month: 1, _day: 1}
+}
+
+func (i dateScatterOp) store(src Date, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	dst := Date{}
+	dst = src
+	store[Date](dst, pointerAdd(rowLoc, offsetInRow))
+
+	tDate := load[Date](pointerAdd(rowLoc, offsetInRow))
+	//if offsetInRow == 33 {
+	//	fmt.Println("save date:", tDate, "to rowLoc", rowLoc, "offset", offsetInRow)
+	//}
+	assertFunc(tDate.equal(&dst))
+}
+
 type PhyType int
 
 const (
@@ -247,11 +291,11 @@ const (
 	STRUCT
 	VARCHAR
 	INT128
-	UNKNOWN
 	BIT
 	DATE
 	POINTER
 	DECIMAL
+	UNKNOWN
 	INVALID
 )
 
@@ -327,6 +371,7 @@ func init() {
 func (pt PhyType) size() int {
 	switch pt {
 	case BIT:
+		panic("usp")
 	case BOOL:
 		return boolSize
 	case INT8:
@@ -373,7 +418,12 @@ func (pt PhyType) size() int {
 }
 
 func (pt PhyType) isConstant() bool {
-	return pt >= BOOL && pt <= DOUBLE || pt == INTERVAL || pt == INT128
+	return pt >= BOOL && pt <= DOUBLE ||
+		pt == INTERVAL ||
+		pt == INT128 ||
+		pt == DATE ||
+		pt == POINTER ||
+		pt == DECIMAL
 }
 
 func (pt PhyType) isVarchar() bool {

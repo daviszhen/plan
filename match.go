@@ -112,6 +112,48 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalOp[int8]{},
 			)
+		case VARCHAR:
+			TemplatedMatchType[String](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				equalStrOp{},
+			)
+		case DATE:
+			TemplatedMatchType[Date](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				equalDateOp{},
+			)
+		case DECIMAL:
+			TemplatedMatchType[Decimal](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				equalDecimalOp{},
+			)
 		default:
 			panic("usp")
 		}
@@ -178,6 +220,9 @@ func TemplatedMatchType[T any](
 			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
 			colIdx := col._sel.getIndex(idx)
 			val := load[T](pointerAdd(ptrs[idx], colOffset))
+			//if colOffset == 33 {
+			//	fmt.Println("cmp", "ptr", ptrs[idx], "offset", colOffset, "val", val, "dslice", dataSlice[colIdx])
+			//}
 			if !isNull && cmp.operation(&dataSlice[colIdx], &val) {
 				sel.setIndex(matchCnt, idx)
 				matchCnt++
