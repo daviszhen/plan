@@ -33,7 +33,7 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 		//	continue
 		//}
 
-		//fmt.Println(op.String())
+		fmt.Println(op.String())
 
 		run := &Runner{
 			op:    op,
