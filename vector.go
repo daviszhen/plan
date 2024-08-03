@@ -390,6 +390,18 @@ func (vec *Vector) getValue(idx int) *Value {
 			_typ: vec.typ(),
 			_i64: int64(data[idx]),
 		}
+	case LTID_DOUBLE:
+		data := getSliceInPhyFormatFlat[float64](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_f64: data[idx],
+		}
+	case LTID_FLOAT:
+		data := getSliceInPhyFormatFlat[float32](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_f64: float64(data[idx]),
+		}
 	default:
 		panic("usp")
 	}
@@ -449,6 +461,9 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		slice[idx] = Decimal{
 			decVal,
 		}
+	case DOUBLE:
+		slice := toSlice[float64](vec._data, pTyp.size())
+		slice[idx] = val._f64
 	default:
 		panic("usp")
 	}
@@ -967,6 +982,10 @@ func (val Value) String() string {
 		return dat.String()
 	case LTID_UBIGINT:
 		return fmt.Sprintf("0x%x %d", val._i64, val._i64)
+	case LTID_DOUBLE:
+		return fmt.Sprintf("%v", val._f64)
+	case LTID_FLOAT:
+		return fmt.Sprintf("%v", val._f64)
 	default:
 		panic("usp")
 	}

@@ -599,6 +599,27 @@ var operators = []*Function{
 					}
 				},
 			},
+			{
+				Desc: "*",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: double(),
+					},
+					{
+						LTyp: double(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[float64, float64](chunk._data[0], chunk._data[1], result, count, gBinFloat64Multi, nil, gBinFloat64Float64SingleOpWrapper)
+						return nil
+					}
+				},
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},
@@ -641,7 +662,8 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp float / float")
+						binaryExecSwitch[float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Div, nil, gBinFloat32Float32SingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -1001,6 +1023,26 @@ var operators = []*Function{
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 						return fmt.Errorf("usp float < float")
+					}
+				},
+			},
+			{
+				Desc: "<",
+				Idx:  3,
+				Args: []ExprDataType{
+					{
+						LTyp: double(),
+					},
+					{
+						LTyp: double(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp double < double")
 					}
 				},
 			},
@@ -1380,7 +1422,7 @@ var aggFuncs = []*Function{
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {
 					return ExprDataType{
-						LTyp:    types[0].LTyp,
+						LTyp:    double(),
 						NotNull: decideNull(types),
 					}
 				},
@@ -1536,6 +1578,69 @@ var funcs = []*Function{
 					},
 					{
 						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  5,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: double(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  6,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: double(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  7,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: float(),
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {

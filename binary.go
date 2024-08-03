@@ -10,6 +10,10 @@ var (
 
 	// *
 	gBinFloat32Multi binFloat32MultiOp
+	gBinFloat64Multi binFloat64MultiOp
+
+	// /
+	gBinFloat32Div binFloat32DivOp
 
 	//decimal * decimal
 	gBinDecimalDecimalMulOp binDecimalDecimalMulOp
@@ -28,6 +32,7 @@ var (
 	gBinDateIntervalSingleOpWrapper   binarySingleOpWrapper[Date, Interval, Date]
 	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, int32, bool]
 	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32, float32]
+	gBinFloat64Float64SingleOpWrapper binarySingleOpWrapper[float64, float64, float64]
 	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, float32, bool]
 	gBinDecimalDecimalOpWrapper       binarySingleOpWrapper[Decimal, Decimal, Decimal]
 )
@@ -94,6 +99,12 @@ func (op binFloat32MultiOp) operation(left, right *float32, result *float32) {
 	*result = *left * *right
 }
 
+type binFloat64MultiOp struct{}
+
+func (op binFloat64MultiOp) operation(left, right *float64, result *float64) {
+	*result = *left * *right
+}
+
 // *
 type binDecimalDecimalMulOp struct {
 }
@@ -104,6 +115,13 @@ func (op binDecimalDecimalMulOp) operation(left *Decimal, right *Decimal, result
 		panic(err)
 	}
 	result.Decimal = d
+}
+
+// /
+type binFloat32DivOp struct{}
+
+func (op binFloat32DivOp) operation(left, right *float32, result *float32) {
+	*result = *left / *right
 }
 
 // = int32

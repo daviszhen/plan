@@ -33,7 +33,7 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 		//	continue
 		//}
 
-		fmt.Println(op.String())
+		//fmt.Println(op.String())
 
 		run := &Runner{
 			op:    op,
@@ -1465,7 +1465,7 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	runOps(t, ops)
 }
 
-func Test_1g_q17(t *testing.T) {
+func Test_1g_q17_aggr_join(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
 	//debug.SetMemoryLimit(math.MaxInt64)
@@ -1477,6 +1477,54 @@ func Test_1g_q17(t *testing.T) {
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Agg) &&
 				wantedOp(root.Children[0], POT_Join)
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, ops)
+}
+
+func Test_1g_q17_aggr_aggr(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ17())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Agg) &&
+				wantedOp(root.Children[0], POT_Agg)
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, ops)
+}
+
+func Test_1g_q17_proj_aggr(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ17())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Project) &&
+				wantedOp(root.Children[0], POT_Agg)
 		},
 	)
 	//gConf.EnableMaxScanRows = true

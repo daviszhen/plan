@@ -4,6 +4,7 @@ import "C"
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strings"
 	"unsafe"
 
@@ -414,4 +415,16 @@ func removeIf[T any](data []T, pred func(t T) bool) []T {
 		}
 	}
 	return data[:res]
+}
+
+func greaterFloat[T ~float32 | ~float64](lhs, rhs T) bool {
+	lIsNan := math.IsNaN(float64(lhs))
+	rIsNan := math.IsNaN(float64(rhs))
+	if rIsNan {
+		return false
+	}
+	if lIsNan {
+		return true
+	}
+	return lhs > rhs
 }

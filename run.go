@@ -530,8 +530,8 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			}
 			//if run.op.Children[0].Typ == POT_Filter {
 			//
-			//	fmt.Println("build aggr", cnt, childChunk.card())
-			//	childChunk.print()
+			//fmt.Println("build aggr", cnt, childChunk.card())
+			//childChunk.print()
 			//}
 
 			cnt += childChunk.card()
@@ -550,7 +550,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			run.hAggr.Sink(groupChunk, childChunk)
 		}
 		run.hAggr._has = HAS_SCAN
-		fmt.Println("child cnt", cnt)
+		fmt.Println("get build child cnt", cnt)
 	}
 	if run.hAggr._has == HAS_SCAN {
 		if run.state.haScanState == nil {
@@ -583,7 +583,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				return InvalidOpResult, nil
 			}
 			if res == Done {
-				return res, nil
+				break
 			}
 
 			x := childChunk.card()
@@ -600,11 +600,12 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			aggrStatesChunk.setCard(groupAndAggrChunk.card())
 
 			//4.eval the filter on (child chunk + aggr states)
-			//fmt.Println("=============")
-			//childChunk.print()
-			//fmt.Println("+++++++++++++")
-			//groupAndAggrChunk.print()
-			//aggrStatesChunk.print()
+			fmt.Println("===child==========")
+			childChunk.print()
+			fmt.Println("++++groupAndAggr+++++++++")
+			groupAndAggrChunk.print()
+			fmt.Println("----aggrStates---------")
+			aggrStatesChunk.print()
 			var count int
 			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
 			if err != nil {
@@ -670,6 +671,8 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			run.state.haScanState._childCnt2 += childChunk.card()
 			run.state.haScanState._childCnt3 += x
 			if output.card() > 0 {
+				fmt.Println("aggr output")
+				output.print()
 				return haveMoreOutput, nil
 			}
 		}

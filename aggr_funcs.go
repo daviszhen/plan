@@ -88,27 +88,83 @@ func GetSumAggr(pTyp PhyType) *AggrFunc {
 	}
 }
 
-type TypeOp[T any] interface {
-	Add(*T, *T)
-	Mul(*T, *T)
+func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
+	switch inputPhyTyp {
+	case INT32:
+		switch retPhyTyp {
+		case DOUBLE:
+			var d Double
+			fun := UnaryAggregate[float64, State[float64], int32, AvgOp[float64, int32]](
+				integer(),
+				double(),
+				DEFAULT_NULL_HANDLING,
+				AvgOp[float64, int32]{},
+				&AvgStateOp[float64]{},
+				&DoubleInt32Add{},
+				d,
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	case DOUBLE:
+		switch retPhyTyp {
+		case DOUBLE:
+			var d Double
+			fun := UnaryAggregate[float64, State[float64], float64, AvgOp[float64, float64]](
+				integer(),
+				double(),
+				DEFAULT_NULL_HANDLING,
+				AvgOp[float64, float64]{},
+				&AvgStateOp[float64]{},
+				&DoubleAdd{},
+				d,
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	case DECIMAL:
+		switch retPhyTyp {
+		case DECIMAL:
+			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, AvgOp[Decimal, Decimal]](
+				decimal(DecimalMaxWidth, 0),
+				decimal(DecimalMaxWidth, 0),
+				DEFAULT_NULL_HANDLING,
+				AvgOp[Decimal, Decimal]{},
+				&AvgStateOp[Decimal]{},
+				&DecimalAdd{},
+				&Decimal{},
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	default:
+		panic("usp")
+	}
 }
 
 type StateType int
 
 const (
 	STATE_SUM StateType = iota
+	STATE_AVG
 )
 
 type State[T any] struct {
 	_typ   StateType
 	_isset bool
 	_value T
+	_count uint64
 }
 
 func (state *State[T]) Init() {
 	switch state._typ {
 	case STATE_SUM:
 		state._isset = false
+	case STATE_AVG:
+		state._count = 0
 	default:
 		panic("usp")
 	}
@@ -120,6 +176,9 @@ func (state *State[T]) Combine(other *State[T], add TypeOp[T]) {
 	case STATE_SUM:
 		state._isset = other._isset || state._isset
 		add.Add(&state._value, &other._value)
+	case STATE_AVG:
+		add.Add(&state._value, &other._value)
+		state._count += other._count
 	default:
 		panic("usp")
 	}
@@ -147,6 +206,11 @@ type StateOp[T any] interface {
 	AddValues(*State[T], int)
 }
 
+type TypeOp[T any] interface {
+	Add(*T, *T)
+	Mul(*T, *T)
+}
+
 type AddOp[ResultT any, InputT any] interface {
 	AddNumber(*State[ResultT], *InputT, TypeOp[ResultT])
 	AddConstant(*State[ResultT], *InputT, int, TypeOp[ResultT])
@@ -167,12 +231,36 @@ type SumStateOp[T any] struct {
 func (SumStateOp[T]) Init(s *State[T]) {
 	s.Init()
 }
-func (SumStateOp[T]) Combine(src *State[T], target *State[T], _ *AggrInputData, top TypeOp[T]) {
+func (SumStateOp[T]) Combine(
+	src *State[T],
+	target *State[T],
+	_ *AggrInputData,
+	top TypeOp[T]) {
 	src.Combine(target, top)
 }
 func (SumStateOp[T]) AddValues(s *State[T], _ int) {
 	//fmt.Printf("add 0x%p\n", s)
 	s.SetIsset(true)
+}
+
+type AvgStateOp[T any] struct {
+}
+
+func (as *AvgStateOp[T]) Init(s *State[T]) {
+	s.Init()
+	s._typ = STATE_AVG
+}
+
+func (as *AvgStateOp[T]) Combine(
+	src *State[T],
+	target *State[T],
+	_ *AggrInputData,
+	top TypeOp[T]) {
+	src.Combine(target, top)
+}
+
+func (as *AvgStateOp[T]) AddValues(s *State[T], cnt int) {
+	s._count += uint64(cnt)
 }
 
 type HugeintAdd struct {
@@ -214,33 +302,99 @@ func (*DecimalAdd) AddConstant(*State[Decimal], *Decimal, int, TypeOp[Decimal]) 
 	panic("usp decimalAdd addconstant")
 }
 
+type DoubleAdd struct{}
+
+func (DoubleAdd) AddNumber(
+	state *State[float64],
+	input *float64,
+	top TypeOp[float64]) {
+	state._value = state._value + *input
+}
+
+func (DoubleAdd) AddConstant(
+	*State[float64],
+	*float64,
+	int,
+	TypeOp[float64]) {
+	panic("usp doubleAdd addconstant")
+}
+
+type DoubleInt32Add struct{}
+
+func (DoubleInt32Add) AddNumber(
+	state *State[float64],
+	input *int32,
+	top TypeOp[float64]) {
+	state._value = state._value + float64(*input)
+}
+
+func (DoubleInt32Add) AddConstant(
+	*State[float64],
+	*int32,
+	int,
+	TypeOp[float64]) {
+	panic("usp doubleAdd addconstant")
+}
+
+type Double float64
+
+func (Double) Add(lhs, rhs *float64) {
+	*lhs = (*lhs) + (*rhs)
+}
+func (Double) Mul(lhs, rhs *float64) {
+	*lhs = (*lhs) * (*rhs)
+}
+
+//func (*DoubleAdd)AddNumber(*State[ResultT], *InputT, TypeOp[ResultT]){}
+//AddConstant(*State[ResultT], *InputT, int, TypeOp[ResultT])
+
 type SumOp[ResultT any, InputT any] struct {
 }
 
-func (s SumOp[ResultT, InputT]) Init(s2 *State[ResultT], sop StateOp[ResultT]) {
+func (s SumOp[ResultT, InputT]) Init(
+	s2 *State[ResultT],
+	sop StateOp[ResultT]) {
 	var val ResultT
 	s2.SetValue(val)
 	sop.Init(s2)
 }
 
-func (s SumOp[ResultT, InputT]) Combine(src *State[ResultT], target *State[ResultT], data *AggrInputData,
-	sop StateOp[ResultT], top TypeOp[ResultT]) {
+func (s SumOp[ResultT, InputT]) Combine(
+	src *State[ResultT],
+	target *State[ResultT],
+	data *AggrInputData,
+	sop StateOp[ResultT],
+	top TypeOp[ResultT]) {
 	sop.Combine(src, target, data, top)
 }
 
-func (s SumOp[ResultT, InputT]) Operation(s3 *State[ResultT], input *InputT, data *AggrUnaryInput,
-	sop StateOp[ResultT], aop AddOp[ResultT, InputT], top TypeOp[ResultT]) {
+func (s SumOp[ResultT, InputT]) Operation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
 	sop.AddValues(s3, 1)
 	aop.AddNumber(s3, input, top)
 }
 
-func (s SumOp[ResultT, InputT]) ConstantOperation(s3 *State[ResultT], input *InputT, data *AggrUnaryInput, count int,
-	sop StateOp[ResultT], aop AddOp[ResultT, InputT], top TypeOp[ResultT]) {
+func (s SumOp[ResultT, InputT]) ConstantOperation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	count int,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
 	sop.AddValues(s3, count)
 	aop.AddConstant(s3, input, count, top)
 }
 
-func (s SumOp[ResultT, InputT]) Finalize(s3 *State[ResultT], target *ResultT, data *AggrFinalizeData) {
+func (s SumOp[ResultT, InputT]) Finalize(
+	s3 *State[ResultT],
+	target *ResultT,
+	data *AggrFinalizeData) {
 	//fmt.Printf("finalize 0x%p\n", s3)
 	if !s3.GetIsset() {
 		data.ReturnNull()
@@ -250,6 +404,73 @@ func (s SumOp[ResultT, InputT]) Finalize(s3 *State[ResultT], target *ResultT, da
 }
 
 func (s SumOp[ResultT, InputT]) IgnoreNull() bool {
+	return true
+}
+
+type AvgOp[ResultT any, InputT any] struct {
+}
+
+func (AvgOp[ResultT, InputT]) Init(
+	s2 *State[ResultT],
+	sop StateOp[ResultT]) {
+	var val ResultT
+	s2.SetValue(val)
+	sop.Init(s2)
+}
+
+func (AvgOp[ResultT, InputT]) Combine(
+	src *State[ResultT],
+	target *State[ResultT],
+	data *AggrInputData,
+	sop StateOp[ResultT],
+	top TypeOp[ResultT]) {
+	sop.Combine(src, target, data, top)
+}
+
+func (AvgOp[ResultT, InputT]) Operation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
+	sop.AddValues(s3, 1)
+	aop.AddNumber(s3, input, top)
+	//fmt.Println("--->", *input, s3._count, s3._value)
+}
+
+func (AvgOp[ResultT, InputT]) ConstantOperation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	count int,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
+	sop.AddValues(s3, count)
+	aop.AddConstant(s3, input, count, top)
+}
+
+func (AvgOp[ResultT, InputT]) Finalize(
+	s3 *State[ResultT],
+	target *ResultT,
+	data *AggrFinalizeData) {
+	if s3._count == 0 {
+		data.ReturnNull()
+	} else {
+		var rt = s3.GetValue()
+		switch v := any(rt).(type) {
+		case float64:
+			c := float64(s3._count)
+			r := v / c
+			*target = any(r).(ResultT)
+		default:
+			panic("unmatched cast")
+		}
+	}
+}
+
+func (AvgOp[ResultT, InputT]) IgnoreNull() bool {
 	return true
 }
 

@@ -11,7 +11,9 @@ var (
 	gTryCastInt32ToInt32            tryCastInt32ToInt32
 	gTryCastInt32ToInt32OpWrapper   tryCastOpWrapper[int32, int32]
 	gTryCastInt32ToFloat32          tryCastInt32ToFloat32
+	gTryCastInt32ToFloat64          tryCastInt32ToFloat64
 	gTryCastInt32ToFloat32OpWrapper tryCastOpWrapper[int32, float32]
+	gTryCastInt32ToFloat64OpWrapper tryCastOpWrapper[int32, float64]
 	gTryCastInt32ToDecimal          tryCastInt32ToDecimal
 	gTryCastInt32ToDecimalWrapper   tryCastOpWrapper[int32, Decimal]
 
@@ -20,8 +22,14 @@ var (
 	gTryCastBigintToInt32OpWrapper tryCastOpWrapper[Hugeint, int32]
 
 	// float32 => ...
-	gTryCastFloat32ToInt32          tryCastFloat32ToInt32
-	gTryCastFloat32ToInt32OpWrapper tryCastOpWrapper[float32, int32]
+	gTryCastFloat32ToInt32            tryCastFloat32ToInt32
+	gTryCastFloat32ToFloat64          tryCastFloat32ToFloat64
+	gTryCastFloat32ToInt32OpWrapper   tryCastOpWrapper[float32, int32]
+	gTryCastFloat32ToFloat64OpWrapper tryCastOpWrapper[float32, float64]
+
+	// decimal => ...
+	gTryCastDecimalToFloat32          tryCastDecimalToFloat32
+	gTryCastDecimalToFloat32OpWrapper tryCastOpWrapper[Decimal, float32]
 )
 
 type tryCastOpWrapper[T any, R any] struct {
@@ -51,6 +59,13 @@ func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32) {
 	*result = float32(*input)
 }
 
+type tryCastInt32ToFloat64 struct {
+}
+
+func (numCast tryCastInt32ToFloat64) operation(input *int32, result *float64) {
+	*result = float64(*input)
+}
+
 type tryCastInt32ToDecimal struct {
 }
 
@@ -58,6 +73,15 @@ func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
 	*result = Decimal{
 		dec.MustNew(int64(*input), result.Scale()),
 	}
+}
+
+type tryCastDecimalToFloat32 struct {
+}
+
+func (numCast tryCastDecimalToFloat32) operation(input *Decimal, result *float32) {
+	v, ok := input.Float64()
+	assertFunc(ok)
+	*result = float32(v)
 }
 
 type tryCastBigintToInt32 struct{}
@@ -75,6 +99,13 @@ type tryCastFloat32ToInt32 struct {
 
 func (numCast tryCastFloat32ToInt32) operation(input *float32, result *int32) {
 	*result = int32(*input)
+}
+
+type tryCastFloat32ToFloat64 struct {
+}
+
+func (numCast tryCastFloat32ToFloat64) operation(input *float32, result *float64) {
+	*result = float64(*input)
 }
 
 func castExec(
@@ -104,6 +135,16 @@ func castExec(
 				nil,
 				gTryCastInt32ToFloat32OpWrapper,
 			)
+		case LTID_DOUBLE:
+			unaryGenericExec[int32, float64](
+				source,
+				result,
+				count,
+				false,
+				gTryCastInt32ToFloat64,
+				nil,
+				gTryCastInt32ToFloat64OpWrapper,
+			)
 		case LTID_DECIMAL:
 			unaryGenericExec[int32, Decimal](
 				source,
@@ -129,6 +170,16 @@ func castExec(
 				nil,
 				gTryCastFloat32ToInt32OpWrapper,
 			)
+		case LTID_DOUBLE:
+			unaryGenericExec[float32, float64](
+				source,
+				result,
+				count,
+				false,
+				gTryCastFloat32ToFloat64,
+				nil,
+				gTryCastFloat32ToFloat64OpWrapper,
+			)
 		default:
 			panic("usp")
 		}
@@ -143,6 +194,21 @@ func castExec(
 				gTryCastBigintToInt32,
 				nil,
 				gTryCastBigintToInt32OpWrapper,
+			)
+		default:
+			panic("usp")
+		}
+	case LTID_DECIMAL:
+		switch result.typ().id {
+		case LTID_FLOAT:
+			unaryGenericExec[Decimal, float32](
+				source,
+				result,
+				count,
+				false,
+				gTryCastDecimalToFloat32,
+				nil,
+				gTryCastDecimalToFloat32OpWrapper,
 			)
 		default:
 			panic("usp")

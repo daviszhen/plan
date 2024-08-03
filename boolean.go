@@ -132,6 +132,14 @@ func (e lessDateOp) operation(left, right *Date) bool {
 	return left.less(right)
 }
 
+// float64
+type lessFloat64Op struct {
+}
+
+func (e lessFloat64Op) operation(left, right *float64) bool {
+	return greaterFloat[float64](*right, *left)
+}
+
 // <=
 
 // int32
@@ -299,7 +307,9 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessInt32Op{})
 		case DATE:
 			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessDateOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case DOUBLE:
+			return selectBinary[float64](left, right, sel, count, trueSel, falseSel, lessFloat64Op{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:
 			panic("usp")

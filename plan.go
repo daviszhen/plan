@@ -585,6 +585,10 @@ func float() LType {
 	return makeLType(LTID_FLOAT)
 }
 
+func double() LType {
+	return makeLType(LTID_DOUBLE)
+}
+
 func tinyint() LType {
 	return makeLType(LTID_TINYINT)
 }
@@ -1305,8 +1309,8 @@ func (lojt LOT_JoinType) String() string {
 }
 
 type LogicalOperator struct {
-	Typ LOT
-
+	Typ              LOT
+	Children         []*LogicalOperator
 	Projects         []*Expr
 	Index            uint64 //AggNode for groupTag. others in other Nodes
 	Index2           uint64 //AggNode for aggTag
@@ -1329,8 +1333,6 @@ type LogicalOperator struct {
 	Outputs          []*Expr
 	Counts           ColumnBindCountMap `json:"-"`
 	ColRefToPos      ColumnBindPosMap   `json:"-"`
-
-	Children []*LogicalOperator
 }
 
 func (lo *LogicalOperator) EstimatedCard() uint64 {
@@ -1670,6 +1672,8 @@ type Expr struct {
 	DataTyp ExprDataType
 	AggrTyp AggrType
 
+	Children []*Expr
+
 	Index       uint64
 	Database    string
 	Table       string     // table
@@ -1689,7 +1693,6 @@ type Expr struct {
 	SubqueryTyp ET_SubqueryType
 	CTEIndex    uint64
 
-	Children  []*Expr
 	BelongCtx *BindContext // context for table and join
 	On        *Expr        //JoinOn
 }
