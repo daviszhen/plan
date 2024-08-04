@@ -1454,6 +1454,10 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 			//	wantedOp(root.Children[0], POT_Agg) &&
 			//	wantedOp(root.Children[0].Children[0], POT_Filter)
 			return wantedOp(root, POT_Order)
+
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Project) &&
+			//	wantedOp(root.Children[1], POT_Join)
 		},
 	)
 	//gConf.EnableMaxScanRows = true
