@@ -33,7 +33,7 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 		//	continue
 		//}
 
-		//fmt.Println(op.String())
+		fmt.Println(op.String())
 
 		run := &Runner{
 			op:    op,
@@ -1446,13 +1446,14 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	//debug.SetMemoryLimit(math.MaxInt64)
 
 	pplan := runTest2(t, tpchQ18())
-	//fmt.Println(pplan.String())
+	fmt.Println(pplan.String())
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Project) &&
-				wantedOp(root.Children[0], POT_Agg) &&
-				wantedOp(root.Children[0].Children[0], POT_Filter)
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg) &&
+			//	wantedOp(root.Children[0].Children[0], POT_Filter)
+			return wantedOp(root, POT_Order)
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -1471,12 +1472,28 @@ func Test_1g_q17_aggr_join(t *testing.T) {
 	//debug.SetMemoryLimit(math.MaxInt64)
 
 	pplan := runTest2(t, tpchQ17())
-	//fmt.Println(pplan.String())
+	fmt.Println(pplan.String())
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Agg) &&
-				wantedOp(root.Children[0], POT_Join)
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg) &&
+			//	wantedOp(root.Children[0].Children[0], POT_Scan)
+			//return wantedOp(root, POT_Filter)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Scan) &&
+			//	wantedOp(root.Children[1], POT_Scan)
+			//return wantedOp(root, POT_Filter) &&
+			//	wantedOp(root.Children[0], POT_Join)
+			return wantedOp(root, POT_Project) &&
+				wantedOp(root.Children[0], POT_Agg) &&
+				wantedOp(root.Children[0].Children[0], POT_Filter)
+
+			//return wantedOp(root, POT_Agg) &&
+			//	wantedOp(root.Children[0], POT_Scan)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Project) &&
+			//	wantedOp(root.Children[1], POT_Join)
 		},
 	)
 	//gConf.EnableMaxScanRows = true

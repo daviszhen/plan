@@ -931,17 +931,82 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 	if expr.Typ != ET_Subquery {
 		panic("must be subquery")
 	}
+
 	corrExprs := collectCorrFilter(subRoot)
-	//collect correlated columns
-	corrCols := make([]*Expr, 0)
-	for _, corr := range corrExprs {
-		corrCols = append(corrCols, collectCorrColumn(corr)...)
-	}
+	//collect correlated columns in corr filters
+	//nonCorrCols := make([]*Expr, 0)
+	//for _, corr := range corrExprs {
+	//	nonCorrCols = append(nonCorrCols, collectNonCorrColumn(corr)...)
+	//}
 	if len(corrExprs) > 0 {
+		var err error
+		var newSub *LogicalOperator
+		var corrFilters []*Expr
+		//for _, corrCol := range nonCorrCols {
+		//	fmt.Println("===> non corr cols")
+		//	fmt.Println(corrCol.String())
+		//}
 		//correlated subquery
-		newSub, err := b.applyImpl(expr.SubqueryTyp, corrExprs, corrCols, root, subRoot)
+		newSub, corrFilters, err = b.removeCorrFilters(subRoot)
 		if err != nil {
 			return nil, nil, err
+		}
+		//newSub, err := b.applyImpl(expr.SubqueryTyp, corrExprs, nonCorrCols, subRoot)
+		//if err != nil {
+		//	return nil, nil, err
+		//}
+		//
+		//remove cor column
+		nonCorrExprs, newCorrExprs := removeCorrExprs(corrFilters)
+
+		//for _, noCorr := range nonCorrExprs {
+		//	fmt.Println("===> non corr exprs")
+		//	fmt.Println(noCorr.String())
+		//}
+		//
+		//for _, nCorr := range newCorrExprs {
+		//	fmt.Println("===> new corr exprs")
+		//	fmt.Println(nCorr.String())
+		//}
+
+		switch expr.SubqueryTyp {
+		case ET_SubqueryTypeScalar:
+			newSub = &LogicalOperator{
+				Typ:     LOT_JOIN,
+				JoinTyp: LOT_JoinTypeInner,
+				OnConds: nonCorrExprs,
+				Children: []*LogicalOperator{
+					root, newSub,
+				},
+			}
+		case ET_SubqueryTypeExists:
+			newSub = &LogicalOperator{
+				Typ:     LOT_JOIN,
+				JoinTyp: LOT_JoinTypeMARK,
+				OnConds: nonCorrExprs,
+				Children: []*LogicalOperator{
+					root, newSub,
+				},
+			}
+		case ET_SubqueryTypeNotExists:
+			newSub = &LogicalOperator{
+				Typ:     LOT_JOIN,
+				JoinTyp: LOT_JoinTypeAntiMARK,
+				OnConds: nonCorrExprs,
+				Children: []*LogicalOperator{
+					root, newSub,
+				},
+			}
+		default:
+			panic("usp")
+		}
+
+		if len(newCorrExprs) > 0 {
+			newSub = &LogicalOperator{
+				Typ:      LOT_Filter,
+				Filters:  copyExprs(newCorrExprs...),
+				Children: []*LogicalOperator{newSub},
+			}
 		}
 
 		switch expr.SubqueryTyp {
@@ -1012,54 +1077,55 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 
 // TODO: wrong impl.
 // need add function: check LogicalOperator find cor column
-func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs []*Expr, corrCols []*Expr, root, subRoot *LogicalOperator) (*LogicalOperator, error) {
+func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs, corrCols []*Expr, subRoot *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	has := hasCorrColInRoot(subRoot)
 	if !has {
 		//remove cor column
-		nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
-
-		var newRoot *LogicalOperator
-		switch subqueryTyp {
-		case ET_SubqueryTypeScalar:
-			newRoot = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				JoinTyp: LOT_JoinTypeInner,
-				OnConds: nonCorrExprs,
-				Children: []*LogicalOperator{
-					root, subRoot,
-				},
-			}
-		case ET_SubqueryTypeExists:
-			newRoot = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				JoinTyp: LOT_JoinTypeMARK,
-				OnConds: nonCorrExprs,
-				Children: []*LogicalOperator{
-					root, subRoot,
-				},
-			}
-		case ET_SubqueryTypeNotExists:
-			newRoot = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				JoinTyp: LOT_JoinTypeAntiMARK,
-				OnConds: nonCorrExprs,
-				Children: []*LogicalOperator{
-					root, subRoot,
-				},
-			}
-		default:
-			panic("usp")
-		}
-
-		if len(newCorrExprs) > 0 {
-			newRoot = &LogicalOperator{
-				Typ:      LOT_Filter,
-				Filters:  copyExprs(newCorrExprs...),
-				Children: []*LogicalOperator{newRoot},
-			}
-		}
-		return newRoot, err
+		//nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
+		//
+		//var newRoot *LogicalOperator
+		//switch subqueryTyp {
+		//case ET_SubqueryTypeScalar:
+		//	newRoot = &LogicalOperator{
+		//		Typ:     LOT_JOIN,
+		//		JoinTyp: LOT_JoinTypeInner,
+		//		OnConds: nonCorrExprs,
+		//		Children: []*LogicalOperator{
+		//			root, subRoot,
+		//		},
+		//	}
+		//case ET_SubqueryTypeExists:
+		//	newRoot = &LogicalOperator{
+		//		Typ:     LOT_JOIN,
+		//		JoinTyp: LOT_JoinTypeMARK,
+		//		OnConds: nonCorrExprs,
+		//		Children: []*LogicalOperator{
+		//			root, subRoot,
+		//		},
+		//	}
+		//case ET_SubqueryTypeNotExists:
+		//	newRoot = &LogicalOperator{
+		//		Typ:     LOT_JOIN,
+		//		JoinTyp: LOT_JoinTypeAntiMARK,
+		//		OnConds: nonCorrExprs,
+		//		Children: []*LogicalOperator{
+		//			root, subRoot,
+		//		},
+		//	}
+		//default:
+		//	panic("usp")
+		//}
+		//
+		//if len(newCorrExprs) > 0 {
+		//	newRoot = &LogicalOperator{
+		//		Typ:      LOT_Filter,
+		//		Filters:  copyExprs(newCorrExprs...),
+		//		Children: []*LogicalOperator{newRoot},
+		//	}
+		//}
+		//return newRoot, err
+		return subRoot, nil
 	}
 	switch subRoot.Typ {
 	case LOT_Project:
@@ -1071,7 +1137,7 @@ func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs []*Expr, corr
 		if has {
 			subRoot.Projects = append(subRoot.Projects, corrCols...)
 		}
-		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, root, subRoot.Children[0])
+		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, subRoot.Children[0])
 		return subRoot, err
 	case LOT_AggGroup:
 		for _, by := range subRoot.GroupBys {
@@ -1082,7 +1148,7 @@ func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs []*Expr, corr
 		if has {
 			subRoot.GroupBys = append(subRoot.GroupBys, corrCols...)
 		}
-		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, root, subRoot.Children[0])
+		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, subRoot.Children[0])
 		return subRoot, err
 	case LOT_Filter:
 		filterHasCorrCol := false
@@ -1095,10 +1161,93 @@ func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs []*Expr, corr
 		if has && !filterHasCorrCol {
 			subRoot.Filters = append(subRoot.Filters, corrExprs...)
 		}
-		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, root, subRoot.Children[0])
+		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, subRoot.Children[0])
 		return subRoot, err
 	}
 	return subRoot, nil
+}
+
+func (b *Builder) removeCorrFilters(subRoot *LogicalOperator) (*LogicalOperator, []*Expr, error) {
+	var childFilters []*Expr
+	var err error
+	corrFilters := make([]*Expr, 0)
+	for i, child := range subRoot.Children {
+		subRoot.Children[i], childFilters, err = b.removeCorrFilters(child)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		corrFilters = append(corrFilters, childFilters...)
+	}
+
+	switch subRoot.Typ {
+	case LOT_Project:
+		b.removeCorrFiltersInProject(subRoot, corrFilters)
+	case LOT_AggGroup:
+		b.removeCorrFiltersInAggr(subRoot, corrFilters)
+	case LOT_Filter:
+		leftFilters := make([]*Expr, 0)
+		for _, filter := range subRoot.Filters {
+			if hasCorrCol(filter) {
+				corrFilters = append(corrFilters, filter)
+			} else {
+				leftFilters = append(leftFilters, filter)
+			}
+		}
+		if len(leftFilters) == 0 {
+			subRoot = subRoot.Children[0]
+		} else {
+			subRoot.Filters = leftFilters
+		}
+	}
+	return subRoot, corrFilters, nil
+}
+
+func (b *Builder) removeCorrFiltersInProject(subRoot *LogicalOperator, filters []*Expr) {
+	for i, filter := range filters {
+		filters[i] = b.replaceCorrFiltersInProject(subRoot, filter)
+	}
+}
+
+func (b *Builder) replaceCorrFiltersInProject(subRoot *LogicalOperator, filter *Expr) *Expr {
+	if !hasCorrCol(filter) {
+		idx := len(subRoot.Projects)
+		subRoot.Projects = append(subRoot.Projects, filter)
+		return &Expr{
+			Typ:     ET_Column,
+			ColRef:  ColumnBind{subRoot.Index, uint64(idx)},
+			DataTyp: filter.DataTyp,
+		}
+	}
+
+	for i, child := range filter.Children {
+		filter.Children[i] = b.replaceCorrFiltersInProject(subRoot, child)
+	}
+
+	return filter
+}
+
+func (b *Builder) removeCorrFiltersInAggr(subRoot *LogicalOperator, filters []*Expr) {
+	for i, filter := range filters {
+		filters[i] = b.replaceCorrFiltersInAggr(subRoot, filter)
+	}
+}
+
+func (b *Builder) replaceCorrFiltersInAggr(subRoot *LogicalOperator, filter *Expr) *Expr {
+	if !hasCorrCol(filter) {
+		idx := len(subRoot.GroupBys)
+		subRoot.GroupBys = append(subRoot.GroupBys, filter)
+		return &Expr{
+			Typ:     ET_Column,
+			ColRef:  ColumnBind{subRoot.Index, uint64(idx)},
+			DataTyp: filter.DataTyp,
+		}
+	}
+
+	for i, child := range filter.Children {
+		filter.Children[i] = b.replaceCorrFiltersInAggr(subRoot, child)
+	}
+	return filter
 }
 
 func (b *Builder) createAggGroup(root *LogicalOperator) (*LogicalOperator, error) {
@@ -1178,6 +1327,24 @@ func collectCorrColumn(expr *Expr) []*Expr {
 	return ret
 }
 
+// collectNonCorrColumn collects all non correlated columns
+func collectNonCorrColumn(expr *Expr) []*Expr {
+	var ret []*Expr
+	switch expr.Typ {
+	case ET_Column:
+		if expr.Depth == 0 {
+			return []*Expr{expr}
+		}
+	case ET_Func:
+		for _, child := range expr.Children {
+			ret = append(ret, collectNonCorrColumn(child)...)
+		}
+	default:
+		panic(fmt.Sprintf("usp %v", expr.Typ))
+	}
+	return ret
+}
+
 func hasCorrCol(expr *Expr) bool {
 	switch expr.Typ {
 	case ET_Column:
@@ -1240,6 +1407,7 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	//if err != nil {
 	//	return nil, err
 	//}
+	//fmt.Println("Before pushdown filter\n", root.String())
 	//1. pushdown filter
 	root, left, err = b.pushdownFilters(root, nil)
 	if err != nil {
@@ -1263,7 +1431,22 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 
 	//fmt.Println("After join reorder\n", root.String())
 
-	//3. column prune
+	//3. pushdown filter again
+	root, left, err = b.pushdownFilters(root, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(left) > 0 {
+		root = &LogicalOperator{
+			Typ:      LOT_Filter,
+			Filters:  copyExprs(left...),
+			Children: []*LogicalOperator{root},
+		}
+	}
+
+	//fmt.Println("After pushdown filter 2\n", root.String())
+
+	//4. column prune
 	root, err = b.columnPrune(root)
 	if err != nil {
 		return nil, err
@@ -1273,6 +1456,7 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	if err != nil {
 		return nil, err
 	}
+	//fmt.Println("After generateCounts\n", root.String())
 	root, err = b.generateOutputs(root)
 	if err != nil {
 		return nil, err
@@ -1354,8 +1538,11 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 				rightNeeds = append(rightNeeds, nd)
 			case BothSide:
 				if root.JoinTyp == LOT_JoinTypeInner {
-					root.OnConds = append(root.OnConds, nd)
-					break
+					//only equal or in can be used in On conds
+					if nd.SubTyp == ET_Equal || nd.SubTyp == ET_In {
+						root.OnConds = append(root.OnConds, nd)
+						break
+					}
 				}
 				left = append(left, nd)
 			default:

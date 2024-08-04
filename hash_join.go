@@ -1290,11 +1290,22 @@ func TupleDataTemplatedScatterSwitch(
 			colIdx,
 			dateScatterOp{},
 		)
-		//if layout.offsets()[colIdx] == 33 {
-		//	rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
-		//	dt := load[Date](pointerAdd(rowPtrs[0], 33))
-		//	fmt.Println("dt", dt, "rowPtrs", rowPtrs[0], 33)
-		//}
+	//if layout.offsets()[colIdx] == 33 {
+	//	rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
+	//	dt := load[Date](pointerAdd(rowPtrs[0], 33))
+	//	fmt.Println("dt", dt, "rowPtrs", rowPtrs[0], 33)
+	//}
+	case DOUBLE:
+		TupleDataTemplatedScatter[float64](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			float64ScatterOp{},
+		)
 	default:
 		panic("usp ")
 	}

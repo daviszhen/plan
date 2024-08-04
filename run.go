@@ -388,6 +388,10 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	//filter
 	var err error
 	var count int
+	//if !filterOnLocal {
+	//	fmt.Println("===childinput===")
+	//	input.print()
+	//}
 	if filterOnLocal {
 		count, err = run.state.filterExec.executeSelect([]*Chunk{nil, nil, input}, run.state.filterSel)
 		if err != nil {
@@ -399,6 +403,10 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 			return err
 		}
 	}
+
+	//if !filterOnLocal {
+	//	fmt.Println("left count", count)
+	//}
 
 	if count == input.card() {
 		//reference
@@ -415,15 +423,20 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 	var res OperatorResult
 	var err error
 	if len(run.children) != 0 {
-		res, err = run.execChild(run.children[0], childChunk, state)
-		if err != nil {
-			return 0, err
-		}
-		if res == InvalidOpResult {
-			return InvalidOpResult, nil
-		}
-		if res == Done {
-			return res, nil
+		for {
+			res, err = run.execChild(run.children[0], childChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				return res, nil
+			}
+			if childChunk.card() > 0 {
+				break
+			}
 		}
 	}
 
@@ -535,6 +548,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//}
 
 			cnt += childChunk.card()
+			//fmt.Println("build aggr", cnt, childChunk.card())
 
 			typs := make([]LType, 0)
 			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
@@ -548,6 +562,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//fmt.Println("group chunk")
 			//groupChunk.print()
 			run.hAggr.Sink(groupChunk, childChunk)
+			//fmt.Println("sink chunk")
 		}
 		run.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
@@ -588,26 +603,18 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 
 			x := childChunk.card()
 
-			//3.get aggr states for the group
-			aggrStatesChunk := &Chunk{}
-			aggrStatesTyps := make([]LType, 0)
-			aggrStatesTyps = append(aggrStatesTyps, run.hAggr._groupedAggrData._aggrReturnTypes...)
-			aggrStatesChunk.init(aggrStatesTyps, defaultVectorSize)
-
-			for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
-				aggrStatesChunk._data[i].reference(groupAndAggrChunk._data[run.hAggr._groupedAggrData.GroupCount()+i])
-			}
-			aggrStatesChunk.setCard(groupAndAggrChunk.card())
+			//3.get group by + aggr states for the group
 
 			//4.eval the filter on (child chunk + aggr states)
-			fmt.Println("===child==========")
-			childChunk.print()
-			fmt.Println("++++groupAndAggr+++++++++")
-			groupAndAggrChunk.print()
-			fmt.Println("----aggrStates---------")
-			aggrStatesChunk.print()
+			//fmt.Println("===child==========")
+			//childChunk.print()
+			//fmt.Println("++++groupAndAggr+++++++++")
+			//groupAndAggrChunk.print()
+			//fmt.Println("----aggrStates---------")
+			//aggrStatesChunk.print()
 			var count int
-			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
+			//count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
+			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, groupAndAggrChunk}, state.filterSel)
 			if err != nil {
 				return InvalidOpResult, err
 			}
@@ -622,10 +629,10 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			var filtered int
 			if count == childChunk.card() {
 				childChunk2 = childChunk
-				aggrStatesChunk2 = aggrStatesChunk
+				aggrStatesChunk2 = groupAndAggrChunk
 
 				assertFunc(childChunk.card() == childChunk2.card())
-				assertFunc(aggrStatesChunk.card() == aggrStatesChunk2.card())
+				assertFunc(groupAndAggrChunk.card() == aggrStatesChunk2.card())
 				assertFunc(childChunk2.card() == aggrStatesChunk2.card())
 			} else {
 				filtered = childChunk.card() - count
@@ -636,25 +643,41 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 					childChunkIndice = append(childChunkIndice, i)
 				}
 				aggrStatesChunkIndice := make([]int, 0)
-				for i := 0; i < aggrStatesChunk.columnCount(); i++ {
+				for i := 0; i < groupAndAggrChunk.columnCount(); i++ {
 					aggrStatesChunkIndice = append(aggrStatesChunkIndice, i)
 				}
 				childChunk2 = &Chunk{}
 				childChunk2.init(run.children[0].outputTypes, defaultVectorSize)
 				aggrStatesChunk2 = &Chunk{}
-				aggrStatesChunk2.init(aggrStatesTyps, defaultVectorSize)
+				aggrStatesChunk2.init(groupAddAggrTypes, defaultVectorSize)
 
 				//slice
 				childChunk2.sliceIndice(childChunk, state.filterSel, count, 0, childChunkIndice)
-				aggrStatesChunk2.sliceIndice(aggrStatesChunk, state.filterSel, count, 0, aggrStatesChunkIndice)
+				aggrStatesChunk2.sliceIndice(groupAndAggrChunk, state.filterSel, count, 0, aggrStatesChunkIndice)
 
 				assertFunc(count == childChunk2.card())
 				assertFunc(count == aggrStatesChunk2.card())
 				assertFunc(childChunk2.card() == aggrStatesChunk2.card())
 			}
 
+			var aggrStatesChunk3 *Chunk
+			if run.state.ungroupAggr {
+				//remove const groupby expr
+				aggrStatesTyps := make([]LType, 0)
+				aggrStatesTyps = append(aggrStatesTyps, run.hAggr._groupedAggrData._aggrReturnTypes...)
+				aggrStatesChunk3 = &Chunk{}
+				aggrStatesChunk3.init(aggrStatesTyps, defaultVectorSize)
+
+				for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
+					aggrStatesChunk3._data[i].reference(aggrStatesChunk2._data[run.hAggr._groupedAggrData.GroupCount()+i])
+				}
+				aggrStatesChunk3.setCard(aggrStatesChunk2.card())
+			} else {
+				aggrStatesChunk3 = aggrStatesChunk2
+			}
+
 			//5. eval the output
-			err = run.state.outputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk2}, output)
+			err = run.state.outputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk3}, output)
 			if err != nil {
 				return InvalidOpResult, err
 			}
@@ -671,8 +694,8 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			run.state.haScanState._childCnt2 += childChunk.card()
 			run.state.haScanState._childCnt3 += x
 			if output.card() > 0 {
-				fmt.Println("aggr output")
-				output.print()
+				//fmt.Println("aggr output")
+				//output.print()
 				return haveMoreOutput, nil
 			}
 		}

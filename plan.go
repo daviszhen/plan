@@ -207,6 +207,17 @@ func (i uint64ScatterOp) store(src uint64, rowLoc unsafe.Pointer, offsetInRow in
 	store[uint64](src, pointerAdd(rowLoc, offsetInRow))
 }
 
+type float64ScatterOp struct {
+}
+
+func (i float64ScatterOp) nullValue() float64 {
+	return 0
+}
+
+func (i float64ScatterOp) store(src float64, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	store[float64](src, pointerAdd(rowLoc, offsetInRow))
+}
+
 type stringScatterOp struct {
 }
 

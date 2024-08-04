@@ -77,6 +77,19 @@ func (ccount ColumnBindCountMap) splitByTableIdx(tblIdx uint64) ColumnBindCountM
 	return res
 }
 
+func (ccount ColumnBindCountMap) splitByTwoTableIdxes(tblIdx, tableIdx2 uint64) ColumnBindCountMap {
+	res := make(ColumnBindCountMap, 0)
+	for bind, i := range ccount {
+		if bind.table() == tblIdx || bind.table() == tableIdx2 {
+			res[bind] = i
+		}
+	}
+	for bind := range res {
+		delete(ccount, bind)
+	}
+	return res
+}
+
 func (ccount ColumnBindCountMap) merge(count ColumnBindCountMap) {
 	for bind, i := range count {
 		ccount[bind] += i
@@ -480,8 +493,8 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 		}
 
 	case LOT_AggGroup:
-		//remove aggExprs
-		colRefOnThisNode = upCounts.splitByTableIdx(root.Index2)
+		//remove aggExprs & group by Exprs
+		colRefOnThisNode = upCounts.splitByTwoTableIdxes(root.Index, root.Index2)
 		exprs := make([]*Expr, 0)
 		exprs = append(exprs, root.GroupBys...)
 		exprs = append(exprs, root.Aggs...)
@@ -715,6 +728,22 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
+			colIdx := len(root.Outputs)
+			if bind.table() == root.Index {
+				groupby := root.GroupBys[bind.column()]
+				root.Outputs = append(root.Outputs, &Expr{
+					Typ:      ET_Column,
+					DataTyp:  groupby.DataTyp,
+					Database: groupby.Database,
+					Table:    groupby.Table,
+					Name:     groupby.Name,
+					ColRef:   ColumnBind{uint64(ThisNode), uint64(colIdx)},
+				})
+				continue
+			}
+		}
+		for _, bind := range binds {
+			colIdx := len(root.Outputs)
 			if bind.table() == root.Index2 {
 				agg := root.Aggs[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
@@ -723,8 +752,13 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 					Database: agg.Database,
 					Table:    agg.Table,
 					Name:     agg.Name,
-					ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+					ColRef:   ColumnBind{uint64(ThisNode), uint64(colIdx)},
 				})
+				continue
+			}
+		}
+		for _, bind := range binds {
+			if bind.table() == root.Index || bind.table() == root.Index2 {
 				continue
 			}
 			//bind pos in the children

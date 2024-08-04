@@ -626,6 +626,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					return nil, errors.New("filter is nil")
 				}
 				condition := joinOrder.filters[filter.filterIndex]
+				assertFunc(condition.SubTyp != ET_Less)
 				check := isSubset(left.set, filter.leftSet) && isSubset(right.set, filter.rightSet) ||
 					isSubset(left.set, filter.rightSet) && isSubset(right.set, filter.leftSet)
 				if !check {
@@ -709,6 +710,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
+				if !(filter.SubTyp == ET_Equal || filter.SubTyp == ET_In) {
+					invert = false
+				}
 				cond := &Expr{
 					Typ:      filter.Typ,
 					SubTyp:   filter.SubTyp,
@@ -742,7 +746,16 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 						resultOp.Children[0] = next
 					}
 				} else {
-					resultOp.OnConds = append(resultOp.OnConds, cond.copy())
+					if cond.SubTyp == ET_Equal || cond.SubTyp == ET_In {
+						resultOp.OnConds = append(resultOp.OnConds, cond.copy())
+					} else {
+						next := &LogicalOperator{
+							Typ:      LOT_Filter,
+							Filters:  []*Expr{cond.copy()},
+							Children: []*LogicalOperator{resultOp},
+						}
+						resultOp = next
+					}
 				}
 			}
 		}

@@ -1163,7 +1163,8 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 		aht._dataCollection.checkDupAll()
 		for _, part := range aht._dataCollection._parts {
 			rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
-			for _, loc := range rowLocs {
+			for i := 0; i < part._count; i++ {
+				loc := rowLocs[i]
 				if uintptr(loc) == 0 {
 					continue
 				}
