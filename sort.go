@@ -1020,6 +1020,30 @@ func RadixScatter(
 			prefixLen,
 			offset,
 		)
+	case DECIMAL:
+		TemplatedRadixScatter[Decimal](
+			&vdata,
+			sel,
+			serCount,
+			keyLocs,
+			desc,
+			hasNull,
+			nullsFirst,
+			offset,
+			decimalEncoder{},
+		)
+	case DATE:
+		TemplatedRadixScatter[Date](
+			&vdata,
+			sel,
+			serCount,
+			keyLocs,
+			desc,
+			hasNull,
+			nullsFirst,
+			offset,
+			dateEncoder{},
+		)
 	default:
 		panic("usp")
 	}
@@ -1160,6 +1184,28 @@ func Scatter(
 				colOffset,
 				colNo,
 				layout,
+			)
+		case DATE:
+			TemplatedScatter[Date](
+				col,
+				rows,
+				sel,
+				count,
+				colOffset,
+				colNo,
+				layout,
+				dateScatterOp{},
+			)
+		case DECIMAL:
+			TemplatedScatter[Decimal](
+				col,
+				rows,
+				sel,
+				count,
+				colOffset,
+				colNo,
+				layout,
+				decimalScatterOp{},
 			)
 		default:
 			panic("usp")
@@ -2233,8 +2279,8 @@ func RadixSortMSD(
 		sourcePtr, targetPtr = tempPtr, origPtr
 	}
 
-	fill(locations,
-		MSD_RADIX_LOCATIONS*int(unsafe.Sizeof(uint64(0))),
+	fill[uint64](locations,
+		MSD_RADIX_LOCATIONS,
 		0,
 	)
 	counts := locations[1:]
@@ -2765,4 +2811,47 @@ func (i intEncoder) EncodeData(ptr unsafe.Pointer, value *int) {
 
 func (i intEncoder) TypeSize() int {
 	return int(unsafe.Sizeof(int(0)))
+}
+
+type decimalEncoder struct {
+}
+
+func (decimalEncoder) EncodeData(ptr unsafe.Pointer, dec *Decimal) {
+	whole, frac, ok := dec.Int64(2)
+	assertFunc(ok)
+	encodeInt64(ptr, whole)
+	encodeInt64(pointerAdd(ptr, int64Size), frac)
+}
+func (decimalEncoder) TypeSize() int {
+	return decimalSize
+}
+
+type dateEncoder struct{}
+
+func (dateEncoder) EncodeData(ptr unsafe.Pointer, d *Date) {
+	encodeInt32(ptr, d._year)
+	encodeInt32(pointerAdd(ptr, int32Size), d._month)
+	encodeInt32(pointerAdd(ptr, 2*int32Size), d._day)
+}
+
+func (dateEncoder) TypeSize() int {
+	return dateSize
+}
+
+func encodeInt32(ptr unsafe.Pointer, value int32) {
+	store[uint32](BSWAP32(uint32(value)), ptr)
+	store[uint8](FlipSign(load[uint8](ptr)), ptr)
+}
+
+func encodeUint32(ptr unsafe.Pointer, value uint32) {
+	store[uint32](BSWAP32(value), ptr)
+}
+
+func encodeInt64(ptr unsafe.Pointer, value int64) {
+	store[uint64](BSWAP64(uint64(value)), ptr)
+	store[uint8](FlipSign(load[uint8](ptr)), ptr)
+}
+
+func encodeUint64(ptr unsafe.Pointer, value uint64) {
+	store[uint64](BSWAP64(value), ptr)
 }

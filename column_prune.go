@@ -742,9 +742,11 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 				continue
 			}
 		}
+		rIdx := 0
 		for _, bind := range binds {
-			colIdx := len(root.Outputs)
 			if bind.table() == root.Index2 {
+				colIdx := len(root.GroupBys) + rIdx
+				rIdx++
 				agg := root.Aggs[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
 					Typ:      ET_Column,
