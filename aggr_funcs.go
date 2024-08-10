@@ -145,11 +145,35 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 	}
 }
 
+func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
+	switch inputPhyTyp {
+	case INT32:
+		switch retPhyTyp {
+		case INT32:
+			fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
+				integer(),
+				hugeint(),
+				DEFAULT_NULL_HANDLING,
+				CountOp[Hugeint, int32]{},
+				&CountStateOp[Hugeint]{},
+				&HugeintAdd{},
+				&Hugeint{},
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	default:
+		panic("usp")
+	}
+}
+
 type StateType int
 
 const (
 	STATE_SUM StateType = iota
 	STATE_AVG
+	STATE_COUNT
 )
 
 type State[T any] struct {
@@ -163,7 +187,7 @@ func (state *State[T]) Init() {
 	switch state._typ {
 	case STATE_SUM:
 		state._isset = false
-	case STATE_AVG:
+	case STATE_AVG, STATE_COUNT:
 		state._count = 0
 	default:
 		panic("usp")
@@ -178,6 +202,8 @@ func (state *State[T]) Combine(other *State[T], add TypeOp[T]) {
 		add.Add(&state._value, &other._value)
 	case STATE_AVG:
 		add.Add(&state._value, &other._value)
+		state._count += other._count
+	case STATE_COUNT:
 		state._count += other._count
 	default:
 		panic("usp")
@@ -260,6 +286,26 @@ func (as *AvgStateOp[T]) Combine(
 }
 
 func (as *AvgStateOp[T]) AddValues(s *State[T], cnt int) {
+	s._count += uint64(cnt)
+}
+
+type CountStateOp[T any] struct {
+}
+
+func (as *CountStateOp[T]) Init(s *State[T]) {
+	s.Init()
+	s._typ = STATE_COUNT
+}
+
+func (as *CountStateOp[T]) Combine(
+	src *State[T],
+	target *State[T],
+	_ *AggrInputData,
+	top TypeOp[T]) {
+	src.Combine(target, top)
+}
+
+func (as *CountStateOp[T]) AddValues(s *State[T], cnt int) {
 	s._count += uint64(cnt)
 }
 
@@ -471,6 +517,68 @@ func (AvgOp[ResultT, InputT]) Finalize(
 }
 
 func (AvgOp[ResultT, InputT]) IgnoreNull() bool {
+	return true
+}
+
+type CountOp[ResultT any, InputT any] struct {
+}
+
+func (CountOp[ResultT, InputT]) Init(
+	s2 *State[ResultT],
+	sop StateOp[ResultT]) {
+	var val ResultT
+	s2.SetValue(val)
+	sop.Init(s2)
+}
+
+func (CountOp[ResultT, InputT]) Combine(
+	src *State[ResultT],
+	target *State[ResultT],
+	data *AggrInputData,
+	sop StateOp[ResultT],
+	top TypeOp[ResultT]) {
+	sop.Combine(src, target, data, top)
+}
+
+func (CountOp[ResultT, InputT]) Operation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
+	sop.AddValues(s3, 1)
+	aop.AddNumber(s3, input, top)
+	//fmt.Println("--->", *input, s3._count, s3._value)
+}
+
+func (CountOp[ResultT, InputT]) ConstantOperation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	count int,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
+	sop.AddValues(s3, count)
+	aop.AddConstant(s3, input, count, top)
+}
+
+func (CountOp[ResultT, InputT]) Finalize(
+	s3 *State[ResultT],
+	target *ResultT,
+	data *AggrFinalizeData) {
+	if s3._count == 0 {
+		data.ReturnNull()
+	} else {
+		ret := Hugeint{
+			_lower: s3._count,
+		}
+		*target = any(ret).(ResultT)
+	}
+}
+
+func (CountOp[ResultT, InputT]) IgnoreNull() bool {
 	return true
 }
 

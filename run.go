@@ -731,6 +731,9 @@ func (run *Runner) aggrClose() error {
 }
 
 func (run *Runner) joinInit() error {
+	run.state = &OperatorState{
+		outputExec: NewExprExec(run.op.Outputs...),
+	}
 	if len(run.op.OnConds) != 0 {
 		run.hjoin = NewHashJoin(run.op, run.op.OnConds)
 	} else {
@@ -739,11 +742,9 @@ func (run *Runner) joinInit() error {
 			types[i] = e.DataTyp.LTyp
 		}
 		run.cross = NewCrossProduct(types)
+		run.cross._crossExec._outputExec = run.state.outputExec
 	}
 
-	run.state = &OperatorState{
-		outputExec: NewExprExec(run.op.Outputs...),
-	}
 	return nil
 }
 
@@ -860,7 +861,10 @@ func (run *Runner) crossProductExec(output *Chunk, state *OperatorState) (Operat
 				//run.cross._input.print()
 			}
 
-			res = run.cross.Execute(run.cross._input, output)
+			res, err = run.cross.Execute(run.cross._input, output)
+			if err != nil {
+				return 0, err
+			}
 			switch res {
 			case Done:
 				return Done, nil

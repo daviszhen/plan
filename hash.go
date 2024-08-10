@@ -287,6 +287,8 @@ func CombineHashTypeSwitch(
 		TemplatedLoopCombineHash[Date](input, hashes, rsel, count, hasRsel, HashOpDate{}, HashFuncDate{})
 	case DECIMAL:
 		TemplatedLoopCombineHash[Decimal](input, hashes, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
+	case VARCHAR:
+		TemplatedLoopCombineHash[String](input, hashes, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
 	default:
 		panic("Unknown input type")
 	}

@@ -544,7 +544,7 @@ func (b *Builder) bindToSelectList(selectExprs []*Ast, idx int, alias string) *E
 	}
 	return &Expr{
 		Typ:     ET_Column,
-		DataTyp: InvalidExprDataType,
+		DataTyp: b.projectExprs[idx].DataTyp,
 		ColRef:  ColumnBind{uint64(b.projectTag), uint64(idx)},
 		Alias:   alias,
 	}

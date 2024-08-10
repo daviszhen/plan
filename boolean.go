@@ -100,6 +100,23 @@ func (e equalDecimalOp) operation(left, right *Decimal) bool {
 	return left.equal(right)
 }
 
+// <>
+
+type notEqualOp[T comparable] struct {
+}
+
+func (e notEqualOp[T]) operation(left, right *T) bool {
+	return *left != *right
+}
+
+// String
+type notEqualStrOp struct {
+}
+
+func (e notEqualStrOp) operation(left, right *String) bool {
+	return !left.equal(right)
+}
+
 // in
 type inOp[T comparable] struct{}
 
@@ -261,6 +278,17 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
 		case VARCHAR:
 			return selectBinary[String](left, right, sel, count, trueSel, falseSel, equalStrOp{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+			panic("usp")
+		default:
+			panic("usp")
+		}
+	case ET_NotEqual, ET_NotIn:
+		switch left.typ().getInternalType() {
+		case INT32:
+			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, notEqualOp[int32]{})
+		case VARCHAR:
+			return selectBinary[String](left, right, sel, count, trueSel, falseSel, notEqualStrOp{})
 		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:

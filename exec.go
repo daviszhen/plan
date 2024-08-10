@@ -276,6 +276,8 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 	case ET_Func:
 		switch expr.SubTyp {
 		case ET_Equal,
+			ET_NotEqual,
+			ET_NotIn,
 			ET_Greater,
 			ET_GreaterEqual,
 			ET_Less,
@@ -314,6 +316,8 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 	case ET_Func:
 		switch expr.SubTyp {
 		case ET_Equal,
+			ET_NotEqual,
+			ET_NotIn,
 			ET_Greater,
 			ET_GreaterEqual,
 			ET_Less,

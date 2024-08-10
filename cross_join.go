@@ -30,7 +30,7 @@ func (cross *CrossProduct) Sink(input *Chunk) {
 	cross._dataCollect.Append(input)
 }
 
-func (cross *CrossProduct) Execute(input, output *Chunk) OperatorResult {
+func (cross *CrossProduct) Execute(input, output *Chunk) (OperatorResult, error) {
 	return cross._crossExec.Execute(input, output)
 }
 
@@ -42,6 +42,7 @@ type CrossProductExec struct {
 	_init            bool
 	_finish          bool
 	_scanInputChunk  bool
+	_outputExec      *ExprExec
 }
 
 func NewCrossProductExec(rhs *ColumnDataCollection) *CrossProductExec {
@@ -87,63 +88,75 @@ func (cross *CrossProductExec) NextValue(input, output *Chunk) bool {
 	return true
 }
 
-func (cross *CrossProductExec) Execute(input, output *Chunk) OperatorResult {
+func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, error) {
 	if cross._rhs.Count() == 0 {
 		// no RHS, empty result
-		return Done
+		return Done, nil
 	}
 
 	if !cross.NextValue(input, output) {
 		cross._init = false
 		//RHS is read over.
 		//switch to the next Chunk on the LHS and reset the RHS
-		return NeedMoreInput
+		return NeedMoreInput, nil
 	}
 
-	var constChunk *Chunk
-	if cross._scanInputChunk {
-		constChunk = cross._scanChunk
-	} else {
-		constChunk = input
-	}
-	colCnt := constChunk.columnCount()
-	colOffset := 0
-	if cross._scanInputChunk {
-		colOffset = input.columnCount()
-	} else {
-		colOffset = 0
+	err := cross._outputExec.executeExprs(
+		[]*Chunk{
+			input,
+			cross._scanChunk,
+			nil,
+		},
+		output,
+	)
+	if err != nil {
+		return InvalidOpResult, err
 	}
 
-	output.setCard(constChunk.card())
+	//var constChunk *Chunk
+	//if cross._scanInputChunk {
+	//	constChunk = cross._scanChunk
+	//} else {
+	//	constChunk = input
+	//}
+	//colCnt := constChunk.columnCount()
+	//colOffset := 0
+	//if cross._scanInputChunk {
+	//	colOffset = input.columnCount()
+	//} else {
+	//	colOffset = 0
+	//}
 
-	//refer constant vector
-	for i := 0; i < colCnt; i++ {
-		output._data[colOffset+i].reference(constChunk._data[i])
-	}
+	//output.setCard(constChunk.card())
+
+	////refer constant vector
+	//for i := 0; i < colCnt; i++ {
+	//	output._data[colOffset+i].reference(constChunk._data[i])
+	//}
 
 	//scanning chunk. refer a single value
-	var scanChunk *Chunk
-	if cross._scanInputChunk {
-		scanChunk = input
-	} else {
-		scanChunk = cross._scanChunk
-	}
-	colCnt = scanChunk.columnCount()
-	if cross._scanInputChunk {
-		colOffset = 0
-	} else {
-		colOffset = input.columnCount()
-	}
-
-	for i := 0; i < colCnt; i++ {
-		referenceInPhyFormatConst(
-			output._data[colOffset+i],
-			scanChunk._data[i],
-			cross._positionInChunk,
-			scanChunk.card(),
-		)
-	}
-	return haveMoreOutput
+	//var scanChunk *Chunk
+	//if cross._scanInputChunk {
+	//	scanChunk = input
+	//} else {
+	//	scanChunk = cross._scanChunk
+	//}
+	//colCnt = scanChunk.columnCount()
+	//if cross._scanInputChunk {
+	//	colOffset = 0
+	//} else {
+	//	colOffset = input.columnCount()
+	//}
+	//
+	//for i := 0; i < colCnt; i++ {
+	//	referenceInPhyFormatConst(
+	//		output._data[colOffset+i],
+	//		scanChunk._data[i],
+	//		cross._positionInChunk,
+	//		scanChunk.card(),
+	//	)
+	//}
+	return haveMoreOutput, nil
 }
 
 type ColumnDataScanState struct {
