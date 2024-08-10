@@ -612,9 +612,17 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//groupAndAggrChunk.print()
 			//fmt.Println("----aggrStates---------")
 			//aggrStatesChunk.print()
+			filterInputTypes := make([]LType, 0)
+			filterInputTypes = append(filterInputTypes, run.hAggr._groupedAggrData._aggrReturnTypes...)
+			filterInputChunk := &Chunk{}
+			filterInputChunk.init(filterInputTypes, defaultVectorSize)
+			for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
+				filterInputChunk._data[i].reference(groupAndAggrChunk._data[run.hAggr._groupedAggrData.GroupCount()+i])
+			}
+			filterInputChunk.setCard(groupAndAggrChunk.card())
 			var count int
 			//count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
-			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, groupAndAggrChunk}, state.filterSel)
+			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, filterInputChunk}, state.filterSel)
 			if err != nil {
 				return InvalidOpResult, err
 			}
