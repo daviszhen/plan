@@ -626,6 +626,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					return nil, errors.New("filter is nil")
 				}
 				condition := joinOrder.filters[filter.filterIndex]
+				if !(condition.SubTyp == ET_Equal || condition.SubTyp == ET_In) {
+					continue
+				}
 				assertFunc(condition.SubTyp != ET_Less)
 				check := isSubset(left.set, filter.leftSet) && isSubset(right.set, filter.rightSet) ||
 					isSubset(left.set, filter.rightSet) && isSubset(right.set, filter.leftSet)
@@ -639,6 +642,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					FuncId:  condition.FuncId,
 				}
 				invert := !isSubset(left.set, filter.leftSet)
+				if !(condition.SubTyp == ET_Equal || condition.SubTyp == ET_In) {
+					invert = false
+				}
 				if condition.SubTyp == ET_In || condition.SubTyp == ET_NotIn {
 					cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
 					//TODO: fixme
@@ -692,6 +698,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 			//filter is subset of current relation
 			if info.set.count() > 0 && isSubset(resultRel, info.set) {
 				filter := joinOrder.filters[info.filterIndex]
+				if !(filter.SubTyp == ET_Equal || filter.SubTyp == ET_In) {
+					continue
+				}
 				if leftNode == nil || info.leftSet == nil {
 					resultOp = pushFilter(resultOp, filter.copy())
 					joinOrder.filters[info.filterIndex] = nil

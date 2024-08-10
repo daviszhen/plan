@@ -225,7 +225,7 @@ func Test_1g_q20_innerJoin3(t *testing.T) {
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Join) &&
-				wantedOp(root.Children[0], POT_Scan) &&
+				wantedOp(root.Children[0], POT_Project) &&
 				wantedOp(root.Children[1], POT_Join)
 		},
 	)
@@ -1012,13 +1012,37 @@ func Test_1g_q20_projectAndFilter(t *testing.T) {
 	runOps(t, ops)
 }
 
+func Test_1g_q20_projectAndJoin(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ20())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Join)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Project) &&
+			//	wantedOp(root.Children[0].Children[0], POT_Agg) &&
+			//	wantedOp(root.Children[1], POT_Join)
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg)
+			return wantedOp(root, POT_Filter)
+		},
+	)
+	runOps(t, ops)
+}
+
 func Test_1g_q20_order(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
 	//debug.SetMemoryLimit(math.MaxInt64)
 
 	pplan := runTest2(t, tpchQ20())
-	fmt.Println(pplan.String())
+	//fmt.Println(pplan.String())
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
