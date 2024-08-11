@@ -112,7 +112,7 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 		case DOUBLE:
 			var d Double
 			fun := UnaryAggregate[float64, State[float64], float64, AvgOp[float64, float64]](
-				integer(),
+				double(),
 				double(),
 				DEFAULT_NULL_HANDLING,
 				AvgOp[float64, float64]{},
@@ -168,12 +168,37 @@ func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 	}
 }
 
+func GetMaxAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
+	switch inputPhyTyp {
+	case DECIMAL:
+		switch retPhyTyp {
+		case DECIMAL:
+			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MaxOp[Decimal, Decimal]](
+				decimal(DecimalMaxWidth, 0),
+				decimal(DecimalMaxWidth, 0),
+				DEFAULT_NULL_HANDLING,
+				MaxOp[Decimal, Decimal]{},
+				&MaxStateOp[Decimal]{},
+				&DecimalAdd{},
+				&Decimal{},
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	default:
+		panic("usp")
+	}
+}
+
 type StateType int
 
 const (
 	STATE_SUM StateType = iota
 	STATE_AVG
 	STATE_COUNT
+	STATE_MAX
+	STATE_MIN
 )
 
 type State[T any] struct {
@@ -189,6 +214,8 @@ func (state *State[T]) Init() {
 		state._isset = false
 	case STATE_AVG, STATE_COUNT:
 		state._count = 0
+	case STATE_MAX, STATE_MIN:
+		state._isset = false
 	default:
 		panic("usp")
 	}
@@ -205,6 +232,10 @@ func (state *State[T]) Combine(other *State[T], add TypeOp[T]) {
 		state._count += other._count
 	case STATE_COUNT:
 		state._count += other._count
+	case STATE_MAX:
+		panic("usp")
+	case STATE_MIN:
+		panic("usp")
 	default:
 		panic("usp")
 	}
@@ -235,11 +266,15 @@ type StateOp[T any] interface {
 type TypeOp[T any] interface {
 	Add(*T, *T)
 	Mul(*T, *T)
+	Less(*T, *T) bool
+	Greater(*T, *T) bool
 }
 
 type AddOp[ResultT any, InputT any] interface {
 	AddNumber(*State[ResultT], *InputT, TypeOp[ResultT])
 	AddConstant(*State[ResultT], *InputT, int, TypeOp[ResultT])
+	Assign(*State[ResultT], *InputT)
+	Execute(*State[ResultT], *InputT, TypeOp[ResultT])
 }
 
 type AggrOp[ResultT any, InputT any] interface {
@@ -309,6 +344,34 @@ func (as *CountStateOp[T]) AddValues(s *State[T], cnt int) {
 	s._count += uint64(cnt)
 }
 
+type MaxStateOp[T any] struct {
+}
+
+func (as *MaxStateOp[T]) Init(s *State[T]) {
+	s.Init()
+	s._typ = STATE_MAX
+}
+
+func (as *MaxStateOp[T]) Combine(
+	src *State[T],
+	target *State[T],
+	_ *AggrInputData,
+	top TypeOp[T]) {
+	if !src._isset {
+		return
+	}
+	if !target._isset {
+		target._isset = src._isset
+		target._value = src._value
+	} else if top.Less(&target._value, &src._value) {
+		target._value = src._value
+	}
+}
+
+func (as *MaxStateOp[T]) AddValues(s *State[T], cnt int) {
+
+}
+
 type HugeintAdd struct {
 }
 
@@ -338,6 +401,9 @@ func (*HugeintAdd) AddConstant(*State[Hugeint], *int32, int, TypeOp[Hugeint]) {
 	panic("usp")
 }
 
+func (*HugeintAdd) Assign(*State[Hugeint], *int32)                   { panic("usp") }
+func (*HugeintAdd) Execute(*State[Hugeint], *int32, TypeOp[Hugeint]) { panic("usp") }
+
 type DecimalAdd struct {
 }
 
@@ -346,6 +412,23 @@ func (dAdd *DecimalAdd) AddNumber(state *State[Decimal], input *Decimal, top Typ
 }
 func (*DecimalAdd) AddConstant(*State[Decimal], *Decimal, int, TypeOp[Decimal]) {
 	panic("usp decimalAdd addconstant")
+}
+
+func (*DecimalAdd) Assign(s *State[Decimal], input *Decimal) {
+	s._value = *input
+}
+func (*DecimalAdd) Execute(s *State[Decimal], input *Decimal, top TypeOp[Decimal]) {
+	if s._typ == STATE_MAX {
+		if top.Greater(input, &s._value) {
+			s._value = *input
+		}
+	} else if s._typ == STATE_MIN {
+		if top.Less(input, &s._value) {
+			s._value = *input
+		}
+	} else {
+		panic("usp")
+	}
 }
 
 type DoubleAdd struct{}
@@ -365,6 +448,9 @@ func (DoubleAdd) AddConstant(
 	panic("usp doubleAdd addconstant")
 }
 
+func (*DoubleAdd) Assign(*State[float64], *float64)                   { panic("usp") }
+func (*DoubleAdd) Execute(*State[float64], *float64, TypeOp[float64]) { panic("usp") }
+
 type DoubleInt32Add struct{}
 
 func (DoubleInt32Add) AddNumber(
@@ -382,6 +468,9 @@ func (DoubleInt32Add) AddConstant(
 	panic("usp doubleAdd addconstant")
 }
 
+func (*DoubleInt32Add) Assign(*State[float64], *int32)                   { panic("usp") }
+func (*DoubleInt32Add) Execute(*State[float64], *int32, TypeOp[float64]) { panic("usp") }
+
 type Double float64
 
 func (Double) Add(lhs, rhs *float64) {
@@ -389,6 +478,13 @@ func (Double) Add(lhs, rhs *float64) {
 }
 func (Double) Mul(lhs, rhs *float64) {
 	*lhs = (*lhs) * (*rhs)
+}
+
+func (Double) Less(lhs, rhs *float64) bool {
+	return *lhs < *rhs
+}
+func (Double) Greater(lhs, rhs *float64) bool {
+	return *lhs > *rhs
 }
 
 //func (*DoubleAdd)AddNumber(*State[ResultT], *InputT, TypeOp[ResultT]){}
@@ -579,6 +675,72 @@ func (CountOp[ResultT, InputT]) Finalize(
 }
 
 func (CountOp[ResultT, InputT]) IgnoreNull() bool {
+	return true
+}
+
+type MaxOp[ResultT any, InputT any] struct {
+}
+
+func (MaxOp[ResultT, InputT]) Init(
+	s2 *State[ResultT],
+	sop StateOp[ResultT]) {
+	var val ResultT
+	s2.SetValue(val)
+	sop.Init(s2)
+}
+
+func (MaxOp[ResultT, InputT]) Combine(
+	src *State[ResultT],
+	target *State[ResultT],
+	data *AggrInputData,
+	sop StateOp[ResultT],
+	top TypeOp[ResultT]) {
+	sop.Combine(src, target, data, top)
+}
+
+func (MaxOp[ResultT, InputT]) Operation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
+	if !s3._isset {
+		aop.Assign(s3, input)
+		s3._isset = true
+	} else {
+		aop.Execute(s3, input, top)
+	}
+}
+
+func (MaxOp[ResultT, InputT]) ConstantOperation(
+	s3 *State[ResultT],
+	input *InputT,
+	data *AggrUnaryInput,
+	count int,
+	sop StateOp[ResultT],
+	aop AddOp[ResultT, InputT],
+	top TypeOp[ResultT]) {
+	if !s3._isset {
+		aop.Assign(s3, input)
+		s3._isset = true
+	} else {
+		aop.Execute(s3, input, top)
+	}
+}
+
+func (MaxOp[ResultT, InputT]) Finalize(
+	s3 *State[ResultT],
+	target *ResultT,
+	data *AggrFinalizeData) {
+	if !s3._isset {
+		data.ReturnNull()
+	} else {
+		*target = s3._value
+	}
+}
+
+func (MaxOp[ResultT, InputT]) IgnoreNull() bool {
 	return true
 }
 

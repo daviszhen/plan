@@ -1619,3 +1619,53 @@ func Test_1g_q16(t *testing.T) {
 	}()
 	runOps(t, ops)
 }
+
+func Test_1g_q15(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ15())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg) &&
+			//	wantedOp(root.Children[0].Children[0], POT_Project)
+
+			//return wantedOp(root, POT_Agg) &&
+			//	wantedOp(root.Children[0], POT_Project) &&
+			//	wantedOp(root.Children[0].Children[0], POT_Agg)
+
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Project) &&
+			//	wantedOp(root.Children[1], POT_Join)
+
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg) &&
+			//	wantedOp(root.Children[0].Children[0], POT_Scan)
+
+			return wantedOp(root, POT_Order)
+			//return wantedOp(root, POT_Filter)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Project) &&
+			//	wantedOp(root.Children[1], POT_Scan)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Scan) &&
+			//	wantedOp(root.Children[1], POT_Scan)
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Scan)
+			//return wantedOp(root, POT_Scan) &&
+			//	len(root.Filters) > 1
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, ops)
+}

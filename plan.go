@@ -135,6 +135,13 @@ func (h *Hugeint) Add(lhs, rhs *Hugeint) {
 }
 func (h *Hugeint) Mul(lhs, rhs *Hugeint) {}
 
+func (h *Hugeint) Less(lhs, rhs *Hugeint) bool {
+	panic("usp")
+}
+func (h *Hugeint) Greater(lhs, rhs *Hugeint) bool {
+	panic("usp")
+}
+
 var _ TypeOp[Decimal] = new(Decimal)
 
 type Decimal struct {
@@ -167,6 +174,22 @@ func (dec *Decimal) Mul(lhs *Decimal, rhs *Decimal) {
 		panic(err)
 	}
 	lhs.Decimal = res
+}
+
+func (dec *Decimal) Less(lhs, rhs *Decimal) bool {
+	d, err := lhs.Decimal.Sub(rhs.Decimal)
+	if err != nil {
+		panic("decimal sub failed")
+	}
+	return d.IsNeg()
+}
+
+func (dec *Decimal) Greater(lhs, rhs *Decimal) bool {
+	d, err := lhs.Decimal.Sub(rhs.Decimal)
+	if err != nil {
+		panic("decimal sub failed")
+	}
+	return d.IsPos()
 }
 
 type ScatterOp[T any] interface {

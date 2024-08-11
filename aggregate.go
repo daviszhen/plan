@@ -704,6 +704,7 @@ const (
 )
 
 type AggrObject struct {
+	_name        string
 	_func        *AggrFunc
 	_childCount  int
 	_payloadSize int
@@ -717,6 +718,7 @@ func NewAggrObject(aggr *Expr) *AggrObject {
 	ret._childCount = len(aggr.Children)
 	ret._aggrType = aggr.AggrTyp
 	ret._retType = aggr.DataTyp.LTyp.getInternalType()
+	ret._name = aggr.Svalue
 	switch aggr.Svalue {
 	case "sum":
 		ret._func = GetSumAggr(aggr.DataTyp.LTyp.getInternalType())
@@ -728,6 +730,10 @@ func NewAggrObject(aggr *Expr) *AggrObject {
 	case "count":
 		assertFunc(len(aggr.Children) != 0)
 		ret._func = GetCountAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
+		ret._payloadSize = ret._func._stateSize()
+	case "max":
+		assertFunc(len(aggr.Children) != 0)
+		ret._func = GetMaxAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
 		ret._payloadSize = ret._func._stateSize()
 	default:
 		panic("usp")

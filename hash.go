@@ -203,6 +203,8 @@ func HashTypeSwitch(
 		TemplatedLoopHash[int8](input, result, rsel, count, hasRsel, HashOpInt8{}, HashFuncInt8{})
 	case VARCHAR:
 		TemplatedLoopHash[String](input, result, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
+	case DECIMAL:
+		TemplatedLoopHash[Decimal](input, result, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
 	default:
 		panic("Unknown input type")
 	}

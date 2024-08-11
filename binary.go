@@ -75,6 +75,10 @@ func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date)
 		result._year = left._year + right._year
 		result._month = left._month
 		result._day = left._day
+	} else if right._unit == "month" {
+		result._year = left._year
+		result._month = left._month + right._months
+		result._day = left._day
 	} else {
 		panic("usp")
 	}

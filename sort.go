@@ -2622,6 +2622,17 @@ func Gather(
 			colNo,
 			buildSize,
 		)
+	case DECIMAL:
+		TemplatedGatherLoop[Decimal](
+			rows,
+			rowSel,
+			col,
+			colSel,
+			count,
+			layout,
+			colNo,
+			buildSize,
+		)
 	case VARCHAR:
 		GatherVarchar(
 			rows,

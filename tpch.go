@@ -844,7 +844,9 @@ func tpchQ15() *Ast {
 			subquery(q15Subquery(), AstSubqueryTypeScalar),
 		),
 	)
-	ret.OrderBy.Exprs = astList(column("s_suppkey"))
+	ret.OrderBy.Exprs = astList(
+		orderby(column("s_suppkey"), false),
+	)
 	return ret
 }
 

@@ -18,8 +18,10 @@ var (
 	gTryCastInt32ToDecimalWrapper   tryCastOpWrapper[int32, Decimal]
 
 	// bigint =>
-	gTryCastBigintToInt32          tryCastBigintToInt32
-	gTryCastBigintToInt32OpWrapper tryCastOpWrapper[Hugeint, int32]
+	gTryCastBigintToInt32            tryCastBigintToInt32
+	gTryCastBigintToInt32OpWrapper   tryCastOpWrapper[Hugeint, int32]
+	gTryCastBigintToDecimal          tryCastBigintToDecimal
+	gTryCastBigintToDecimalOpWrapper tryCastOpWrapper[Hugeint, Decimal]
 
 	// float32 => ...
 	gTryCastFloat32ToInt32            tryCastFloat32ToInt32
@@ -92,6 +94,12 @@ func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32) {
 		fmt.Println(input)
 	}
 	*result = val
+}
+
+type tryCastBigintToDecimal struct{}
+
+func (numCast tryCastBigintToDecimal) operation(input *Hugeint, result *Decimal) {
+	panic("usp")
 }
 
 type tryCastFloat32ToInt32 struct {
@@ -194,6 +202,16 @@ func castExec(
 				gTryCastBigintToInt32,
 				nil,
 				gTryCastBigintToInt32OpWrapper,
+			)
+		case LTID_DECIMAL:
+			unaryGenericExec[Hugeint, Decimal](
+				source,
+				result,
+				count,
+				false,
+				gTryCastBigintToDecimal,
+				nil,
+				gTryCastBigintToDecimalOpWrapper,
 			)
 		default:
 			panic("usp")

@@ -1454,7 +1454,12 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp date_add(date,interval)")
+						binaryExecSwitch[Date, Interval, Date](
+							chunk._data[0], chunk._data[1], result, count,
+							gBinDateIntervalAdd,
+							nil,
+							gBinDateIntervalSingleOpWrapper)
+						return nil
 					}
 				},
 			},
