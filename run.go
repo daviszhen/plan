@@ -741,8 +741,19 @@ func (run *Runner) joinInit() error {
 		for i, e := range run.op.Children[1].Outputs {
 			types[i] = e.DataTyp.LTyp
 		}
+		//output pos -> [child,pos]
+		outputPosMap := make(map[int]ColumnBind)
+		for i, output := range run.op.Outputs {
+			set := make(ColumnBindSet)
+			collectColRefs(output, set)
+			assertFunc(!set.empty() && len(set) == 1)
+			for bind, _ := range set {
+				outputPosMap[i] = bind
+			}
+		}
 		run.cross = NewCrossProduct(types)
 		run.cross._crossExec._outputExec = run.state.outputExec
+		run.cross._crossExec._outputPosMap = outputPosMap
 	}
 
 	return nil
@@ -857,7 +868,7 @@ func (run *Runner) crossProductExec(output *Chunk, state *OperatorState) (Operat
 				case InvalidOpResult:
 					return InvalidOpResult, nil
 				}
-				//fmt.Println("input")
+				//fmt.Println("left input", run.cross._input.card())
 				//run.cross._input.print()
 			}
 

@@ -918,7 +918,7 @@ func tpchQ16() *Ast {
 	ret.Select.Where.Expr = andList(
 		equal(column("p_partkey"), column("ps_partkey")),
 		notEqual(column("p_brand"), sstring("Brand#35")),
-		notEqual(column("p_type"), sstring("ECONOMY BURNISHED%")),
+		notlike(column("p_type"), sstring("ECONOMY BURNISHED%")),
 		in(column("p_size"),
 			inumber(14),
 			inumber(7),

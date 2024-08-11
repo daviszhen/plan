@@ -678,6 +678,7 @@ func (ls *LocalSort) ReOrder2(
 	//reorder fix row
 	rowWidth := sd._layout.rowWidth()
 	sortingEntrySize := ls._sortLayout._entrySize
+	//heapPointerOffset := sd._layout.GetHeapOffset()
 	for i := 0; i < count; i++ {
 		index := load[uint32](sortingPtr)
 		pointerCopy(
@@ -685,6 +686,26 @@ func (ls *LocalSort) ReOrder2(
 			pointerAdd(unorderedDataPtr, int(index)*rowWidth),
 			rowWidth,
 		)
+
+		//y := pointerAdd(unorderedDataPtr, int(index)*rowWidth)
+		//
+		//x := load[unsafe.Pointer](
+		//	pointerAdd(y, heapPointerOffset-1),
+		//)
+		//heapRowPtr := load[unsafe.Pointer](
+		//	pointerAdd(y, heapPointerOffset),
+		//)
+		//
+		//fmt.Fprintln(os.Stderr,
+		//	"ReOrder2--1",
+		//	y,
+		//	"copy to",
+		//	orderedDataPtr,
+		//	heapPointerOffset,
+		//	x,
+		//	heapRowPtr,
+		//)
+
 		orderedDataPtr = pointerAdd(orderedDataPtr, rowWidth)
 		sortingPtr = pointerAdd(sortingPtr, sortingEntrySize)
 	}
@@ -708,9 +729,13 @@ func (ls *LocalSort) ReOrder2(
 		orderedDataPtr = orderedDBlock._ptr
 		heapPointerOffset := sd._layout.GetHeapOffset()
 		for i := 0; i < count; i++ {
+			//x := load[unsafe.Pointer](
+			//	pointerAdd(orderedDataPtr, heapPointerOffset-1),
+			//)
 			heapRowPtr := load[unsafe.Pointer](
 				pointerAdd(orderedDataPtr, heapPointerOffset),
 			)
+			//fmt.Fprintln(os.Stderr, "ReOrder2", orderedDataPtr, heapPointerOffset, heapRowPtr, x)
 			assertFunc(pointerValid(heapRowPtr))
 			heapRowSize := load[uint32](heapRowPtr)
 			pointerCopy(orderedHeapPtr, heapRowPtr, int(heapRowSize))
@@ -741,9 +766,8 @@ func (ls *LocalSort) ConcatenateBlocks(rowData *RowDataCollection) *RowDataBlock
 	for i := 0; i < len(rowData._blocks); i++ {
 		block := rowData._blocks[i]
 		cLen := block._count * rowData._entrySize
-		newSlice := pointerToSlice[uint8](newBlockPtr, cLen)
-		blocSlice := pointerToSlice[uint8](block._ptr, cLen)
-		copy(newSlice, blocSlice)
+		pointerCopy(newBlockPtr, block._ptr, cLen)
+		newBlockPtr = pointerAdd(newBlockPtr, cLen)
 	}
 	rowData.Close()
 	return newBlock
@@ -1152,6 +1176,15 @@ func Scatter(
 		for i := 0; i < count; i++ {
 			rowIdx := sel.getIndex(i)
 			rowPtr := ptrs[rowIdx]
+			//fmt.Fprintln(os.Stderr,
+			//	"Scatter",
+			//	i,
+			//	dataLocs[i],
+			//	"to",
+			//	rowPtr,
+			//	heapPointerOffset,
+			//	pointerAdd(rowPtr, heapPointerOffset),
+			//)
 			store[unsafe.Pointer](dataLocs[i], pointerAdd(rowPtr, heapPointerOffset))
 			store[uint32](uint32(entrySizes[i]), dataLocs[i])
 			dataLocs[i] = pointerAdd(dataLocs[i], int32Size)

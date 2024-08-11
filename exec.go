@@ -283,6 +283,7 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 			ET_Less,
 			ET_LessEqual,
 			ET_Like,
+			ET_NotLike,
 			ET_In:
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
 		case ET_And:
@@ -322,7 +323,9 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 			ET_GreaterEqual,
 			ET_Less,
 			ET_LessEqual,
-			ET_Like, ET_In:
+			ET_Like,
+			ET_NotLike,
+			ET_In:
 			return selectOperation(
 				eState._interChunk._data[0],
 				eState._interChunk._data[1],

@@ -270,6 +270,15 @@ func wildcardMatch(pattern, target string) bool {
 func (e likeOp) operation(left, right *String) bool {
 	return wildcardMatch(right.String(), left.String())
 }
+
+// not like
+type notLikeOp struct {
+}
+
+func (e notLikeOp) operation(left, right *String) bool {
+	return !wildcardMatch(right.String(), left.String())
+}
+
 func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, subTyp ET_SubTyp) int {
 	switch subTyp {
 	case ET_Equal:
@@ -357,6 +366,13 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 		switch left.typ().getInternalType() {
 		case VARCHAR:
 			return selectBinary[String](left, right, sel, count, trueSel, falseSel, likeOp{})
+		default:
+			panic("usp")
+		}
+	case ET_NotLike:
+		switch left.typ().getInternalType() {
+		case VARCHAR:
+			return selectBinary[String](left, right, sel, count, trueSel, falseSel, notLikeOp{})
 		default:
 			panic("usp")
 		}

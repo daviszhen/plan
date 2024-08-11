@@ -43,6 +43,7 @@ type CrossProductExec struct {
 	_finish          bool
 	_scanInputChunk  bool
 	_outputExec      *ExprExec
+	_outputPosMap    map[int]ColumnBind
 }
 
 func NewCrossProductExec(rhs *ColumnDataCollection) *CrossProductExec {
@@ -98,20 +99,70 @@ func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, er
 		cross._init = false
 		//RHS is read over.
 		//switch to the next Chunk on the LHS and reset the RHS
+		//fmt.Fprintln(os.Stderr, "switch to LHS")
 		return NeedMoreInput, nil
 	}
 
-	err := cross._outputExec.executeExprs(
-		[]*Chunk{
-			input,
-			cross._scanChunk,
-			nil,
-		},
-		output,
-	)
-	if err != nil {
-		return InvalidOpResult, err
+	//err := cross._outputExec.executeExprs(
+	//	[]*Chunk{
+	//		input,
+	//		cross._scanChunk,
+	//		nil,
+	//	},
+	//	output,
+	//)
+	//if err != nil {
+	//	return InvalidOpResult, err
+	//}
+
+	var constChunk *Chunk
+	//scanning chunk. refer a single value
+	var scanChunk *Chunk
+	for i := 0; i < output.columnCount(); i++ {
+		if cross._scanInputChunk {
+			constChunk = cross._scanChunk
+		} else {
+			constChunk = input
+		}
+
+		if cross._scanInputChunk {
+			scanChunk = input
+		} else {
+			scanChunk = cross._scanChunk
+		}
+
+		bind := cross._outputPosMap[i]
+		tblIdx := int64(bind.table())
+		colIdx := int64(bind.column())
+		if cross._scanInputChunk {
+			if tblIdx == -2 {
+				output._data[i].reference(constChunk._data[colIdx])
+			} else if tblIdx == -1 {
+				referenceInPhyFormatConst(
+					output._data[i],
+					scanChunk._data[colIdx],
+					cross._positionInChunk,
+					scanChunk.card(),
+				)
+			} else {
+				panic("usp")
+			}
+		} else {
+			if tblIdx == -1 {
+				output._data[i].reference(constChunk._data[colIdx])
+			} else if tblIdx == -2 {
+				referenceInPhyFormatConst(
+					output._data[i],
+					scanChunk._data[colIdx],
+					cross._positionInChunk,
+					scanChunk.card(),
+				)
+			} else {
+				panic("usp")
+			}
+		}
 	}
+	output.setCard(constChunk.card())
 
 	//var constChunk *Chunk
 	//if cross._scanInputChunk {
