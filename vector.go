@@ -447,6 +447,9 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		case "month":
 			interVal._months = int32(val._i64)
 			interVal._unit = val._str
+		case "day":
+			interVal._days = int32(val._i64)
+			interVal._unit = val._str
 		default:
 			panic("usp")
 		}

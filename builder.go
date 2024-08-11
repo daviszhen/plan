@@ -1667,11 +1667,22 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	var err error
 	var kase *Expr
 	var els *Expr
+	var hasKase, hasElse bool
 	when := make([]*Expr, len(expr.Expr.When))
+	//FIXME: case when is wrong
 	if expr.Expr.Kase != nil {
+		hasKase = true
 		kase, err = b.bindExpr(ctx, iwc, expr.Expr.Kase, depth)
 		if err != nil {
 			return nil, err
+		}
+	} else {
+		kase = &Expr{
+			Typ: ET_IConst,
+			DataTyp: ExprDataType{
+				LTyp: integer(),
+			},
+			Ivalue: 1,
 		}
 	}
 
@@ -1693,6 +1704,15 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		els, err = b.bindExpr(ctx, iwc, expr.Expr.Els, depth)
 		if err != nil {
 			return nil, err
+		}
+	} else {
+		hasElse = true
+		els = &Expr{
+			Typ: ET_IConst,
+			DataTyp: ExprDataType{
+				LTyp: integer(),
+			},
+			Ivalue: 1,
 		}
 	}
 
@@ -1779,6 +1799,8 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	if err != nil {
 		return nil, err
 	}
+	ret.HasKase = hasKase
+	ret.HasElse = hasElse
 	return ret, nil
 }
 

@@ -1729,6 +1729,8 @@ type Expr struct {
 
 	BelongCtx *BindContext // context for table and join
 	On        *Expr        //JoinOn
+	HasKase   bool         //for case when
+	HasElse   bool         //for case when
 }
 
 func (e *Expr) equal(o *Expr) bool {

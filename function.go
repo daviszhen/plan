@@ -1202,6 +1202,32 @@ var operators = []*Function{
 					}
 				},
 			},
+			{
+				Desc: "case",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[3].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp case 2")
+					}
+				},
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},

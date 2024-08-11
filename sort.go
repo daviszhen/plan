@@ -2474,8 +2474,12 @@ func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
 	scan._totalScanned += scanned
 	if scan._flush {
 		for i := 0; i < scan._readState._blockIdx; i++ {
-			scan._rows._blocks[i]._ptr = nil
-			scan._heap._blocks[i]._ptr = nil
+			if scan._rows._blocks != nil {
+				scan._rows._blocks[i]._ptr = nil
+			}
+			if scan._heap._blocks != nil {
+				scan._heap._blocks[i]._ptr = nil
+			}
 		}
 	}
 }
@@ -2624,6 +2628,17 @@ func Gather(
 		)
 	case DECIMAL:
 		TemplatedGatherLoop[Decimal](
+			rows,
+			rowSel,
+			col,
+			colSel,
+			count,
+			layout,
+			colNo,
+			buildSize,
+		)
+	case DATE:
+		TemplatedGatherLoop[Date](
 			rows,
 			rowSel,
 			col,
