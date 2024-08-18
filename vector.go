@@ -372,9 +372,20 @@ func (vec *Vector) getValue(idx int) *Value {
 		}
 	case LTID_DECIMAL:
 		data := getSliceInPhyFormatFlat[Decimal](vec)
-		return &Value{
-			_typ: vec.typ(),
-			_str: data[idx].String(),
+		d := data[idx]
+		w, f, ok := d.Decimal.Int64(vec.typ().scale)
+		if !ok {
+			return &Value{
+				_typ: vec.typ(),
+				_str: data[idx].String(),
+			}
+		} else {
+			return &Value{
+				_typ:   vec.typ(),
+				_i64:   w,
+				_i64_1: f,
+				_str:   "",
+			}
 		}
 	case LTID_DATE:
 		data := getSliceInPhyFormatFlat[Date](vec)
@@ -463,10 +474,21 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		}
 	case DECIMAL:
 		slice := toSlice[Decimal](vec._data, pTyp.size())
-		decVal := dec.MustNew(val._i64, vec._typ.scale)
-		slice[idx] = Decimal{
-			decVal,
+		if len(val._str) != 0 {
+			decVal := dec.MustParse(val._str)
+			slice[idx] = Decimal{
+				decVal,
+			}
+		} else {
+			decVal, err := dec.NewFromInt64(val._i64, val._i64_1, vec._typ.scale)
+			if err != nil {
+				panic(err)
+			}
+			slice[idx] = Decimal{
+				decVal,
+			}
 		}
+
 	case DOUBLE:
 		slice := toSlice[float64](vec._data, pTyp.size())
 		slice[idx] = val._f64
@@ -981,7 +1003,11 @@ func (val Value) String() string {
 	case LTID_VARCHAR:
 		return val._str
 	case LTID_DECIMAL:
-		return val._str
+		if len(val._str) != 0 {
+			return val._str
+		} else {
+			return fmt.Sprintf("%v.%v", val._i64, val._i64_1)
+		}
 	case LTID_DATE:
 		dat := time.Date(int(val._i64), time.Month(val._i64_1), int(val._i64_2),
 			0, 0, 0, 0, time.UTC)

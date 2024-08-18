@@ -401,6 +401,22 @@ func (copy *int32ValueCopy) Operation(dst, src *int32) {
 	*dst = *src
 }
 
+type float32ValueCopy struct {
+}
+
+func (copy *float32ValueCopy) Assign(
+	metaData *ColumnDataMetaData,
+	dst, src unsafe.Pointer,
+	dstIdx, srcIdx int) {
+	dPtr := pointerAdd(dst, dstIdx*float32Size)
+	sPtr := pointerAdd(src, srcIdx*float32Size)
+	copy.Operation((*float32)(dPtr), (*float32)(sPtr))
+}
+
+func (copy *float32ValueCopy) Operation(dst, src *float32) {
+	*dst = *src
+}
+
 type decimalValueCopy struct {
 }
 
@@ -456,6 +472,15 @@ func ColumnDataCopySwitch(
 			offset,
 			count,
 			&int32ValueCopy{},
+		)
+	case FLOAT:
+		TemplatedColumnDataCopy[float32](
+			metaData,
+			srcData,
+			src,
+			offset,
+			count,
+			&float32ValueCopy{},
 		)
 	case DECIMAL:
 		TemplatedColumnDataCopy[Decimal](

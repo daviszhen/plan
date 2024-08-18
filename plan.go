@@ -426,6 +426,7 @@ var (
 	varcharSize  int
 	pointerSize  int
 	decimalSize  int
+	float32Size  int
 )
 
 func init() {
@@ -448,6 +449,8 @@ func init() {
 	pointerSize = int(unsafe.Sizeof(p))
 	dec := Decimal{}
 	decimalSize = int(unsafe.Sizeof(dec))
+	f := float32(0)
+	float32Size = int(unsafe.Sizeof(f))
 }
 
 func (pt PhyType) size() int {
@@ -475,7 +478,7 @@ func (pt PhyType) size() int {
 	case INT128:
 		return int128Size
 	case FLOAT:
-		return int32Size
+		return float32Size
 	case DOUBLE:
 		return int64Size
 	case VARCHAR:
