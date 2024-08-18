@@ -924,6 +924,7 @@ func (aht *GroupedAggrHashTable) AddChunk(
 		)
 		payloadIdx += aggr._childCount
 		AddInPlace(state._addresses, int64(aggr._payloadSize), payload.card())
+		filterIdx++
 	}
 	return newGroupCount
 }

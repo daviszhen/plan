@@ -46,6 +46,54 @@ func (s *String) less(o *String) bool {
 	return bytes.Compare(sSlice, oSlice) < 0
 }
 
+// WildcardMatch implements wildcard pattern match algorithm.
+// pattern and target are ascii characters
+// TODO: add \_ and \%
+func WildcardMatch(pattern, target *String) bool {
+	var p = 0
+	var t = 0
+	var positionOfPercentPlusOne int = -1
+	var positionOfTargetEncounterPercent int = -1
+	plen := pattern.len()
+	tlen := target.len()
+	pSlice := pattern.dataSlice()
+	tSlice := target.dataSlice()
+	for t < tlen {
+		//%
+		if p < plen && pSlice[p] == '%' {
+			p++
+			positionOfPercentPlusOne = p
+			if p >= plen {
+				//pattern end with %
+				return true
+			}
+			//means % matches empty
+			positionOfTargetEncounterPercent = t
+		} else if p < plen && (pSlice[p] == '_' || pSlice[p] == tSlice[t]) { //match or _
+			p++
+			t++
+		} else {
+			if positionOfPercentPlusOne == -1 {
+				//have not matched a %
+				return false
+			}
+			if positionOfTargetEncounterPercent == -1 {
+				return false
+			}
+			//backtrace to last % position + 1
+			p = positionOfPercentPlusOne
+			//means % matches multiple characters
+			positionOfTargetEncounterPercent++
+			t = positionOfTargetEncounterPercent
+		}
+	}
+	//skip %
+	for p < plen && pSlice[p] == '%' {
+		p++
+	}
+	return p >= plen
+}
+
 func (s *String) len() int {
 	return s._len
 }
@@ -1601,6 +1649,7 @@ const (
 	ET_DateConst //date
 	ET_IntervalConst
 	ET_BConst // bool
+	ET_NConst // null
 
 	ET_Orderby
 )
@@ -1729,8 +1778,6 @@ type Expr struct {
 
 	BelongCtx *BindContext // context for table and join
 	On        *Expr        //JoinOn
-	HasKase   bool         //for case when
-	HasElse   bool         //for case when
 }
 
 func (e *Expr) equal(o *Expr) bool {
@@ -1801,7 +1848,7 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		if index == e.ColRef[0] {
 			e = realExprs[e.ColRef[1]]
 		}
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -1841,7 +1888,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	case ET_Column:
 		return index == e.ColRef[0]
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 		return true
 	case ET_Func:
 	default:
@@ -1865,7 +1912,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		if _, has := rightTags[e.ColRef[0]]; has {
 			ret |= RightSide
 		}
-	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -2154,12 +2201,12 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 				e.Children[0].Print(branch, "")
 			}
 			when := branch.AddBranch("when")
-			for i := 2; i < len(e.Children); i += 2 {
+			for i := 1; i < len(e.Children); i += 2 {
 				e.Children[i].Print(when, "")
 				e.Children[i+1].Print(when, "")
 			}
-			if e.Children[1] != nil {
-				e.Children[1].Print(branch, "")
+			if e.Children[0] != nil {
+				e.Children[0].Print(branch, "")
 			}
 		case ET_In, ET_NotIn:
 			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
@@ -2618,7 +2665,7 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 			e.ColRef = newBind
 		}
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 	case ET_Func:
 	case ET_Orderby:
 	default:
@@ -2642,7 +2689,7 @@ func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr 
 			e.ColRef[1] = uint64(pos)
 		}
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 	case ET_Func:
 	case ET_Orderby:
 	default:
@@ -2669,7 +2716,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		set.insert(e.ColRef)
 
 	case ET_Func:
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 	case ET_Orderby:
 	default:
 		panic("usp")

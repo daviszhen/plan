@@ -1355,7 +1355,7 @@ func hasCorrCol(expr *Expr) bool {
 			ret = ret || hasCorrCol(child)
 		}
 		return ret
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst, ET_NConst:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
@@ -1665,36 +1665,30 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 
 func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
 	var err error
-	var kase *Expr
 	var els *Expr
-	var hasKase, hasElse bool
 	when := make([]*Expr, len(expr.Expr.When))
-	//FIXME: case when is wrong
+	var astWhen []*Ast
 	if expr.Expr.Kase != nil {
-		hasKase = true
-		kase, err = b.bindExpr(ctx, iwc, expr.Expr.Kase, depth)
-		if err != nil {
-			return nil, err
+		//rewrite it to CASE WHEN kase = compare value ...
+		astWhen = make([]*Ast, len(expr.Expr.When))
+		for i := 0; i < len(expr.Expr.When); i += 2 {
+			astWhen[i] = equal(expr.Expr.Kase, expr.Expr.When[i])
+			astWhen[i+1] = expr.Expr.When[i+1]
 		}
+
 	} else {
-		kase = &Expr{
-			Typ: ET_IConst,
-			DataTyp: ExprDataType{
-				LTyp: integer(),
-			},
-			Ivalue: 1,
-		}
+		astWhen = expr.Expr.When
 	}
 
-	for i := 0; i < len(expr.Expr.When); i += 2 {
-		if i+1 >= len(expr.Expr.When) {
+	for i := 0; i < len(astWhen); i += 2 {
+		if i+1 >= len(astWhen) {
 			panic("miss then")
 		}
-		when[i], err = b.bindExpr(ctx, iwc, expr.Expr.When[i], depth)
+		when[i], err = b.bindExpr(ctx, iwc, astWhen[i], depth)
 		if err != nil {
 			return nil, err
 		}
-		when[i+1], err = b.bindExpr(ctx, iwc, expr.Expr.When[i+1], depth)
+		when[i+1], err = b.bindExpr(ctx, iwc, astWhen[i+1], depth)
 		if err != nil {
 			return nil, err
 		}
@@ -1706,58 +1700,20 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 			return nil, err
 		}
 	} else {
-		hasElse = true
 		els = &Expr{
-			Typ: ET_IConst,
+			Typ: ET_NConst,
 			DataTyp: ExprDataType{
-				LTyp: integer(),
+				LTyp: null(),
 			},
-			Ivalue: 1,
 		}
 	}
 
-	//decide case expr
-	if kase != nil {
-		//CASE value
-		//WHEN compare_value THEN result
-		//[WHEN compare_value THEN result ...]
-		//[ELSE result] END
-
-		caseTyp := kase.DataTyp.LTyp
-		for i := 0; i < len(when); i += 2 {
-			caseTyp = MaxLType(caseTyp, when[i].DataTyp.LTyp)
-		}
-		//cast WHEN to
-		for i := 0; i < len(when); i += 2 {
-			when[i], err = castExpr(when[i], caseTyp, caseTyp.id == LTID_ENUM)
-			if err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		//CASE
-		//WHEN condition THEN result
-		//[WHEN condition THEN result ...]
-		//[ELSE result] END
-
-		//cast WHEN to boolean
-		for i := 0; i < len(when); i += 2 {
-			when[i], err = castExpr(when[i], boolean(), false)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
+	retTyp := els.DataTyp.LTyp
 
 	//decide result types
-	//max type of the THEN expr and the ELSE expr
-	retTyp := when[1].DataTyp.LTyp
+	//max type of the THEN expr
 	for i := 0; i < len(when); i += 2 {
 		retTyp = MaxLType(retTyp, when[i+1].DataTyp.LTyp)
-	}
-
-	if els != nil {
-		retTyp = MaxLType(retTyp, els.DataTyp.LTyp)
 	}
 
 	//case THEN to
@@ -1768,14 +1724,13 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		}
 	}
 
-	if els != nil {
-		els, err = castExpr(els, retTyp, retTyp.id == LTID_ENUM)
-		if err != nil {
-			return nil, err
-		}
+	//cast ELSE to
+	els, err = castExpr(els, retTyp, retTyp.id == LTID_ENUM)
+	if err != nil {
+		return nil, err
 	}
 
-	params := []*Expr{kase, els}
+	params := []*Expr{els}
 	params = append(params, when...)
 
 	decideDataType := func(e *Expr) ExprDataType {
@@ -1787,7 +1742,6 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	}
 
 	paramsTypes := []ExprDataType{
-		decideDataType(kase),
 		decideDataType(els),
 	}
 
@@ -1799,8 +1753,6 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	if err != nil {
 		return nil, err
 	}
-	ret.HasKase = hasKase
-	ret.HasElse = hasElse
 	return ret, nil
 }
 

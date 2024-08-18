@@ -6,11 +6,12 @@ import (
 )
 
 type ExprState struct {
-	_expr       *Expr
-	_execState  *ExprExecState
-	_children   []*ExprState
-	_types      []LType
-	_interChunk *Chunk
+	_expr               *Expr
+	_execState          *ExprExecState
+	_children           []*ExprState
+	_types              []LType
+	_interChunk         *Chunk
+	_trueSel, _falseSel *SelectVector //for CASE WHEN
 }
 
 func NewExprState(expr *Expr, eeState *ExprExecState) *ExprState {
@@ -122,15 +123,121 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *SelectVector, 
 	case ET_Column:
 		return exec.executeColumnRef(expr, eState, sel, count, result)
 	case ET_Func:
-		return exec.executeFunc(expr, eState, sel, count, result)
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+		if expr.SubTyp == ET_Case {
+			return exec.executeCase(expr, eState, sel, count, result)
+		} else {
+			return exec.executeFunc(expr, eState, sel, count, result)
+		}
+	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst:
 		return exec.executeConst(expr, eState, sel, count, result)
 	default:
 		panic(fmt.Sprintf("%d", expr.Typ))
 	}
 	return nil
 }
-
+func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
+	var err error
+	eState._interChunk.reset()
+	curTrueSel := eState._trueSel
+	curFalseSel := eState._falseSel
+	curSel := sel
+	curCount := count
+	//[0] ELSE expr
+	for i := 1; i < len(expr.Children); i += 2 {
+		when := expr.Children[i]
+		then := expr.Children[i+1]
+		whenState := eState._children[i]
+		thenState := eState._children[i+1]
+		interRes := eState._interChunk._data[i+1]
+		tCnt, err := exec.execSelectExpr(
+			when,
+			whenState,
+			curSel,
+			curCount,
+			curTrueSel,
+			curFalseSel,
+		)
+		if err != nil {
+			return err
+		}
+		if tCnt == 0 { //all false
+			continue
+		}
+		fCnt := curCount - tCnt
+		if fCnt == 0 && curCount == count {
+			//first WHEN are all true.
+			//execute the THEN in first WHEN
+			err = exec.execute(
+				then,
+				thenState,
+				sel,
+				count,
+				result,
+			)
+			if err != nil {
+				return err
+			}
+			return err
+		} else {
+			err = exec.execute(
+				then,
+				thenState,
+				curTrueSel,
+				tCnt,
+				interRes,
+			)
+			if err != nil {
+				return err
+			}
+			FillSwitch(
+				interRes,
+				result,
+				curTrueSel,
+				tCnt,
+			)
+		}
+		curSel = curFalseSel
+		curCount = fCnt
+		if fCnt == 0 {
+			break
+		}
+	}
+	if curCount > 0 {
+		elseState := eState._children[0]
+		if curCount == count {
+			//all WHEN are false
+			err = exec.execute(
+				expr.Children[0],
+				elseState,
+				sel,
+				count,
+				result,
+			)
+			if err != nil {
+				return err
+			}
+			return err
+		} else {
+			interRes := eState._interChunk._data[0]
+			assertFunc(curSel != nil)
+			err = exec.execute(
+				expr.Children[0],
+				elseState,
+				curSel,
+				curCount,
+				interRes,
+			)
+			if err != nil {
+				return err
+			}
+			FillSwitch(interRes, result, curSel, curCount)
+		}
+	}
+	if sel != nil {
+		result.sliceOnSelf(sel, count)
+	}
+	return nil
+}
 func (exec *ExprExec) executeCompare(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
 	var err error
 	eState._interChunk.reset()
@@ -180,7 +287,7 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *Selec
 }
 func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVector, count int, result *Vector) error {
 	switch expr.Typ {
-	case ET_IConst, ET_SConst, ET_FConst, ET_BConst:
+	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst:
 		val := &Value{
 			_typ: expr.DataTyp.LTyp,
 			_i64: expr.Ivalue,
@@ -443,7 +550,11 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 		for _, child := range expr.Children {
 			ret.addChild(child)
 		}
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst:
+		if expr.SubTyp == ET_Case {
+			ret._trueSel = NewSelectVector(defaultVectorSize)
+			ret._falseSel = NewSelectVector(defaultVectorSize)
+		}
+	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst:
 		ret = NewExprState(expr, eeState)
 	case ET_Orderby:
 		//TODO: asc or desc
@@ -454,4 +565,51 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 	}
 	ret.finalize()
 	return
+}
+
+func FillSwitch(
+	vec *Vector,
+	res *Vector,
+	sel *SelectVector,
+	count int,
+) {
+	switch res.typ().getInternalType() {
+	case DECIMAL:
+		TemplatedFillLoop[Decimal](vec, res, sel, count)
+	default:
+		panic("usp")
+	}
+}
+
+func TemplatedFillLoop[T any](
+	vec *Vector,
+	res *Vector,
+	sel *SelectVector,
+	count int,
+) {
+	res.setPhyFormat(PF_FLAT)
+	resSlice := getSliceInPhyFormatFlat[T](res)
+	resBitmap := getMaskInPhyFormatFlat(res)
+	if vec.phyFormat().isConst() {
+		srcSlice := getSliceInPhyFormatConst[T](vec)
+		if isNullInPhyFormatConst(vec) {
+			for i := 0; i < count; i++ {
+				resBitmap.setInvalid(uint64(sel.getIndex(i)))
+			}
+		} else {
+			for i := 0; i < count; i++ {
+				resSlice[sel.getIndex(i)] = srcSlice[0]
+			}
+		}
+	} else {
+		var vdata UnifiedFormat
+		vec.toUnifiedFormat(count, &vdata)
+		srcSlice := getSliceInPhyFormatUnifiedFormat[T](&vdata)
+		for i := 0; i < count; i++ {
+			srcIdx := vdata._sel.getIndex(i)
+			resIdx := sel.getIndex(i)
+			resSlice[resIdx] = srcSlice[srcIdx]
+			resBitmap.set(uint64(resIdx), vdata._mask.rowIsValid(uint64(srcIdx)))
+		}
+	}
 }

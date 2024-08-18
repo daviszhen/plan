@@ -1680,34 +1680,9 @@ func Test_1g_q14(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Agg) &&
-			//	wantedOp(root.Children[0].Children[0], POT_Project)
+			return wantedOp(root, POT_Project) &&
+				wantedOp(root.Children[0], POT_Agg)
 
-			//return wantedOp(root, POT_Agg) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[0].Children[0], POT_Agg)
-
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[1], POT_Join)
-
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Agg) &&
-			//	wantedOp(root.Children[0].Children[0], POT_Scan)
-
-			return wantedOp(root, POT_Agg)
-			//return wantedOp(root, POT_Filter)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[1], POT_Scan)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Scan) &&
-			//	wantedOp(root.Children[1], POT_Scan)
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Scan)
-			//return wantedOp(root, POT_Scan) &&
-			//	len(root.Filters) > 1
 		},
 	)
 	//gConf.EnableMaxScanRows = true

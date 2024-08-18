@@ -1289,7 +1289,7 @@ func collectTableRefers(e *Expr, set UnorderedSet) {
 	case ET_Column:
 		index := e.ColRef[0]
 		set.insert(index)
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
 
 	case ET_Func:
 

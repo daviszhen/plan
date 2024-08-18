@@ -29,12 +29,16 @@ var (
 	//<
 	gBinStringLessOp binStringLessOp
 
+	//like
+	gBinStringLike binStringLikeOp
+
 	gBinDateIntervalSingleOpWrapper   binarySingleOpWrapper[Date, Interval, Date]
 	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, int32, bool]
 	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32, float32]
 	gBinFloat64Float64SingleOpWrapper binarySingleOpWrapper[float64, float64, float64]
 	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, float32, bool]
 	gBinDecimalDecimalOpWrapper       binarySingleOpWrapper[Decimal, Decimal, Decimal]
+	gBinStringBoolSingleOpWrapper     binarySingleOpWrapper[String, String, bool]
 )
 
 type binaryOp[T any, S any, R any] interface {
@@ -166,6 +170,14 @@ type binStringLessOp struct {
 
 func (op binStringLessOp) operation(left, right *String, result *bool) {
 	*result = left.less(right)
+}
+
+// like
+type binStringLikeOp struct {
+}
+
+func (op binStringLikeOp) operation(left, right *String, result *bool) {
+	*result = WildcardMatch(right, left)
 }
 
 func binaryExecSwitch[T any, S any, R any](
