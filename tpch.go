@@ -701,7 +701,7 @@ func tpchQ12() *Ast {
 				caseWhen(
 					nil,
 					inumber(0),
-					or(
+					and(
 						notEqual(column("o_orderpriority"), sstring("1-URGENT")),
 						notEqual(column("o_orderpriority"), sstring("2-HIGH")),
 					),

@@ -574,6 +574,8 @@ func FillSwitch(
 	count int,
 ) {
 	switch res.typ().getInternalType() {
+	case INT32:
+		TemplatedFillLoop[int32](vec, res, sel, count)
 	case DECIMAL:
 		TemplatedFillLoop[Decimal](vec, res, sel, count)
 	default:
