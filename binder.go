@@ -10,6 +10,16 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 		panic("need expr")
 	}
 	switch expr.Expr.ExprTyp {
+	case AstExprTypeDecimal:
+		assertFunc(expr.Expr.Scale > 0)
+		ret = &Expr{
+			Typ: ET_DecConst,
+			DataTyp: ExprDataType{
+				LTyp: decimal(expr.Expr.Width, expr.Expr.Scale),
+			},
+			Svalue: expr.Expr.Svalue,
+		}
+
 	case AstExprTypeNumber:
 		ret = &Expr{
 			Typ: ET_IConst,

@@ -193,6 +193,18 @@ func (e greatInt32Op) operation(left, right *int32) bool {
 	return *left > *right
 }
 
+// decimal
+type greatDecimalOp struct {
+}
+
+func (e greatDecimalOp) operation(left, right *Decimal) bool {
+	res, err := left.Decimal.Sub(right.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	return res.IsPos()
+}
+
 // date
 type greatDateOp struct {
 }
@@ -322,6 +334,8 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, greatDateOp{})
 		case FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, greatFloat32Op{})
+		case DECIMAL:
+			return selectBinary[Decimal](left, right, sel, count, trueSel, falseSel, greatDecimalOp{})
 		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:

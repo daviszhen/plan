@@ -1730,12 +1730,13 @@ func Test_1g_q11(t *testing.T) {
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Agg)
+			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
 			//return wantedOp(root, POT_Filter)
 			//return wantedOp(root, POT_Project) &&
-			//wantedOp(root.Children[0], POT_Agg)
+			//	wantedOp(root.Children[0], POT_Agg)
 			//return wantedOp(root, POT_Join) &&
 			//	wantedOp(root.Children[0], POT_Agg)
+			//return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeCross
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -1770,4 +1771,9 @@ func Test_1g_q5(t *testing.T) {
 		gConf.SkipOutput = false
 	}()
 	runOps(t, ops)
+}
+
+func TestName(t *testing.T) {
+	dec := dec.MustParse("0.0001000000")
+	fmt.Println(dec)
 }

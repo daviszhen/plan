@@ -39,6 +39,7 @@ const (
 	AstExprTypeNull
 	AstExprTypeDate
 	AstExprTypeInterval
+	AstExprTypeDecimal
 
 	//composite
 	AstExprTypeParen // ()
@@ -105,6 +106,8 @@ type Ast struct {
 		Table   string
 		Svalue  string
 		Ivalue  int64
+		Width   int
+		Scale   int
 		Fvalue  float64
 		Desc    bool        // in orderby
 		JoinTyp AstJoinType // join
@@ -174,6 +177,8 @@ func (a *Ast) Format(ctx *FormatCtx) {
 		ctx.Writef("%d", a.Expr.Ivalue)
 	case AstExprTypeFNumber:
 		ctx.Writef("%f", a.Expr.Fvalue)
+	case AstExprTypeDecimal:
+		ctx.Writef("%s %d %d", a.Expr.Svalue, a.Expr.Width, a.Expr.Scale)
 	case AstExprTypeString:
 		ctx.Write(a.Expr.Svalue)
 	case AstExprTypeDate:
@@ -359,6 +364,15 @@ func fnumber(f float64) *Ast {
 	num := &Ast{Typ: AstTypeExpr}
 	num.Expr.ExprTyp = AstExprTypeFNumber
 	num.Expr.Fvalue = f
+	return num
+}
+
+func decimalNumber(s string, width, scale int) *Ast {
+	num := &Ast{Typ: AstTypeExpr}
+	num.Expr.ExprTyp = AstExprTypeDecimal
+	num.Expr.Svalue = s
+	num.Expr.Width = width
+	num.Expr.Scale = scale
 	return num
 }
 

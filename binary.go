@@ -123,6 +123,7 @@ func (op binDecimalDecimalMulOp) operation(left *Decimal, right *Decimal, result
 		panic(err)
 	}
 	result.Decimal = d
+	//fmt.Println("dec *", left.Decimal, right.Decimal, result.Decimal)
 }
 
 // /

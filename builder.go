@@ -913,7 +913,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		}
 	case ET_Column:
 		return expr, root, nil
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_DecConst, ET_NConst:
 		return expr, root, nil
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
@@ -1355,7 +1355,7 @@ func hasCorrCol(expr *Expr) bool {
 			ret = ret || hasCorrCol(child)
 		}
 		return ret
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst, ET_NConst:
+	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))

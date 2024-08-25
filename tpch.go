@@ -664,7 +664,7 @@ func q11Subquery() *Ast {
 					column("ps_availqty"),
 				),
 			),
-			fnumber(0.0001000000),
+			decimalNumber("0.0001000000", 11, 10), //0.0001000000
 		),
 	)
 	ret.Select.From.Tables = crossJoinList(

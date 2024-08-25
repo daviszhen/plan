@@ -168,7 +168,7 @@ func unaryExecLoop[T any, R any](
 			if mask.rowIsValidUnsafe(uint64(idx)) {
 				wrapper.operation(
 					&input[idx],
-					&result[idx],
+					&result[i],
 					resMask,
 					i,
 					op,
@@ -183,7 +183,7 @@ func unaryExecLoop[T any, R any](
 			idx := sel.getIndex(i)
 			wrapper.operation(
 				&input[idx],
-				&result[idx],
+				&result[i],
 				resMask,
 				i,
 				op,

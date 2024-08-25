@@ -475,17 +475,21 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	case DECIMAL:
 		slice := toSlice[Decimal](vec._data, pTyp.size())
 		if len(val._str) != 0 {
-			decVal := dec.MustParse(val._str)
+			decVal, err := dec.ParseExact(val._str, vec.typ().scale)
+			if err != nil {
+				panic(err)
+			}
+			val._str = ""
 			slice[idx] = Decimal{
 				decVal,
 			}
 		} else {
-			decVal, err := dec.NewFromInt64(val._i64, val._i64_1, vec._typ.scale)
+			nDec, err := dec.NewFromInt64(val._i64, val._i64_1, vec._typ.scale)
 			if err != nil {
 				panic(err)
 			}
 			slice[idx] = Decimal{
-				decVal,
+				nDec,
 			}
 		}
 

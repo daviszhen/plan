@@ -1654,6 +1654,27 @@ var funcs = []*Function{
 					}
 				},
 			},
+			{
+				Desc: "cast",
+				Idx:  8,
+				Args: []ExprDataType{
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+					{
+						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},

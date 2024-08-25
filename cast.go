@@ -32,6 +32,8 @@ var (
 	// decimal => ...
 	gTryCastDecimalToFloat32          tryCastDecimalToFloat32
 	gTryCastDecimalToFloat32OpWrapper tryCastOpWrapper[Decimal, float32]
+	gTryCastDecimalToDecimal          tryCastDecimalToDecimal
+	gTryCastDecimalToDecimalOpWrapper tryCastOpWrapper[Decimal, Decimal]
 )
 
 type tryCastOpWrapper[T any, R any] struct {
@@ -69,11 +71,17 @@ func (numCast tryCastInt32ToFloat64) operation(input *int32, result *float64) {
 }
 
 type tryCastInt32ToDecimal struct {
+	tScale int
 }
 
 func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
+	nDec, err := dec.NewFromInt64(int64(*input), 0, numCast.tScale)
+	if err != nil {
+		panic(err)
+	}
+	//fmt.Println("cat int32 to dec", d)
 	*result = Decimal{
-		dec.MustNew(int64(*input), result.Scale()),
+		Decimal: nDec,
 	}
 }
 
@@ -100,6 +108,37 @@ type tryCastBigintToDecimal struct{}
 
 func (numCast tryCastBigintToDecimal) operation(input *Hugeint, result *Decimal) {
 	panic("usp")
+}
+
+type tryCastDecimalToDecimal struct {
+	dstScale int
+	srcScale int
+}
+
+func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal) {
+	//if numCast.srcScale == numCast.dstScale {
+	//	*result = *input
+	//} else if numCast.srcScale > numCast.dstScale {
+	//
+	//} else {
+	//
+	//}
+	w, f, ok := input.Int64(numCast.dstScale)
+	if ok {
+		ndec, err := dec.NewFromInt64(w, f, numCast.dstScale)
+		if err != nil {
+			panic(err)
+		}
+		result.Decimal = ndec
+	} else {
+
+		ndec, err := dec.ParseExact(input.String(), numCast.dstScale)
+		if err != nil {
+			panic(err)
+		}
+		result.Decimal = ndec
+	}
+	//fmt.Println(input.String(), "-cast->", result.Decimal)
 }
 
 type tryCastFloat32ToInt32 struct {
@@ -154,6 +193,7 @@ func castExec(
 				gTryCastInt32ToFloat64OpWrapper,
 			)
 		case LTID_DECIMAL:
+			gTryCastInt32ToDecimal.tScale = result.typ().scale
 			unaryGenericExec[int32, Decimal](
 				source,
 				result,
@@ -227,6 +267,18 @@ func castExec(
 				gTryCastDecimalToFloat32,
 				nil,
 				gTryCastDecimalToFloat32OpWrapper,
+			)
+		case LTID_DECIMAL:
+			gTryCastDecimalToDecimal.srcScale = source.typ().scale
+			gTryCastDecimalToDecimal.dstScale = result.typ().scale
+			unaryGenericExec[Decimal, Decimal](
+				source,
+				result,
+				count,
+				false,
+				gTryCastDecimalToDecimal,
+				nil,
+				gTryCastDecimalToDecimalOpWrapper,
 			)
 		default:
 			panic("usp")

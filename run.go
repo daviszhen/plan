@@ -562,7 +562,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//fmt.Println("group chunk")
 			//groupChunk.print()
 			run.hAggr.Sink(groupChunk, childChunk)
-			//fmt.Println("sink chunk")
+			//fmt.Println("after sink chunk")
 		}
 		run.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
@@ -1301,11 +1301,17 @@ func parquetColToValue(field any, lTyp LType) (*Value, error) {
 
 		val._str = field.(string)
 	case LTID_DECIMAL:
+		p10 := int64(1)
+		for i := 0; i < lTyp.scale; i++ {
+			p10 *= 10
+		}
 		switch v := field.(type) {
 		case int32:
-			val._i64 = int64(v)
+			val._i64 = int64(v) / p10
+			val._i64_1 = int64(v) % p10
 		case int64:
-			val._i64 = v
+			val._i64 = v / p10
+			val._i64_1 = int64(v) % p10
 		default:
 			panic("usp")
 		}

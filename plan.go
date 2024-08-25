@@ -1647,6 +1647,7 @@ const (
 	ET_Subquery
 
 	ET_IConst    //integer
+	ET_DecConst  //decimal
 	ET_SConst    //string
 	ET_FConst    //float
 	ET_DateConst //date
@@ -1851,7 +1852,7 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		if index == e.ColRef[0] {
 			e = realExprs[e.ColRef[1]]
 		}
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -1869,7 +1870,7 @@ func referTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
-	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst, ET_DecConst, ET_NConst:
 
 	case ET_Func:
 	default:
@@ -1891,7 +1892,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	case ET_Column:
 		return index == e.ColRef[0]
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
 		return true
 	case ET_Func:
 	default:
@@ -1915,7 +1916,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		if _, has := rightTags[e.ColRef[0]]; has {
 			ret |= RightSide
 		}
-	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
+	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -2045,6 +2046,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ctx.Writef("(%v,%s)", e.Bvalue, e.DataTyp)
 	case ET_FConst:
 		ctx.Writef("(%v,%s)", e.Fvalue, e.DataTyp)
+	case ET_DecConst:
+		ctx.Writef("(%v,%s)", e.Svalue, e.DataTyp)
 	case ET_TABLE:
 		ctx.Writef("%s.%s", e.Database, e.Table)
 	case ET_Join:
@@ -2173,6 +2176,8 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Bvalue))
 	case ET_FConst:
 		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Fvalue))
+	case ET_DecConst:
+		tree.AddMetaNode(head, fmt.Sprintf("(%s %d %d)", e.Svalue, e.DataTyp.LTyp.width, e.DataTyp.LTyp.scale))
 	case ET_TABLE:
 		tree.AddNode(fmt.Sprintf("%s.%s", e.Database, e.Table))
 	case ET_Join:
@@ -2668,7 +2673,7 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 			e.ColRef = newBind
 		}
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
 	case ET_Func:
 	case ET_Orderby:
 	default:
@@ -2692,7 +2697,7 @@ func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr 
 			e.ColRef[1] = uint64(pos)
 		}
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
 	case ET_Func:
 	case ET_Orderby:
 	default:
@@ -2719,7 +2724,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		set.insert(e.ColRef)
 
 	case ET_Func:
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
 	case ET_Orderby:
 	default:
 		panic("usp")

@@ -128,7 +128,7 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *SelectVector, 
 		} else {
 			return exec.executeFunc(expr, eState, sel, count, result)
 		}
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst:
+	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst, ET_DecConst:
 		return exec.executeConst(expr, eState, sel, count, result)
 	default:
 		panic(fmt.Sprintf("%d", expr.Typ))
@@ -287,7 +287,7 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *Selec
 }
 func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVector, count int, result *Vector) error {
 	switch expr.Typ {
-	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst:
+	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
 		val := &Value{
 			_typ: expr.DataTyp.LTyp,
 			_i64: expr.Ivalue,
@@ -554,7 +554,7 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 			ret._trueSel = NewSelectVector(defaultVectorSize)
 			ret._falseSel = NewSelectVector(defaultVectorSize)
 		}
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst:
+	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst, ET_DecConst:
 		ret = NewExprState(expr, eeState)
 	case ET_Orderby:
 		//TODO: asc or desc
