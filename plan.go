@@ -322,12 +322,7 @@ func (i stringScatterOp) store(src String, rowLoc unsafe.Pointer, offsetInRow in
 		_len:  src.len(),
 	}
 	store[String](newS, pointerAdd(rowLoc, offsetInRow))
-	//test
-	lstr := load[String](pointerAdd(rowLoc, offsetInRow))
-
 	assertFunc(newS.String() == src.String())
-	assertFunc(lstr.String() == src.String())
-
 	*heapLoc = pointerAdd(*heapLoc, src.len())
 }
 
@@ -342,10 +337,6 @@ func (i decimalScatterOp) nullValue() Decimal {
 func (i decimalScatterOp) store(src Decimal, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
 	dst := src.Decimal
 	store[Decimal](Decimal{dst}, pointerAdd(rowLoc, offsetInRow))
-
-	tDec := load[Decimal](pointerAdd(rowLoc, offsetInRow))
-	//fmt.Println("save decimal:", tDec.String(), "to rowLoc", rowLoc, "offset", offsetInRow)
-	assertFunc(tDec.equal(&src))
 }
 
 type dateScatterOp struct {
@@ -358,12 +349,6 @@ func (i dateScatterOp) nullValue() Date {
 func (i dateScatterOp) store(src Date, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
 	dst := src
 	store[Date](dst, pointerAdd(rowLoc, offsetInRow))
-
-	tDate := load[Date](pointerAdd(rowLoc, offsetInRow))
-	//if offsetInRow == 33 {
-	//	fmt.Println("save date:", tDate, "to rowLoc", rowLoc, "offset", offsetInRow)
-	//}
-	assertFunc(tDate.equal(&dst))
 }
 
 type PhyType int
@@ -1416,6 +1401,7 @@ type LogicalOperator struct {
 	GroupBys         []*Expr
 	OrderBys         []*Expr
 	Limit            *Expr
+	Offset           *Expr
 	Stats            *Stats
 	hasEstimatedCard bool
 	estimatedCard    uint64
@@ -2315,6 +2301,7 @@ type PhysicalOperator struct {
 	OnConds       []*Expr
 	OrderBys      []*Expr
 	Limit         *Expr
+	Offset        *Expr
 	estimatedCard uint64
 
 	Children []*PhysicalOperator

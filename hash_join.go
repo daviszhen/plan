@@ -553,7 +553,6 @@ func InsertHashesLoop(
 		pointers[idx] = keyLocs[i]
 		base := keyLocs[i]
 		cur := load[unsafe.Pointer](pointerAdd(keyLocs[i], pointerOffset))
-		//fmt.Println("insert base", base, cur)
 		if base == cur {
 			panic("insert loop in bucket")
 		}
@@ -982,13 +981,6 @@ func (tuple *TupleDataCollection) scatter(
 	}
 	for i := 0; i < tuple._layout.columnCount(); i++ {
 		tuple.scatterVector(part, chunk._data[i], i, appendSel, cnt)
-		//for j := 0; j < tuple._layout.columnCount(); j++ {
-		//	if chunk._data[j].typ().getInternalType() == DATE && tuple._layout.offsets()[j] == 33 {
-		//		rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
-		//		dt := load[Date](pointerAdd(rowPtrs[0], 33))
-		//		fmt.Println("check date", dt, "rowPtrs", rowPtrs[0], 33)
-		//	}
-		//}
 
 	}
 }

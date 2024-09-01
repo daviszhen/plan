@@ -1773,7 +1773,8 @@ func Test_1g_q10(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			//return wantedOp(root, POT_Order)
+			return wantedOp(root, POT_Limit)
 			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
 			//return wantedOp(root, POT_Filter)
 			//return wantedOp(root, POT_Project) &&

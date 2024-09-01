@@ -246,6 +246,7 @@ type Builder struct {
 	havingExpr   *Expr
 	orderbyExprs []*Expr
 	limitCount   *Expr
+	limitOffset  *Expr
 
 	names       []string //output column names
 	columnCount int      // count of the select exprs (after expanding star)
@@ -747,6 +748,7 @@ func (b *Builder) CreatePlan(ctx *BindContext, root *LogicalOperator) (*LogicalO
 		root = &LogicalOperator{
 			Typ:      LOT_Limit,
 			Limit:    b.limitCount,
+			Offset:   b.limitOffset,
 			Children: []*LogicalOperator{root},
 		}
 	}
@@ -1715,7 +1717,7 @@ func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error
 			return nil, err
 		}
 	case LOT_Limit:
-		proot, err = b.createPhyTopN(root, children)
+		proot, err = b.createPhyLimit(root, children)
 		if err != nil {
 			return nil, err
 		}
@@ -1782,6 +1784,11 @@ func (b *Builder) createPhyAgg(root *LogicalOperator, children []*PhysicalOperat
 		Children: children}, nil
 }
 
-func (b *Builder) createPhyTopN(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
-	return &PhysicalOperator{Typ: POT_Limit, Outputs: root.Outputs, Limit: root.Limit, Children: children}, nil
+func (b *Builder) createPhyLimit(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:      POT_Limit,
+		Outputs:  root.Outputs,
+		Limit:    root.Limit,
+		Offset:   root.Offset,
+		Children: children}, nil
 }

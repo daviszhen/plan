@@ -1190,15 +1190,6 @@ func Scatter(
 		for i := 0; i < count; i++ {
 			rowIdx := sel.getIndex(i)
 			rowPtr := ptrs[rowIdx]
-			//fmt.Fprintln(os.Stderr,
-			//	"Scatter",
-			//	i,
-			//	dataLocs[i],
-			//	"to",
-			//	rowPtr,
-			//	heapPointerOffset,
-			//	pointerAdd(rowPtr, heapPointerOffset),
-			//)
 			store[unsafe.Pointer](dataLocs[i], pointerAdd(rowPtr, heapPointerOffset))
 			store[uint32](uint32(entrySizes[i]), dataLocs[i])
 			dataLocs[i] = pointerAdd(dataLocs[i], int32Size)

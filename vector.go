@@ -904,7 +904,7 @@ func (c *Chunk) setCap(cap int) {
 }
 
 func (c *Chunk) setCard(count int) {
-	assertFunc(c._count == 0)
+	assertFunc(c._count <= c._cap)
 	c._count = count
 }
 

@@ -63,6 +63,20 @@ const (
 	Done            OperatorResult = 3
 )
 
+type SourceResult int
+
+const (
+	SrcResHaveMoreOutput SourceResult = iota
+	SrcResDone
+)
+
+type SinkResult int
+
+const (
+	SinkResNeedMoreInput SinkResult = iota
+	SinkResDone
+)
+
 var _ OperatorExec = &Runner{}
 
 type OperatorExec interface {
@@ -74,6 +88,9 @@ type OperatorExec interface {
 type Runner struct {
 	op    *PhysicalOperator
 	state *OperatorState
+	//for limit
+	limit *Limit
+
 	//for order
 	localSort *LocalSort
 
@@ -141,6 +158,8 @@ func (run *Runner) Init() error {
 		return run.filterInit()
 	case POT_Order:
 		return run.orderInit()
+	case POT_Limit:
+		return run.limitInit()
 	default:
 		panic("usp")
 	}
@@ -161,6 +180,8 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.filterExec(output, state)
 	case POT_Order:
 		return run.orderExec(output, state)
+	case POT_Limit:
+		return run.limitExec(output, state)
 	default:
 		panic("usp")
 	}
@@ -204,9 +225,93 @@ func (run *Runner) Close() error {
 		return run.filterClose()
 	case POT_Order:
 		return run.orderClose()
+	case POT_Limit:
+		return run.limitClose()
 	default:
 		panic("usp")
 	}
+}
+
+func (run *Runner) limitInit() error {
+	//collect children output types
+	childTypes := make([]LType, 0)
+	for _, outputExpr := range run.op.Children[0].Outputs {
+		childTypes = append(childTypes, outputExpr.DataTyp.LTyp)
+	}
+
+	run.limit = NewLimit(childTypes, run.op.Limit, run.op.Offset)
+	run.state = &OperatorState{
+		outputExec: NewExprExec(run.op.Outputs...),
+	}
+
+	return nil
+}
+
+func (run *Runner) limitExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	var err error
+	var res OperatorResult
+	if run.limit._state == LIMIT_INIT {
+		cnt := 0
+		for {
+			childChunk := &Chunk{}
+			res, err = run.execChild(run.children[0], childChunk, state)
+			if err != nil {
+				return 0, err
+			}
+			if res == InvalidOpResult {
+				return InvalidOpResult, nil
+			}
+			if res == Done {
+				break
+			}
+			if childChunk.card() == 0 {
+				continue
+			}
+
+			//fmt.Println("childChunk:")
+			//childChunk.print()
+
+			ret := run.limit.Sink(childChunk)
+			if ret == SinkResDone {
+				break
+			}
+		}
+		fmt.Println("limit total children count", cnt)
+		run.limit._state = LIMIT_SCAN
+	}
+
+	if run.limit._state == LIMIT_SCAN {
+		//get data from collection
+		for {
+			read := &Chunk{}
+			read.init(run.limit._childTypes, defaultVectorSize)
+			getRet := run.limit.GetData(read)
+			if getRet == SrcResDone {
+				break
+			}
+
+			//evaluate output
+			err = run.state.outputExec.executeExprs([]*Chunk{read, nil, nil}, output)
+			if err != nil {
+				return InvalidOpResult, err
+			}
+
+			if output.card() > 0 {
+				return haveMoreOutput, nil
+			}
+		}
+
+	}
+
+	if output.card() == 0 {
+		return Done, nil
+	}
+	return haveMoreOutput, nil
+}
+
+func (run *Runner) limitClose() error {
+	run.limit = nil
+	return nil
 }
 
 func (run *Runner) orderInit() error {
