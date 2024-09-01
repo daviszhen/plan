@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -293,7 +307,7 @@ type stringScatterOp struct {
 }
 
 func (i stringScatterOp) nullValue() String {
-	return String{_data: unsafe.Pointer(uintptr(0))}
+	return String{_data: nil}
 }
 
 func (i stringScatterOp) store(src String, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
@@ -342,8 +356,7 @@ func (i dateScatterOp) nullValue() Date {
 }
 
 func (i dateScatterOp) store(src Date, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	dst := Date{}
-	dst = src
+	dst := src
 	store[Date](dst, pointerAdd(rowLoc, offsetInRow))
 
 	tDate := load[Date](pointerAdd(rowLoc, offsetInRow))
@@ -437,18 +450,12 @@ func init() {
 	int16Size = int8Size * 2
 	int32Size = int8Size * 4
 	int64Size = int8Size * 8
-	hint := Hugeint{}
-	int128Size = int(unsafe.Sizeof(hint))
-	interVal := Interval{}
-	intervalSize = int(unsafe.Sizeof(interVal))
-	dateVal := Date{}
-	dateSize = int(unsafe.Sizeof(dateVal))
-	varVal := String{}
-	varcharSize = int(unsafe.Sizeof(varVal))
-	p := unsafe.Pointer(&b)
-	pointerSize = int(unsafe.Sizeof(p))
-	dec := Decimal{}
-	decimalSize = int(unsafe.Sizeof(dec))
+	int128Size = int(unsafe.Sizeof(Hugeint{}))
+	intervalSize = int(unsafe.Sizeof(Interval{}))
+	dateSize = int(unsafe.Sizeof(Date{}))
+	varcharSize = int(unsafe.Sizeof(String{}))
+	pointerSize = int(unsafe.Sizeof(unsafe.Pointer(&b)))
+	decimalSize = int(unsafe.Sizeof(Decimal{}))
 	f := float32(0)
 	float32Size = int(unsafe.Sizeof(f))
 }
@@ -901,7 +908,6 @@ func targetTypeCost(typ LType) int64 {
 	default:
 		return 110
 	}
-	panic("can not be here")
 }
 
 var tinyintTo = map[LTypeId]int{
@@ -1141,7 +1147,6 @@ func implicitCast(from, to LType) int64 {
 	default:
 		return -1
 	}
-	return -1
 }
 
 func decimalSizeCheck(left, right LType) LType {
@@ -1333,12 +1338,12 @@ type LOT int
 
 const (
 	LOT_Project  LOT = 0
-	LOT_Filter       = 1
-	LOT_Scan         = 2
-	LOT_JOIN         = 3
-	LOT_AggGroup     = 4
-	LOT_Order        = 5
-	LOT_Limit        = 6
+	LOT_Filter   LOT = 1
+	LOT_Scan     LOT = 2
+	LOT_JOIN     LOT = 3
+	LOT_AggGroup LOT = 4
+	LOT_Order    LOT = 5
+	LOT_Limit    LOT = 6
 )
 
 func (lt LOT) String() string {
@@ -2199,12 +2204,12 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 		case ET_Invalid:
 			panic("usp invalid expr")
 		case ET_Between:
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			branch = tree.AddMetaBranch(head, e.SubTyp.String())
 			e.Children[0].Print(branch, "")
 			e.Children[1].Print(branch, "")
 			e.Children[2].Print(branch, "")
 		case ET_Case:
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			branch = tree.AddMetaBranch(head, e.SubTyp.String())
 			if e.Children[0] != nil {
 				e.Children[0].Print(branch, "")
 			}
@@ -2217,21 +2222,21 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 				e.Children[0].Print(branch, "")
 			}
 		case ET_In, ET_NotIn:
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			branch = tree.AddMetaBranch(head, e.SubTyp)
 			for _, child := range e.Children {
 				child.Print(branch, "")
 			}
 		case ET_Exists:
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			branch = tree.AddMetaBranch(head, e.SubTyp)
 			e.Children[0].Print(branch, "")
 		case ET_SubFunc:
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.Svalue))
+			branch = tree.AddMetaBranch(head, e.Svalue)
 			for _, child := range e.Children {
 				child.Print(branch, "")
 			}
 		default:
 			//binary operator
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s", e.SubTyp))
+			branch = tree.AddMetaBranch(head, e.SubTyp)
 			e.Children[0].Print(branch, "")
 			e.Children[1].Print(branch, "")
 		}
@@ -2463,7 +2468,6 @@ func (c *Catalog) Table(db, table string) (*CatalogTable, error) {
 	} else {
 		panic(fmt.Sprintf("database %s does not exist", db))
 	}
-	return nil, nil
 }
 
 type Stats struct {
@@ -2514,21 +2518,22 @@ func splitExprByAnd(expr *Expr) []*Expr {
 	if expr.Typ == ET_Func {
 		if expr.SubTyp == ET_And {
 			return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
-		} else if expr.SubTyp == ET_In || expr.SubTyp == ET_NotIn {
-			ret := make([]*Expr, 0)
-			for i, child := range expr.Children {
-				if i == 0 {
-					continue
-				}
-				ret = append(ret, &Expr{
-					Typ:      expr.Typ,
-					SubTyp:   expr.SubTyp,
-					Svalue:   expr.SubTyp.String(),
-					FuncId:   expr.FuncId,
-					Children: []*Expr{expr.Children[0], child},
-				})
-			}
 		}
+		//else if expr.SubTyp == ET_In || expr.SubTyp == ET_NotIn {
+		//	//ret := make([]*Expr, 0)
+		//	//for i, child := range expr.Children {
+		//	//	if i == 0 {
+		//	//		continue
+		//	//	}
+		//	//	ret = append(ret, &Expr{
+		//	//		Typ:      expr.Typ,
+		//	//		SubTyp:   expr.SubTyp,
+		//	//		Svalue:   expr.SubTyp.String(),
+		//	//		FuncId:   expr.FuncId,
+		//	//		Children: []*Expr{expr.Children[0], child},
+		//	//	})
+		//	//}
+		//}
 	}
 	return []*Expr{expr.copy()}
 }

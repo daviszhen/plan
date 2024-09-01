@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -130,7 +144,6 @@ func (run *Runner) Init() error {
 	default:
 		panic("usp")
 	}
-	return nil
 }
 
 func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (OperatorResult, error) {
@@ -151,18 +164,14 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 	default:
 		panic("usp")
 	}
-	return Done, nil
 }
 
 func (run *Runner) execChild(child *Runner, output *Chunk, state *OperatorState) (OperatorResult, error) {
-	cnt := 0
 	for output.card() == 0 {
 		res, err := child.Execute(nil, output, child.state)
 		if err != nil {
 			return InvalidOpResult, err
 		}
-		//fmt.Println("child result:", res, cnt)
-		cnt++
 		switch res {
 		case Done:
 			return Done, nil
@@ -198,7 +207,6 @@ func (run *Runner) Close() error {
 	default:
 		panic("usp")
 	}
-	return nil
 }
 
 func (run *Runner) orderInit() error {
@@ -509,8 +517,8 @@ func (run *Runner) aggrInit() error {
 		bSet := make(ColumnBindSet)
 		collectColRefs2(bSet, run.op.Outputs...)
 
-		for bind, _ := range bSet {
-			if bind.table() < 0 {
+		for bind := range bSet {
+			if int64(bind.table()) < 0 {
 				run.state.referChildren = true
 				break
 			}
@@ -747,7 +755,7 @@ func (run *Runner) joinInit() error {
 			set := make(ColumnBindSet)
 			collectColRefs(output, set)
 			assertFunc(!set.empty() && len(set) == 1)
-			for bind, _ := range set {
+			for bind := range set {
 				outputPosMap[i] = bind
 			}
 		}
@@ -1160,7 +1168,6 @@ func (run *Runner) scanClose() error {
 	default:
 		panic("usp format")
 	}
-	return nil
 }
 func (run *Runner) readParquetTable(output *Chunk, state *OperatorState, maxCnt int) error {
 	rowCont := -1
@@ -1286,11 +1293,11 @@ func parquetColToValue(field any, lTyp LType) (*Value, error) {
 		val._i64_1 = int64(d.Month())
 		val._i64_2 = int64(d.Day())
 	case LTID_INTEGER:
-		switch field.(type) {
+		switch fVal := field.(type) {
 		case int32:
-			val._i64 = int64(field.(int32))
+			val._i64 = int64(fVal)
 		case int64:
-			val._i64 = field.(int64)
+			val._i64 = fVal
 		default:
 			panic("usp")
 		}

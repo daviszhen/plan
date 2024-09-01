@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -265,19 +279,20 @@ func (est *CardinalityEstimator) EstimateBaseTableCard(node *JoinNode, op *Logic
 	if node.set.count() != 1 {
 		panic("should be 1")
 	}
-	relId := node.set.relations[0]
+	//relId := node.set.relations[0]
 	lowestCardFound := node.getBaseCard()
-	for col := range est.relationAttributes[relId].columns {
+	//for col := range est.relationAttributes[relId].columns
+	{
 		cardAfterFilters := node.getBaseCard()
-		key := ColumnBind{relId, col}
-		var tableFilters *TableFilterSet
-		if est.relationColumnToOriginalColumn.find(key) {
-			actualBind := est.relationColumnToOriginalColumn.get(key)
-			tableFilters = est.GetTableFilters(op, actualBind[0])
-		}
-		if tableFilters != nil {
-			//TODO:
-		}
+		//key := ColumnBind{relId, col}
+		//var tableFilters *TableFilterSet
+		//if est.relationColumnToOriginalColumn.find(key) {
+		//	//actualBind := est.relationColumnToOriginalColumn.get(key)
+		//	//tableFilters = est.GetTableFilters(op, actualBind[0])
+		//}
+		//if tableFilters != nil {
+		//	//TODO:
+		//}
 		if hasLogicalFilter {
 			cardAfterFilters = cardAfterFilters * defaultSelectivity
 		}
@@ -303,7 +318,7 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 	var get *LogicalOperator
 	var catalogTable *CatalogTable
 	var err error
-	getUpdated := true
+	var getUpdated bool
 	for col := range est.relationAttributes[relId].columns {
 		key := ColumnBind{relId, col}
 		if est.relationColumnToOriginalColumn.find(key) {

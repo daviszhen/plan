@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -60,13 +74,13 @@ func isSubset(super, sub *JoinRelationSet) bool {
 	return false
 }
 
-func (jrs *JoinRelationSet) String() string {
-	if jrs == nil {
+func (irs *JoinRelationSet) String() string {
+	if irs == nil {
 		return ""
 	}
 	bb := strings.Builder{}
 	bb.WriteString("[")
-	for i, r := range jrs.relations {
+	for i, r := range irs.relations {
 		if i > 0 {
 			bb.WriteString(", ")
 		}
@@ -511,7 +525,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 	//fmt.Println("query graph\n", joinOrder.queryGraph)
 
 	//prepare for dp algorithm
-	var nodesOpts []*NodeOp
+	nodesOpts := make([]*NodeOp, 0)
 	for i, relation := range joinOrder.relations {
 		set := joinOrder.setManager.getRelation2(uint64(i))
 		nodesOpts = append(nodesOpts, &NodeOp{
@@ -663,9 +677,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					}
 				}
 
-				if invert {
-					//TODO:
-				}
+				//if invert {
+				//	//TODO:
+				//}
 				checkExprs(cond)
 				resultOp.OnConds = append(resultOp.OnConds, cond.copy())
 				//remove this filter
@@ -734,9 +748,9 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				} else {
 					cond.Children[0], cond.Children[1] = filter.Children[1], filter.Children[0]
 				}
-				if invert {
-					//TODO
-				}
+				//if invert {
+				//	//TODO
+				//}
 				cur := resultOp
 				if cur.Typ == LOT_Filter {
 					cur = cur.Children[0]
@@ -778,7 +792,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *JoinNode) (*LogicalOperator, error) {
 	rootIsJoin := len(root.Children) > 1
 
-	var extractedRelations []*LogicalOperator
+	extractedRelations := make([]*LogicalOperator, 0)
 	for _, rel := range joinOrder.relations {
 		exRel, err := joinOrder.extractJoinRelation(rel)
 		if err != nil {
@@ -961,8 +975,8 @@ func (joinOrder *JoinOrderOptimizer) getAllNeighborSets(excludeSet UnorderedSet,
 	sort.Slice(neighbors, func(i, j int) bool {
 		return neighbors[i] < neighbors[j]
 	})
-	var ret []UnorderedSet
-	var added []UnorderedSet
+	ret := make([]UnorderedSet, 0)
+	added := make([]UnorderedSet, 0)
 	for _, nei := range neighbors {
 		x := make(UnorderedSet)
 		x.insert(nei)
@@ -1071,9 +1085,9 @@ func (joinOrder *JoinOrderOptimizer) emitPair(left, right *JoinRelationSet, info
 	}
 	if tplan == nil || newPlan.getCost() < tplan.getCost() {
 		//TODO: missing a lot
-		if len(newSet.relations) == len(joinOrder.relations) {
-			//TODO:
-		}
+		//if len(newSet.relations) == len(joinOrder.relations) {
+		//	//TODO:
+		//}
 		joinOrder.plans.set(newSet, newPlan)
 		return newPlan, nil
 	}
@@ -1183,7 +1197,6 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 	default:
 		panic(fmt.Sprintf("usp operator type %d", op.Typ))
 	}
-	return
 }
 
 func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]bool) {

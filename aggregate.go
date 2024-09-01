@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -197,9 +211,9 @@ func NewDistinctAggrData(
 }
 
 type DistinctAggrCollectionInfo struct {
-	_indices         []int //distinct aggr indice
-	_tableCount      int
-	_tableIndices    []int
+	_indices    []int //distinct aggr indice
+	_tableCount int
+	//_tableIndices    []int
 	_tableMap        map[int]int
 	_aggregates      []*Expr
 	_totalChildCount int
@@ -682,11 +696,11 @@ type GroupedAggrHashTable struct {
 	_rawInputLayout *TupleDataLayout
 	_payloadTypes   []LType
 
-	_capacity        int
-	_tupleSize       int
-	_tuplesPerBlock  int
-	_dataCollection  *TupleDataCollection
-	_payloadHdsPtrs  []unsafe.Pointer
+	_capacity       int
+	_tupleSize      int
+	_tuplesPerBlock int
+	_dataCollection *TupleDataCollection
+	//_payloadHdsPtrs  []unsafe.Pointer
 	_hashesHdlPtr    unsafe.Pointer
 	_hashOffset      int
 	_hashPrefixShift uint64
@@ -800,28 +814,30 @@ type aggrInit func(pointer unsafe.Pointer)
 type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
 type aggrCombine func(*Vector, *Vector, *AggrInputData, int)
 type aggrFinalize func(*Vector, *AggrInputData, *Vector, int, int)
-type aggrFunction func(*AggrFunc, []*Expr)
+
+// type aggrFunction func(*AggrFunc, []*Expr)
 type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
-type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
+
+//type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
 
 type FuncNullHandling int
 
 const (
 	DEFAULT_NULL_HANDLING FuncNullHandling = 0
-	SPECIAL_HANDLING                       = 1
+	SPECIAL_HANDLING      FuncNullHandling = 1
 )
 
 type AggrFunc struct {
-	_args         []LType
-	_retType      LType
-	_stateSize    aggrStateSize
-	_init         aggrInit
-	_update       aggrUpdate
-	_combine      aggrCombine
-	_finalize     aggrFinalize
-	_func         aggrFunction
+	_args      []LType
+	_retType   LType
+	_stateSize aggrStateSize
+	_init      aggrInit
+	_update    aggrUpdate
+	_combine   aggrCombine
+	_finalize  aggrFinalize
+	//_func         aggrFunction
 	_simpleUpdate aggrSimpleUpdate
-	_window       aggrWindow
+	//_window       aggrWindow
 	_nullHandling FuncNullHandling
 }
 

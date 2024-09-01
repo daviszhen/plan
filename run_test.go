@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -1749,6 +1763,36 @@ func Test_1g_q11(t *testing.T) {
 	runOps(t, ops)
 }
 
+func Test_1g_q10(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ10())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
+			//return wantedOp(root, POT_Filter)
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Agg)
+			//return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeCross
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, ops)
+}
+
 func Test_1g_q5(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
@@ -1776,4 +1820,8 @@ func Test_1g_q5(t *testing.T) {
 func TestName(t *testing.T) {
 	dec := dec.MustParse("0.0001000000")
 	fmt.Println(dec)
+}
+
+func Test_right(t *testing.T) {
+
 }

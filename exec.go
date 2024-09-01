@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -133,7 +147,6 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *SelectVector, 
 	default:
 		panic(fmt.Sprintf("%d", expr.Typ))
 	}
-	return nil
 }
 func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
 	var err error
@@ -236,34 +249,6 @@ func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVect
 	if sel != nil {
 		result.sliceOnSelf(sel, count)
 	}
-	return nil
-}
-func (exec *ExprExec) executeCompare(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
-	var err error
-	eState._interChunk.reset()
-	for i, child := range expr.Children {
-		err = exec.execute(child,
-			eState._children[i],
-			sel,
-			count,
-			eState._interChunk._data[i])
-		if err != nil {
-			return err
-		}
-	}
-
-	switch expr.Typ {
-	case ET_Func:
-		switch expr.SubTyp {
-		case ET_Equal, ET_In:
-			compareOperations(eState._interChunk._data[0], eState._interChunk._data[1], result, count, expr.SubTyp)
-		default:
-			panic("usp")
-		}
-	default:
-		panic("usp")
-	}
-
 	return nil
 }
 
@@ -403,7 +388,6 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 	default:
 		panic("usp")
 	}
-	return 0, nil
 }
 
 func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
@@ -449,7 +433,6 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 		panic("usp")
 	}
 
-	return 0, nil
 }
 
 func (exec *ExprExec) execSelectAnd(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {

@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -163,7 +177,7 @@ func (bc *BindContext) GetMatchingBinding(table, column string) (*Binding, int, 
 		for _, b := range bc.bindings {
 			if b.HasColumn(column) >= 0 {
 				if ret != nil {
-					return nil, 0, fmt.Errorf("Ambiguous column %s in %s or %s", column, ret.alias, b.alias)
+					return nil, 0, fmt.Errorf("ambiguous column %s in %s or %s", column, ret.alias, b.alias)
 				}
 				ret = b
 			}
@@ -486,7 +500,7 @@ func (b *Builder) findCte(name string, skip bool, ctx *BindContext) *Ast {
 func (b *Builder) addCte(cte *Ast, ctx *BindContext) error {
 	name := cte.Expr.Alias.alias
 	if _, has := ctx.ctes[name]; has {
-		return errors.New(fmt.Sprintf("duplicate cte %s", name))
+		return fmt.Errorf("duplicate cte %s", name)
 	}
 	ctx.ctes[name] = cte
 	return nil
@@ -634,7 +648,6 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 	default:
 		return nil, fmt.Errorf("usp table type %d", table.Typ)
 	}
-	return nil, nil
 }
 
 func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
@@ -652,7 +665,7 @@ func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext, depth int) (*Expr
 		return nil, err
 	}
 
-	jt := ET_JoinTypeCross
+	var jt ET_JoinType
 	switch table.Expr.JoinTyp {
 	case AstJoinTypeCross:
 		jt = ET_JoinTypeCross
@@ -796,7 +809,6 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 	default:
 		panic("usp")
 	}
-	return nil, nil
 }
 
 func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperator, error) {
@@ -808,7 +820,7 @@ func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperat
 	//1. all operators should be changed into (low priority)
 	filters := splitExprByAnd(expr)
 	copyExprs(filters...)
-	var newFilters []*Expr
+	newFilters := make([]*Expr, 0)
 	for _, filter := range filters {
 		newFilter, root, err = b.createSubquery(filter, root)
 		if err != nil {
@@ -918,7 +930,6 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
 	}
-	return nil, nil, err
 }
 
 // apply flattens subquery
@@ -933,41 +944,20 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 	}
 
 	corrExprs := collectCorrFilter(subRoot)
-	//collect correlated columns in corr filters
-	//nonCorrCols := make([]*Expr, 0)
-	//for _, corr := range corrExprs {
-	//	nonCorrCols = append(nonCorrCols, collectNonCorrColumn(corr)...)
-	//}
+
 	if len(corrExprs) > 0 {
 		var err error
 		var newSub *LogicalOperator
 		var corrFilters []*Expr
-		//for _, corrCol := range nonCorrCols {
-		//	fmt.Println("===> non corr cols")
-		//	fmt.Println(corrCol.String())
-		//}
+
 		//correlated subquery
 		newSub, corrFilters, err = b.removeCorrFilters(subRoot)
 		if err != nil {
 			return nil, nil, err
 		}
-		//newSub, err := b.applyImpl(expr.SubqueryTyp, corrExprs, nonCorrCols, subRoot)
-		//if err != nil {
-		//	return nil, nil, err
-		//}
-		//
+
 		//remove cor column
 		nonCorrExprs, newCorrExprs := removeCorrExprs(corrFilters)
-
-		//for _, noCorr := range nonCorrExprs {
-		//	fmt.Println("===> non corr exprs")
-		//	fmt.Println(noCorr.String())
-		//}
-		//
-		//for _, nCorr := range newCorrExprs {
-		//	fmt.Println("===> new corr exprs")
-		//	fmt.Println(nCorr.String())
-		//}
 
 		switch expr.SubqueryTyp {
 		case ET_SubqueryTypeScalar:
@@ -1073,98 +1063,6 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		}
 		return colRef, newRoot, nil
 	}
-}
-
-// TODO: wrong impl.
-// need add function: check LogicalOperator find cor column
-func (b *Builder) applyImpl(subqueryTyp ET_SubqueryType, corrExprs, corrCols []*Expr, subRoot *LogicalOperator) (*LogicalOperator, error) {
-	var err error
-	has := hasCorrColInRoot(subRoot)
-	if !has {
-		//remove cor column
-		//nonCorrExprs, newCorrExprs := removeCorrExprs(corrExprs)
-		//
-		//var newRoot *LogicalOperator
-		//switch subqueryTyp {
-		//case ET_SubqueryTypeScalar:
-		//	newRoot = &LogicalOperator{
-		//		Typ:     LOT_JOIN,
-		//		JoinTyp: LOT_JoinTypeInner,
-		//		OnConds: nonCorrExprs,
-		//		Children: []*LogicalOperator{
-		//			root, subRoot,
-		//		},
-		//	}
-		//case ET_SubqueryTypeExists:
-		//	newRoot = &LogicalOperator{
-		//		Typ:     LOT_JOIN,
-		//		JoinTyp: LOT_JoinTypeMARK,
-		//		OnConds: nonCorrExprs,
-		//		Children: []*LogicalOperator{
-		//			root, subRoot,
-		//		},
-		//	}
-		//case ET_SubqueryTypeNotExists:
-		//	newRoot = &LogicalOperator{
-		//		Typ:     LOT_JOIN,
-		//		JoinTyp: LOT_JoinTypeAntiMARK,
-		//		OnConds: nonCorrExprs,
-		//		Children: []*LogicalOperator{
-		//			root, subRoot,
-		//		},
-		//	}
-		//default:
-		//	panic("usp")
-		//}
-		//
-		//if len(newCorrExprs) > 0 {
-		//	newRoot = &LogicalOperator{
-		//		Typ:      LOT_Filter,
-		//		Filters:  copyExprs(newCorrExprs...),
-		//		Children: []*LogicalOperator{newRoot},
-		//	}
-		//}
-		//return newRoot, err
-		return subRoot, nil
-	}
-	switch subRoot.Typ {
-	case LOT_Project:
-		for _, proj := range subRoot.Projects {
-			if hasCorrCol(proj) {
-				panic("usp correlated column in project")
-			}
-		}
-		if has {
-			subRoot.Projects = append(subRoot.Projects, corrCols...)
-		}
-		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, subRoot.Children[0])
-		return subRoot, err
-	case LOT_AggGroup:
-		for _, by := range subRoot.GroupBys {
-			if hasCorrCol(by) {
-				panic("usp correlated column in agg")
-			}
-		}
-		if has {
-			subRoot.GroupBys = append(subRoot.GroupBys, corrCols...)
-		}
-		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, subRoot.Children[0])
-		return subRoot, err
-	case LOT_Filter:
-		filterHasCorrCol := false
-		for _, filter := range subRoot.Filters {
-			if hasCorrCol(filter) {
-				filterHasCorrCol = true
-				break
-			}
-		}
-		if has && !filterHasCorrCol {
-			subRoot.Filters = append(subRoot.Filters, corrExprs...)
-		}
-		subRoot.Children[0], err = b.applyImpl(subqueryTyp, corrExprs, corrCols, subRoot.Children[0])
-		return subRoot, err
-	}
-	return subRoot, nil
 }
 
 func (b *Builder) removeCorrFilters(subRoot *LogicalOperator) (*LogicalOperator, []*Expr, error) {
@@ -1309,42 +1207,6 @@ func collectCorrFilter(root *LogicalOperator) []*Expr {
 	return ret
 }
 
-// collectCorrColumn collects all correlated columns
-func collectCorrColumn(expr *Expr) []*Expr {
-	var ret []*Expr
-	switch expr.Typ {
-	case ET_Column:
-		if expr.Depth > 0 {
-			return []*Expr{expr}
-		}
-	case ET_Func:
-		for _, child := range expr.Children {
-			ret = append(ret, collectCorrColumn(child)...)
-		}
-	default:
-		panic(fmt.Sprintf("usp %v", expr.Typ))
-	}
-	return ret
-}
-
-// collectNonCorrColumn collects all non correlated columns
-func collectNonCorrColumn(expr *Expr) []*Expr {
-	var ret []*Expr
-	switch expr.Typ {
-	case ET_Column:
-		if expr.Depth == 0 {
-			return []*Expr{expr}
-		}
-	case ET_Func:
-		for _, child := range expr.Children {
-			ret = append(ret, collectNonCorrColumn(child)...)
-		}
-	default:
-		panic(fmt.Sprintf("usp %v", expr.Typ))
-	}
-	return ret
-}
-
 func hasCorrCol(expr *Expr) bool {
 	switch expr.Typ {
 	case ET_Column:
@@ -1360,40 +1222,6 @@ func hasCorrCol(expr *Expr) bool {
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
 	}
-	return false
-}
-
-// hasCorrColInRoot checks if the plan with root find the correlated column.
-func hasCorrColInRoot(root *LogicalOperator) bool {
-	switch root.Typ {
-	case LOT_Project:
-		for _, proj := range root.Projects {
-			if hasCorrCol(proj) {
-				panic("usp correlated column in project")
-			}
-		}
-
-	case LOT_AggGroup:
-		for _, by := range root.GroupBys {
-			if hasCorrCol(by) {
-				panic("usp correlated column in agg")
-			}
-		}
-
-	case LOT_Filter:
-		for _, filter := range root.Filters {
-			if hasCorrCol(filter) {
-				return true
-			}
-		}
-	}
-
-	for _, child := range root.Children {
-		if hasCorrColInRoot(child) {
-			return true
-		}
-	}
-	return false
 }
 
 // ==============
@@ -1402,11 +1230,7 @@ func hasCorrColInRoot(root *LogicalOperator) bool {
 func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	var left []*Expr
-	////0. apply distribute
-	//root, err = b.applyDistribute(root)
-	//if err != nil {
-	//	return nil, err
-	//}
+
 	//fmt.Println("Before pushdown filter\n", root.String())
 	//1. pushdown filter
 	root, left, err = b.pushdownFilters(root, nil)
@@ -1460,22 +1284,6 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	root, err = b.generateOutputs(root)
 	if err != nil {
 		return nil, err
-	}
-	return root, nil
-}
-
-func (b *Builder) applyDistribute(root *LogicalOperator) (*LogicalOperator, error) {
-	var err error
-	if root == nil {
-		return root, nil
-	}
-	root.Filters = distributeExprs(root.Filters...)
-	root.OnConds = distributeExprs(root.OnConds...)
-	for i, child := range root.Children {
-		root.Children[i], err = b.applyDistribute(child)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return root, nil
 }

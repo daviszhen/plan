@@ -1,3 +1,17 @@
+// Copyright 2023-2024 daviszhen
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import "C"
@@ -32,9 +46,7 @@ func pop[T any](a []T) []T {
 
 func copyTo[T any](src []T) []T {
 	dst := make([]T, len(src))
-	for i := range src {
-		dst[i] = src[i]
-	}
+	copy(dst, src)
 	return dst
 }
 
@@ -279,9 +291,7 @@ func isPowerOfTwo(v uint64) bool {
 }
 
 func load[T any](ptr unsafe.Pointer) T {
-	var t T
-	t = *(*T)(ptr)
-	return t
+	return *(*T)(ptr)
 }
 
 func store[T any](val T, ptr unsafe.Pointer) {
@@ -354,15 +364,6 @@ func invertBits(base unsafe.Pointer, offset int) {
 	b := load[byte](ptr)
 	b = ^b
 	store[byte](b, ptr)
-}
-
-func printPtrs(hint string, data []unsafe.Pointer) {
-	fmt.Printf(hint)
-	fmt.Printf(" ")
-	for i := 0; i < len(data); i++ {
-		fmt.Printf("%d|%x ", data[i], data[i])
-	}
-	fmt.Println()
 }
 
 func findIf[T ~*Expr | ~string | ~int](data []T, pred func(t T) bool) int {

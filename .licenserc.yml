@@ -1,0 +1,20 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: daviszhen
+  paths:
+    - '**/*.go'
+    - '**/*.c'
+    - '**/*.s'
+    - '**/*.h'
+    - '**/*.cpp'
+    - '**/*.proto'
+  paths-ignore:
+    - 'docs/'
+    - 'test/'
+    - '**/*.pb.go'
+    - '**/.gitignore'
+  comment: on-failure
+dependency:
+  files:
+    - go.mod
