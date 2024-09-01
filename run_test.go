@@ -1794,6 +1794,37 @@ func Test_1g_q10(t *testing.T) {
 	runOps(t, ops)
 }
 
+func Test_1g_q9(t *testing.T) {
+	//disable go gc to avoid recycle the unsafe.pointer from make
+	//debug.SetGCPercent(-1)
+	//debug.SetMemoryLimit(math.MaxInt64)
+
+	pplan := runTest2(t, tpchQ9())
+	//fmt.Println(pplan.String())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+			//return wantedOp(root, POT_Limit)
+			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
+			//return wantedOp(root, POT_Filter)
+			//return wantedOp(root, POT_Project) &&
+			//	wantedOp(root.Children[0], POT_Agg)
+			//return wantedOp(root, POT_Join) &&
+			//	wantedOp(root.Children[0], POT_Agg)
+			//return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeCross
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, ops)
+}
+
 func Test_1g_q5(t *testing.T) {
 	//disable go gc to avoid recycle the unsafe.pointer from make
 	//debug.SetGCPercent(-1)
