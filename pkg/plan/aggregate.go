@@ -851,8 +851,8 @@ func NewGroupedAggrHashTable(
 	ret := new(GroupedAggrHashTable)
 	//hash column in the end of tuple
 	groupTypes = append(groupTypes, hashType())
-	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, false, true)
-	ret._rawInputLayout = NewTupleDataLayout(rawInputTypes, nil, false, true)
+	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, true, true)
+	ret._rawInputLayout = NewTupleDataLayout(rawInputTypes, nil, true, true)
 	ret._payloadTypes = payloadTypes
 
 	ret._tupleSize = ret._layout._rowWidth

@@ -351,7 +351,7 @@ func NewJoinHashTable(conds []*Expr,
 	layoutTypes = append(layoutTypes, ht._buildTypes...)
 	layoutTypes = append(layoutTypes, hashType())
 	// init layout
-	ht._layout = NewTupleDataLayout(layoutTypes, nil, false, true)
+	ht._layout = NewTupleDataLayout(layoutTypes, nil, true, true)
 	offsets := ht._layout.offsets()
 	ht._tupleSize = offsets[len(ht._keyTypes)+len(ht._buildTypes)]
 
@@ -688,8 +688,15 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 		_types: copyLTypes(types...),
 	}
 
+	alignWidth := func() {
+		if align {
+			layout._rowWidth = alignValue(layout._rowWidth)
+		}
+	}
+
 	layout._bitmapWidth = entryCount(len(layout._types))
 	layout._rowWidth = layout._bitmapWidth
+	alignWidth()
 
 	//all columns are constant size
 	for _, lType := range layout._types {
@@ -700,6 +707,7 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 	if needHeapOffset && !layout._allConst {
 		layout._heapSizeOffset = layout._rowWidth
 		layout._rowWidth += int64Size
+		alignWidth()
 	}
 
 	//data columns
@@ -712,6 +720,7 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 			//for variable length types, pointer to the actual data
 			layout._rowWidth += int64Size
 		}
+		alignWidth()
 	}
 
 	layout._dataWidth = layout._rowWidth - layout._bitmapWidth
@@ -720,6 +729,7 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 	for _, aggrObj := range aggrObjs {
 		layout._offsets = append(layout._offsets, layout._rowWidth)
 		layout._rowWidth += aggrObj._payloadSize
+		alignWidth()
 	}
 
 	layout._aggWidth = layout._rowWidth - layout._dataWidth - layout._bitmapWidth
@@ -1065,6 +1075,7 @@ func getVectorData(part *TuplePart, result []*UnifiedFormat) {
 		target._sel = part.data[i]._sel
 		target._data = part.data[i]._data
 		target._mask = part.data[i]._mask
+		target._pTypSize = part.data[i]._pTypSize
 	}
 }
 

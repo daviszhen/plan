@@ -104,6 +104,7 @@ func Test_1g_q20_scanExec(t *testing.T) {
 			return wantedOp(root, POT_Scan)
 		},
 	)
+	gConf.SkipOutput = true
 	runOps(t, ops)
 }
 
@@ -199,41 +200,6 @@ func Test_1g_q20_innerJoin2(t *testing.T) {
 }
 
 func Test_1g_q20_innerJoin3(t *testing.T) {
-	/*
-		equal to:
-
-			select
-				rr.ps_partkey,
-				rr.ps_suppkey,
-				rr.ps_availqty,
-				lr.l_quantity
-			from
-				(
-					select
-						lineitem.l_partkey,
-						lineitem.l_suppkey,
-						lineitem.l_quantity
-					from lineitem
-					where
-						l_shipdate >= date '1993-01-01' and
-						l_shipdate < date '1993-01-01' + interval '1' year
-
-				) lr
-			join
-				(
-					select
-						partsupp.ps_partkey,
-						partsupp.ps_suppkey,
-						partsupp.ps_availqty
-					from
-						partsupp join part on partsupp.ps_partkey = part.p_partkey
-					where part.p_name like 'lime%'
-				) rr
-				on lr.l_partkey = rr.ps_partkey and
-					lr.l_suppkey = rr.ps_suppkey
-
-		result: tpch1g 9767 rows
-	*/
 	pplan := runTest2(t, tpchQ20())
 	ops := findOperator(
 		pplan,
@@ -243,6 +209,7 @@ func Test_1g_q20_innerJoin3(t *testing.T) {
 				wantedOp(root.Children[1], POT_Join)
 		},
 	)
+	gConf.SkipOutput = true
 	runOps(t, ops)
 }
 

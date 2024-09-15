@@ -61,6 +61,7 @@ type UnifiedFormat struct {
 	_data     []byte
 	_mask     *Bitmap
 	_interSel SelectVector
+	_pTypSize int
 }
 
 type VecBufferType int
@@ -276,6 +277,7 @@ func (vec *Vector) flatten2(sel *SelectVector, cnt int) {
 }
 
 func (vec *Vector) toUnifiedFormat(count int, output *UnifiedFormat) {
+	output._pTypSize = vec._typ.getInternalType().size()
 	switch vec.phyFormat() {
 	case PF_DICT:
 		sel := getSelVectorInPhyFormatDict(vec)
@@ -750,7 +752,7 @@ func getChildInPhyFormatDict(vec *Vector) *Vector {
 
 // unified format
 func getSliceInPhyFormatUnifiedFormat[T any](uni *UnifiedFormat) []T {
-	return toSlice[T](uni._data, 1)
+	return toSlice[T](uni._data, uni._pTypSize)
 }
 
 type Bitmap struct {

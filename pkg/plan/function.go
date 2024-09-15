@@ -839,6 +839,26 @@ var operators = []*Function{
 					}
 				},
 			},
+			{
+				Desc: ">=",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp int >= int")
+					}
+				},
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},
@@ -962,6 +982,26 @@ var operators = []*Function{
 					},
 					{
 						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						return fmt.Errorf("usp int <= int")
+					}
+				},
+			},
+			{
+				Desc: "<=",
+				Idx:  2,
+				Args: []ExprDataType{
+					{
+						LTyp: float(),
+					},
+					{
+						LTyp: float(),
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {

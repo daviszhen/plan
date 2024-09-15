@@ -429,3 +429,7 @@ func greaterFloat[T ~float32 | ~float64](lhs, rhs T) bool {
 	}
 	return lhs > rhs
 }
+
+func alignValue(value int) int {
+	return (value + 7) & (^7)
+}
