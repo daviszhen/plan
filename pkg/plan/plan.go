@@ -676,16 +676,16 @@ type LType struct {
 	scale int
 }
 
-func (typ LType) serialize(serial Serialize) error {
-	err := Write[int](int(typ.id), serial)
+func (lt LType) serialize(serial Serialize) error {
+	err := Write[int](int(lt.id), serial)
 	if err != nil {
 		return err
 	}
-	err = Write[int](typ.width, serial)
+	err = Write[int](lt.width, serial)
 	if err != nil {
 		return err
 	}
-	err = Write[int](typ.scale, serial)
+	err = Write[int](lt.scale, serial)
 	if err != nil {
 		return err
 	}

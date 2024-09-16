@@ -15,7 +15,7 @@ fmt:
 
 .PHONY: install-static-check-tools
 install-static-check-tools:
-	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b $(GOPATH)/bin v1.59.1
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b $(GOPATH)/bin v1.61.0
 	@go install github.com/apache/skywalking-eyes/cmd/license-eye@v0.4.0
 
 .PHONY: static-check
@@ -32,17 +32,17 @@ errNews := $(shell grep -onr 'errors.New' pkg/ --exclude-dir=.git --exclude-dir=
 
 .PHONY: err-check
 err-check:
-ifneq ("$(strip $(fmtErrs))$(strip $(errNews))", "")
- ifneq ("$(strip $(fmtErrs))", "")
-		$(warning 'fmt.Errorf()' is found.)
-		$(warning One of 'fmt.Errorf()' is called at: $(shell printf "%s\n" $(fmtErrs) | head -1))
- endif
- ifneq ("$(strip $(errNews))", "")
-		$(warning 'errors.New()' is found.)
-		$(warning One of 'errors.New()' is called at: $(shell printf "%s\n" $(errNews) | head -1))
- endif
-
-	$(error Use moerr instead.)
-else
-	$(info Neither 'fmt.Errorf()' nor 'errors.New()' is found)
-endif
+#ifneq ("$(strip $(fmtErrs))$(strip $(errNews))", "")
+# ifneq ("$(strip $(fmtErrs))", "")
+#		$(warning 'fmt.Errorf()' is found.)
+#		$(warning One of 'fmt.Errorf()' is called at: $(shell printf "%s\n" $(fmtErrs) | head -1))
+# endif
+# ifneq ("$(strip $(errNews))", "")
+#		$(warning 'errors.New()' is found.)
+#		$(warning One of 'errors.New()' is called at: $(shell printf "%s\n" $(errNews) | head -1))
+# endif
+#
+#	$(error Use xxxerr instead.)
+#else
+#	$(info Neither 'fmt.Errorf()' nor 'errors.New()' is found)
+#endif

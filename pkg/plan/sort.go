@@ -141,8 +141,13 @@ func NewRowLayout(types []LType, aggrObjs []*AggrObject) *RowLayout {
 		_allConstant: true,
 	}
 
+	alignWith := func() {
+		ret._rowWidth = alignValue(ret._rowWidth)
+	}
+
 	ret._flagWidth = entryCount(len(types))
 	ret._rowWidth = ret._flagWidth
+	alignWith()
 
 	for _, lType := range types {
 		ret._allConstant = ret._allConstant &&
@@ -153,6 +158,7 @@ func NewRowLayout(types []LType, aggrObjs []*AggrObject) *RowLayout {
 	if !ret._allConstant {
 		ret._heapPointerOffset = ret._rowWidth
 		ret._rowWidth += int64Size
+		alignWith()
 	}
 
 	for _, lType := range types {
@@ -160,8 +166,10 @@ func NewRowLayout(types []LType, aggrObjs []*AggrObject) *RowLayout {
 		interTyp := lType.getInternalType()
 		if interTyp.isConstant() || interTyp == VARCHAR {
 			ret._rowWidth += interTyp.size()
+			alignWith()
 		} else {
 			ret._rowWidth += int64Size
+			alignWith()
 		}
 	}
 
@@ -170,6 +178,7 @@ func NewRowLayout(types []LType, aggrObjs []*AggrObject) *RowLayout {
 	for _, obj := range aggrObjs {
 		ret._offsets = append(ret._offsets, ret._rowWidth)
 		ret._rowWidth += obj._payloadSize
+		alignWith()
 	}
 	ret._aggrWidth = ret._rowWidth - ret._dataWidth - ret._flagWidth
 

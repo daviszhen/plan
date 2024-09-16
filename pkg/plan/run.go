@@ -366,8 +366,8 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 				continue
 			}
 
-			fmt.Println("childChunk:")
-			childChunk.print()
+			//fmt.Println("childChunk:")
+			//childChunk.print()
 
 			//evaluate order by expr
 			key := &Chunk{}
@@ -398,10 +398,10 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 			assertFunc(key.card() != 0 && payload.card() != 0)
 			cnt += key.card()
 			assertFunc(key.card() == payload.card())
-			fmt.Println("key2:")
-			key.print()
-			fmt.Println("payload:")
-			payload.print()
+			//fmt.Println("key2:")
+			//key.print()
+			//fmt.Println("payload:")
+			//payload.print()
 
 			run.localSort.SinkChunk(key, payload)
 		}

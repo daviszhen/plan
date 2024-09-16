@@ -1601,7 +1601,6 @@ func isSameVector(
 			panic("usp")
 		}
 	}
-	return false
 }
 func checkConstVector(
 	vecA, vecB *Vector,
