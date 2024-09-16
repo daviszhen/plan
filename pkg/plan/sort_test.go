@@ -385,7 +385,7 @@ func Test_pdqsort_branchless1(t *testing.T) {
 	//	ret := sort.SliceIsSorted(data, func(i, j int) bool {
 	//		return data[i] < data[j]
 	//	})
-	//	fmt.Println("sorted", ret, data)
+
 	//
 	//	n := len(data)
 	//	begin := NewPDQIterator(
@@ -397,7 +397,7 @@ func Test_pdqsort_branchless1(t *testing.T) {
 	//	for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
 	//		fmt.Printf("0x%p %d \n", iter.ptr(), load[int](iter.ptr()))
 	//	}
-	//	fmt.Println()
+
 	//	constants := NewPDQConstants(
 	//		entrySize,
 	//		0,
@@ -409,7 +409,7 @@ func Test_pdqsort_branchless1(t *testing.T) {
 	//	ret = sort.SliceIsSorted(data, func(i, j int) bool {
 	//		return data[i] < data[j]
 	//	})
-	//	fmt.Println(data)
+
 	//	require.True(t, ret)
 	//}
 }
@@ -418,4 +418,43 @@ func Test_rand(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 
 	}
+}
+
+func Test_prepareLocalsort(t *testing.T) {
+	pplan := runTest2(t, tpchQ9())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Project) &&
+				wantedOp(root.Children[0], POT_Agg)
+		},
+	)
+	fname := "./testout/project_out"
+	serial, err := NewFileSerialize(fname)
+	assert.NoError(t, err, fname)
+	assert.NotNil(t, serial)
+	defer serial.Close()
+	runOps(t, gConf, serial, ops)
+}
+
+func Test_localsort(t *testing.T) {
+	pplan := runTest2(t, tpchQ9())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+		},
+	)
+
+	assertFunc(len(ops) == 1)
+
+	//replace child by stub
+	stubOp := &PhysicalOperator{
+		Typ:        POT_Stub,
+		Outputs:    ops[0].Children[0].Outputs,
+		Table:      "./testout/project_out",
+		ChunkCount: 23,
+	}
+	ops[0].Children[0] = stubOp
+	runOps(t, gConf, nil, ops)
 }

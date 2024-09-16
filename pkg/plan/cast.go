@@ -93,7 +93,7 @@ func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
 	if err != nil {
 		panic(err)
 	}
-	//fmt.Println("cat int32 to dec", d)
+
 	*result = Decimal{
 		Decimal: nDec,
 	}
@@ -152,7 +152,7 @@ func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal
 		}
 		result.Decimal = ndec
 	}
-	//fmt.Println(input.String(), "-cast->", result.Decimal)
+
 }
 
 type tryCastFloat32ToInt32 struct {

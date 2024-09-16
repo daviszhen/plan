@@ -45,7 +45,6 @@ func runTest(t *testing.T, name string, ast *Ast) {
 	err := builder.buildSelect(ast, builder.rootCtx, 0)
 	assert.NoError(t, err)
 
-	// fmt.Println(builder.String())
 	assert.Greater(t, *builder.tag, 0)
 
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
@@ -88,7 +87,7 @@ func runTest2(t *testing.T, ast *Ast) *PhysicalOperator {
 	pp, err := builder.CreatePhyPlan(lp)
 	assert.NoError(t, err)
 	assert.NotNil(t, pp)
-	//fmt.Println("\n", pp.String())
+
 	return pp
 }
 

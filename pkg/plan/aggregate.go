@@ -881,8 +881,6 @@ func (aht *GroupedAggrHashTable) AddChunk2(
 	hashes := NewFlatVector(hashType(), defaultVectorSize)
 	groups.Hash(hashes)
 
-	//if aht._printHash {
-	//	fmt.Println("hash")
 	//	hashes.print(groups.card())
 	//}
 	return aht.AddChunk(
@@ -918,8 +916,6 @@ func (aht *GroupedAggrHashTable) AddChunk(
 	)
 	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.card())
 
-	//if aht._printHash {
-	//	fmt.Println("new group count", newGroupCount)
 	//}
 
 	filterIdx := 0
@@ -1027,8 +1023,6 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 			idx := selVec.getIndex(i)
 			htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 
-			//if aht._printHash {
-			//	fmt.Println(idx, htOffsetsPtr[idx], newGroupCount, htEntry.String())
 			//}
 
 			if htEntry._pageNr == 0 {
@@ -1085,7 +1079,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				htEntry._pageNr = 1 //TOOD: refine. do not mean anything
 				htEntry._rowPtr = rowLocations[j]
 				addresessSlice[idx] = rowLocations[j]
-				//fmt.Println("loc", aht._bitmask, groupHashesSlice[idx], htOffsetsPtr[idx], hashSaltsPtr[idx], htEntry._rowPtr)
+
 			}
 		}
 
@@ -1212,7 +1206,7 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 				htEnt._pageNr = 1
 				htEnt._rowPtr = loc
 				//if aht._capacity == 16384 {
-				//	fmt.Println("resize loc", aht._capacity, hash, entIdx, htEnt._salt, loc)
+
 				//}
 			}
 		}

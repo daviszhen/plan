@@ -15,7 +15,9 @@
 package plan
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"strings"
 	"time"
@@ -477,7 +479,7 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		}
 		again := slice[idx].String()
 		assertFunc(again == val._str)
-		//fmt.Println(val._str, again)
+
 	case INTERVAL:
 		slice := toSlice[Interval](vec._data, pTyp.size())
 		interVal := Interval{}
@@ -1166,6 +1168,9 @@ func (c *Chunk) deserialize(deserial Deserialize) error {
 	rowCnt := uint32(0)
 	err := Read[uint32](&rowCnt, deserial)
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		return err
 	}
 	//read column count

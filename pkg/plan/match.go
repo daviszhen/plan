@@ -235,7 +235,7 @@ func TemplatedMatchType[T any](
 			colIdx := col._sel.getIndex(idx)
 			val := load[T](pointerAdd(ptrs[idx], colOffset))
 			//if colOffset == 33 {
-			//	fmt.Println("cmp", "ptr", ptrs[idx], "offset", colOffset, "val", val, "dslice", dataSlice[colIdx])
+
 			//}
 			if !isNull && cmp.operation(&dataSlice[colIdx], &val) {
 				sel.setIndex(matchCnt, idx)

@@ -156,7 +156,7 @@ func (scan *Scan) initSelVec(curSel *SelectVector) {
 		}
 	}
 	scan._count = nonEmptyCnt
-	//printPtrs("pointers3:", ptrs)
+
 }
 
 func (scan *Scan) Next(keys, left, result *Chunk) {
@@ -255,7 +255,7 @@ func (scan *Scan) advancePointers2() {
 func (scan *Scan) advancePointers(sel *SelectVector, cnt int) {
 	newCnt := 0
 	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
-	//printPtrs("pointers2-1:", ptrs)
+
 	for i := 0; i < cnt; i++ {
 		idx := sel.getIndex(i)
 		temp := pointerAdd(ptrs[idx], scan._ht._pointerOffset)
@@ -265,8 +265,7 @@ func (scan *Scan) advancePointers(sel *SelectVector, cnt int) {
 			newCnt++
 		}
 	}
-	//printPtrs("pointers2-2:", ptrs)
-	//fmt.Println("newCnt", newCnt)
+
 	scan._count = newCnt
 }
 
@@ -500,7 +499,7 @@ func (jht *JoinHashTable) Finalize() {
 		}
 		for j := 0; j < part._count; j++ {
 			hashSlice[j] = load[uint64](pointerAdd(rowLocs[j], jht._pointerOffset))
-			//fmt.Println("base&hash", rowLocs[j], "hash", hashSlice[j], "index", hashSlice[j]&uint64(jht._bitmask))
+
 		}
 		jht.InsertHashes(hashes, part._count, rowLocs)
 	}
@@ -590,7 +589,7 @@ func (jht *JoinHashTable) ApplyBitmask2(
 		bucket := mainHt[(hVal & uint64(jht._bitmask))]
 		resSlice[rIdx] = bucket
 	}
-	//printPtrs("pointers:", resSlice)
+
 }
 
 func (jht *JoinHashTable) Probe(keys *Chunk) *Scan {
@@ -941,7 +940,7 @@ func (tuple *TupleDataCollection) savePart(part *TuplePart) {
 		if loc == nil {
 			continue
 		}
-		//fmt.Println("save loc", i, loc)
+
 		if _, has := tuple._dedup[loc]; has {
 			panic("duplicate row location")
 		}
@@ -961,7 +960,7 @@ func (tuple *TupleDataCollection) checkDupAll() {
 	//			continue
 	//		}
 	//		if xcnt, has := dedup[loc]; has {
-	//			fmt.Println("duplicate2", xid, len(tuple._parts), xcnt, cnt, loc)
+
 	//			panic("dup loc2")
 	//		}
 	//		dedup[loc] = cnt
@@ -1092,7 +1091,7 @@ func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
 		if _, has := tuple._dedup[rowLocs[i]]; has {
 			panic("duplicate row location 2")
 		}
-		//fmt.Println("rowLoc", i, rowLocs[i])
+
 		if tuple._layout.allConst() {
 			continue
 		}
@@ -1121,7 +1120,7 @@ func (tuple *TupleDataCollection) buildBufferSpaceForRawInput(part *TuplePart, c
 		if _, has := tuple._dedup[rowLocs[i]]; has {
 			panic("duplicate row location 2")
 		}
-		//fmt.Println("rowLoc", i, rowLocs[i])
+
 		if tuple._rawInputLayout.allConst() {
 			continue
 		}
@@ -1310,7 +1309,7 @@ func TupleDataTemplatedScatterSwitch(
 	//if layout.offsets()[colIdx] == 33 {
 	//	rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
 	//	dt := load[Date](pointerAdd(rowPtrs[0], 33))
-	//	fmt.Println("dt", dt, "rowPtrs", rowPtrs[0], 33)
+
 	//}
 	case DOUBLE:
 		TupleDataTemplatedScatter[float64](
@@ -1449,7 +1448,7 @@ func TupleDataTemplatedGather[T any](
 			rowMask.getEntry(entryIdx),
 			idxInEntry) {
 			targetData[targetIdx] = load[T](pointerAdd(base, offsetInRow))
-			//fmt.Println("gather", targetData[targetIdx], "from rowLoc", base, "offset", offsetInRow)
+
 		} else {
 			targetBitmap.setInvalid(uint64(targetIdx))
 		}

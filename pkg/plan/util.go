@@ -356,7 +356,22 @@ func pointerValid(ptr unsafe.Pointer) bool {
 func pointerMemcmp(lAddr, rAddr unsafe.Pointer, len int) int {
 	lSlice := pointerToSlice[byte](lAddr, len)
 	rSlice := pointerToSlice[byte](rAddr, len)
-	return bytes.Compare(lSlice, rSlice)
+	ret := bytes.Compare(lSlice, rSlice)
+
+	if len == 12 {
+		ls := string(lSlice[1:])
+		rs := string(rSlice[1:])
+		if ls == "MOROCCO" && rs == "IRAQ" ||
+			ls == "IRAQ" && rs == "MOROCCO" {
+			fmt.Println("memcmp",
+				ret,
+				lSlice[0], ls,
+				rSlice[0], rs)
+		}
+
+	}
+
+	return ret
 }
 
 func invertBits(base unsafe.Pointer, offset int) {

@@ -935,7 +935,7 @@ func (lt LType) getInternalType() PhyType {
 		//} else if lt.width <= DecimalMaxWidthInt128 {
 		//	return INT128
 		//} else {
-		//	panic(fmt.Sprintf("usp decimal width %d", lt.width))
+
 		//}
 		return DECIMAL
 	case LTID_VARCHAR, LTID_CHAR, LTID_BLOB, LTID_BIT:
@@ -2358,6 +2358,7 @@ const (
 	POT_Order
 	POT_Limit
 	POT_Scan
+	POT_Stub //test stub
 )
 
 var potToStr = map[POT]string{
@@ -2369,6 +2370,7 @@ var potToStr = map[POT]string{
 	POT_Order:   "order",
 	POT_Limit:   "limit",
 	POT_Scan:    "scan",
+	POT_Stub:    "stub",
 }
 
 func (t POT) String() string {
@@ -2400,6 +2402,7 @@ type PhysicalOperator struct {
 	Limit         *Expr
 	Offset        *Expr
 	estimatedCard uint64
+	ChunkCount    int //for stub
 
 	Children []*PhysicalOperator
 }
@@ -2515,6 +2518,9 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 		listExprsToTree(node, po.OrderBys)
 	case POT_Limit:
 		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", po.Limit.String()))
+		printPhyOutputs(tree, po)
+	case POT_Stub:
+		tree = tree.AddBranch(fmt.Sprintf("Stub: %v %v", po.Table, po.ChunkCount))
 		printPhyOutputs(tree, po)
 	default:
 		panic(fmt.Sprintf("usp %v", po.Typ))

@@ -53,7 +53,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		return false
 //	})
 //	for _, expr := range compExprs {
-//		fmt.Println(expr.String())
+
 //	}
 //
 //	eExec := NewExprExec(compExprs...)

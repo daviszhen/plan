@@ -113,7 +113,7 @@ func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, er
 		cross._init = false
 		//RHS is read over.
 		//switch to the next Chunk on the LHS and reset the RHS
-		//fmt.Fprintln(os.Stderr, "switch to LHS")
+
 		return NeedMoreInput, nil
 	}
 

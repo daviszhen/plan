@@ -88,6 +88,11 @@ type OperatorExec interface {
 type Runner struct {
 	op    *PhysicalOperator
 	state *OperatorState
+	//for stub
+	deserial   Deserialize
+	maxRowCnt  int
+	rowReadCnt int
+
 	//for limit
 	limit *Limit
 
@@ -136,11 +141,15 @@ func (run *Runner) initChildren() error {
 	return nil
 }
 
-func (run *Runner) Init() error {
+func (run *Runner) initOutput() {
 	for _, output := range run.op.Outputs {
 		run.outputTypes = append(run.outputTypes, output.DataTyp.LTyp)
 		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
 	}
+}
+
+func (run *Runner) Init() error {
+	run.initOutput()
 	err := run.initChildren()
 	if err != nil {
 		return err
@@ -160,6 +169,8 @@ func (run *Runner) Init() error {
 		return run.orderInit()
 	case POT_Limit:
 		return run.limitInit()
+	case POT_Stub:
+		return run.stubInit()
 	default:
 		panic("usp")
 	}
@@ -182,6 +193,8 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.orderExec(output, state)
 	case POT_Limit:
 		return run.limitExec(output, state)
+	case POT_Stub:
+		return run.stubExec(output, state)
 	default:
 		panic("usp")
 	}
@@ -227,9 +240,40 @@ func (run *Runner) Close() error {
 		return run.orderClose()
 	case POT_Limit:
 		return run.limitClose()
+	case POT_Stub:
+		return run.stubClose()
 	default:
 		panic("usp")
 	}
+}
+
+func (run *Runner) stubInit() error {
+	deserial, err := NewFileDeserialize(run.op.Table)
+	if err != nil {
+		return err
+	}
+	run.deserial = deserial
+	run.maxRowCnt = run.op.ChunkCount
+	return nil
+}
+
+func (run *Runner) stubExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+	if run.maxRowCnt != 0 && run.rowReadCnt >= run.maxRowCnt {
+		return Done, nil
+	}
+	err := output.deserialize(run.deserial)
+	if err != nil {
+		return InvalidOpResult, err
+	}
+	if output.card() == 0 {
+		return Done, nil
+	}
+	run.rowReadCnt += output.card()
+	return haveMoreOutput, nil
+}
+
+func (run *Runner) stubClose() error {
+	return run.deserial.Close()
 }
 
 func (run *Runner) limitInit() error {
@@ -268,7 +312,6 @@ func (run *Runner) limitExec(output *Chunk, state *OperatorState) (OperatorResul
 				continue
 			}
 
-			//fmt.Println("childChunk:")
 			//childChunk.print()
 
 			ret := run.limit.Sink(childChunk)
@@ -366,7 +409,6 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 				continue
 			}
 
-			//fmt.Println("childChunk:")
 			//childChunk.print()
 
 			//evaluate order by expr
@@ -380,7 +422,6 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 				return 0, err
 			}
 
-			//fmt.Println("key1:")
 			//key.print()
 
 			//evaluate payload expr
@@ -398,9 +439,9 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 			assertFunc(key.card() != 0 && payload.card() != 0)
 			cnt += key.card()
 			assertFunc(key.card() == payload.card())
-			//fmt.Println("key2:")
+
 			//key.print()
-			//fmt.Println("payload:")
+
 			//payload.print()
 
 			run.localSort.SinkChunk(key, payload)
@@ -502,7 +543,7 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	var err error
 	var count int
 	//if !filterOnLocal {
-	//	fmt.Println("===childinput===")
+
 	//	input.print()
 	//}
 	if filterOnLocal {
@@ -518,7 +559,7 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	}
 
 	//if !filterOnLocal {
-	//	fmt.Println("left count", count)
+
 	//}
 
 	if count == input.card() {
@@ -656,12 +697,11 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			}
 			//if run.op.Children[0].Typ == POT_Filter {
 			//
-			//fmt.Println("build aggr", cnt, childChunk.card())
+
 			//childChunk.print()
 			//}
 
 			cnt += childChunk.card()
-			//fmt.Println("build aggr", cnt, childChunk.card())
 
 			typs := make([]LType, 0)
 			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
@@ -672,10 +712,10 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			if err != nil {
 				return InvalidOpResult, err
 			}
-			//fmt.Println("group chunk")
+
 			//groupChunk.print()
 			run.hAggr.Sink(groupChunk, childChunk)
-			//fmt.Println("after sink chunk")
+
 		}
 		run.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
@@ -719,11 +759,11 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//3.get group by + aggr states for the group
 
 			//4.eval the filter on (child chunk + aggr states)
-			//fmt.Println("===child==========")
+
 			//childChunk.print()
-			//fmt.Println("++++groupAndAggr+++++++++")
+
 			//groupAndAggrChunk.print()
-			//fmt.Println("----aggrStates---------")
+
 			//aggrStatesChunk.print()
 			filterInputTypes := make([]LType, 0)
 			filterInputTypes = append(filterInputTypes, run.hAggr._groupedAggrData._aggrReturnTypes...)
@@ -815,7 +855,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			run.state.haScanState._childCnt2 += childChunk.card()
 			run.state.haScanState._childCnt3 += x
 			if output.card() > 0 {
-				//fmt.Println("aggr output")
+
 				//output.print()
 				return haveMoreOutput, nil
 			}
@@ -981,7 +1021,7 @@ func (run *Runner) crossProductExec(output *Chunk, state *OperatorState) (Operat
 				case InvalidOpResult:
 					return InvalidOpResult, nil
 				}
-				//fmt.Println("left input", run.cross._input.card())
+
 				//run.cross._input.print()
 			}
 
@@ -1028,9 +1068,9 @@ func (run *Runner) crossBuild(state *OperatorState) (OperatorResult, error) {
 			if rightChunk.card() == 0 {
 				continue
 			}
-			//fmt.Println("build cross", cnt)
+
 			cnt += rightChunk.card()
-			//fmt.Println("right")
+
 			//rightChunk.print()
 			run.cross.Sink(rightChunk)
 		}
@@ -1080,7 +1120,7 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 				run.hjoin._ht.Finalize()
 				break
 			}
-			//fmt.Println("build hash table", cnt)
+
 			cnt++
 			err = run.hjoin.Build(rightChunk)
 			if err != nil {

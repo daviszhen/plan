@@ -15,6 +15,7 @@
 package plan
 
 import (
+	"fmt"
 	"sort"
 	"unsafe"
 )
@@ -578,6 +579,32 @@ func (ls *LocalSort) SortInMemory() {
 		idxPtr = pointerAdd(idxPtr, ls._sortLayout._entrySize)
 	}
 
+	printResIndex := func(info string) {
+		return
+
+		//idxPtr = pointerAdd(dataPtr, ls._sortLayout._comparisonSize)
+		//colPtr := dataPtr
+		//assertFunc(!ls._sortLayout._constantSize[0])
+		//for i := 0; i < count; i++ {
+		//	idx := load[uint32](idxPtr)
+		//	row0Bytes := pointerToSlice[byte](
+		//		colPtr, ls._sortLayout._columnSizes[0])
+		//	row1Bytes := pointerToSlice[byte](
+		//		pointerAdd(colPtr, ls._sortLayout._columnSizes[0]),
+		//		ls._sortLayout._columnSizes[1])
+		//
+
+		//		row0Bytes[0], string(row0Bytes[1:]),
+		//		row1Bytes[0], row1Bytes[1:],
+		//	)
+		//	idxPtr = pointerAdd(idxPtr, ls._sortLayout._entrySize)
+		//	colPtr = pointerAdd(colPtr, ls._sortLayout._entrySize)
+		//}
+
+	}
+
+	printResIndex("begin")
+
 	//radix sort
 	sortingSize := 0
 	colOffset := 0
@@ -618,6 +645,8 @@ func (ls *LocalSort) SortInMemory() {
 			)
 		}
 
+		printResIndex(fmt.Sprintf("loop to col %d first", i))
+
 		containsString = false
 		if ls._sortLayout._constantSize[i] &&
 			i == ls._sortLayout._columnCount-1 {
@@ -656,7 +685,11 @@ func (ls *LocalSort) SortInMemory() {
 
 		colOffset += sortingSize
 		sortingSize = 0
+
+		printResIndex(fmt.Sprintf("loop to col %d final", i))
 	}
+
+	printResIndex("final")
 }
 
 func (ls *LocalSort) ReOrder(reorderHeap bool) {
@@ -701,7 +734,6 @@ func (ls *LocalSort) ReOrder2(
 	//reorder fix row
 	rowWidth := sd._layout.rowWidth()
 	sortingEntrySize := ls._sortLayout._entrySize
-	//heapPointerOffset := sd._layout.GetHeapOffset()
 	for i := 0; i < count; i++ {
 		index := load[uint32](sortingPtr)
 		pointerCopy(
@@ -709,29 +741,11 @@ func (ls *LocalSort) ReOrder2(
 			pointerAdd(unorderedDataPtr, int(index)*rowWidth),
 			rowWidth,
 		)
-
-		//y := pointerAdd(unorderedDataPtr, int(index)*rowWidth)
-		//
-		//x := load[unsafe.Pointer](
-		//	pointerAdd(y, heapPointerOffset-1),
-		//)
-		//heapRowPtr := load[unsafe.Pointer](
-		//	pointerAdd(y, heapPointerOffset),
-		//)
-		//
-		//fmt.Fprintln(os.Stderr,
-		//	"ReOrder2--1",
-		//	y,
-		//	"copy to",
-		//	orderedDataPtr,
-		//	heapPointerOffset,
-		//	x,
-		//	heapRowPtr,
-		//)
-
 		orderedDataPtr = pointerAdd(orderedDataPtr, rowWidth)
 		sortingPtr = pointerAdd(sortingPtr, sortingEntrySize)
+
 	}
+
 	sd._dataBlocks = nil
 	sd._dataBlocks = append(
 		sd._dataBlocks,
@@ -752,13 +766,9 @@ func (ls *LocalSort) ReOrder2(
 		orderedDataPtr = orderedDBlock._ptr
 		heapPointerOffset := sd._layout.GetHeapOffset()
 		for i := 0; i < count; i++ {
-			//x := load[unsafe.Pointer](
-			//	pointerAdd(orderedDataPtr, heapPointerOffset-1),
-			//)
 			heapRowPtr := load[unsafe.Pointer](
 				pointerAdd(orderedDataPtr, heapPointerOffset),
 			)
-			//fmt.Fprintln(os.Stderr, "ReOrder2", orderedDataPtr, heapPointerOffset, heapRowPtr, x)
 			assertFunc(pointerValid(heapRowPtr))
 			heapRowSize := load[uint32](heapRowPtr)
 			pointerCopy(orderedHeapPtr, heapRowPtr, int(heapRowSize))
@@ -1295,6 +1305,7 @@ func ScatterStringVector(
 			pointerCopy(newStr._data, str.data(), str.len())
 			//move strLocs[i] to the next position
 			strLocs[i] = pointerAdd(strLocs[i], str.len())
+
 			//store new String obj to the row in the blob sort block
 			store[String](newStr, pointerAdd(rowPtr, colOffset))
 		}
@@ -1373,6 +1384,7 @@ func EncodeStringDataPrefix(
 	prefixLen int) {
 	l := value.len()
 	pointerCopy(dataPtr, value.data(), min(l, prefixLen))
+
 	if l < prefixLen {
 		memset(pointerAdd(dataPtr, l), 0, prefixLen-l)
 	}
@@ -1581,6 +1593,7 @@ func pdqsortLoop(
 			if leftMost {
 				insertSort(begin, end, constants)
 			} else {
+				//FIXME: has bug
 				unguardedInsertSort(begin, end, constants)
 			}
 			return
@@ -1847,125 +1860,126 @@ func partitionRightBranchless(
 	}
 
 	alreadyPartitioned := !pdqIterLess(&first, &last)
-	if !alreadyPartitioned {
-		iterSwap(&first, &last, constants)
-		first.plus(1)
-
-		var offsetsLArr [block_size + cacheline_size]byte
-		var offsetsRArr [block_size + cacheline_size]byte
-		offsetsL := offsetsLArr[:]
-		offsetsR := offsetsRArr[:]
-		offsetsLBase := first.plusCopy(0)
-		offsetsRBase := last.plusCopy(0)
-		var numL, numR, startL, startR uint64
-		numL, numR, startL, startR = 0, 0, 0, 0
-		for pdqIterLess(&first, &last) {
-			numUnknown := uint64(pdqIterDiff(&last, &first))
-			leftSplit, rightSplit := uint64(0), uint64(0)
-			if numL == 0 {
-				if numR == 0 {
-					leftSplit = numUnknown / 2
-				} else {
-					leftSplit = numUnknown
-				}
-			} else {
-				leftSplit = 0
-			}
-			if numR == 0 {
-				rightSplit = numUnknown - leftSplit
-			} else {
-				rightSplit = 0
-			}
-
-			if leftSplit >= block_size {
-				for i := 0; i < block_size; {
-					for j := 0; j < 8; j++ {
-						offsetsL[numL] = byte(i)
-						i++
-						if !comp(first.ptr(), pivot, constants) {
-							numL += 1
-						}
-						first.plus(1)
-					}
-				}
-			} else {
-				for i := uint64(0); i < leftSplit; {
-					offsetsL[numL] = byte(i)
-					i++
-					if !comp(first.ptr(), pivot, constants) {
-						numL += 1
-					}
-					first.plus(1)
-				}
-			}
-
-			if rightSplit >= block_size {
-				for i := 0; i < block_size; {
-					for j := 0; j < 8; j++ {
-						i++
-						offsetsR[numR] = byte(i)
-						last.plus(-1)
-						if comp(last.ptr(), pivot, constants) {
-							numR += 1
-						}
-					}
-				}
-			} else {
-				for i := uint64(0); i < rightSplit; {
-					i++
-					offsetsR[numR] = byte(i)
-					last.plus(-1)
-					if comp(last.ptr(), pivot, constants) {
-						numR += 1
-					}
-				}
-			}
-
-			num := min(numL, numR)
-			swapOffsets(
-				&offsetsLBase,
-				&offsetsRBase,
-				offsetsL[startL:],
-				offsetsR[startR:],
-				num,
-				numL == numR,
-				constants,
-			)
-			numL -= num
-			numR -= num
-			startL += num
-			startR += num
-
-			if numL == 0 {
-				startL = 0
-				offsetsLBase = first.plusCopy(0)
-			}
-
-			if numR == 0 {
-				startR = 0
-				offsetsRBase = last.plusCopy(0)
-			}
-		}
-
-		if numL != 0 {
-			offsetsL = offsetsL[startL:]
-			for ; numL > 0; numL-- {
-				lhs := offsetsLBase.plusCopy(int(offsetsL[numL]))
-				last.plus(-1)
-				iterSwap(&lhs, &last, constants)
-			}
-			first = last.plusCopy(0)
-		}
-		if numR != 0 {
-			offsetsR = offsetsR[startR:]
-			for ; numR > 0; numR-- {
-				lhs := offsetsRBase.plusCopy(-int(offsetsR[numR]))
-				iterSwap(&lhs, &first, constants)
-				first.plus(1)
-			}
-			last = first.plusCopy(0)
-		}
-	}
+	//FIXME: has bug
+	//if !alreadyPartitioned {
+	//	iterSwap(&first, &last, constants)
+	//	first.plus(1)
+	//
+	//	var offsetsLArr [block_size + cacheline_size]byte
+	//	var offsetsRArr [block_size + cacheline_size]byte
+	//	offsetsL := offsetsLArr[:]
+	//	offsetsR := offsetsRArr[:]
+	//	offsetsLBase := first.plusCopy(0)
+	//	offsetsRBase := last.plusCopy(0)
+	//	var numL, numR, startL, startR uint64
+	//	numL, numR, startL, startR = 0, 0, 0, 0
+	//	for pdqIterLess(&first, &last) {
+	//		numUnknown := uint64(pdqIterDiff(&last, &first))
+	//		leftSplit, rightSplit := uint64(0), uint64(0)
+	//		if numL == 0 {
+	//			if numR == 0 {
+	//				leftSplit = numUnknown / 2
+	//			} else {
+	//				leftSplit = numUnknown
+	//			}
+	//		} else {
+	//			leftSplit = 0
+	//		}
+	//		if numR == 0 {
+	//			rightSplit = numUnknown - leftSplit
+	//		} else {
+	//			rightSplit = 0
+	//		}
+	//
+	//		if leftSplit >= block_size {
+	//			for i := 0; i < block_size; {
+	//				for j := 0; j < 8; j++ {
+	//					offsetsL[numL] = byte(i)
+	//					i++
+	//					if !comp(first.ptr(), pivot, constants) {
+	//						numL += 1
+	//					}
+	//					first.plus(1)
+	//				}
+	//			}
+	//		} else {
+	//			for i := uint64(0); i < leftSplit; {
+	//				offsetsL[numL] = byte(i)
+	//				i++
+	//				if !comp(first.ptr(), pivot, constants) {
+	//					numL += 1
+	//				}
+	//				first.plus(1)
+	//			}
+	//		}
+	//
+	//		if rightSplit >= block_size {
+	//			for i := 0; i < block_size; {
+	//				for j := 0; j < 8; j++ {
+	//					i++
+	//					offsetsR[numR] = byte(i)
+	//					last.plus(-1)
+	//					if comp(last.ptr(), pivot, constants) {
+	//						numR += 1
+	//					}
+	//				}
+	//			}
+	//		} else {
+	//			for i := uint64(0); i < rightSplit; {
+	//				i++
+	//				offsetsR[numR] = byte(i)
+	//				last.plus(-1)
+	//				if comp(last.ptr(), pivot, constants) {
+	//					numR += 1
+	//				}
+	//			}
+	//		}
+	//
+	//		num := min(numL, numR)
+	//		swapOffsets(
+	//			&offsetsLBase,
+	//			&offsetsRBase,
+	//			offsetsL[startL:],
+	//			offsetsR[startR:],
+	//			num,
+	//			numL == numR,
+	//			constants,
+	//		)
+	//		numL -= num
+	//		numR -= num
+	//		startL += num
+	//		startR += num
+	//
+	//		if numL == 0 {
+	//			startL = 0
+	//			offsetsLBase = first.plusCopy(0)
+	//		}
+	//
+	//		if numR == 0 {
+	//			startR = 0
+	//			offsetsRBase = last.plusCopy(0)
+	//		}
+	//	}
+	//
+	//	if numL != 0 {
+	//		offsetsL = offsetsL[startL:]
+	//		for ; numL > 0; numL-- {
+	//			lhs := offsetsLBase.plusCopy(int(offsetsL[numL]))
+	//			last.plus(-1)
+	//			iterSwap(&lhs, &last, constants)
+	//		}
+	//		first = last.plusCopy(0)
+	//	}
+	//	if numR != 0 {
+	//		offsetsR = offsetsR[startR:]
+	//		for ; numR > 0; numR-- {
+	//			lhs := offsetsRBase.plusCopy(-int(offsetsR[numR]))
+	//			iterSwap(&lhs, &first, constants)
+	//			first.plus(1)
+	//		}
+	//		last = first.plusCopy(0)
+	//	}
+	//}
 
 	pivotPos := first.plusCopy(-1)
 	Move(begin.ptr(), pivotPos.ptr(), constants)
@@ -2170,6 +2184,9 @@ func unguardedInsertSort(begin *PDQIterator, end *PDQIterator, constants *PDQCon
 		return
 	}
 
+	plusCopy := begin.plusCopy(-1)
+	assertFunc(comp(plusCopy.ptr(), begin.ptr(), constants))
+
 	for cur := begin.plusCopy(1); pdqIterNotEqaul(&cur, end); cur.plus(1) {
 		sift := cur
 		sift_1 := cur.plusCopy(-1)
@@ -2181,9 +2198,12 @@ func unguardedInsertSort(begin *PDQIterator, end *PDQIterator, constants *PDQCon
 				sift.plus(-1)
 
 				sift_1.plus(-1)
+				//FIXME:here remove the if
+				//if !pdqIterLess(&sift_1, begin) {
 				if comp(tmp, sift_1.ptr(), constants) {
 					continue
 				}
+				//}
 				break
 			}
 			Move(sift.ptr(), tmp, constants)

@@ -314,7 +314,7 @@ func (SumStateOp[T]) Combine(
 	src.Combine(target, top)
 }
 func (SumStateOp[T]) AddValues(s *State[T], _ int) {
-	//fmt.Printf("add 0x%p\n", s)
+
 	s.SetIsset(true)
 }
 
@@ -405,9 +405,9 @@ func (hadd *HugeintAdd) AddNumber(state *State[Hugeint], input *int32, top TypeO
 	if *input >= 0 {
 		pos = 1
 	}
-	//fmt.Println("hugeint before", state._value, *input)
+
 	hadd.addValue(&state._value, uint64(*input), pos)
-	//fmt.Println("hugeint after", state._value)
+
 }
 
 func (*HugeintAdd) AddConstant(*State[Hugeint], *int32, int, TypeOp[Hugeint]) {
@@ -551,7 +551,7 @@ func (s SumOp[ResultT, InputT]) Finalize(
 	s3 *State[ResultT],
 	target *ResultT,
 	data *AggrFinalizeData) {
-	//fmt.Printf("finalize 0x%p\n", s3)
+
 	if !s3.GetIsset() {
 		data.ReturnNull()
 	} else {
@@ -592,7 +592,7 @@ func (AvgOp[ResultT, InputT]) Operation(
 	top TypeOp[ResultT]) {
 	sop.AddValues(s3, 1)
 	aop.AddNumber(s3, input, top)
-	//fmt.Println("--->", *input, s3._count, s3._value)
+
 }
 
 func (AvgOp[ResultT, InputT]) ConstantOperation(
@@ -659,7 +659,7 @@ func (CountOp[ResultT, InputT]) Operation(
 	top TypeOp[ResultT]) {
 	sop.AddValues(s3, 1)
 	aop.AddNumber(s3, input, top)
-	//fmt.Println("--->", *input, s3._count, s3._value)
+
 }
 
 func (CountOp[ResultT, InputT]) ConstantOperation(

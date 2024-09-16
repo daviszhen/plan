@@ -219,8 +219,7 @@ func Test_vectorSerialize(t *testing.T) {
 	for _, typ := range typs {
 		for _, pf := range pfs {
 			vec := randomVector(typ, pf, 0.2)
-			//fmt.Println("type", typ.String(), "phy_format", pf.String())
-			//fmt.Println("vec")
+
 			//vec.print(defaultVectorSize)
 			kases = append(kases, args{
 				typ:  typ,
@@ -296,7 +295,7 @@ func Test_chunkSerialize(t *testing.T) {
 			chunk._data[i] = vec
 		}
 		chunk.setCard(defaultVectorSize)
-		//fmt.Println("src chunk")
+
 		//chunk.print()
 
 		kases = append(kases, args{

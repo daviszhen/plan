@@ -40,7 +40,11 @@ const (
 	maxTestCnt = math.MaxInt
 )
 
-func runOps(t *testing.T, ops []*PhysicalOperator) {
+func runOps(
+	t *testing.T,
+	conf *Config,
+	serial Serialize,
+	ops []*PhysicalOperator) {
 	for _, op := range ops {
 
 		//if i != 2 {
@@ -75,8 +79,14 @@ func runOps(t *testing.T, ops []*PhysicalOperator) {
 			if output.card() > 0 {
 				assertFunc(output.card() != 0)
 				assert.NotEqual(t, 0, output.card())
+
+				if serial != nil {
+					err = output.serialize(serial)
+					assert.NoError(t, err)
+				}
+
 				rowCnt += output.card()
-				if !gConf.SkipOutput {
+				if !conf.SkipOutput {
 					output.print()
 				}
 			}
@@ -98,14 +108,14 @@ func wantedOp(root *PhysicalOperator, pt POT) bool {
 
 func Test_1g_q20_order(t *testing.T) {
 	pplan := runTest2(t, tpchQ20())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Order)
 		},
 	)
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_date(t *testing.T) {
@@ -116,7 +126,7 @@ func Test_date(t *testing.T) {
 
 func Test_1g_q19_aggr(t *testing.T) {
 	pplan := runTest2(t, tpchQ19())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -130,22 +140,19 @@ func Test_1g_q19_aggr(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	pplan := runTest2(t, tpchQ18())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Project) &&
 				wantedOp(root.Children[0], POT_Agg) &&
 				wantedOp(root.Children[0].Children[0], POT_Join)
-			//return wantedOp(root, POT_Order)
 
-			//return wantedOp(root, POT_Agg) &&
-			//	wantedOp(root.Children[0], POT_Scan)
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -155,20 +162,19 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q17_proj_aggr(t *testing.T) {
 	pplan := runTest2(t, tpchQ17())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Project) &&
 				wantedOp(root.Children[0], POT_Agg) &&
 				wantedOp(root.Children[0].Children[0], POT_Filter)
-			//return wantedOp(root, POT_Agg) &&
-			//	wantedOp(root.Children[0], POT_Scan)
+
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -178,28 +184,18 @@ func Test_1g_q17_proj_aggr(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q16(t *testing.T) {
 	pplan := runTest2(t, tpchQ16())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			//return wantedOp(root, POT_Agg) &&
-			//	wantedOp(root.Children[0], POT_Filter)
+
 			return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Filter)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[1], POT_Join)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Scan) &&
-			//	wantedOp(root.Children[1], POT_Scan)
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Scan)
-			//return wantedOp(root, POT_Scan) &&
+
 			//	len(root.Filters) > 1
 		},
 	)
@@ -210,42 +206,18 @@ func Test_1g_q16(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q15(t *testing.T) {
 	pplan := runTest2(t, tpchQ15())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Agg) &&
-			//	wantedOp(root.Children[0].Children[0], POT_Project)
-
-			//return wantedOp(root, POT_Agg) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[0].Children[0], POT_Agg)
-
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[1], POT_Join)
-
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Agg) &&
-			//	wantedOp(root.Children[0].Children[0], POT_Scan)
 
 			return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Filter)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Project) &&
-			//	wantedOp(root.Children[1], POT_Scan)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Scan) &&
-			//	wantedOp(root.Children[1], POT_Scan)
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Scan)
-			//return wantedOp(root, POT_Scan) &&
+
 			//	len(root.Filters) > 1
 		},
 	)
@@ -256,12 +228,12 @@ func Test_1g_q15(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q14(t *testing.T) {
 	pplan := runTest2(t, tpchQ14())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -277,12 +249,12 @@ func Test_1g_q14(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q12(t *testing.T) {
 	pplan := runTest2(t, tpchQ12())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -297,23 +269,17 @@ func Test_1g_q12(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q11(t *testing.T) {
 	pplan := runTest2(t, tpchQ11())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
-			//return wantedOp(root, POT_Filter)
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Agg)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Agg)
-			//return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeCross
+
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -323,24 +289,18 @@ func Test_1g_q11(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q10(t *testing.T) {
 	pplan := runTest2(t, tpchQ10())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			//return wantedOp(root, POT_Order)
+
 			return wantedOp(root, POT_Limit)
-			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
-			//return wantedOp(root, POT_Filter)
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Agg)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Agg)
-			//return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeCross
+
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -350,24 +310,17 @@ func Test_1g_q10(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q9(t *testing.T) {
 	pplan := runTest2(t, tpchQ9())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Limit)
-			//return wantedOp(root, POT_Agg) && len(root.GroupBys) != 0
-			//return wantedOp(root, POT_Filter)
-			//return wantedOp(root, POT_Project) &&
-			//	wantedOp(root.Children[0], POT_Join)
-			//return wantedOp(root, POT_Join) &&
-			//	wantedOp(root.Children[0], POT_Agg)
-			//return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeCross
+
 		},
 	)
 	//gConf.EnableMaxScanRows = true
@@ -377,12 +330,12 @@ func Test_1g_q9(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func Test_1g_q5(t *testing.T) {
 	pplan := runTest2(t, tpchQ5())
-	//fmt.Println(pplan.String())
+
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -397,7 +350,7 @@ func Test_1g_q5(t *testing.T) {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
 	}()
-	runOps(t, ops)
+	runOps(t, gConf, nil, ops)
 }
 
 func TestName(t *testing.T) {
