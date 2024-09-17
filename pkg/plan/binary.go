@@ -28,6 +28,7 @@ var (
 
 	// /
 	gBinFloat32Div binFloat32DivOp
+	gBinDecimalDiv binDecimalDivOp
 
 	//decimal * decimal
 	gBinDecimalDecimalMulOp binDecimalDecimalMulOp
@@ -149,6 +150,16 @@ type binFloat32DivOp struct{}
 
 func (op binFloat32DivOp) operation(left, right *float32, result *float32) {
 	*result = *left / *right
+}
+
+type binDecimalDivOp struct{}
+
+func (op binDecimalDivOp) operation(left, right *Decimal, result *Decimal) {
+	quo, err := left.Decimal.Quo(right.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	result.Decimal = quo
 }
 
 // = int32

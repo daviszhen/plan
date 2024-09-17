@@ -655,7 +655,15 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp decimal / decimal")
+						binaryExecSwitch[Decimal, Decimal, Decimal](
+							chunk._data[0],
+							chunk._data[1],
+							result,
+							count,
+							gBinDecimalDiv,
+							nil,
+							gBinDecimalDecimalOpWrapper)
+						return nil
 					}
 				},
 			},

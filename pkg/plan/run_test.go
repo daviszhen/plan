@@ -333,6 +333,26 @@ func Test_1g_q9(t *testing.T) {
 	runOps(t, gConf, nil, ops)
 }
 
+func Test_1g_q8(t *testing.T) {
+	pplan := runTest2(t, tpchQ8())
+
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+
+		},
+	)
+	//gConf.EnableMaxScanRows = true
+	//gConf.SkipOutput = true
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, gConf, nil, ops)
+}
+
 func Test_1g_q5(t *testing.T) {
 	pplan := runTest2(t, tpchQ5())
 
