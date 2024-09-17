@@ -364,6 +364,22 @@ func Test_1g_q1(t *testing.T) {
 	runOps(t, gConf, nil, ops)
 }
 
+func Test_1g_q21(t *testing.T) {
+	pplan := runTest2(t, tpchQ21())
+	ops := []*PhysicalOperator{
+		pplan,
+	}
+	runOps(t, gConf, nil, ops)
+}
+
+func Test_1g_q22(t *testing.T) {
+	pplan := runTest2(t, tpchQ22())
+	ops := []*PhysicalOperator{
+		pplan,
+	}
+	runOps(t, gConf, nil, ops)
+}
+
 func TestName(t *testing.T) {
 	dec := dec.MustParse("0.0001000000")
 	fmt.Println(dec)
