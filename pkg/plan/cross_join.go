@@ -447,6 +447,22 @@ func (copy *decimalValueCopy) Operation(dst, src *Decimal) {
 	*dst = *src
 }
 
+type dateValueCopy struct {
+}
+
+func (copy *dateValueCopy) Assign(
+	metaData *ColumnDataMetaData,
+	dst, src unsafe.Pointer,
+	dstIdx, srcIdx int) {
+	dPtr := pointerAdd(dst, dstIdx*dateSize)
+	sPtr := pointerAdd(src, srcIdx*dateSize)
+	copy.Operation((*Date)(dPtr), (*Date)(sPtr))
+}
+
+func (copy *dateValueCopy) Operation(dst, src *Date) {
+	*dst = *src
+}
+
 type varcharValueCopy struct {
 }
 
@@ -513,6 +529,15 @@ func ColumnDataCopySwitch(
 			offset,
 			count,
 			&varcharValueCopy{},
+		)
+	case DATE:
+		TemplatedColumnDataCopy[Date](
+			metaData,
+			srcData,
+			src,
+			offset,
+			count,
+			&dateValueCopy{},
 		)
 	default:
 		panic("usp")

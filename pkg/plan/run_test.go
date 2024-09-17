@@ -36,7 +36,6 @@ func findOperator(root *PhysicalOperator, fun func(root *PhysicalOperator) bool)
 }
 
 const (
-	//maxTestCnt = 20
 	maxTestCnt = math.MaxInt
 )
 
@@ -154,11 +153,6 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -175,11 +169,6 @@ func Test_1g_q17_proj_aggr(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -196,11 +185,6 @@ func Test_1g_q16(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -217,11 +201,6 @@ func Test_1g_q15(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -237,11 +216,6 @@ func Test_1g_q14(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -256,11 +230,6 @@ func Test_1g_q12(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -275,11 +244,6 @@ func Test_1g_q11(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -295,11 +259,6 @@ func Test_1g_q10(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -314,11 +273,6 @@ func Test_1g_q9(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -333,11 +287,6 @@ func Test_1g_q8(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -352,11 +301,6 @@ func Test_1g_q7(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
 	runOps(t, gConf, nil, ops)
 }
 
@@ -379,11 +323,28 @@ func Test_1g_q5(t *testing.T) {
 		},
 	)
 
-	gConf.MaxScanRows = 1000000
-	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
-	}()
+	runOps(t, gConf, nil, ops)
+}
+
+func Test_1g_q4(t *testing.T) {
+	pplan := runTest2(t, tpchQ4())
+
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+
+		},
+	)
+
+	runOps(t, gConf, nil, ops)
+}
+
+func Test_1g_q3(t *testing.T) {
+	pplan := runTest2(t, tpchQ3())
+	ops := []*PhysicalOperator{
+		pplan,
+	}
 	runOps(t, gConf, nil, ops)
 }
 

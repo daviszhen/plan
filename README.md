@@ -4,9 +4,9 @@
 |------------|---------------------------------|
 | q1         |                                 |
 | q2         |                                 |
-| q3         |                                 |
-| q4         |                                 |
-| q5         |                                 |
+| q3         | right                           |
+| q4         | missing mark join               |
+| q5         | right                           |
 | q6         | right                           |
 | q7         | right                           |
 | q8         | right                           |
