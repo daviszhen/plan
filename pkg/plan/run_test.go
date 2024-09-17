@@ -360,6 +360,14 @@ func Test_1g_q7(t *testing.T) {
 	runOps(t, gConf, nil, ops)
 }
 
+func Test_1g_q6(t *testing.T) {
+	pplan := runTest2(t, tpchQ6())
+	ops := []*PhysicalOperator{
+		pplan,
+	}
+	runOps(t, gConf, nil, ops)
+}
+
 func Test_1g_q5(t *testing.T) {
 	pplan := runTest2(t, tpchQ5())
 

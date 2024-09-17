@@ -445,7 +445,15 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp float + float")
+						binaryExecSwitch[float32, float32, float32](
+							chunk._data[0],
+							chunk._data[1],
+							result,
+							count,
+							gBinFloat32Float32AddOp,
+							nil,
+							gBinFloat32Float32SingleOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -511,7 +519,15 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp float - float")
+						binaryExecSwitch[float32, float32, float32](
+							chunk._data[0],
+							chunk._data[1],
+							result,
+							count,
+							gBinFloat32Float32SubOp,
+							nil,
+							gBinFloat32Float32SingleOpWrapper)
+						return nil
 					}
 				},
 			},

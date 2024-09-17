@@ -181,6 +181,14 @@ func (e lessEqualInt32Op) operation(left, right *int32) bool {
 	return *left <= *right
 }
 
+// float32
+type lessEqualFloat32Op struct {
+}
+
+func (e lessEqualFloat32Op) operation(left, right *float32) bool {
+	return *left <= *right
+}
+
 // date
 type lessEqualDateOp struct {
 }
@@ -243,6 +251,13 @@ type greatEqualDateOp struct {
 
 func (e greatEqualDateOp) operation(left, right *Date) bool {
 	return right.less(left) || right.equal(left)
+}
+
+type greatEqualFloat32Op struct {
+}
+
+func (e greatEqualFloat32Op) operation(left, right *float32) bool {
+	return *left >= *right
 }
 
 // like
@@ -361,7 +376,9 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatEqualInt32Op{})
 		case DATE:
 			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, greatEqualDateOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case FLOAT:
+			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, greatEqualFloat32Op{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:
 			panic("usp")
@@ -385,7 +402,9 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessEqualInt32Op{})
 		case DATE:
 			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessEqualDateOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case FLOAT:
+			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, lessEqualFloat32Op{})
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:
 			panic("usp")

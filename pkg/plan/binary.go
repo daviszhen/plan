@@ -17,7 +17,12 @@ package plan
 var (
 	//+
 	//date + interval
-	gBinDateIntervalAdd binDateInterAddOp
+	gBinDateIntervalAdd     binDateInterAddOp
+	gBinFloat32Float32AddOp binFloat32Float32AddOp
+
+	//-
+	//float32 - float32
+	gBinFloat32Float32SubOp binFloat32Float32SubOp
 
 	//decimal - decimal
 	gBinDecimalDecimalSubOp binDecimalDecimalSubOp
@@ -107,7 +112,21 @@ func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date)
 	}
 }
 
+type binFloat32Float32AddOp struct {
+}
+
+func (op binFloat32Float32AddOp) operation(left *float32, right *float32, result *float32) {
+	*result = *left + *right
+}
+
 // -
+type binFloat32Float32SubOp struct {
+}
+
+func (op binFloat32Float32SubOp) operation(left *float32, right *float32, result *float32) {
+	*result = *left - *right
+}
+
 type binDecimalDecimalSubOp struct {
 }
 
