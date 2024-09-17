@@ -10,7 +10,7 @@
 | q6         |                                 |
 | q7         | missing extract                 |
 | q8         | missing extract                 |
-| q9         | missing extract                 |
+| q9         | right                           |
 | q10        | right (use topN further)        |
 | q11        | right                           |
 | q12        | right                           |

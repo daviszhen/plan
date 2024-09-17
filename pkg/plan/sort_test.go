@@ -429,7 +429,7 @@ func Test_prepareLocalsort(t *testing.T) {
 				wantedOp(root.Children[0], POT_Agg)
 		},
 	)
-	fname := "./testout/project_out"
+	fname := "./test/project_out"
 	serial, err := NewFileSerialize(fname)
 	assert.NoError(t, err, fname)
 	assert.NotNil(t, serial)
@@ -452,8 +452,8 @@ func Test_localsort(t *testing.T) {
 	stubOp := &PhysicalOperator{
 		Typ:        POT_Stub,
 		Outputs:    ops[0].Children[0].Outputs,
-		Table:      "./testout/project_out",
-		ChunkCount: 23,
+		Table:      "./test/project_out",
+		ChunkCount: 30, //23
 	}
 	ops[0].Children[0] = stubOp
 	runOps(t, gConf, nil, ops)

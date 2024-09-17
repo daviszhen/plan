@@ -1715,6 +1715,7 @@ func pdqsortLoop(
 			}
 		}
 
+		//sort left part
 		pdqsortLoop(begin, &pivotPos, constants, badAllowed, leftMost, branchLess)
 		x = pivotPos.plusCopy(1)
 		begin = &x
@@ -1762,6 +1763,7 @@ func partitionRight(begin *PDQIterator, end *PDQIterator, constants *PDQConstant
 	first := begin.plusCopy(0)
 	last := end.plusCopy(0)
 
+	//find the first one *first >= *pivot in [begin+1,...)
 	for {
 		first.plus(1)
 		if comp(first.ptr(), pivot, constants) {
@@ -1771,9 +1773,11 @@ func partitionRight(begin *PDQIterator, end *PDQIterator, constants *PDQConstant
 		}
 	}
 
+	//*(begin+1) >= *begin
 	if pdqIterDiff(&first, begin) == 1 {
 		for pdqIterLess(&first, &last) {
 			last.plus(-1)
+			//find the first one stricter *last < *pivot
 			if !comp(last.ptr(), pivot, constants) {
 				continue
 			} else {
@@ -1783,6 +1787,7 @@ func partitionRight(begin *PDQIterator, end *PDQIterator, constants *PDQConstant
 	} else {
 		for {
 			last.plus(-1)
+			//find the first one stricter *last < *pivot
 			if !comp(last.ptr(), pivot, constants) {
 				continue
 			} else {
@@ -1791,7 +1796,10 @@ func partitionRight(begin *PDQIterator, end *PDQIterator, constants *PDQConstant
 		}
 	}
 
+	//first >= last, no pair need to be swapped
 	alreadyPartitioned := !pdqIterLess(&first, &last)
+
+	//keep swap pairs in the wrong place
 	for pdqIterLess(&first, &last) {
 		iterSwap(&first, &last, constants)
 		for {
@@ -1818,6 +1826,12 @@ func partitionRight(begin *PDQIterator, end *PDQIterator, constants *PDQConstant
 	return pivotPos, alreadyPartitioned
 }
 
+// partitionRightBranchless split the [begin,end).
+// the ones equal to the pivot are put in the right part.
+// return
+//
+//	the position of the pivot.
+//	already split rightly
 func partitionRightBranchless(
 	begin *PDQIterator,
 	end *PDQIterator,
@@ -1826,6 +1840,7 @@ func partitionRightBranchless(
 	first := begin.plusCopy(0)
 	last := end.plusCopy(0)
 
+	//find the one *first >= *pivot
 	for {
 		first.plus(1)
 		//pass A[first] < A[pivot]
@@ -1837,6 +1852,7 @@ func partitionRightBranchless(
 	}
 
 	//begin + 1 == first. A[first] >= pivot
+	//find the *last strictly < *pivot
 	if pdqIterDiff(&first, begin) == 1 {
 		for pdqIterLess(&first, &last) {
 			last.plus(-1)
@@ -1859,127 +1875,138 @@ func partitionRightBranchless(
 		}
 	}
 
+	//first >= last, no pair need to be swapped
 	alreadyPartitioned := !pdqIterLess(&first, &last)
-	//FIXME: has bug
-	//if !alreadyPartitioned {
-	//	iterSwap(&first, &last, constants)
-	//	first.plus(1)
-	//
-	//	var offsetsLArr [block_size + cacheline_size]byte
-	//	var offsetsRArr [block_size + cacheline_size]byte
-	//	offsetsL := offsetsLArr[:]
-	//	offsetsR := offsetsRArr[:]
-	//	offsetsLBase := first.plusCopy(0)
-	//	offsetsRBase := last.plusCopy(0)
-	//	var numL, numR, startL, startR uint64
-	//	numL, numR, startL, startR = 0, 0, 0, 0
-	//	for pdqIterLess(&first, &last) {
-	//		numUnknown := uint64(pdqIterDiff(&last, &first))
-	//		leftSplit, rightSplit := uint64(0), uint64(0)
-	//		if numL == 0 {
-	//			if numR == 0 {
-	//				leftSplit = numUnknown / 2
-	//			} else {
-	//				leftSplit = numUnknown
-	//			}
-	//		} else {
-	//			leftSplit = 0
-	//		}
-	//		if numR == 0 {
-	//			rightSplit = numUnknown - leftSplit
-	//		} else {
-	//			rightSplit = 0
-	//		}
-	//
-	//		if leftSplit >= block_size {
-	//			for i := 0; i < block_size; {
-	//				for j := 0; j < 8; j++ {
-	//					offsetsL[numL] = byte(i)
-	//					i++
-	//					if !comp(first.ptr(), pivot, constants) {
-	//						numL += 1
-	//					}
-	//					first.plus(1)
-	//				}
-	//			}
-	//		} else {
-	//			for i := uint64(0); i < leftSplit; {
-	//				offsetsL[numL] = byte(i)
-	//				i++
-	//				if !comp(first.ptr(), pivot, constants) {
-	//					numL += 1
-	//				}
-	//				first.plus(1)
-	//			}
-	//		}
-	//
-	//		if rightSplit >= block_size {
-	//			for i := 0; i < block_size; {
-	//				for j := 0; j < 8; j++ {
-	//					i++
-	//					offsetsR[numR] = byte(i)
-	//					last.plus(-1)
-	//					if comp(last.ptr(), pivot, constants) {
-	//						numR += 1
-	//					}
-	//				}
-	//			}
-	//		} else {
-	//			for i := uint64(0); i < rightSplit; {
-	//				i++
-	//				offsetsR[numR] = byte(i)
-	//				last.plus(-1)
-	//				if comp(last.ptr(), pivot, constants) {
-	//					numR += 1
-	//				}
-	//			}
-	//		}
-	//
-	//		num := min(numL, numR)
-	//		swapOffsets(
-	//			&offsetsLBase,
-	//			&offsetsRBase,
-	//			offsetsL[startL:],
-	//			offsetsR[startR:],
-	//			num,
-	//			numL == numR,
-	//			constants,
-	//		)
-	//		numL -= num
-	//		numR -= num
-	//		startL += num
-	//		startR += num
-	//
-	//		if numL == 0 {
-	//			startL = 0
-	//			offsetsLBase = first.plusCopy(0)
-	//		}
-	//
-	//		if numR == 0 {
-	//			startR = 0
-	//			offsetsRBase = last.plusCopy(0)
-	//		}
-	//	}
-	//
-	//	if numL != 0 {
-	//		offsetsL = offsetsL[startL:]
-	//		for ; numL > 0; numL-- {
-	//			lhs := offsetsLBase.plusCopy(int(offsetsL[numL]))
-	//			last.plus(-1)
-	//			iterSwap(&lhs, &last, constants)
-	//		}
-	//		first = last.plusCopy(0)
-	//	}
-	//	if numR != 0 {
-	//		offsetsR = offsetsR[startR:]
-	//		for ; numR > 0; numR-- {
-	//			lhs := offsetsRBase.plusCopy(-int(offsetsR[numR]))
-	//			iterSwap(&lhs, &first, constants)
-	//			first.plus(1)
-	//		}
-	//		last = first.plusCopy(0)
-	//	}
-	//}
+	{
+		//swap data in wrong positions
+		if !alreadyPartitioned {
+			iterSwap(&first, &last, constants)
+			first.plus(1)
+
+			var offsetsLArr [block_size + cacheline_size]byte
+			var offsetsRArr [block_size + cacheline_size]byte
+			offsetsL := offsetsLArr[:]
+			offsetsR := offsetsRArr[:]
+			offsetsLBase := first.plusCopy(0)
+			offsetsRBase := last.plusCopy(0)
+			var numL, numR, startL, startR uint64
+			numL, numR, startL, startR = 0, 0, 0, 0
+			//block partitioning
+			for pdqIterLess(&first, &last) {
+				//decide the count of two offsets
+				numUnknown := uint64(pdqIterDiff(&last, &first))
+				leftSplit, rightSplit := uint64(0), uint64(0)
+				if numL == 0 {
+					if numR == 0 {
+						leftSplit = numUnknown / 2
+					} else {
+						leftSplit = numUnknown
+					}
+				} else {
+					leftSplit = 0
+				}
+				if numR == 0 {
+					rightSplit = numUnknown - leftSplit
+				} else {
+					rightSplit = 0
+				}
+
+				//fill left offsets
+				if leftSplit >= block_size {
+					for i := 0; i < block_size; {
+						for j := 0; j < 8; j++ {
+							offsetsL[numL] = byte(i)
+							i++
+							if !comp(first.ptr(), pivot, constants) {
+								numL += 1
+							}
+							first.plus(1)
+						}
+					}
+				} else {
+					for i := uint64(0); i < leftSplit; {
+						offsetsL[numL] = byte(i)
+						i++
+						if !comp(first.ptr(), pivot, constants) {
+							numL += 1
+						}
+						first.plus(1)
+					}
+				}
+
+				if rightSplit >= block_size {
+					for i := 0; i < block_size; {
+						for j := 0; j < 8; j++ {
+							i++
+							offsetsR[numR] = byte(i)
+							last.plus(-1)
+							if comp(last.ptr(), pivot, constants) {
+								numR += 1
+							}
+						}
+					}
+				} else {
+					for i := uint64(0); i < rightSplit; {
+						i++
+						offsetsR[numR] = byte(i)
+						last.plus(-1)
+						if comp(last.ptr(), pivot, constants) {
+							numR += 1
+						}
+					}
+				}
+
+				//swap data denotes by offsets
+				num := min(numL, numR)
+				swapOffsets(
+					&offsetsLBase,
+					&offsetsRBase,
+					offsetsL[startL:],
+					offsetsR[startR:],
+					num,
+					numL == numR,
+					constants,
+				)
+				numL -= num
+				numR -= num
+				startL += num
+				startR += num
+
+				if numL == 0 {
+					startL = 0
+					offsetsLBase = first.plusCopy(0)
+				}
+
+				if numR == 0 {
+					startR = 0
+					offsetsRBase = last.plusCopy(0)
+				}
+			}
+
+			//fil the rest
+			if numL != 0 {
+				offsetsL = offsetsL[startL:]
+				for numL > 0 {
+					numL--
+					lhs := offsetsLBase.plusCopy(int(offsetsL[numL]))
+					last.plus(-1)
+					iterSwap(&lhs, &last, constants)
+				}
+				first = last.plusCopy(0)
+			}
+			if numR != 0 {
+				offsetsR = offsetsR[startR:]
+				for numR > 0 {
+					numR--
+					lhs := offsetsRBase.plusCopy(-int(offsetsR[numR]))
+					iterSwap(&lhs, &first, constants)
+					first.plus(1)
+				}
+				last = first.plusCopy(0)
+			}
+		}
+
+	}
 
 	pivotPos := first.plusCopy(-1)
 	Move(begin.ptr(), pivotPos.ptr(), constants)
@@ -2184,8 +2211,8 @@ func unguardedInsertSort(begin *PDQIterator, end *PDQIterator, constants *PDQCon
 		return
 	}
 
-	plusCopy := begin.plusCopy(-1)
-	assertFunc(comp(plusCopy.ptr(), begin.ptr(), constants))
+	//plusCopy := begin.plusCopy(-1)
+	//assertFunc(comp(plusCopy.ptr(), begin.ptr(), constants))
 
 	for cur := begin.plusCopy(1); pdqIterNotEqaul(&cur, end); cur.plus(1) {
 		sift := cur
