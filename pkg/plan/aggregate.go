@@ -749,6 +749,10 @@ func NewAggrObject(aggr *Expr) *AggrObject {
 		assertFunc(len(aggr.Children) != 0)
 		ret._func = GetMaxAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
 		ret._payloadSize = ret._func._stateSize()
+	case "min":
+		assertFunc(len(aggr.Children) != 0)
+		ret._func = GetMinAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
+		ret._payloadSize = ret._func._stateSize()
 	default:
 		panic("usp")
 	}

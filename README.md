@@ -3,7 +3,7 @@
 | tpch 1g qX | status                          |
 |------------|---------------------------------|
 | q1         |                                 |
-| q2         |                                 |
+| q2         | right                           |
 | q3         | right                           |
 | q4         | missing mark join               |
 | q5         | right                           |

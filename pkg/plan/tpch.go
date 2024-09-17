@@ -154,7 +154,7 @@ func tpchQ2() *Ast {
 	w4 := like(column("p_type"), sstring("%TIN"))
 	w5 := equal(column("s_nationkey"), column("n_nationkey"))
 	w6 := equal(column("n_regionkey"), column("r_regionkey"))
-	w7 := equal(column("r_name"), sstring("MIDDLE"))
+	w7 := equal(column("r_name"), sstring("MIDDLE EAST"))
 	w8 := equal(column("ps_supplycost"), subquery(q2Subquery(), AstSubqueryTypeScalar))
 
 	ret.Select.Where.Expr = and(

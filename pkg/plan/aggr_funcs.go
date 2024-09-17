@@ -187,12 +187,35 @@ func GetMaxAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 	case DECIMAL:
 		switch retPhyTyp {
 		case DECIMAL:
-			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MaxOp[Decimal, Decimal]](
+			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MinMaxOp[Decimal, Decimal]](
 				decimal(DecimalMaxWidth, 0),
 				decimal(DecimalMaxWidth, 0),
 				DEFAULT_NULL_HANDLING,
-				MaxOp[Decimal, Decimal]{},
+				MinMaxOp[Decimal, Decimal]{},
 				&MaxStateOp[Decimal]{},
+				&DecimalAdd{},
+				&Decimal{},
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	default:
+		panic("usp")
+	}
+}
+
+func GetMinAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
+	switch inputPhyTyp {
+	case DECIMAL:
+		switch retPhyTyp {
+		case DECIMAL:
+			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MinMaxOp[Decimal, Decimal]](
+				decimal(DecimalMaxWidth, 0),
+				decimal(DecimalMaxWidth, 0),
+				DEFAULT_NULL_HANDLING,
+				MinMaxOp[Decimal, Decimal]{},
+				&MinStateOp[Decimal]{},
 				&DecimalAdd{},
 				&Decimal{},
 			)
@@ -383,6 +406,34 @@ func (as *MaxStateOp[T]) Combine(
 }
 
 func (as *MaxStateOp[T]) AddValues(s *State[T], cnt int) {
+
+}
+
+type MinStateOp[T any] struct {
+}
+
+func (as *MinStateOp[T]) Init(s *State[T]) {
+	s.Init()
+	s._typ = STATE_MIN
+}
+
+func (as *MinStateOp[T]) Combine(
+	src *State[T],
+	target *State[T],
+	_ *AggrInputData,
+	top TypeOp[T]) {
+	if !src._isset {
+		return
+	}
+	if !target._isset {
+		target._isset = src._isset
+		target._value = src._value
+	} else if top.Greater(&target._value, &src._value) {
+		target._value = src._value
+	}
+}
+
+func (as *MinStateOp[T]) AddValues(s *State[T], cnt int) {
 
 }
 
@@ -692,10 +743,10 @@ func (CountOp[ResultT, InputT]) IgnoreNull() bool {
 	return true
 }
 
-type MaxOp[ResultT any, InputT any] struct {
+type MinMaxOp[ResultT any, InputT any] struct {
 }
 
-func (MaxOp[ResultT, InputT]) Init(
+func (MinMaxOp[ResultT, InputT]) Init(
 	s2 *State[ResultT],
 	sop StateOp[ResultT]) {
 	var val ResultT
@@ -703,7 +754,7 @@ func (MaxOp[ResultT, InputT]) Init(
 	sop.Init(s2)
 }
 
-func (MaxOp[ResultT, InputT]) Combine(
+func (MinMaxOp[ResultT, InputT]) Combine(
 	src *State[ResultT],
 	target *State[ResultT],
 	data *AggrInputData,
@@ -712,7 +763,7 @@ func (MaxOp[ResultT, InputT]) Combine(
 	sop.Combine(src, target, data, top)
 }
 
-func (MaxOp[ResultT, InputT]) Operation(
+func (MinMaxOp[ResultT, InputT]) Operation(
 	s3 *State[ResultT],
 	input *InputT,
 	data *AggrUnaryInput,
@@ -727,7 +778,7 @@ func (MaxOp[ResultT, InputT]) Operation(
 	}
 }
 
-func (MaxOp[ResultT, InputT]) ConstantOperation(
+func (MinMaxOp[ResultT, InputT]) ConstantOperation(
 	s3 *State[ResultT],
 	input *InputT,
 	data *AggrUnaryInput,
@@ -743,7 +794,7 @@ func (MaxOp[ResultT, InputT]) ConstantOperation(
 	}
 }
 
-func (MaxOp[ResultT, InputT]) Finalize(
+func (MinMaxOp[ResultT, InputT]) Finalize(
 	s3 *State[ResultT],
 	target *ResultT,
 	data *AggrFinalizeData) {
@@ -754,7 +805,7 @@ func (MaxOp[ResultT, InputT]) Finalize(
 	}
 }
 
-func (MaxOp[ResultT, InputT]) IgnoreNull() bool {
+func (MinMaxOp[ResultT, InputT]) IgnoreNull() bool {
 	return true
 }
 
