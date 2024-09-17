@@ -75,10 +75,9 @@ func tpchQ1() *Ast {
 	ret.Select.From.Tables = table("lineitem")
 	ret.Select.Where.Expr = lessEqual(
 		column("l_shipdate"),
-		sub(
+		function("date_sub",
 			date("1998-12-01"),
-			interval(112, "day"),
-		),
+			interval(112, "day")),
 	)
 	ret.Select.GroupBy.Exprs = astList(
 		column("l_returnflag"),

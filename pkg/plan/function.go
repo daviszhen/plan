@@ -73,6 +73,7 @@ const (
 	NOT_EXISTS
 	//functions
 	DATE_ADD
+	DATE_SUB
 	EXTRACT
 	SUBSTRING
 	CAST
@@ -81,6 +82,7 @@ const (
 var funcName2Id = map[string]FuncId{
 	"min":        MIN,
 	"date_add":   DATE_ADD,
+	"date_sub":   DATE_SUB,
 	"count":      COUNT,
 	"extract":    EXTRACT,
 	"sum":        SUM,
@@ -450,7 +452,7 @@ var operators = []*Function{
 							chunk._data[1],
 							result,
 							count,
-							gBinFloat32Float32AddOp,
+							gBinFloat32Float32Add,
 							nil,
 							gBinFloat32Float32SingleOpWrapper)
 						return nil
@@ -473,7 +475,12 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp decimal + decimal")
+						binaryExecSwitch[Decimal, Decimal, Decimal](
+							chunk._data[0], chunk._data[1], result, count,
+							gBinDecimalDecimalAdd,
+							nil,
+							gBinDecimalDecimalOpWrapper)
+						return nil
 					}
 				},
 			},
@@ -1530,6 +1537,33 @@ var funcs = []*Function{
 						binaryExecSwitch[Date, Interval, Date](
 							chunk._data[0], chunk._data[1], result, count,
 							gBinDateIntervalAdd,
+							nil,
+							gBinDateIntervalSingleOpWrapper)
+						return nil
+					}
+				},
+			},
+		},
+		ImplDecider: exactImplDecider,
+	},
+	{
+		Id: DATE_SUB,
+		Impls: []*Impl{
+			{
+				Desc: "date_sub",
+				Idx:  0,
+				Args: []ExprDataType{
+					{LTyp: dateLTyp()},
+					{LTyp: intervalLType()},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[Date, Interval, Date](
+							chunk._data[0], chunk._data[1], result, count,
+							gBinDateIntervalSub,
 							nil,
 							gBinDateIntervalSingleOpWrapper)
 						return nil

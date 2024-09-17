@@ -16,6 +16,8 @@ package plan
 
 import (
 	"unsafe"
+
+	dec "github.com/govalues/decimal"
 )
 
 func StateSize[T any, STATE State[T]]() int {
@@ -671,6 +673,16 @@ func (AvgOp[ResultT, InputT]) Finalize(
 			c := float64(s3._count)
 			r := v / c
 			*target = any(r).(ResultT)
+		case Decimal:
+			c := dec.MustNew(int64(s3._count), 0)
+			quo, err := v.Quo(c)
+			if err != nil {
+				panic(err)
+			}
+			res := Decimal{
+				Decimal: quo,
+			}
+			*target = any(res).(ResultT)
 		default:
 			panic("unmatched cast")
 		}

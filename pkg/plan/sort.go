@@ -1264,6 +1264,17 @@ func Scatter(
 				layout,
 				decimalScatterOp{},
 			)
+		case DOUBLE:
+			TemplatedScatter[float64](
+				col,
+				rows,
+				sel,
+				count,
+				colOffset,
+				colNo,
+				layout,
+				float64ScatterOp{},
+			)
 		default:
 			panic("usp")
 		}
@@ -2720,6 +2731,17 @@ func Gather(
 			colNo,
 			buildSize,
 			heapPtr,
+		)
+	case DOUBLE:
+		TemplatedGatherLoop[float64](
+			rows,
+			rowSel,
+			col,
+			colSel,
+			count,
+			layout,
+			colNo,
+			buildSize,
 		)
 	default:
 		panic("unknown column type")

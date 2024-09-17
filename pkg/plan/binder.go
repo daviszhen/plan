@@ -254,6 +254,10 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 		ret.DataTyp = ExprDataType{
 			LTyp: dateLTyp(),
 		}
+	} else if id == DATE_SUB {
+		ret.DataTyp = ExprDataType{
+			LTyp: dateLTyp(),
+		}
 	}
 
 	if IsAgg(name) {

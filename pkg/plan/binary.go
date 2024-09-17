@@ -17,8 +17,10 @@ package plan
 var (
 	//+
 	//date + interval
-	gBinDateIntervalAdd     binDateInterAddOp
-	gBinFloat32Float32AddOp binFloat32Float32AddOp
+	gBinDateIntervalAdd   binDateInterAddOp
+	gBinDateIntervalSub   binDateInterSubOp
+	gBinFloat32Float32Add binFloat32Float32AddOp
+	gBinDecimalDecimalAdd binDecimalDecimalAddOp
 
 	//-
 	//float32 - float32
@@ -119,7 +121,40 @@ func (op binFloat32Float32AddOp) operation(left *float32, right *float32, result
 	*result = *left + *right
 }
 
+type binDecimalDecimalAddOp struct {
+}
+
+func (op binDecimalDecimalAddOp) operation(left *Decimal, right *Decimal, result *Decimal) {
+	d, err := left.Decimal.Add(right.Decimal)
+	if err != nil {
+		panic(err)
+	}
+	result.Decimal = d
+}
+
 // -
+
+type binDateInterSubOp struct {
+}
+
+func (op binDateInterSubOp) operation(left *Date, right *Interval, result *Date) {
+	if right._unit == "year" {
+		result._year = left._year - right._year
+		result._month = left._month
+		result._day = left._day
+	} else if right._unit == "month" {
+		result._year = left._year
+		result._month = left._month - right._months
+		result._day = left._day
+	} else if right._unit == "day" {
+		result._year = left._year
+		result._month = left._month
+		result._day = left._day - right._days
+	} else {
+		panic("usp")
+	}
+}
+
 type binFloat32Float32SubOp struct {
 }
 
