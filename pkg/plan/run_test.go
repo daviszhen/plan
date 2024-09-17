@@ -133,9 +133,7 @@ func Test_1g_q19_aggr(t *testing.T) {
 			return wantedOp(root, POT_Agg)
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
-	//gConf.MaxScanRows = 100000
+
 	defer func() {
 		gConf.EnableMaxScanRows = false
 		gConf.SkipOutput = false
@@ -155,8 +153,7 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -177,8 +174,7 @@ func Test_1g_q17_proj_aggr(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -199,8 +195,7 @@ func Test_1g_q16(t *testing.T) {
 			//	len(root.Filters) > 1
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -221,8 +216,7 @@ func Test_1g_q15(t *testing.T) {
 			//	len(root.Filters) > 1
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -242,8 +236,7 @@ func Test_1g_q14(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -262,8 +255,7 @@ func Test_1g_q12(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -282,8 +274,7 @@ func Test_1g_q11(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -303,8 +294,7 @@ func Test_1g_q10(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -323,8 +313,7 @@ func Test_1g_q9(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -343,8 +332,26 @@ func Test_1g_q8(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
+	gConf.MaxScanRows = 1000000
+	defer func() {
+		gConf.EnableMaxScanRows = false
+		gConf.SkipOutput = false
+	}()
+	runOps(t, gConf, nil, ops)
+}
+
+func Test_1g_q7(t *testing.T) {
+	pplan := runTest2(t, tpchQ7())
+
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+
+		},
+	)
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
@@ -363,8 +370,7 @@ func Test_1g_q5(t *testing.T) {
 
 		},
 	)
-	//gConf.EnableMaxScanRows = true
-	//gConf.SkipOutput = true
+
 	gConf.MaxScanRows = 1000000
 	defer func() {
 		gConf.EnableMaxScanRows = false
