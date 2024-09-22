@@ -1090,11 +1090,20 @@ func (run *Runner) evalJoinOutput(nextChunk, output *Chunk) (err error) {
 	rightChunk := Chunk{}
 	rightChunk.init(run.hjoin._buildTypes, defaultVectorSize)
 	rightChunk.referenceIndice(nextChunk, run.hjoin._rightIndice)
+
+	var thisChunk *Chunk
+	if run.op.JoinTyp == LOT_JoinTypeMARK || run.op.JoinTyp == LOT_JoinTypeAntiMARK {
+		thisChunk = &Chunk{}
+		markTyp := []LType{back(run.hjoin._scanNextTyps)}
+		thisChunk.init(markTyp, defaultVectorSize)
+		thisChunk.referenceIndice(nextChunk, []int{run.hjoin._markIndex})
+	}
+
 	err = run.state.outputExec.executeExprs(
 		[]*Chunk{
 			&leftChunk,
 			&rightChunk,
-			nil,
+			thisChunk,
 		},
 		output,
 	)

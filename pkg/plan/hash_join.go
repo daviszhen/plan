@@ -56,6 +56,7 @@ type HashJoin struct {
 	//colIdx of the left(right) Children in the output Chunk in Scan.Next
 	_leftIndice  []int
 	_rightIndice []int
+	_markIndex   int
 }
 
 func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
@@ -79,6 +80,10 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		hj._rightIndice = append(hj._rightIndice, rightIdxOffset+i)
 	}
 
+	if op.JoinTyp == LOT_JoinTypeMARK || op.JoinTyp == LOT_JoinTypeAntiMARK {
+		hj._scanNextTyps = append(hj._scanNextTyps, boolean())
+		hj._markIndex = len(hj._scanNextTyps) - 1
+	}
 	//
 	hj._buildChunk = &Chunk{}
 	hj._buildChunk.init(hj._buildTypes, defaultVectorSize)
@@ -166,8 +171,69 @@ func (scan *Scan) Next(keys, left, result *Chunk) {
 	switch scan._ht._joinType {
 	case LOT_JoinTypeInner:
 		scan.NextInnerJoin(keys, left, result)
+	case LOT_JoinTypeMARK:
+		scan.NextMarkJoin(keys, left, result)
 	default:
 		panic("Unknown join type")
+	}
+}
+
+func (scan *Scan) NextMarkJoin(keys, left, result *Chunk) {
+	//assertFunc(result.columnCount() ==
+	//	left.columnCount()+1)
+	assertFunc(back(result._data).typ().id == LTID_BOOLEAN)
+	assertFunc(scan._ht.count() > 0)
+	scan.ScanKeyMatches(keys)
+	scan.constructMarkJoinResult(keys, left, result)
+}
+
+func (scan *Scan) constructMarkJoinResult(keys, left, result *Chunk) {
+	result.setCard(left.card())
+	for i := 0; i < left.columnCount(); i++ {
+		result._data[i].reference(left._data[i])
+	}
+
+	markVec := back(result._data)
+	markVec.setPhyFormat(PF_FLAT)
+	markSlice := getSliceInPhyFormatFlat[bool](markVec)
+	markMask := getMaskInPhyFormatFlat(markVec)
+
+	for colIdx := 0; colIdx < keys.columnCount(); colIdx++ {
+		var vdata UnifiedFormat
+		keys._data[colIdx].toUnifiedFormat(keys.card(), &vdata)
+		if !vdata._mask.AllValid() {
+			for i := 0; i < keys.card(); i++ {
+				idx := vdata._sel.getIndex(i)
+				markMask.set(
+					uint64(i),
+					vdata._mask.rowIsValidUnsafe(uint64(idx)))
+			}
+		}
+	}
+
+	if scan._foundMatch != nil {
+		for i := 0; i < left.card(); i++ {
+			markSlice[i] = scan._foundMatch[i]
+		}
+	} else {
+		for i := 0; i < left.card(); i++ {
+			markSlice[i] = false
+		}
+	}
+}
+
+func (scan *Scan) ScanKeyMatches(keys *Chunk) {
+	matchSel := NewSelectVector(defaultVectorSize)
+	noMatchSel := NewSelectVector(defaultVectorSize)
+	for scan._count > 0 {
+		matchCount := scan.resolvePredicates(keys, matchSel, noMatchSel)
+		noMatchCount := scan._count - matchCount
+
+		for i := 0; i < matchCount; i++ {
+			scan._foundMatch[matchSel.getIndex(i)] = true
+		}
+
+		scan.advancePointers(noMatchSel, noMatchCount)
 	}
 }
 

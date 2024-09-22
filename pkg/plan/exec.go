@@ -385,9 +385,15 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 		default:
 			panic("usp")
 		}
+	case ET_Column:
+		return exec.execSelectColumnRef(expr, eState, sel, count, trueSel, falseSel)
 	default:
 		panic("usp")
 	}
+}
+
+func (exec *ExprExec) execSelectColumnRef(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
+	panic("usp")
 }
 
 func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
