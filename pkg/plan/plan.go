@@ -128,37 +128,34 @@ func (d *Date) equal(o *Date) bool {
 }
 
 func (d *Date) less(o *Date) bool {
-	d1 := time.Date(int(d._year), time.Month(d._month), int(d._day), 0, 0, 0, 0, time.UTC)
-	o1 := time.Date(int(o._year), time.Month(o._month), int(o._day), 0, 0, 0, 0, time.UTC)
+	d1 := d.toDate()
+	o1 := o.toDate()
 	return d1.Before(o1)
 }
 
-func (d *Date) milli() int64 {
-	d1 := time.Date(int(d._year), time.Month(d._month), int(d._day), 0, 0, 0, 0, time.UTC)
-	return d1.UnixMilli()
+func (d *Date) toDate() time.Time {
+	return time.Date(int(d._year), time.Month(d._month), int(d._day), 0, 0, 0, 0, time.UTC)
 }
 
-func dateAddInterval(lhs *Date, rhs *Interval) Date {
-	lhsMilli := lhs.milli()
-	rhsMilli := rhs.milli()
-	resMilli := lhsMilli + rhsMilli
-	y, m, d := time.UnixMilli(resMilli).UTC().Date()
+func (d *Date) addInterval(rhs *Interval) Date {
+	lhsD := d.toDate()
+	resD := lhsD.AddDate(int(rhs._year), int(rhs._months), int(rhs._days))
+	y, m, day := resD.Date()
 	return Date{
 		_year:  int32(y),
 		_month: int32(m),
-		_day:   int32(d),
+		_day:   int32(day),
 	}
 }
 
-func dateSubInterval(lhs *Date, rhs *Interval) Date {
-	lhsMilli := lhs.milli()
-	rhsMilli := rhs.milli()
-	resMilli := lhsMilli - rhsMilli
-	y, m, d := time.UnixMilli(resMilli).UTC().Date()
+func (d *Date) subInterval(rhs *Interval) Date {
+	lhsD := d.toDate()
+	resD := lhsD.AddDate(int(-rhs._year), int(-rhs._months), int(-rhs._days))
+	y, m, day := resD.Date()
 	return Date{
 		_year:  int32(y),
 		_month: int32(m),
-		_day:   int32(d),
+		_day:   int32(day),
 	}
 }
 
@@ -185,14 +182,17 @@ func (i *Interval) milli() int64 {
 	switch i._unit {
 	case "year":
 		d := time.Date(
-			int(i._year),
-			1, 1, 0, 0, 0, 0, time.UTC)
+			int(1970+i._year),
+			1,
+			1,
+			0, 0, 0, 0, time.UTC)
 		return d.UnixMilli()
 	case "month":
 		d := time.Date(
 			1970,
 			time.Month(1+i._months),
-			1, 0, 0, 0, 0, time.UTC)
+			1,
+			0, 0, 0, 0, time.UTC)
 		return d.UnixMilli()
 	case "day":
 		d := time.Date(

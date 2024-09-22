@@ -387,4 +387,7 @@ func Test_date(t *testing.T) {
 	ti := time.Date(1970, 1, 1+i, 0, 0, 0, 0, time.UTC)
 	fmt.Println(ti.Date())
 
+	t2 := time.Date(1993, 3, 1, 0, 0, 0, 0, time.UTC)
+	t3 := t2.AddDate(0, 3, 0)
+	fmt.Println(t3.Date())
 }

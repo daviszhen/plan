@@ -101,8 +101,7 @@ type binDateInterAddOp struct {
 }
 
 func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date) {
-	res := dateAddInterval(left, right)
-	*result = res
+	*result = left.addInterval(right)
 }
 
 type binFloat32Float32AddOp struct {
@@ -129,7 +128,7 @@ type binDateInterSubOp struct {
 }
 
 func (op binDateInterSubOp) operation(left *Date, right *Interval, result *Date) {
-	res := dateSubInterval(left, right)
+	res := left.subInterval(right)
 	*result = res
 }
 
