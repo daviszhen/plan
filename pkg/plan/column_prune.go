@@ -512,6 +512,7 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 			return nil, err
 		}
 	case LOT_JOIN:
+		colRefOnThisNode = upCounts.splitByTableIdx(root.Index)
 		err = updateCounts(upCounts, root.OnConds...)
 		if err != nil {
 			return nil, err
@@ -845,6 +846,9 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
+			if bind.table() == root.Index {
+				continue
+			}
 			//bind pos in the children
 			st := LeftChild
 			has, childPos := root.Children[0].ColRefToPos.pos(bind)
@@ -867,14 +871,31 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 				childExpr = root.Children[1].Outputs[childPos]
 			}
 
+			colIdx := len(root.Outputs)
 			root.Outputs = append(root.Outputs, &Expr{
 				Typ:      ET_Column,
 				DataTyp:  childExpr.DataTyp,
 				Database: childExpr.Database,
 				Table:    childExpr.Table,
 				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				ColRef:   ColumnBind{uint64(st), uint64(colIdx)},
 			})
+		}
+		condIdx := 0
+		for _, bind := range binds {
+			if bind.table() == root.Index {
+				cond := root.OnConds[bind.column()]
+				root.Outputs = append(root.Outputs, &Expr{
+					Typ:      ET_Column,
+					DataTyp:  cond.DataTyp,
+					Database: cond.Database,
+					Table:    cond.Table,
+					Name:     cond.Name,
+					ColRef:   ColumnBind{uint64(ThisNode), uint64(condIdx)},
+				})
+				condIdx++
+				continue
+			}
 		}
 	case LOT_Scan:
 		catalogTable, err := tpchCatalog().Table(root.Database, root.Table)

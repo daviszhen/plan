@@ -798,6 +798,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
+			Index:    uint64(b.GetTag()),
 			JoinTyp:  jt,
 			OnConds:  []*Expr{onExpr.copy()},
 			Children: []*LogicalOperator{left, right},
@@ -961,10 +962,26 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		//remove cor column
 		nonCorrExprs, newCorrExprs := removeCorrExprs(corrFilters)
 
+		makeMarkCondFunc := func(idx uint64, exists bool) *Expr {
+			mConds := make([]*Expr, 0)
+			for i := 0; i < len(nonCorrExprs); i++ {
+				mConds = append(mConds, &Expr{
+					Typ:     ET_Column,
+					DataTyp: nonCorrExprs[0].DataTyp,
+					ColRef:  ColumnBind{idx, uint64(i)},
+				})
+			}
+			if !exists {
+				panic("usp")
+			}
+			return combineExprsByAnd(mConds...)
+		}
+
 		switch expr.SubqueryTyp {
 		case ET_SubqueryTypeScalar:
 			newSub = &LogicalOperator{
 				Typ:     LOT_JOIN,
+				Index:   uint64(b.GetTag()),
 				JoinTyp: LOT_JoinTypeInner,
 				OnConds: nonCorrExprs,
 				Children: []*LogicalOperator{
@@ -974,6 +991,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		case ET_SubqueryTypeExists:
 			newSub = &LogicalOperator{
 				Typ:     LOT_JOIN,
+				Index:   uint64(b.GetTag()),
 				JoinTyp: LOT_JoinTypeMARK,
 				OnConds: nonCorrExprs,
 				Children: []*LogicalOperator{
@@ -983,6 +1001,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		case ET_SubqueryTypeNotExists:
 			newSub = &LogicalOperator{
 				Typ:     LOT_JOIN,
+				Index:   uint64(b.GetTag()),
 				JoinTyp: LOT_JoinTypeAntiMARK,
 				OnConds: nonCorrExprs,
 				Children: []*LogicalOperator{
@@ -992,6 +1011,8 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		default:
 			panic("usp")
 		}
+
+		rootIndex := newSub.Index
 
 		if len(newCorrExprs) > 0 {
 			newSub = &LogicalOperator{
@@ -1018,11 +1039,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			}
 			return colRef, newSub, nil
 		case ET_SubqueryTypeExists:
-			colRef := &Expr{
-				Typ:     ET_BConst,
-				DataTyp: ExprDataType{LTyp: boolean()},
-				Bvalue:  true,
-			}
+			colRef := makeMarkCondFunc(rootIndex, true)
 			return colRef, newSub, nil
 		case ET_SubqueryTypeNotExists:
 			colRef := &Expr{
@@ -1043,6 +1060,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		} else {
 			newRoot = &LogicalOperator{
 				Typ:     LOT_JOIN,
+				Index:   uint64(b.GetTag()),
 				JoinTyp: LOT_JoinTypeCross,
 				OnConds: nil,
 				Children: []*LogicalOperator{
@@ -1233,6 +1251,8 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	var err error
 	var left []*Expr
 
+	//fmt.Println("before optimize", root.String())
+
 	//1. pushdown filter
 	root, left, err = b.pushdownFilters(root, nil)
 	if err != nil {
@@ -1271,10 +1291,14 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 		return nil, err
 	}
 
+	//fmt.Println("after column prune", root.String())
+
 	root, err = b.generateCounts(root)
 	if err != nil {
 		return nil, err
 	}
+
+	//fmt.Println("after generate counts", root.String())
 
 	root, err = b.generateOutputs(root)
 	if err != nil {
@@ -1751,6 +1775,7 @@ func (b *Builder) createPhyScan(root *LogicalOperator, children []*PhysicalOpera
 func (b *Builder) createPhyJoin(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
 	return &PhysicalOperator{
 		Typ:      POT_Join,
+		Index:    root.Index,
 		JoinTyp:  root.JoinTyp,
 		OnConds:  root.OnConds,
 		Outputs:  root.Outputs,

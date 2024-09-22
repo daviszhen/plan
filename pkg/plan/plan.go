@@ -1661,6 +1661,7 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
 		printOutputs(tree, lo)
+		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
 		if len(lo.OnConds) > 0 {
 			node := tree.AddMetaBranch("On", "")
 			listExprsToTree(node, lo.OnConds)
@@ -2542,6 +2543,7 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 	case POT_Join:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", po.JoinTyp))
 		printPhyOutputs(tree, po)
+		tree.AddMetaNode("index", fmt.Sprintf("%d", po.Index))
 		if len(po.OnConds) > 0 {
 			node := tree.AddMetaBranch("On", "")
 			listExprsToTree(node, po.OnConds)
