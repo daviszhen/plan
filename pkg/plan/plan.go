@@ -133,6 +133,35 @@ func (d *Date) less(o *Date) bool {
 	return d1.Before(o1)
 }
 
+func (d *Date) milli() int64 {
+	d1 := time.Date(int(d._year), time.Month(d._month), int(d._day), 0, 0, 0, 0, time.UTC)
+	return d1.UnixMilli()
+}
+
+func dateAddInterval(lhs *Date, rhs *Interval) Date {
+	lhsMilli := lhs.milli()
+	rhsMilli := rhs.milli()
+	resMilli := lhsMilli + rhsMilli
+	y, m, d := time.UnixMilli(resMilli).UTC().Date()
+	return Date{
+		_year:  int32(y),
+		_month: int32(m),
+		_day:   int32(d),
+	}
+}
+
+func dateSubInterval(lhs *Date, rhs *Interval) Date {
+	lhsMilli := lhs.milli()
+	rhsMilli := rhs.milli()
+	resMilli := lhsMilli - rhsMilli
+	y, m, d := time.UnixMilli(resMilli).UTC().Date()
+	return Date{
+		_year:  int32(y),
+		_month: int32(m),
+		_day:   int32(d),
+	}
+}
+
 type Interval struct {
 	_months int32
 	_days   int32
@@ -150,6 +179,31 @@ func (i *Interval) equal(o *Interval) bool {
 
 func (i *Interval) less(o *Interval) bool {
 	panic("usp")
+}
+
+func (i *Interval) milli() int64 {
+	switch i._unit {
+	case "year":
+		d := time.Date(
+			int(i._year),
+			1, 1, 0, 0, 0, 0, time.UTC)
+		return d.UnixMilli()
+	case "month":
+		d := time.Date(
+			1970,
+			time.Month(1+i._months),
+			1, 0, 0, 0, 0, time.UTC)
+		return d.UnixMilli()
+	case "day":
+		d := time.Date(
+			1970,
+			1,
+			int(1+i._days),
+			0, 0, 0, 0, time.UTC)
+		return d.UnixMilli()
+	default:
+		panic("usp")
+	}
 }
 
 type Hugeint struct {

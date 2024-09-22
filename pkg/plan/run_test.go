@@ -117,12 +117,6 @@ func Test_1g_q20_order(t *testing.T) {
 	runOps(t, gConf, nil, ops)
 }
 
-func Test_date(t *testing.T) {
-	i := 9568
-	ti := time.Date(1970, 1, 1+i, 0, 0, 0, 0, time.UTC)
-	fmt.Println(ti.Date())
-}
-
 func Test_1g_q19_aggr(t *testing.T) {
 	pplan := runTest2(t, tpchQ19())
 
@@ -358,9 +352,12 @@ func Test_1g_q2(t *testing.T) {
 
 func Test_1g_q1(t *testing.T) {
 	pplan := runTest2(t, tpchQ1())
-	ops := []*PhysicalOperator{
+	ops := findOperator(
 		pplan,
-	}
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+		},
+	)
 	runOps(t, gConf, nil, ops)
 }
 
@@ -385,6 +382,9 @@ func TestName(t *testing.T) {
 	fmt.Println(dec)
 }
 
-func Test_right(t *testing.T) {
+func Test_date(t *testing.T) {
+	i := 9568
+	ti := time.Date(1970, 1, 1+i, 0, 0, 0, 0, time.UTC)
+	fmt.Println(ti.Date())
 
 }

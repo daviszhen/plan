@@ -101,17 +101,8 @@ type binDateInterAddOp struct {
 }
 
 func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date) {
-	if right._unit == "year" {
-		result._year = left._year + right._year
-		result._month = left._month
-		result._day = left._day
-	} else if right._unit == "month" {
-		result._year = left._year
-		result._month = left._month + right._months
-		result._day = left._day
-	} else {
-		panic("usp")
-	}
+	res := dateAddInterval(left, right)
+	*result = res
 }
 
 type binFloat32Float32AddOp struct {
@@ -138,21 +129,8 @@ type binDateInterSubOp struct {
 }
 
 func (op binDateInterSubOp) operation(left *Date, right *Interval, result *Date) {
-	if right._unit == "year" {
-		result._year = left._year - right._year
-		result._month = left._month
-		result._day = left._day
-	} else if right._unit == "month" {
-		result._year = left._year
-		result._month = left._month - right._months
-		result._day = left._day
-	} else if right._unit == "day" {
-		result._year = left._year
-		result._month = left._month
-		result._day = left._day - right._days
-	} else {
-		panic("usp")
-	}
+	res := dateSubInterval(left, right)
+	*result = res
 }
 
 type binFloat32Float32SubOp struct {
