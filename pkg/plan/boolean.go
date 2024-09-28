@@ -328,7 +328,9 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
 		case VARCHAR:
 			return selectBinary[String](left, right, sel, count, trueSel, falseSel, equalStrOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+		case BOOL:
+			return selectBinary[bool](left, right, sel, count, trueSel, falseSel, equalOp[bool]{})
+		case UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:
 			panic("usp")

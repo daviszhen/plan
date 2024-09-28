@@ -971,10 +971,22 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 					ColRef:  ColumnBind{idx, uint64(i)},
 				})
 			}
-			if !exists {
-				panic("usp")
+			left := combineExprsByAnd(mConds...)
+			right := &Expr{
+				Typ:     ET_BConst,
+				DataTyp: ExprDataType{LTyp: boolean()},
+				Bvalue:  exists,
 			}
-			return combineExprsByAnd(mConds...)
+			return &Expr{
+				Typ:     ET_Func,
+				SubTyp:  ET_Equal,
+				Svalue:  "=",
+				FuncId:  EQUAL,
+				DataTyp: ExprDataType{LTyp: boolean()},
+				Children: []*Expr{
+					left, right,
+				},
+			}
 		}
 
 		switch expr.SubqueryTyp {
@@ -1042,11 +1054,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			colRef := makeMarkCondFunc(rootIndex, true)
 			return colRef, newSub, nil
 		case ET_SubqueryTypeNotExists:
-			colRef := &Expr{
-				Typ:     ET_BConst,
-				DataTyp: ExprDataType{LTyp: boolean()},
-				Bvalue:  true,
-			}
+			colRef := makeMarkCondFunc(rootIndex, false)
 			return colRef, newSub, nil
 		default:
 			panic("usp")

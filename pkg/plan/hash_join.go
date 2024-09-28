@@ -183,6 +183,9 @@ func (scan *Scan) NextMarkJoin(keys, left, result *Chunk) {
 	//	left.columnCount()+1)
 	assertFunc(back(result._data).typ().id == LTID_BOOLEAN)
 	assertFunc(scan._ht.count() > 0)
+	if scan._count == 0 {
+		return
+	}
 	scan.ScanKeyMatches(keys)
 	scan.constructMarkJoinResult(keys, left, result)
 }

@@ -528,6 +528,9 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	case DOUBLE:
 		slice := toSlice[float64](vec._data, pTyp.size())
 		slice[idx] = val._f64
+	case BOOL:
+		slice := toSlice[bool](vec._data, pTyp.size())
+		slice[idx] = val._bool
 	default:
 		panic("usp")
 	}

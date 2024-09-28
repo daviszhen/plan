@@ -274,10 +274,11 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 	switch expr.Typ {
 	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
 		val := &Value{
-			_typ: expr.DataTyp.LTyp,
-			_i64: expr.Ivalue,
-			_f64: expr.Fvalue,
-			_str: expr.Svalue,
+			_typ:  expr.DataTyp.LTyp,
+			_i64:  expr.Ivalue,
+			_f64:  expr.Fvalue,
+			_str:  expr.Svalue,
+			_bool: expr.Bvalue,
 		}
 		result.referenceValue(val)
 	case ET_DateConst:
@@ -385,15 +386,10 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 		default:
 			panic("usp")
 		}
-	case ET_Column:
-		return exec.execSelectColumnRef(expr, eState, sel, count, trueSel, falseSel)
+
 	default:
 		panic("usp")
 	}
-}
-
-func (exec *ExprExec) execSelectColumnRef(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
-	panic("usp")
 }
 
 func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {

@@ -15,7 +15,6 @@
 package plan
 
 import (
-	"fmt"
 	"sort"
 	"unsafe"
 )
@@ -579,32 +578,6 @@ func (ls *LocalSort) SortInMemory() {
 		idxPtr = pointerAdd(idxPtr, ls._sortLayout._entrySize)
 	}
 
-	printResIndex := func(info string) {
-		return
-
-		//idxPtr = pointerAdd(dataPtr, ls._sortLayout._comparisonSize)
-		//colPtr := dataPtr
-		//assertFunc(!ls._sortLayout._constantSize[0])
-		//for i := 0; i < count; i++ {
-		//	idx := load[uint32](idxPtr)
-		//	row0Bytes := pointerToSlice[byte](
-		//		colPtr, ls._sortLayout._columnSizes[0])
-		//	row1Bytes := pointerToSlice[byte](
-		//		pointerAdd(colPtr, ls._sortLayout._columnSizes[0]),
-		//		ls._sortLayout._columnSizes[1])
-		//
-
-		//		row0Bytes[0], string(row0Bytes[1:]),
-		//		row1Bytes[0], row1Bytes[1:],
-		//	)
-		//	idxPtr = pointerAdd(idxPtr, ls._sortLayout._entrySize)
-		//	colPtr = pointerAdd(colPtr, ls._sortLayout._entrySize)
-		//}
-
-	}
-
-	printResIndex("begin")
-
 	//radix sort
 	sortingSize := 0
 	colOffset := 0
@@ -645,8 +618,6 @@ func (ls *LocalSort) SortInMemory() {
 			)
 		}
 
-		printResIndex(fmt.Sprintf("loop to col %d first", i))
-
 		containsString = false
 		if ls._sortLayout._constantSize[i] &&
 			i == ls._sortLayout._columnCount-1 {
@@ -686,10 +657,8 @@ func (ls *LocalSort) SortInMemory() {
 		colOffset += sortingSize
 		sortingSize = 0
 
-		printResIndex(fmt.Sprintf("loop to col %d final", i))
 	}
 
-	printResIndex("final")
 }
 
 func (ls *LocalSort) ReOrder(reorderHeap bool) {

@@ -543,7 +543,7 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	var err error
 	var count int
 	//if !filterOnLocal {
-
+	//
 	//	input.print()
 	//}
 	if filterOnLocal {
