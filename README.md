@@ -22,5 +22,5 @@
 | q18        | right                           |
 | q19        | right                           |
 | q20        | almost right(missing semi join) |
-| q21        | missing mark & anti_mark join   |
+| q21        | right                           |
 | q22        | missing mark & anti_mark join   |

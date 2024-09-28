@@ -171,6 +171,26 @@ func TemplatedMatchOp(
 		default:
 			panic("usp")
 		}
+	case ET_NotEqual:
+		pTyp := layout.types()[colNo].getInternalType()
+		switch pTyp {
+		case INT32:
+			TemplatedMatchType[int32](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				notEqualOp[int32]{},
+			)
+		default:
+			panic("usp")
+		}
 	default:
 		panic("usp")
 	}

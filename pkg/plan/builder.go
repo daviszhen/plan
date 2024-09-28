@@ -963,15 +963,13 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		nonCorrExprs, newCorrExprs := removeCorrExprs(corrFilters)
 
 		makeMarkCondFunc := func(idx uint64, exists bool) *Expr {
-			mConds := make([]*Expr, 0)
-			for i := 0; i < len(nonCorrExprs); i++ {
-				mConds = append(mConds, &Expr{
-					Typ:     ET_Column,
-					DataTyp: nonCorrExprs[0].DataTyp,
-					ColRef:  ColumnBind{idx, uint64(i)},
-				})
+			mCond := &Expr{
+				Typ:     ET_Column,
+				DataTyp: nonCorrExprs[0].DataTyp,
+				ColRef:  ColumnBind{idx, uint64(0)},
 			}
-			left := combineExprsByAnd(mConds...)
+
+			left := mCond
 			right := &Expr{
 				Typ:     ET_BConst,
 				DataTyp: ExprDataType{LTyp: boolean()},

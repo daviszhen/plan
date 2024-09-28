@@ -171,7 +171,7 @@ func (scan *Scan) Next(keys, left, result *Chunk) {
 	switch scan._ht._joinType {
 	case LOT_JoinTypeInner:
 		scan.NextInnerJoin(keys, left, result)
-	case LOT_JoinTypeMARK:
+	case LOT_JoinTypeMARK, LOT_JoinTypeAntiMARK:
 		scan.NextMarkJoin(keys, left, result)
 	default:
 		panic("Unknown join type")

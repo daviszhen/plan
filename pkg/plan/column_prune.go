@@ -871,17 +871,15 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 				childExpr = root.Children[1].Outputs[childPos]
 			}
 
-			colIdx := len(root.Outputs)
 			root.Outputs = append(root.Outputs, &Expr{
 				Typ:      ET_Column,
 				DataTyp:  childExpr.DataTyp,
 				Database: childExpr.Database,
 				Table:    childExpr.Table,
 				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(colIdx)},
+				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
 			})
 		}
-		condIdx := 0
 		for _, bind := range binds {
 			if bind.table() == root.Index {
 				cond := root.OnConds[bind.column()]
@@ -891,9 +889,8 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 					Database: cond.Database,
 					Table:    cond.Table,
 					Name:     cond.Name,
-					ColRef:   ColumnBind{uint64(ThisNode), uint64(condIdx)},
+					ColRef:   ColumnBind{uint64(ThisNode), bind.column()},
 				})
-				condIdx++
 				continue
 			}
 		}
