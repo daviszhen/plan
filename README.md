@@ -23,4 +23,4 @@
 | q19        | right                           |
 | q20        | almost right(missing semi join) |
 | q21        | right                           |
-| q22        | missing substring   |
+| q22        | right                           |
