@@ -14,6 +14,10 @@
 
 package plan
 
+import (
+	"math"
+)
+
 var (
 	//+
 	//date + interval
@@ -81,6 +85,29 @@ type binaryWrapper[T any, S any, R any] interface {
 		fun binaryFunc[T, S, R])
 
 	addsNulls() bool
+}
+
+type binaryLambdaWrapper[T any, S any, R any] struct {
+}
+
+func (wrapper binaryLambdaWrapper[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	op binaryOp[T, S, R],
+	fun binaryFunc[T, S, R]) {
+	fun.fun(left, right, result)
+}
+
+func (wrapper binaryLambdaWrapper[T, S, R]) addsNulls() bool {
+	return false
+}
+
+type substringFuncWithoutLength struct {
+	substringFunc
+}
+
+func (sub substringFuncWithoutLength) fun(s *String, offset *int64, result *String) {
+	length := int64(math.MaxUint32)
+	sub.substringFunc.fun(s, offset, &length, result)
 }
 
 type binarySingleOpWrapper[T any, S any, R any] struct {

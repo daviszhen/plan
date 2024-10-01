@@ -179,6 +179,22 @@ func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 		default:
 			panic("usp")
 		}
+	case VARCHAR:
+		switch retPhyTyp {
+		case INT32:
+			fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
+				integer(),
+				hugeint(),
+				DEFAULT_NULL_HANDLING,
+				CountOp[Hugeint, int32]{},
+				&CountStateOp[Hugeint]{},
+				&HugeintAdd{},
+				&Hugeint{},
+			)
+			return fun
+		default:
+			panic("usp")
+		}
 	default:
 		panic("usp")
 	}

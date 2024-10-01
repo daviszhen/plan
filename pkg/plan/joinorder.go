@@ -682,6 +682,11 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				//remove this filter
 				joinOrder.filters[filter.filterIndex] = nil
 			}
+
+			//if there is no condition for inner, convert it to cross
+			if len(resultOp.OnConds) == 0 {
+				resultOp.JoinTyp = LOT_JoinTypeCross
+			}
 		}
 		leftNode = left.set
 		rightNode = right.set

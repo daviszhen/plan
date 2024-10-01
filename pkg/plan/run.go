@@ -964,6 +964,9 @@ func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorRe
 			return InvalidOpResult, nil
 		}
 
+		//fmt.Println("left chunk", leftChunk.card())
+		//leftChunk.print()
+
 		run.hjoin._joinKeys.reset()
 		err = run.hjoin._probExec.executeExprs([]*Chunk{leftChunk, nil, nil}, run.hjoin._joinKeys)
 		if err != nil {

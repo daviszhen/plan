@@ -371,9 +371,12 @@ func Test_1g_q21(t *testing.T) {
 
 func Test_1g_q22(t *testing.T) {
 	pplan := runTest2(t, tpchQ22())
-	ops := []*PhysicalOperator{
+	ops := findOperator(
 		pplan,
-	}
+		func(root *PhysicalOperator) bool {
+			return wantedOp(root, POT_Order)
+		},
+	)
 	runOps(t, gConf, nil, ops)
 }
 

@@ -1278,6 +1278,8 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 		return nil, err
 	}
 
+	//fmt.Println("after join order", root.String())
+
 	//3. pushdown filter again
 	root, left, err = b.pushdownFilters(root, nil)
 	if err != nil {

@@ -1819,7 +1819,31 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp substring(varchar,int,int)")
+
+						if chunk.columnCount() == 3 {
+							ternaryExecGeneric[String, int64, int64, String](
+								chunk._data[0],
+								chunk._data[1],
+								chunk._data[2],
+								result,
+								count,
+								nil,
+								substringFunc{},
+								ternaryLambdaWrapper[String, int64, int64, String]{},
+							)
+						} else {
+							binaryExecSwitch[String, int64, String](
+								chunk._data[0],
+								chunk._data[1],
+								result,
+								count,
+								nil,
+								substringFuncWithoutLength{},
+								binaryLambdaWrapper[String, int64, String]{},
+							)
+						}
+
+						return nil
 					}
 				},
 			},
