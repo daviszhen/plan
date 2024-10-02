@@ -1121,7 +1121,7 @@ func tpchQ20() *Ast {
 	ret.Select.Where.Expr = andList(
 		in(
 			column("s_suppkey"),
-			subquery(q20Subquery1(), AstSubqueryTypeScalar),
+			subquery(q20Subquery1(), AstSubqueryTypeIn),
 		),
 		equal(column("s_nationkey"), column("n_nationkey")),
 		equal(column("n_name"), sstring("VIETNAM")),
@@ -1138,7 +1138,7 @@ func q20Subquery1() *Ast {
 	ret.Select.Where.Expr = andList(
 		in(
 			column("ps_partkey"),
-			subquery(q20Subquery21(), AstSubqueryTypeScalar),
+			subquery(q20Subquery21(), AstSubqueryTypeIn),
 		),
 		greater(
 			column("ps_availqty"),

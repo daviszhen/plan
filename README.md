@@ -21,6 +21,6 @@
 | q17        | right                           |
 | q18        | right                           |
 | q19        | right                           |
-| q20        | almost right(missing semi join) |
+| q20        | right                           |
 | q21        | right                           |
 | q22        | right                           |

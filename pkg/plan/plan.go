@@ -1529,6 +1529,10 @@ func (lojt LOT_JoinType) String() string {
 		return "mark"
 	case LOT_JoinTypeAntiMARK:
 		return "anti_mark"
+	case LOT_JoinTypeSEMI:
+		return "semi"
+	case LOT_JoinTypeANTI:
+		return "anti semi"
 	default:
 		panic(fmt.Sprintf("usp %d", lojt))
 	}
@@ -1894,6 +1898,8 @@ const (
 	ET_SubqueryTypeScalar ET_SubqueryType = iota
 	ET_SubqueryTypeExists
 	ET_SubqueryTypeNotExists
+	ET_SubqueryTypeIn
+	ET_SubqueryTypeNotIn
 )
 
 type Expr struct {

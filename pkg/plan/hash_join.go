@@ -72,12 +72,14 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		hj._leftIndice = append(hj._leftIndice, i)
 	}
 
-	//right child output types
-	rightIdxOffset := len(hj._scanNextTyps)
-	for i, output := range op.Children[1].Outputs {
-		hj._buildTypes = append(hj._buildTypes, output.DataTyp.LTyp)
-		hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp.LTyp)
-		hj._rightIndice = append(hj._rightIndice, rightIdxOffset+i)
+	if op.JoinTyp != LOT_JoinTypeSEMI {
+		//right child output types
+		rightIdxOffset := len(hj._scanNextTyps)
+		for i, output := range op.Children[1].Outputs {
+			hj._buildTypes = append(hj._buildTypes, output.DataTyp.LTyp)
+			hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp.LTyp)
+			hj._rightIndice = append(hj._rightIndice, rightIdxOffset+i)
+		}
 	}
 
 	if op.JoinTyp == LOT_JoinTypeMARK || op.JoinTyp == LOT_JoinTypeAntiMARK {
@@ -173,8 +175,36 @@ func (scan *Scan) Next(keys, left, result *Chunk) {
 		scan.NextInnerJoin(keys, left, result)
 	case LOT_JoinTypeMARK, LOT_JoinTypeAntiMARK:
 		scan.NextMarkJoin(keys, left, result)
+	case LOT_JoinTypeSEMI:
+		scan.NextSemiJoin(keys, left, result)
 	default:
 		panic("Unknown join type")
+	}
+}
+
+func (scan *Scan) NextSemiJoin(keys, left, result *Chunk) {
+	scan.ScanKeyMatches(keys)
+	scan.NextSemiOrAntiJoin(keys, left, result, true)
+	scan._finished = true
+}
+
+func (scan *Scan) NextSemiOrAntiJoin(keys, left, result *Chunk, Match bool) {
+	assertFunc(left.columnCount() == result.columnCount())
+	assertFunc(keys.card() == left.card())
+
+	sel := NewSelectVector(defaultVectorSize)
+	resultCount := 0
+	for i := 0; i < keys.card(); i++ {
+		if scan._foundMatch[i] == Match {
+			sel.setIndex(resultCount, i)
+			resultCount++
+		}
+	}
+
+	if resultCount > 0 {
+		result.slice(left, sel, resultCount, 0)
+	} else {
+		assertFunc(result.card() == 0)
 	}
 }
 

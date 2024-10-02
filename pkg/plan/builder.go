@@ -879,7 +879,25 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				FuncId:   expr.FuncId,
 				Children: args,
 			}, root, nil
-		case ET_In, ET_NotIn:
+		case ET_In:
+			var childExpr *Expr
+			args := make([]*Expr, 0)
+			for _, child := range expr.Children {
+				childExpr, root, err = b.createSubquery(child, root)
+				if err != nil {
+					return nil, nil, err
+				}
+				args = append(args, childExpr)
+			}
+			return &Expr{
+				Typ:      expr.Typ,
+				SubTyp:   expr.SubTyp,
+				DataTyp:  expr.DataTyp,
+				Alias:    expr.Alias,
+				FuncId:   expr.FuncId,
+				Children: args,
+			}, root, nil
+		case ET_NotIn:
 			var childExpr *Expr
 			args := make([]*Expr, 0)
 			for _, child := range expr.Children {
@@ -1064,14 +1082,29 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		if root == nil {
 			newRoot = subRoot
 		} else {
-			newRoot = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				Index:   uint64(b.GetTag()),
-				JoinTyp: LOT_JoinTypeCross,
-				OnConds: nil,
-				Children: []*LogicalOperator{
-					root, subRoot,
-				},
+			switch expr.SubqueryTyp {
+			case ET_SubqueryTypeScalar:
+				newRoot = &LogicalOperator{
+					Typ:     LOT_JOIN,
+					Index:   uint64(b.GetTag()),
+					JoinTyp: LOT_JoinTypeCross,
+					OnConds: nil,
+					Children: []*LogicalOperator{
+						root, subRoot,
+					},
+				}
+			case ET_SubqueryTypeIn:
+				newRoot = &LogicalOperator{
+					Typ:     LOT_JOIN,
+					Index:   uint64(b.GetTag()),
+					JoinTyp: LOT_JoinTypeSEMI,
+					OnConds: nil,
+					Children: []*LogicalOperator{
+						root, subRoot,
+					},
+				}
+			default:
+				panic("usp")
 			}
 		}
 		// TODO: may have multi columns
@@ -1272,6 +1305,8 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 		}
 	}
 
+	//fmt.Println("after pushdown filters", root.String())
+
 	//2. join order
 	root, err = b.joinOrder(root)
 	if err != nil {
@@ -1372,7 +1407,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case RightSide:
 				rightNeeds = append(rightNeeds, nd)
 			case BothSide:
-				if root.JoinTyp == LOT_JoinTypeInner {
+				if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeSEMI {
 					//only equal or in can be used in On conds
 					if nd.SubTyp == ET_Equal || nd.SubTyp == ET_In {
 						root.OnConds = append(root.OnConds, nd)

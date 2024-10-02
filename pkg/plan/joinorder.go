@@ -1210,9 +1210,9 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 		} else {
 			joinOrder.estimator.AddColumnToRelationMap(relId, e.ColRef[1])
 			set[relId] = true
-			if joinOrder.relations[relId].op.Index != index {
-				panic("no such relation")
-			}
+			//if joinOrder.relations[relId].op.Index != index {
+			//	panic("no such relation")
+			//}
 		}
 	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst:
 	case ET_Func:

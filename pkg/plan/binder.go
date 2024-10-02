@@ -553,6 +553,10 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		typ = ET_SubqueryTypeExists
 	case AstSubqueryTypeNotExists:
 		typ = ET_SubqueryTypeNotExists
+	case AstSubqueryTypeIn:
+		typ = ET_SubqueryTypeIn
+	case AstSubqueryTypeNotIn:
+		typ = ET_SubqueryTypeNotIn
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Expr.SubqueryTyp))
 	}

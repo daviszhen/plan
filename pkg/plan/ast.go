@@ -107,6 +107,8 @@ const (
 	AstSubqueryTypeScalar AstSubqueryType = iota
 	AstSubqueryTypeExists
 	AstSubqueryTypeNotExists
+	AstSubqueryTypeIn
+	AstSubqueryTypeNotIn
 	AstSubqueryTypeFrom //TODO: fixme
 )
 

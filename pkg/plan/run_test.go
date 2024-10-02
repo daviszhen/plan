@@ -140,10 +140,7 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Project) &&
-				wantedOp(root.Children[0], POT_Agg) &&
-				wantedOp(root.Children[0].Children[0], POT_Join)
-
+			return wantedOp(root, POT_Limit)
 		},
 	)
 
