@@ -1214,7 +1214,7 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 			//	panic("no such relation")
 			//}
 		}
-	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst:
+	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst, ET_BConst:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -1238,7 +1238,7 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 			cb[1] = e.ColRef[1]
 		}
 
-	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst:
+	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst, ET_BConst:
 	case ET_Func:
 	default:
 		panic("usp")

@@ -945,7 +945,7 @@ func tpchQ16() *Ast {
 			inumber(20),
 		),
 		notIn(column("ps_suppkey"),
-			subquery(q16Subquery(), AstSubqueryTypeScalar),
+			subquery(q16Subquery(), AstSubqueryTypeNotIn),
 		),
 	)
 	ret.Select.GroupBy.Exprs = astList(

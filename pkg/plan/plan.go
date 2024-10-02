@@ -2019,7 +2019,7 @@ func referTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
-	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst, ET_DecConst, ET_NConst:
+	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst, ET_DecConst, ET_NConst, ET_BConst:
 
 	case ET_Func:
 	default:

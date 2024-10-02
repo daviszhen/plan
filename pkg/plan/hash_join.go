@@ -72,7 +72,7 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		hj._leftIndice = append(hj._leftIndice, i)
 	}
 
-	if op.JoinTyp != LOT_JoinTypeSEMI {
+	if op.JoinTyp != LOT_JoinTypeSEMI && op.JoinTyp != LOT_JoinTypeANTI {
 		//right child output types
 		rightIdxOffset := len(hj._scanNextTyps)
 		for i, output := range op.Children[1].Outputs {
@@ -177,9 +177,17 @@ func (scan *Scan) Next(keys, left, result *Chunk) {
 		scan.NextMarkJoin(keys, left, result)
 	case LOT_JoinTypeSEMI:
 		scan.NextSemiJoin(keys, left, result)
+	case LOT_JoinTypeANTI:
+		scan.NextAntiJoin(keys, left, result)
 	default:
 		panic("Unknown join type")
 	}
+}
+
+func (scan *Scan) NextAntiJoin(keys, left, result *Chunk) {
+	scan.ScanKeyMatches(keys)
+	scan.NextSemiOrAntiJoin(keys, left, result, false)
+	scan._finished = true
 }
 
 func (scan *Scan) NextSemiJoin(keys, left, result *Chunk) {

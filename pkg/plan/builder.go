@@ -889,6 +889,39 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				}
 				args = append(args, childExpr)
 			}
+
+			//FIXME:
+			//add join conds to 'A in subquery'
+			if root.Typ == LOT_JOIN &&
+				root.JoinTyp == LOT_JoinTypeSEMI &&
+				len(root.OnConds) == 0 {
+				root.OnConds = append(root.OnConds, &Expr{
+					Typ:      ET_Func,
+					SubTyp:   ET_Equal,
+					DataTyp:  expr.DataTyp,
+					FuncId:   EQUAL,
+					Children: copyExprs(args...),
+				})
+
+				bExpr := &Expr{
+					Typ:     ET_BConst,
+					DataTyp: ExprDataType{LTyp: boolean()},
+					Bvalue:  true,
+				}
+
+				retExpr := &Expr{
+					Typ:     ET_Func,
+					SubTyp:  ET_Equal,
+					DataTyp: ExprDataType{LTyp: boolean()},
+					FuncId:  EQUAL,
+					Children: []*Expr{
+						bExpr,
+						copyExpr(bExpr),
+					},
+				}
+
+				return retExpr, root, nil
+			}
 			return &Expr{
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
@@ -907,6 +940,40 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				}
 				args = append(args, childExpr)
 			}
+
+			//FIXME:
+			//add join conds to 'A not in subquery'
+			if root.Typ == LOT_JOIN &&
+				root.JoinTyp == LOT_JoinTypeANTI &&
+				len(root.OnConds) == 0 {
+				root.OnConds = append(root.OnConds, &Expr{
+					Typ:      ET_Func,
+					SubTyp:   ET_Equal,
+					DataTyp:  expr.DataTyp,
+					FuncId:   EQUAL,
+					Children: copyExprs(args...),
+				})
+
+				bExpr := &Expr{
+					Typ:     ET_BConst,
+					DataTyp: ExprDataType{LTyp: boolean()},
+					Bvalue:  true,
+				}
+
+				retExpr := &Expr{
+					Typ:     ET_Func,
+					SubTyp:  ET_Equal,
+					DataTyp: ExprDataType{LTyp: boolean()},
+					FuncId:  EQUAL,
+					Children: []*Expr{
+						bExpr,
+						copyExpr(bExpr),
+					},
+				}
+
+				return retExpr, root, nil
+			}
+
 			return &Expr{
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
@@ -1098,6 +1165,16 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 					Typ:     LOT_JOIN,
 					Index:   uint64(b.GetTag()),
 					JoinTyp: LOT_JoinTypeSEMI,
+					OnConds: nil,
+					Children: []*LogicalOperator{
+						root, subRoot,
+					},
+				}
+			case ET_SubqueryTypeNotIn:
+				newRoot = &LogicalOperator{
+					Typ:     LOT_JOIN,
+					Index:   uint64(b.GetTag()),
+					JoinTyp: LOT_JoinTypeANTI,
 					OnConds: nil,
 					Children: []*LogicalOperator{
 						root, subRoot,
@@ -1407,7 +1484,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case RightSide:
 				rightNeeds = append(rightNeeds, nd)
 			case BothSide:
-				if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeSEMI {
+				if root.JoinTyp == LOT_JoinTypeInner {
 					//only equal or in can be used in On conds
 					if nd.SubTyp == ET_Equal || nd.SubTyp == ET_In {
 						root.OnConds = append(root.OnConds, nd)
