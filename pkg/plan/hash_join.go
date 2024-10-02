@@ -179,8 +179,33 @@ func (scan *Scan) Next(keys, left, result *Chunk) {
 		scan.NextSemiJoin(keys, left, result)
 	case LOT_JoinTypeANTI:
 		scan.NextAntiJoin(keys, left, result)
+	case LOT_JoinTypeLeft:
+		scan.NextLeftJoin(keys, left, result)
 	default:
 		panic("Unknown join type")
+	}
+}
+
+func (scan *Scan) NextLeftJoin(keys, left, result *Chunk) {
+	scan.NextInnerJoin(keys, left, result)
+	if result.card() == 0 {
+		remainingCount := 0
+		sel := NewSelectVector(defaultVectorSize)
+		for i := 0; i < left.card(); i++ {
+			if !scan._foundMatch[i] {
+				sel.setIndex(remainingCount, i)
+				remainingCount++
+			}
+		}
+		if remainingCount > 0 {
+			result.slice(left, sel, remainingCount, 0)
+			for i := left.columnCount(); i < result.columnCount(); i++ {
+				vec := result._data[i]
+				vec.setPhyFormat(PF_CONST)
+				setNullInPhyFormatConst(vec, true)
+			}
+		}
+		scan._finished = true
 	}
 }
 

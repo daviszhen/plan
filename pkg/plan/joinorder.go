@@ -1261,11 +1261,11 @@ func getTableRefers(root *LogicalOperator, set UnorderedSet) {
 	case LOT_Scan:
 		set.insert(root.Index)
 	case LOT_JOIN:
-		if root.JoinTyp == LOT_JoinTypeMARK {
-			collectTableRefersOfExprs(root.OnConds, set)
-			getTableRefers(root.Children[0], set)
-			break
-		}
+		//if root.JoinTyp == LOT_JoinTypeMARK {
+		//	collectTableRefersOfExprs(root.OnConds, set)
+		//	getTableRefers(root.Children[0], set)
+		//	break
+		//}
 		collectTableRefersOfExprs(root.OnConds, set)
 		for _, child := range root.Children {
 			getTableRefers(child, set)

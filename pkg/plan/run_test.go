@@ -377,6 +377,19 @@ func Test_1g_q22(t *testing.T) {
 	runOps(t, gConf, nil, ops)
 }
 
+func Test_1g_q13(t *testing.T) {
+	pplan := runTest2(t, tpchQ13())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			//return wantedOp(root, POT_Order)
+			//return wantedOp(root, POT_Agg) && wantedOp(root.Children[0], POT_Join)
+			return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeLeft
+		},
+	)
+	runOps(t, gConf, nil, ops)
+}
+
 func TestName(t *testing.T) {
 	dec := dec.MustParse("0.0001000000")
 	fmt.Println(dec)

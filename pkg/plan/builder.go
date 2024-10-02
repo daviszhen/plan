@@ -1453,7 +1453,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		collectTags(root.Children[1], rightTags)
 
 		root.OnConds = splitExprsByAnd(root.OnConds)
-		if root.JoinTyp == LOT_JoinTypeInner {
+		if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeLeft {
 			for _, on := range root.OnConds {
 				needs = append(needs, splitExprByAnd(on)...)
 			}
@@ -1484,7 +1484,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case RightSide:
 				rightNeeds = append(rightNeeds, nd)
 			case BothSide:
-				if root.JoinTyp == LOT_JoinTypeInner {
+				if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeLeft {
 					//only equal or in can be used in On conds
 					if nd.SubTyp == ET_Equal || nd.SubTyp == ET_In {
 						root.OnConds = append(root.OnConds, nd)
