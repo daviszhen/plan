@@ -382,9 +382,7 @@ func Test_1g_q13(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			//return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Agg) && wantedOp(root.Children[0], POT_Join)
-			return wantedOp(root, POT_Join) && root.JoinTyp == LOT_JoinTypeLeft
+			return wantedOp(root, POT_Order)
 		},
 	)
 	runOps(t, gConf, nil, ops)
