@@ -14,7 +14,15 @@
 
 package plan
 
-import "github.com/BurntSushi/toml"
+import (
+	"math"
+
+	"github.com/BurntSushi/toml"
+)
+
+const (
+	INVALID_INDEX uint32 = math.MaxUint32
+)
 
 type Config struct {
 	Format            string `tag:"format"`

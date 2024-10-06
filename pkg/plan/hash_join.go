@@ -925,9 +925,11 @@ func (layout *TupleDataLayout) copy() *TupleDataLayout {
 type TupleDataCollection struct {
 	_layout         *TupleDataLayout
 	_rawInputLayout *TupleDataLayout
-	_count          int
+	_count          uint64
 	_parts          []*TupleRows
 	_dedup          map[unsafe.Pointer]struct{}
+	_alloc          *TupleDataAllocator
+	_segments       []*TupleDataSegment
 }
 
 type TupleRows struct {
@@ -994,7 +996,7 @@ func NewTupleDataCollection(layout *TupleDataLayout, rawInputLayout *TupleDataLa
 }
 
 func (tuple *TupleDataCollection) Count() int {
-	return tuple._count
+	return int(tuple._count)
 }
 
 func (tuple *TupleDataCollection) Append(chunk *Chunk) {
@@ -1035,8 +1037,8 @@ func (tuple *TupleDataCollection) AppendUnified(
 		tuple.computeHeapSizes(part, chunk, appendSel, cnt)
 	}
 
-	//allocate space for every row
-	tuple.buildBufferSpace(part, cnt)
+	//FIXME:
+	tuple.Build(nil, nil, 0, uint64(cnt))
 
 	//fill row
 	tuple.scatter(part, chunk, appendSel, cnt)
@@ -1060,7 +1062,7 @@ func (tuple *TupleDataCollection) AppendUnified(
 
 func (tuple *TupleDataCollection) savePart(part *TuplePart) {
 	rows := part.toTupleRows()
-	tuple._count += rows._count
+	tuple._count += uint64(rows._count)
 	tuple._parts = append(tuple._parts, rows)
 	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rows.rowLocations)
 	for i, loc := range rowLocs {
@@ -1628,4 +1630,15 @@ func (tuple *TupleDataCollection) Scan(state *AggrHashTableScanState, result, ra
 	)
 	rawInput.setCard(part._count)
 	return true
+}
+
+func (tuple *TupleDataCollection) Build(
+	pinState *TupleDataPinState,
+	chunkState *TupleDataChunkState,
+	appendOffset uint64,
+	appendCount uint64,
+) {
+	seg := back(tuple._segments)
+	seg._allocator.Build(seg, pinState, chunkState, appendOffset, appendCount)
+	tuple._count += appendCount
 }

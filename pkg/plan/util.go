@@ -257,12 +257,12 @@ func assertFunc(b bool) {
 	}
 }
 
-type Allocator interface {
+type BytesAllocator interface {
 	Alloc(sz int) []byte
 	Free([]byte)
 }
 
-var gAlloc Allocator = &DefaultAllocator{}
+var gAlloc BytesAllocator = &DefaultAllocator{}
 
 type DefaultAllocator struct {
 }
@@ -391,7 +391,7 @@ func findIf[T ~*Expr | ~string | ~int](data []T, pred func(t T) bool) int {
 }
 
 func cMalloc(sz int) unsafe.Pointer {
-	return C.calloc(C.size_t(sz), 1)
+	return C.malloc(C.size_t(sz))
 }
 
 func cFree(ptr unsafe.Pointer) {

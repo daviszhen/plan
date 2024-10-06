@@ -31,17 +31,26 @@ func TestParser(t *testing.T) {
 
 func TestTpchSqls(t *testing.T) {
 	path := "../tpch/"
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 22; i++ {
 		name := fmt.Sprintf("q%d.sql", i+1)
 		sqlPath := path + name
 		sql, err := os.ReadFile(sqlPath)
 		assert.NoError(t, err)
 		stmts, err := Parse(string(sql))
 		assert.NoError(t, err)
-		assert.Equal(t, len(stmts), 1)
+		assert.Equal(t, 1, len(stmts))
 		selectStmt := stmts[0].GetStmt().GetSelectStmt()
 		assert.NotNil(t, selectStmt)
 		from := selectStmt.GetFromClause()
 		assert.NotNil(t, from)
 	}
+
+	//ddl
+	name := "ddl.sql"
+	sqlPath := path + name
+	sql, err := os.ReadFile(sqlPath)
+	assert.NoError(t, err)
+	stmts, err := Parse(string(sql))
+	assert.NoError(t, err)
+	assert.Equal(t, 8, len(stmts))
 }
