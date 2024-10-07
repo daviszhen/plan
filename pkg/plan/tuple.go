@@ -74,7 +74,7 @@ func (alloc *TupleDataAllocator) Build(
 ) {
 
 	//prepare space
-	if len(segment._chunks) != 0 {
+	if !empty(segment._chunks) {
 		alloc.ReleaseOrStoreHandles(
 			pinState,
 			segment,
@@ -84,19 +84,23 @@ func (alloc *TupleDataAllocator) Build(
 	}
 
 	offset := uint64(0)
+	//chunk idx, part idx
 	chunkPartIndices := make([]util.Pair[uint64, uint64], 0)
 	for offset != appendCount {
-		if len(segment._chunks) == 0 ||
+		//no chunks or last chunk is full
+		if empty(segment._chunks) ||
 			back(segment._chunks)._count == defaultVectorSize {
-			segment._chunks = append(segment._chunks, &TupleDataChunk{})
+			segment._chunks = append(segment._chunks, NewTupleDataChunk())
 		}
 
 		chunk := back(segment._chunks)
+		//count of rows can be recorded
 		next := min(
 			appendCount-offset,
 			defaultVectorSize-chunk._count,
 		)
 
+		//allocate space for these rows
 		part := alloc.BuildChunkPart(
 			pinState,
 			chunkState,
@@ -104,6 +108,7 @@ func (alloc *TupleDataAllocator) Build(
 			next,
 		)
 		chunk.AddPart(part, alloc._layout)
+		//chunk idx, part idx
 		chunkPartIndices = append(chunkPartIndices,
 			util.Pair[uint64, uint64]{
 				First:  uint64(len(segment._chunks) - 1),
@@ -115,7 +120,7 @@ func (alloc *TupleDataAllocator) Build(
 		offset += next
 	}
 
-	//
+	//collect parts of these rows
 	parts := make([]*TupleDataChunkPart, 0)
 	for _, pair := range chunkPartIndices {
 		parts = append(parts,
@@ -123,7 +128,7 @@ func (alloc *TupleDataAllocator) Build(
 		)
 	}
 
-	//
+	//decide the base ptr of rows
 	alloc.InitChunkStateInternal(
 		pinState,
 		chunkState,
@@ -138,6 +143,7 @@ func (alloc *TupleDataAllocator) Build(
 
 }
 
+// InitChunkStateInternal evaluate the base ptr of rows
 func (alloc *TupleDataAllocator) InitChunkStateInternal(
 	pinState *TupleDataPinState,
 	chunkState *TupleDataChunkState,
@@ -155,7 +161,7 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 	for _, part := range parts {
 		next := part._count
 
-		//evaluate the row base pointer
+		//evaluate the base pointer for every row
 		baseRowPtr := alloc.GetRowPointer(pinState, part)
 		for i := uint32(0); i < next; i++ {
 			rowLocSlice[offset+uint64(i)] =
@@ -184,6 +190,7 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 		}
 
 		if initHeapPointers {
+			//evaluate base ptr for every row saved in heap
 			heapLocSlice[offset] = pointerAdd(
 				part._baseHeapPtr,
 				int(part._heapBlockOffset),
@@ -202,6 +209,7 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 	assertFunc(offset <= defaultVectorSize)
 }
 
+// BuildChunkPart allocate space for rows
 func (alloc *TupleDataAllocator) BuildChunkPart(
 	pinState *TupleDataPinState,
 	chunkState *TupleDataChunkState,
@@ -212,35 +220,43 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 	result := new(TupleDataChunkPart)
 
 	//ensure enough space
-	if len(alloc._rowBlocks) == 0 ||
+	//no block or last block is full
+	if empty(alloc._rowBlocks) ||
 		back(alloc._rowBlocks).RemainingCapacity() <
 			uint64(alloc._layout.rowWidth()) {
 		alloc._rowBlocks = append(alloc._rowBlocks,
 			NewTupleDataBlock(alloc._bufferMgr, storage.BLOCK_SIZE))
 	}
+	//the idx of the block that rows saved into
 	result._rowBlockIdx = uint32(len(alloc._rowBlocks) - 1)
 	rowBlock := back(alloc._rowBlocks)
+	//the offset in the block that rows saved into
 	result._rowBlockOffset = uint32(rowBlock._size)
+	//the count of rows that the block can save
 	result._count = uint32(min(
 		rowBlock.RemainingRows(uint64(alloc._layout.rowWidth())),
 		appendCount))
 
+	//handle variable length columns
 	if !alloc._layout.allConst() {
+		//heap size has been evaluated
 		heapSizesSlice := getSliceInPhyFormatFlat[uint64](chunkState._heapSizes)
 		tHeapSize := uint64(0)
+		//evaluate the total heap size for saved rows
 		for i := uint32(0); i < result._count; i++ {
 			tHeapSize += heapSizesSlice[appendOffset+uint64(i)]
 		}
 
 		if tHeapSize == 0 {
+			//no need space for heap
 			result._heapBlockIdx = INVALID_INDEX
 			result._heapBlockOffset = INVALID_INDEX
 			result._totalHeapSize = 0
 			result._baseHeapPtr = nil
 		} else {
-
 			//ensure enough space
-			if len(alloc._heapBlocks) == 0 ||
+			//no heap block or last heap block is full
+			if empty(alloc._heapBlocks) ||
 				back(alloc._heapBlocks).RemainingCapacity() < heapSizesSlice[appendOffset] {
 				sz := max(storage.BLOCK_SIZE, heapSizesSlice[appendOffset])
 				alloc._heapBlocks = append(alloc._heapBlocks,
@@ -248,13 +264,19 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 				)
 			}
 
+			//heap block idx
 			result._heapBlockIdx = uint32(len(alloc._heapBlocks) - 1)
 			heapBlock := back(alloc._heapBlocks)
+			//offset in the heap block
 			result._heapBlockOffset = uint32(heapBlock._size)
+
+			//space length
 			heapRest := heapBlock.RemainingCapacity()
 			if tHeapSize <= heapRest {
+				//enough for rows saved
 				result._totalHeapSize = uint32(tHeapSize)
 			} else {
+				//not enough
 				result._totalHeapSize = 0
 				//as much as we can fill
 				for i := uint32(0); i < result._count; i++ {
@@ -267,12 +289,14 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 				}
 			}
 
+			//total size added with occupied heap bytes
 			heapBlock._size += uint64(result._totalHeapSize)
 			result._baseHeapPtr = alloc.GetBaseHeapPointer(pinState, result)
 		}
 	}
 
 	assertFunc(result._count != 0 && result._count <= defaultVectorSize)
+	//total size added with occupied row bytes
 	rowBlock._size += uint64(result._count * uint32(alloc._layout.rowWidth()))
 	return result
 }
@@ -284,6 +308,8 @@ func (alloc *TupleDataAllocator) GetRowPointer(
 	return pointerAdd(ptr, int(part._rowBlockOffset))
 }
 
+// PinRowBlock let the TupleDataPinState refers to the saved block saved
+// in the TupleDataAllocator and Pin the row block
 func (alloc *TupleDataAllocator) PinRowBlock(
 	pinState *TupleDataPinState,
 	part *TupleDataChunkPart) *storage.BufferHandle {
@@ -308,6 +334,8 @@ func (alloc *TupleDataAllocator) GetBaseHeapPointer(
 	return alloc.PinHeapBlock(pinState, part).Ptr()
 }
 
+// PinHeapBlock let the TupleDataPinState refers to the heap block saved
+// in the TupleDataAllocator and Pin the heap block
 func (alloc *TupleDataAllocator) PinHeapBlock(
 	pinState *TupleDataPinState,
 	part *TupleDataChunkPart) *storage.BufferHandle {
@@ -327,6 +355,7 @@ func (alloc *TupleDataAllocator) PinHeapBlock(
 	}
 }
 
+// ReleaseOrStoreHandles recycle the block unused in pin state to segment pinned blocks
 func (alloc *TupleDataAllocator) ReleaseOrStoreHandles(
 	pinState *TupleDataPinState,
 	segment *TupleDataSegment,
@@ -411,11 +440,41 @@ type TupleDataSegment struct {
 	}
 }
 
+func (segment *TupleDataSegment) Unpin() {
+	segment.mu.Lock()
+	defer segment.mu.Unlock()
+	for _, handle := range segment.mu._pinnedRowHandles {
+		handle.Close()
+	}
+
+	for _, handle := range segment.mu._pinnedHeapHandles {
+		handle.Close()
+	}
+	segment.mu._pinnedRowHandles = nil
+	segment.mu._pinnedHeapHandles = nil
+}
+
+func NewTupleDataSegment(alloc *TupleDataAllocator) *TupleDataSegment {
+	ret := &TupleDataSegment{
+		_allocator: alloc,
+	}
+	return ret
+}
+
 type TupleDataChunk struct {
 	_parts        []*TupleDataChunkPart
 	_rowBlockIds  UnorderedSet
 	_heapBlockIds UnorderedSet
 	_count        uint64
+}
+
+func NewTupleDataChunk() *TupleDataChunk {
+	ret := &TupleDataChunk{
+		_rowBlockIds:  make(UnorderedSet),
+		_heapBlockIds: make(UnorderedSet),
+	}
+
+	return ret
 }
 
 func (chunk *TupleDataChunk) AddPart(
@@ -446,6 +505,31 @@ type TupleDataChunkState struct {
 	_heapLocations *Vector
 	_heapSizes     *Vector
 	_columnIds     []uint64
+
+	rawInputData      []UnifiedFormat
+	rawInputRowLocs   *Vector
+	rawInputHeapLocs  *Vector
+	rawInputHeapSizes *Vector
+}
+
+func NewTupleDataChunkState(cnt int) *TupleDataChunkState {
+	ret := &TupleDataChunkState{
+		_data:          make([]UnifiedFormat, cnt),
+		_rowLocations:  NewVector(pointerType(), defaultVectorSize),
+		_heapLocations: NewVector(pointerType(), defaultVectorSize),
+		_heapSizes:     NewVector(ubigintType(), defaultVectorSize),
+	}
+	for i := 0; i < cnt; i++ {
+		ret._columnIds = append(ret._columnIds, uint64(i))
+	}
+	return ret
+}
+
+func (state *TupleDataChunkState) prepareForRawInput(cnt int) {
+	state.rawInputData = make([]UnifiedFormat, cnt)
+	state.rawInputRowLocs = NewVector(pointerType(), defaultVectorSize)
+	state.rawInputHeapLocs = NewVector(pointerType(), defaultVectorSize)
+	state.rawInputHeapSizes = NewVector(ubigintType(), defaultVectorSize)
 }
 
 type TupleDataPinProperties int
@@ -456,7 +540,17 @@ const (
 )
 
 type TupleDataPinState struct {
+	//the blocks for recording chunks
 	_rowHandles  map[uint32]*storage.BufferHandle
 	_heapHandles map[uint32]*storage.BufferHandle
 	_properties  TupleDataPinProperties
+}
+
+func NewTupleDataPinState() *TupleDataPinState {
+	ret := &TupleDataPinState{
+		_rowHandles:  make(map[uint32]*storage.BufferHandle),
+		_heapHandles: make(map[uint32]*storage.BufferHandle),
+		_properties:  PIN_PRRP_INVALID,
+	}
+	return ret
 }

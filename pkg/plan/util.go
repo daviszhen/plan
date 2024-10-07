@@ -416,6 +416,14 @@ func back[T any](data []T) T {
 	return data[l-1]
 }
 
+func size[T any](data []T) int {
+	return len(data)
+}
+
+func empty[T any](data []T) bool {
+	return size(data) == 0
+}
+
 // removeIf removes the one that pred is true.
 func removeIf[T any](data []T, pred func(t T) bool) []T {
 	if len(data) == 0 {

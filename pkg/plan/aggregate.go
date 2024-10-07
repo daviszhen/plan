@@ -19,6 +19,8 @@ import (
 	"math"
 	"sort"
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/storage"
 )
 
 type IntSet map[int]struct{}
@@ -508,9 +510,11 @@ type AggrHTAppendState struct {
 	_emptyVector        *SelectVector
 	_newGroups          *SelectVector
 	_addresses          *Vector
-	_groupData          []*UnifiedFormat
-	_groupChunk         *Chunk
-	_chunkState         *TuplePart
+	//unified format of Chunk
+	_groupData []*UnifiedFormat
+	//Chunk
+	_groupChunk *Chunk
+	_chunkState *TupleDataChunkState
 }
 
 func NewAggrHTAppendState() *AggrHTAppendState {
@@ -696,11 +700,13 @@ type GroupedAggrHashTable struct {
 	_rawInputLayout *TupleDataLayout
 	_payloadTypes   []LType
 
-	_capacity       int
-	_tupleSize      int
-	_tuplesPerBlock int
-	_dataCollection *TupleDataCollection
-	//_payloadHdsPtrs  []unsafe.Pointer
+	_capacity        int
+	_tupleSize       int
+	_tuplesPerBlock  int
+	_dataCollection  *TupleDataCollection
+	_pinState        *TupleDataPinState
+	_payloadHdsPtrs  []unsafe.Pointer
+	_hashesHdl       *storage.BufferHandle
 	_hashesHdlPtr    unsafe.Pointer
 	_hashOffset      int
 	_hashPrefixShift uint64
@@ -864,6 +870,9 @@ func NewGroupedAggrHashTable(
 
 	ret._hashOffset = ret._layout._offsets[ret._layout.columnCount()-1]
 	ret._dataCollection = NewTupleDataCollection(ret._layout, ret._rawInputLayout)
+	ret._pinState = NewTupleDataPinState()
+	ret._dataCollection.InitAppend(ret._pinState, PIN_PRRP_KEEP_PINNED)
+
 	//allocate hash header
 	ret._hashesHdlPtr = cMalloc(BLOCK_SIZE)
 	ret._hashPrefixShift = (HASH_WIDTH - 2) * 8
@@ -998,10 +1007,12 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	state._groupChunk.setCard(groups.card())
 
 	//if state._chunkState == nil {
-	state._chunkState = NewTuplePart(aht._layout.columnCount())
+	//prepare data structure holding incoming Chunk
+	state._chunkState = NewTupleDataChunkState(aht._layout.columnCount())
 	state._chunkState.prepareForRawInput(aht._rawInputLayout.columnCount())
 	//}
 
+	//groupChunk converted into chunkstate.data unified format
 	toUnifiedFormat(state._chunkState, state._groupChunk)
 	toUnifiedFormatForRawInput(state._chunkState, rawInput)
 
@@ -1012,6 +1023,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 		}
 	}
 
+	//group data refers to the chunk state.data unified format
 	getVectorData(state._chunkState, state._groupData)
 
 	newGroupCount := 0
@@ -1055,6 +1067,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 
 		if newEntryCount > 0 {
 			aht._dataCollection.AppendUnified(
+				aht._pinState,
 				state._chunkState,
 				state._groupChunk,
 				rawInput,
@@ -1065,12 +1078,12 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 			//init aggr states
 			InitStates(
 				aht._layout,
-				state._chunkState.rowLocations,
+				state._chunkState._rowLocations,
 				incrSelectVectorInPhyFormatFlat(),
 				newEntryCount)
 
 			//update htEntry & save address
-			rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._chunkState.rowLocations)
+			rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._chunkState._rowLocations)
 			dedup := make(map[int]struct{})
 			for j := 0; j < newEntryCount; j++ {
 				idx := state._emptyVector.getIndex(j)
@@ -1223,6 +1236,29 @@ func (aht *GroupedAggrHashTable) Count() int {
 
 func (aht *GroupedAggrHashTable) ResizeThreshold() int {
 	return int(float32(aht._capacity) / LOAD_FACTOR)
+}
+
+func (aht *GroupedAggrHashTable) UpdateBlockPointers() {
+	for id, handle := range aht._pinState._rowHandles {
+		if len(aht._payloadHdsPtrs) == 0 ||
+			id > uint32(size(aht._payloadHdsPtrs))-1 {
+			need := id - uint32(size(aht._payloadHdsPtrs)) + 1
+			aht._payloadHdsPtrs = append(aht._payloadHdsPtrs,
+				make([]unsafe.Pointer, need)...)
+		}
+		aht._payloadHdsPtrs[id] = handle.Ptr()
+	}
+}
+
+func (aht *GroupedAggrHashTable) Finalize() {
+	if aht._finalized {
+		return
+	}
+	//TODO:
+	aht._dataCollection.FinalizePinState(aht._pinState)
+	aht._dataCollection.Unpin()
+
+	aht._finalized = true
 }
 
 func InitStates(
