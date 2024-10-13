@@ -65,15 +65,16 @@ func (gs GroupingSet) count() int {
 }
 
 type GroupedAggrData struct {
-	_groups          []*Expr
-	_groupingFuncs   [][]int //GROUPING functions
-	_groupTypes      []LType
-	_aggregates      []*Expr
-	_payloadTypes    []LType
-	_paramExprs      []*Expr //param exprs of the aggr function
-	_aggrReturnTypes []LType
-	_bindings        []*Expr //pointer to aggregates
-	_rawInputTypes   []LType
+	_groups              []*Expr
+	_groupingFuncs       [][]int //GROUPING functions
+	_groupTypes          []LType
+	_aggregates          []*Expr
+	_payloadTypes        []LType
+	_paramExprs          []*Expr //param exprs of the aggr function
+	_aggrReturnTypes     []LType
+	_bindings            []*Expr //pointer to aggregates
+	_childrenOutputTypes []LType
+	_refChildrenOutput   []*Expr
 }
 
 func (gad *GroupedAggrData) GroupCount() int {
@@ -84,10 +85,11 @@ func (gad *GroupedAggrData) InitGroupby(
 	groups []*Expr,
 	exprs []*Expr,
 	groupingFuncs [][]int,
-	rawInputTypes []LType,
+	refChildrenOutput []*Expr,
 ) {
 	gad.InitGroupbyGroups(groups)
 	gad.SetGroupingFuncs(groupingFuncs)
+	gad.InitChildrenOutput(refChildrenOutput)
 
 	//aggr exprs
 	for _, aggr := range exprs {
@@ -99,7 +101,6 @@ func (gad *GroupedAggrData) InitGroupby(
 		}
 		gad._aggregates = append(gad._aggregates, aggr)
 	}
-	gad._rawInputTypes = rawInputTypes
 }
 
 func (gad *GroupedAggrData) InitDistinct(
@@ -114,7 +115,7 @@ func (gad *GroupedAggrData) InitDistinct(
 		gad._groups = append(gad._groups, child.copy())
 		gad._payloadTypes = append(gad._payloadTypes, child.DataTyp.LTyp)
 	}
-	gad._rawInputTypes = rawInputTypes
+	gad._childrenOutputTypes = rawInputTypes
 }
 
 func (gad *GroupedAggrData) InitDistinctGroups(
@@ -141,6 +142,13 @@ func (gad *GroupedAggrData) InitGroupbyGroups(groups []*Expr) {
 	gad._groups = groups
 }
 
+func (gad *GroupedAggrData) InitChildrenOutput(outputs []*Expr) {
+	for _, output := range outputs {
+		gad._childrenOutputTypes = append(gad._childrenOutputTypes, output.DataTyp.LTyp)
+	}
+	gad._refChildrenOutput = outputs
+}
+
 type HashAggrGroupingData struct {
 	_tableData    *RadixPartitionedHashTable
 	_distinctData *DistinctAggrData
@@ -154,7 +162,7 @@ func NewHashAggrGroupingData(
 	ret := &HashAggrGroupingData{}
 	ret._tableData = NewRadixPartitionedHashTable(groupingSet, aggrData)
 	if info != nil {
-		ret._distinctData = NewDistinctAggrData(info, groupingSet, aggrData._groups, aggrData._rawInputTypes)
+		ret._distinctData = NewDistinctAggrData(info, groupingSet, aggrData._groups, aggrData._childrenOutputTypes)
 	}
 
 	return ret
@@ -335,7 +343,7 @@ func NewHashAggr(
 	groups []*Expr,
 	groupingSets []GroupingSet,
 	groupingFuncs [][]int,
-	rawInputTypes []LType,
+	refChildrenOutput []*Expr,
 ) *HashAggr {
 	ha := &HashAggr{}
 	ha._types = types
@@ -355,7 +363,7 @@ func NewHashAggr(
 
 	//prepare grouped aggr data
 	ha._groupedAggrData = &GroupedAggrData{}
-	ha._groupedAggrData.InitGroupby(groups, aggrExprs, groupingFuncs, rawInputTypes)
+	ha._groupedAggrData.InitGroupby(groups, aggrExprs, groupingFuncs, refChildrenOutput)
 
 	//prepare distinct or non-distinct filter
 	for i, aggr := range ha._groupedAggrData._aggregates {
@@ -400,7 +408,7 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 	return types
 }
 
-func (haggr *HashAggr) Sink(chunk, rawInput *Chunk) {
+func (haggr *HashAggr) Sink(chunk *Chunk) {
 	if haggr._distinctCollectionInfo != nil {
 		panic("usp")
 	}
@@ -413,7 +421,7 @@ func (haggr *HashAggr) Sink(chunk, rawInput *Chunk) {
 	payload.setCard(chunk.card())
 	for _, grouping := range haggr._groupings {
 		grouping._tableData._printHash = haggr._printHash
-		grouping._tableData.Sink(chunk, payload, rawInput, haggr._nonDistinctFilter)
+		grouping._tableData.Sink(chunk, payload, haggr._nonDistinctFilter)
 	}
 }
 
@@ -591,7 +599,7 @@ func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
 	}
 }
 
-func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, rawInput *Chunk, filter []int) {
+func (rpht *RadixPartitionedHashTable) Sink(chunk, payload *Chunk, filter []int) {
 	if rpht._finalizedHT == nil {
 		fmt.Println("init finalize ht")
 		//prepare aggr objs
@@ -600,7 +608,7 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, rawInput *Chunk, fil
 		rpht._finalizedHT = NewGroupedAggrHashTable(
 			rpht._groupTypes,
 			rpht._groupedAggrData._payloadTypes,
-			rpht._groupedAggrData._rawInputTypes,
+			rpht._groupedAggrData._childrenOutputTypes,
 			aggrObjs,
 			2*defaultVectorSize,
 		)
@@ -713,9 +721,8 @@ func NewTupleDataScanState(colCnt int, prop TupleDataPinProperties) *TupleDataSc
 }
 
 type GroupedAggrHashTable struct {
-	_layout         *TupleDataLayout
-	_rawInputLayout *TupleDataLayout
-	_payloadTypes   []LType
+	_layout       *TupleDataLayout
+	_payloadTypes []LType
 
 	_capacity        int
 	_tupleSize       int
@@ -871,15 +878,14 @@ type AggrFunc struct {
 func NewGroupedAggrHashTable(
 	groupTypes []LType,
 	payloadTypes []LType,
-	rawInputTypes []LType,
+	childrenOutputTypes []LType,
 	aggrObjs []*AggrObject,
 	initCap int,
 ) *GroupedAggrHashTable {
 	ret := new(GroupedAggrHashTable)
 	//hash column in the end of tuple
 	groupTypes = append(groupTypes, hashType())
-	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, true, true)
-	ret._rawInputLayout = NewTupleDataLayout(rawInputTypes, nil, true, true)
+	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, childrenOutputTypes, true, true)
 	ret._payloadTypes = payloadTypes
 
 	ret._tupleSize = ret._layout._rowWidth

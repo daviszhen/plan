@@ -632,9 +632,17 @@ func (run *Runner) aggrInit() error {
 		}
 
 		//children input types
-		rawInputTypes := make([]LType, 0)
+		refChildrenOutput := make([]*Expr, 0)
 		for i := 0; i < len(run.op.Children[0].Outputs); i++ {
-			rawInputTypes = append(rawInputTypes, run.op.Children[0].Outputs[i].DataTyp.LTyp)
+			ref := run.op.Children[0].Outputs[i]
+			refChildrenOutput = append(refChildrenOutput, &Expr{
+				Typ:     ET_Column,
+				DataTyp: ref.DataTyp,
+				ColRef: ColumnBind{
+					-1,
+					uint64(i),
+				},
+			})
 		}
 
 		run.hAggr = NewHashAggr(
@@ -643,15 +651,16 @@ func (run *Runner) aggrInit() error {
 			run.op.GroupBys,
 			nil,
 			nil,
-			rawInputTypes,
+			refChildrenOutput,
 		)
 		if run.op.Children[0].Typ == POT_Filter {
 			run.hAggr._printHash = true
 		}
-		//groupby exprs + param exprs of aggr functions
+		//groupby exprs + param exprs of aggr functions + reference to the output exprs of children
 		groupExprs := make([]*Expr, 0)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._groups...)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._paramExprs...)
+		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._refChildrenOutput...)
 		run.state.groupbyWithParamsExec = NewExprExec(groupExprs...)
 		run.state.groupbyExec = NewExprExec(run.hAggr._groupedAggrData._groups...)
 		run.state.filterExec = NewExprExec(run.op.Filters...)
@@ -705,6 +714,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			typs := make([]LType, 0)
 			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
 			typs = append(typs, run.hAggr._groupedAggrData._payloadTypes...)
+			typs = append(typs, run.hAggr._groupedAggrData._childrenOutputTypes...)
 			groupChunk := &Chunk{}
 			groupChunk.init(typs, defaultVectorSize)
 			err = run.state.groupbyWithParamsExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
@@ -713,7 +723,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			}
 
 			//groupChunk.print()
-			run.hAggr.Sink(groupChunk, childChunk)
+			run.hAggr.Sink(groupChunk)
 
 		}
 		run.hAggr._has = HAS_SCAN
@@ -744,7 +754,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			groupAndAggrChunk.init(groupAddAggrTypes, defaultVectorSize)
 			assertFunc(len(run.hAggr._groupedAggrData._groupingFuncs) == 0)
 			childChunk := &Chunk{}
-			childChunk.init(run.hAggr._groupedAggrData._rawInputTypes, defaultVectorSize)
+			childChunk.init(run.hAggr._groupedAggrData._childrenOutputTypes, defaultVectorSize)
 			res = run.hAggr.GetData(run.state.haScanState, groupAndAggrChunk, childChunk)
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil

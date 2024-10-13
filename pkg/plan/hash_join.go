@@ -797,7 +797,8 @@ offsets: start of data columns and aggr fields
 */
 type TupleDataLayout struct {
 	//types of the data columns
-	_types []LType
+	_types               []LType
+	_childrenOutputTypes []LType
 
 	//width of bitmap header
 	_bitmapWidth int
@@ -823,9 +824,10 @@ type TupleDataLayout struct {
 	_aggregates []*AggrObject
 }
 
-func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needHeapOffset bool) *TupleDataLayout {
+func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, childrenOutputTypes []LType, align bool, needHeapOffset bool) *TupleDataLayout {
 	layout := &TupleDataLayout{
-		_types: copyLTypes(types...),
+		_types:               copyLTypes(types...),
+		_childrenOutputTypes: copyLTypes(childrenOutputTypes...),
 	}
 
 	alignWidth := func() {
@@ -834,12 +836,12 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 		}
 	}
 
-	layout._bitmapWidth = entryCount(len(layout._types))
+	layout._bitmapWidth = entryCount(len(layout._types) + len(layout._childrenOutputTypes))
 	layout._rowWidth = layout._bitmapWidth
 	alignWidth()
 
-	//all columns are constant size
-	for _, lType := range layout._types {
+	//all columns + children output columns are constant size
+	for _, lType := range append(layout._types, layout._childrenOutputTypes...) {
 		layout._allConst = layout._allConst &&
 			lType.getInternalType().isConstant()
 	}
@@ -850,8 +852,8 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 		alignWidth()
 	}
 
-	//data columns
-	for _, lType := range layout._types {
+	//data columns + children output columns
+	for _, lType := range append(layout._types, layout._childrenOutputTypes...) {
 		layout._offsets = append(layout._offsets, layout._rowWidth)
 		if lType.getInternalType().isConstant() ||
 			lType.getInternalType().isVarchar() {
