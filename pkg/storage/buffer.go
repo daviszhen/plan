@@ -77,6 +77,12 @@ type BufferManager struct {
 	_bufferAlloc  *Allocator
 }
 
+var GBufferMgr *BufferManager
+
+func init() {
+	GBufferMgr = NewBufferManager(".")
+}
+
 func NewBufferManager(tmp string) *BufferManager {
 	ret := &BufferManager{
 		_tempDir:     tmp,
@@ -126,7 +132,7 @@ func (mgr *BufferManager) Allocate(
 	block **BlockHandle,
 ) *BufferHandle {
 	var local *BlockHandle
-	if *block == nil {
+	if block == nil {
 		block = &local
 	}
 	*block = mgr.RegisterMemory(sz, canDestory)

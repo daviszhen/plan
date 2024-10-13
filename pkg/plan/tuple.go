@@ -174,7 +174,7 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 		}
 
 		if part._totalHeapSize == 0 {
-			if initHeapPointers {
+			if initHeapSizes {
 				panic("usp")
 			}
 			offset += uint64(next)
@@ -429,6 +429,34 @@ func (alloc *TupleDataAllocator) ReleaseOrStoreHandles2(
 	}
 }
 
+func (alloc *TupleDataAllocator) InitChunkState(
+	seg *TupleDataSegment,
+	pinState *TupleDataPinState,
+	chunkState *TupleDataChunkState,
+	chunkIdx int,
+	initHeap bool,
+) {
+	assertFunc(chunkIdx < size(seg._chunks))
+	chunk := seg._chunks[chunkIdx]
+
+	alloc.ReleaseOrStoreHandles(
+		pinState,
+		seg,
+		chunk,
+		len(chunk._heapBlockIds) != 0,
+	)
+
+	alloc.InitChunkStateInternal(
+		pinState,
+		chunkState,
+		0,
+		false,
+		initHeap,
+		initHeap,
+		chunk._parts,
+	)
+}
+
 type TupleDataSegment struct {
 	_allocator *TupleDataAllocator
 	_chunks    []*TupleDataChunk
@@ -504,7 +532,7 @@ type TupleDataChunkState struct {
 	_rowLocations  *Vector
 	_heapLocations *Vector
 	_heapSizes     *Vector
-	_columnIds     []uint64
+	_columnIds     []int
 
 	rawInputData      []UnifiedFormat
 	rawInputRowLocs   *Vector
@@ -520,7 +548,7 @@ func NewTupleDataChunkState(cnt int) *TupleDataChunkState {
 		_heapSizes:     NewVector(ubigintType(), defaultVectorSize),
 	}
 	for i := 0; i < cnt; i++ {
-		ret._columnIds = append(ret._columnIds, uint64(i))
+		ret._columnIds = append(ret._columnIds, i)
 	}
 	return ret
 }

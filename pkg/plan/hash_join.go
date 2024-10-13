@@ -16,6 +16,8 @@ package plan
 
 import (
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/storage"
 )
 
 type HashJoinStage int
@@ -451,9 +453,10 @@ type JoinHashTable struct {
 	_entrySize int
 
 	_dataCollection *TupleDataCollection
-
-	_hashMap []unsafe.Pointer
-	_bitmask int
+	_pinState       *TupleDataPinState
+	_chunkState     *TupleDataChunkState
+	_hashMap        []unsafe.Pointer
+	_bitmask        int
 }
 
 func NewJoinHashTable(conds []*Expr,
@@ -488,6 +491,8 @@ func NewJoinHashTable(conds []*Expr,
 	ht._entrySize = ht._layout.rowWidth()
 
 	ht._dataCollection = NewTupleDataCollection(ht._layout, nil)
+	ht._pinState = NewTupleDataPinState()
+	ht._dataCollection.InitAppend(ht._pinState, PIN_PRRP_KEEP_PINNED)
 	return ht
 }
 
@@ -534,11 +539,12 @@ func (jht *JoinHashTable) Build(keys *Chunk, payload *Chunk) {
 	if addedCnt < keys.card() {
 		sourceChunk.sliceItself(curSel, addedCnt)
 	}
+
+	jht._chunkState = NewTupleDataChunkState(jht._layout.columnCount())
 	//save data collection
-	//FIXME:
 	jht._dataCollection.Append(
-		nil,
-		nil,
+		jht._pinState,
+		jht._chunkState,
 		sourceChunk,
 		incrSelectVectorInPhyFormatFlat(),
 		sourceChunk.card())
@@ -996,6 +1002,7 @@ func NewTupleDataCollection(layout *TupleDataLayout, rawInputLayout *TupleDataLa
 		_layout:         layout.copy(),
 		_rawInputLayout: rawInputLayout.copy(),
 		_dedup:          make(map[unsafe.Pointer]struct{}),
+		_alloc:          NewTupleDataAllocator(storage.GBufferMgr, layout),
 	}
 	return ret
 }
@@ -1591,48 +1598,100 @@ func TupleDataTemplatedGather[T any](
 	}
 }
 
-func (tuple *TupleDataCollection) InitScan(state *AggrHashTableScanState) {
+func (tuple *TupleDataCollection) InitScan(state *TupleDataScanState) {
 	state._partIdx = 0
 	state._partCnt = len(tuple._parts)
+	////////
+	if state._pinState == nil {
+		state._pinState = NewTupleDataPinState()
+	}
+	state._pinState._rowHandles = make(map[uint32]*storage.BufferHandle)
+	state._pinState._heapHandles = make(map[uint32]*storage.BufferHandle)
+	state._pinState._properties = PIN_PRRP_KEEP_PINNED
+
+	if state._chunkState == nil {
+		state._chunkState = NewTupleDataChunkState(tuple._layout.columnCount())
+	}
+	state._segmentIdx = 0
+	state._chunkIdx = 0
+	////////
 	state._init = true
 }
 
-func (tuple *TupleDataCollection) Scan(state *AggrHashTableScanState, result, rawInput *Chunk) bool {
-	if state._partIdx >= len(tuple._parts) {
+func (tuple *TupleDataCollection) NextScanIndex(
+	state *TupleDataScanState,
+	segIdx *int,
+	chunkIdx *int) bool {
+	if state._segmentIdx >= size(tuple._segments) {
+		//no data
 		return false
 	}
-	part := tuple._parts[state._partIdx]
-	state._partIdx++
 
-	//temp
-	state._rowLocs = NewVector(pointerType(), defaultVectorSize)
-	copy(state._rowLocs.getData(), part.rowLocations.getData())
-	state._rawInputRowLocs = NewVector(pointerType(), defaultVectorSize)
-	copy(state._rawInputRowLocs.getData(), part.rawInputRowLocs.getData())
+	for state._chunkIdx >=
+		size(tuple._segments[state._segmentIdx]._chunks) {
+		state._segmentIdx++
+		state._chunkIdx = 0
+		if state._segmentIdx >= size(tuple._segments) {
+			//no data
+			return false
+		}
+	}
 
+	*segIdx = state._segmentIdx
+	*chunkIdx = state._chunkIdx
+	state._chunkIdx++
+	return true
+}
+
+func (tuple *TupleDataCollection) ScanAtIndex(
+	pinState *TupleDataPinState,
+	chunkState *TupleDataChunkState,
+	colIdxs []int,
+	segIndx, chunkIndx int,
+	result *Chunk) {
+	seg := tuple._segments[segIndx]
+	chunk := seg._chunks[chunkIndx]
+	seg._allocator.InitChunkState(
+		seg,
+		pinState,
+		chunkState,
+		chunkIndx,
+		false,
+	)
+	result.reset()
 	tuple.Gather(
 		tuple._layout,
-		state._rowLocs,
+		chunkState._rowLocations,
 		incrSelectVectorInPhyFormatFlat(),
-		part._count,
-		state._colIds,
+		int(chunk._count),
+		colIdxs,
 		result,
 		incrSelectVectorInPhyFormatFlat(),
 	)
-	result.setCard(part._count)
+	result.setCard(int(chunk._count))
+}
 
-	//raw input
+func (tuple *TupleDataCollection) Scan(state *TupleDataScanState, result *Chunk) bool {
+	oldSegIdx := state._segmentIdx
+	var segIdx, chunkIdx int
+	if !tuple.NextScanIndex(state, &segIdx, &chunkIdx) {
+		return false
+	}
 
-	tuple.Gather(
-		tuple._rawInputLayout,
-		state._rawInputRowLocs,
-		incrSelectVectorInPhyFormatFlat(),
-		part._count,
-		state._rawInputColIds,
-		rawInput,
-		incrSelectVectorInPhyFormatFlat(),
+	if uint32(oldSegIdx) != INVALID_INDEX &&
+		segIdx != oldSegIdx {
+		tuple.FinalizePinState2(state._pinState,
+			tuple._segments[oldSegIdx])
+	}
+
+	tuple.ScanAtIndex(
+		state._pinState,
+		state._chunkState,
+		state._chunkState._columnIds,
+		segIdx,
+		chunkIdx,
+		result,
 	)
-	rawInput.setCard(part._count)
 	return true
 }
 
@@ -1661,6 +1720,12 @@ func (tuple *TupleDataCollection) FinalizePinState(pinState *TupleDataPinState) 
 	assertFunc(len(tuple._segments) == 1)
 	chunk := NewTupleDataChunk()
 	tuple._alloc.ReleaseOrStoreHandles(pinState, back(tuple._segments), chunk, true)
+}
+
+func (tuple *TupleDataCollection) FinalizePinState2(pinState *TupleDataPinState, seg *TupleDataSegment) {
+	assertFunc(len(tuple._segments) == 1)
+	chunk := NewTupleDataChunk()
+	tuple._alloc.ReleaseOrStoreHandles(pinState, seg, chunk, true)
 }
 
 func (tuple *TupleDataCollection) Unpin() {

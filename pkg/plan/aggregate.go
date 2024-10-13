@@ -293,7 +293,7 @@ func CreateDistinctAggrCollectionInfo(aggregates []*Expr) *DistinctAggrCollectio
 
 type HashAggrScanState struct {
 	_radixIdx     int
-	_state        *AggrHashTableScanState
+	_state        *TupleDataScanState
 	_childCnt     int
 	_childCnt2    int
 	_outputCnt    int
@@ -304,7 +304,7 @@ type HashAggrScanState struct {
 
 func NewHashAggrScanState() *HashAggrScanState {
 	return &HashAggrScanState{
-		_state: &AggrHashTableScanState{},
+		_state: &TupleDataScanState{},
 	}
 }
 
@@ -433,7 +433,7 @@ func (haggr *HashAggr) FetechAggregates(state *HashAggrScanState, groups, output
 		if state._radixIdx >= len(haggr._groupings) {
 			break
 		}
-		state._state = &AggrHashTableScanState{}
+		state._state = &TupleDataScanState{}
 	}
 
 	if output.card() == 0 {
@@ -459,7 +459,7 @@ func (haggr *HashAggr) GetData(state *HashAggrScanState, output, rawInput *Chunk
 		if state._radixIdx >= len(haggr._groupings) {
 			break
 		}
-		state._state = &AggrHashTableScanState{}
+		state._state = &TupleDataScanState{}
 	}
 
 	//2. run filter
@@ -632,7 +632,7 @@ func (rpht *RadixPartitionedHashTable) FetchAggregates(groups, result *Chunk) {
 	rpht._finalizedHT.FetchAggregates(groups, result)
 }
 
-func (rpht *RadixPartitionedHashTable) GetData(state *AggrHashTableScanState, output, rawInput *Chunk) OperatorResult {
+func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output, rawInput *Chunk) OperatorResult {
 	if !state._init {
 		if rpht._finalizedHT == nil {
 			return Done
@@ -650,12 +650,13 @@ func (rpht *RadixPartitionedHashTable) GetData(state *AggrHashTableScanState, ou
 	}
 
 	scanTyps := make([]LType, 0)
-	//groupby types + aggr return types
+	//FIXME:
+	//groupby types + aggr return types + raw input types
 	scanTyps = append(scanTyps, rpht._groupTypes...)
 	scanTyps = append(scanTyps, rpht._groupedAggrData._aggrReturnTypes...)
 	scanChunk := &Chunk{}
 	scanChunk.init(scanTyps, defaultVectorSize)
-	cnt := rpht._finalizedHT.Scan(state, scanChunk, rawInput)
+	cnt := rpht._finalizedHT.Scan(state, scanChunk)
 	output.setCard(cnt)
 
 	for i, ent := range rpht._groupingSet.ordered() {
@@ -677,6 +678,8 @@ func (rpht *RadixPartitionedHashTable) GetData(state *AggrHashTableScanState, ou
 		output._data[rpht._groupedAggrData.GroupCount()+len(rpht._groupedAggrData._aggregates)+i].referenceValue(rpht._groupingValues[i])
 	}
 
+	//TODO:split the raw chunk from the scan chunk
+
 	if output.card() == 0 {
 		return Done
 	} else {
@@ -684,7 +687,7 @@ func (rpht *RadixPartitionedHashTable) GetData(state *AggrHashTableScanState, ou
 	}
 }
 
-type AggrHashTableScanState struct {
+type TupleDataScanState struct {
 	_partIdx int
 	_partCnt int
 	_colIds  []int
@@ -693,6 +696,20 @@ type AggrHashTableScanState struct {
 
 	_rawInputColIds  []int
 	_rawInputRowLocs *Vector
+
+	_pinState   *TupleDataPinState
+	_chunkState *TupleDataChunkState
+	_segmentIdx int
+	_chunkIdx   int
+}
+
+func NewTupleDataScanState(colCnt int, prop TupleDataPinProperties) *TupleDataScanState {
+	ret := &TupleDataScanState{
+		_pinState:   NewTupleDataPinState(),
+		_chunkState: NewTupleDataChunkState(colCnt),
+	}
+	ret._pinState._properties = prop
+	return ret
 }
 
 type GroupedAggrHashTable struct {
@@ -1167,16 +1184,17 @@ func (aht *GroupedAggrHashTable) FetchAggregates(groups, result *Chunk) {
 	}
 }
 
-func (aht *GroupedAggrHashTable) Scan(state *AggrHashTableScanState, result, rawInput *Chunk) int {
+func (aht *GroupedAggrHashTable) Scan(state *TupleDataScanState, result *Chunk) int {
 	//get groupby data
-	ret := aht._dataCollection.Scan(state, result, rawInput)
+	ret := aht._dataCollection.Scan(state, result)
 	if !ret {
 		return 0
 	}
 
+	//FIXME:
 	//get aggr states
 	groupCols := aht._layout.columnCount() - 1
-	FinalizeStates(aht._layout, state._rowLocs, result, groupCols)
+	FinalizeStates(aht._layout, state._chunkState._rowLocations, result, groupCols)
 
 	return result.card()
 }
