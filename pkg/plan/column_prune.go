@@ -163,10 +163,6 @@ func (ccount ColumnBindCountMap) sortByColumnBind() ColumnBindPosMap {
 	return posMap
 }
 
-func (ccount ColumnBindCountMap) count() int {
-	return len(ccount)
-}
-
 type ColumnBindPosMap map[ColumnBind]int
 
 func (posmap ColumnBindPosMap) insert(bind ColumnBind, pos int) {
@@ -187,10 +183,6 @@ func (posmap ColumnBindPosMap) sortByColumnBind() []ColumnBind {
 		return res[i].less(res[j])
 	})
 	return res
-}
-
-func (posmap ColumnBindPosMap) count() int {
-	return len(posmap)
 }
 
 type ReferredColumnBindMap map[ColumnBind][]*Expr
@@ -237,10 +229,6 @@ func (ref ReferredColumnBindMap) beenReferred(bind ColumnBind) bool {
 		return true
 	}
 	return false
-}
-
-func (ref ReferredColumnBindMap) count() int {
-	return len(ref)
 }
 
 type ColumnPrune struct {

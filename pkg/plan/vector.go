@@ -735,10 +735,10 @@ func setNullInPhyFormatFlat(vec *Vector, idx uint64, null bool) {
 	vec._mask.set(idx, !null)
 }
 
-func isNullInPhyFormatFlat(vec *Vector, idx uint64) bool {
-	assertFunc(vec.phyFormat().isFlat())
-	return !vec._mask.rowIsValid(idx)
-}
+//func isNullInPhyFormatFlat(vec *Vector, idx uint64) bool {
+//	assertFunc(vec.phyFormat().isFlat())
+//	return !vec._mask.rowIsValid(idx)
+//}
 
 func incrSelectVectorInPhyFormatFlat() *SelectVector {
 	return &SelectVector{}

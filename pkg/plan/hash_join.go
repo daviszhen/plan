@@ -15,7 +15,6 @@
 package plan
 
 import (
-	"fmt"
 	"unsafe"
 )
 
@@ -636,26 +635,26 @@ func (jht *JoinHashTable) Finalize() {
 	jht._finalized = true
 }
 
-func (jht *JoinHashTable) printHashMap() {
-	pointers := jht._hashMap
-	for i, ptr := range pointers {
-		fmt.Println("bucket", i, "base", ptr)
-		next := ptr
-		dedup := make(map[unsafe.Pointer]struct{})
-		dedup[ptr] = struct{}{}
-		for next != nil {
-			val := load[unsafe.Pointer](pointerAdd(next, jht._pointerOffset))
-			fmt.Println("    base", next, "next", val)
-			if _, has := dedup[val]; has {
-				fmt.Println("    base", ptr, "loop")
-				panic("get a loop in bucket")
-				//break
-			}
-			dedup[val] = struct{}{}
-			next = val
-		}
-	}
-}
+//func (jht *JoinHashTable) printHashMap() {
+//	pointers := jht._hashMap
+//	for i, ptr := range pointers {
+//		fmt.Println("bucket", i, "base", ptr)
+//		next := ptr
+//		dedup := make(map[unsafe.Pointer]struct{})
+//		dedup[ptr] = struct{}{}
+//		for next != nil {
+//			val := load[unsafe.Pointer](pointerAdd(next, jht._pointerOffset))
+//			fmt.Println("    base", next, "next", val)
+//			if _, has := dedup[val]; has {
+//				fmt.Println("    base", ptr, "loop")
+//				panic("get a loop in bucket")
+//				//break
+//			}
+//			dedup[val] = struct{}{}
+//			next = val
+//		}
+//	}
+//}
 
 func (jht *JoinHashTable) InsertHashes(hashes *Vector, cnt int, keyLocs []unsafe.Pointer) {
 	jht.ApplyBitmask(hashes, cnt)
@@ -861,7 +860,7 @@ func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, align bool, needH
 		alignWidth()
 	}
 
-	layout._aggWidth = layout._rowWidth - layout._dataWidth - layout._bitmapWidth
+	layout._aggWidth = layout._rowWidth - layout.dataWidth() - layout.dataOffset()
 
 	return layout
 }
@@ -1264,12 +1263,6 @@ func (tuple *TupleDataCollection) buildBufferSpaceForRawInput(part *TuplePart, c
 			panic("heap loc is null")
 		}
 	}
-}
-
-func initHeapSizes(rowLocs []unsafe.Pointer, heapSizes []uint64, row int, cnt int, heapSizeOffset int) {
-	//for i := 0; i < cnt; i++ {
-	heapSizes[row] = load[uint64](pointerAdd(rowLocs[row], heapSizeOffset))
-	//}
 }
 
 func (tuple *TupleDataCollection) computeHeapSizes(part *TuplePart, chunk *Chunk, appendSel *SelectVector, cnt int) {

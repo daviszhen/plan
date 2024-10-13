@@ -53,13 +53,6 @@ type ExprExecState struct {
 	_exec *ExprExec
 }
 
-const (
-	//_chunk[0] : result of left child
-	//_chunk[1] : result of right child
-	//_chunk[2] : result of this node
-	chunkOffset = 2
-)
-
 type ExprExec struct {
 	_exprs      []*Expr
 	_chunk      []*Chunk
@@ -101,10 +94,6 @@ func (exec *ExprExec) executeExprs(data []*Chunk, result *Chunk) error {
 	}
 
 	return nil
-}
-
-func (exec *ExprExec) executeExpr(data []*Chunk, result *Vector) error {
-	return exec.executeExprI(data, 0, result)
 }
 
 func (exec *ExprExec) executeExprI(data []*Chunk, exprId int, result *Vector) error {

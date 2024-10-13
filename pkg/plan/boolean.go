@@ -83,6 +83,7 @@ type CompareOp[T any] interface {
 
 // =
 
+//lint:ignore U1000
 type equalOp[T comparable] struct {
 }
 
@@ -99,6 +100,8 @@ func (e equalStrOp) operation(left, right *String) bool {
 }
 
 // Date
+//
+//lint:ignore U1000
 type equalDateOp struct {
 }
 
@@ -116,6 +119,7 @@ func (e equalDecimalOp) operation(left, right *Decimal) bool {
 
 // <>
 
+//lint:ignore U1000
 type notEqualOp[T comparable] struct {
 }
 
@@ -124,6 +128,8 @@ func (e notEqualOp[T]) operation(left, right *T) bool {
 }
 
 // String
+//
+//lint:ignore U1000
 type notEqualStrOp struct {
 }
 
@@ -132,6 +138,8 @@ func (e notEqualStrOp) operation(left, right *String) bool {
 }
 
 // in
+//
+//lint:ignore U1000
 type inOp[T comparable] struct{}
 
 func (e inOp[T]) operation(left, right *T) bool {
@@ -139,6 +147,8 @@ func (e inOp[T]) operation(left, right *T) bool {
 }
 
 // String
+//
+//lint:ignore U1000
 type inStrOp struct{}
 
 func (e inStrOp) operation(left, right *String) bool {
@@ -148,6 +158,8 @@ func (e inStrOp) operation(left, right *String) bool {
 // <
 
 // int32
+//
+//lint:ignore U1000
 type lessInt32Op struct {
 }
 
@@ -156,6 +168,8 @@ func (e lessInt32Op) operation(left, right *int32) bool {
 }
 
 // date
+//
+//lint:ignore U1000
 type lessDateOp struct {
 }
 
@@ -164,6 +178,8 @@ func (e lessDateOp) operation(left, right *Date) bool {
 }
 
 // float64
+//
+//lint:ignore U1000
 type lessFloat64Op struct {
 }
 
@@ -174,6 +190,8 @@ func (e lessFloat64Op) operation(left, right *float64) bool {
 // <=
 
 // int32
+//
+//lint:ignore U1000
 type lessEqualInt32Op struct {
 }
 
@@ -182,6 +200,8 @@ func (e lessEqualInt32Op) operation(left, right *int32) bool {
 }
 
 // float32
+//
+//lint:ignore U1000
 type lessEqualFloat32Op struct {
 }
 
@@ -190,6 +210,8 @@ func (e lessEqualFloat32Op) operation(left, right *float32) bool {
 }
 
 // date
+//
+//lint:ignore U1000
 type lessEqualDateOp struct {
 }
 
@@ -200,6 +222,8 @@ func (e lessEqualDateOp) operation(left, right *Date) bool {
 //>
 
 // float32
+//
+//lint:ignore U1000
 type greatFloat32Op struct {
 }
 
@@ -208,6 +232,8 @@ func (e greatFloat32Op) operation(left, right *float32) bool {
 }
 
 // int32
+//
+//lint:ignore U1000
 type greatInt32Op struct {
 }
 
@@ -216,6 +242,8 @@ func (e greatInt32Op) operation(left, right *int32) bool {
 }
 
 // decimal
+//
+//lint:ignore U1000
 type greatDecimalOp struct {
 }
 
@@ -228,6 +256,8 @@ func (e greatDecimalOp) operation(left, right *Decimal) bool {
 }
 
 // date
+//
+//lint:ignore U1000
 type greatDateOp struct {
 }
 
@@ -238,6 +268,8 @@ func (e greatDateOp) operation(left, right *Date) bool {
 // >=
 
 // int32
+//
+//lint:ignore U1000
 type greatEqualInt32Op struct {
 }
 
@@ -246,6 +278,8 @@ func (e greatEqualInt32Op) operation(left, right *int32) bool {
 }
 
 // date
+//
+//lint:ignore U1000
 type greatEqualDateOp struct {
 }
 
@@ -253,6 +287,7 @@ func (e greatEqualDateOp) operation(left, right *Date) bool {
 	return right.less(left) || right.equal(left)
 }
 
+//lint:ignore U1000
 type greatEqualFloat32Op struct {
 }
 
@@ -261,6 +296,8 @@ func (e greatEqualFloat32Op) operation(left, right *float32) bool {
 }
 
 // like
+//
+//lint:ignore U1000
 type likeOp struct {
 }
 
@@ -313,6 +350,8 @@ func (e likeOp) operation(left, right *String) bool {
 }
 
 // not like
+//
+//lint:ignore U1000
 type notLikeOp struct {
 }
 

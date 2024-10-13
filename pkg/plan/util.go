@@ -442,9 +442,18 @@ func greaterFloat[T ~float32 | ~float64](lhs, rhs T) bool {
 	if lIsNan {
 		return true
 	}
+	var a Action[int]
+	a.do()
 	return lhs > rhs
 }
 
 func alignValue(value int) int {
 	return (value + 7) & (^7)
+}
+
+type Action[T any] struct {
+}
+
+func (action Action[T]) do() {
+	fmt.Println("action")
 }

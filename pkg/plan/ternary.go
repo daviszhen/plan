@@ -28,6 +28,7 @@ type ternaryFunc[A any, B any, C any, R any] interface {
 	fun(*A, *B, *C, *R)
 }
 
+//lint:ignore U1000
 type substringFunc struct {
 }
 
@@ -123,6 +124,7 @@ type ternaryWrapper[A any, B any, C any, R any] interface {
 	)
 }
 
+//lint:ignore U1000
 type ternaryLambdaWrapper[A any, B any, C any, R any] struct {
 }
 
