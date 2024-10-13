@@ -87,6 +87,7 @@ type binaryWrapper[T any, S any, R any] interface {
 	addsNulls() bool
 }
 
+//lint:ignore U1000
 type binaryLambdaWrapper[T any, S any, R any] struct {
 }
 
@@ -101,6 +102,7 @@ func (wrapper binaryLambdaWrapper[T, S, R]) addsNulls() bool {
 	return false
 }
 
+//lint:ignore U1000
 type substringFuncWithoutLength struct {
 	substringFunc
 }
@@ -110,6 +112,7 @@ func (sub substringFuncWithoutLength) fun(s *String, offset *int64, result *Stri
 	sub.substringFunc.fun(s, offset, &length, result)
 }
 
+//lint:ignore U1000
 type binarySingleOpWrapper[T any, S any, R any] struct {
 }
 
@@ -124,6 +127,8 @@ func (b binarySingleOpWrapper[T, S, R]) addsNulls() bool {
 }
 
 // +
+//
+//lint:ignore U1000
 type binDateInterAddOp struct {
 }
 
@@ -131,6 +136,7 @@ func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date)
 	*result = left.addInterval(right)
 }
 
+//lint:ignore U1000
 type binFloat32Float32AddOp struct {
 }
 
@@ -138,6 +144,7 @@ func (op binFloat32Float32AddOp) operation(left *float32, right *float32, result
 	*result = *left + *right
 }
 
+//lint:ignore U1000
 type binDecimalDecimalAddOp struct {
 }
 
@@ -151,6 +158,7 @@ func (op binDecimalDecimalAddOp) operation(left *Decimal, right *Decimal, result
 
 // -
 
+//lint:ignore U1000
 type binDateInterSubOp struct {
 }
 
@@ -159,6 +167,7 @@ func (op binDateInterSubOp) operation(left *Date, right *Interval, result *Date)
 	*result = res
 }
 
+//lint:ignore U1000
 type binFloat32Float32SubOp struct {
 }
 
@@ -166,6 +175,7 @@ func (op binFloat32Float32SubOp) operation(left *float32, right *float32, result
 	*result = *left - *right
 }
 
+//lint:ignore U1000
 type binDecimalDecimalSubOp struct {
 }
 
@@ -178,12 +188,15 @@ func (op binDecimalDecimalSubOp) operation(left *Decimal, right *Decimal, result
 }
 
 // *
+//
+//lint:ignore U1000
 type binFloat32MultiOp struct{}
 
 func (op binFloat32MultiOp) operation(left, right *float32, result *float32) {
 	*result = *left * *right
 }
 
+//lint:ignore U1000
 type binFloat64MultiOp struct{}
 
 func (op binFloat64MultiOp) operation(left, right *float64, result *float64) {
@@ -191,6 +204,8 @@ func (op binFloat64MultiOp) operation(left, right *float64, result *float64) {
 }
 
 // *
+//
+//lint:ignore U1000
 type binDecimalDecimalMulOp struct {
 }
 
@@ -204,12 +219,15 @@ func (op binDecimalDecimalMulOp) operation(left *Decimal, right *Decimal, result
 }
 
 // /
+//
+//lint:ignore U1000
 type binFloat32DivOp struct{}
 
 func (op binFloat32DivOp) operation(left, right *float32, result *float32) {
 	*result = *left / *right
 }
 
+//lint:ignore U1000
 type binDecimalDivOp struct{}
 
 func (op binDecimalDivOp) operation(left, right *Decimal, result *Decimal) {
@@ -221,6 +239,8 @@ func (op binDecimalDivOp) operation(left, right *Decimal, result *Decimal) {
 }
 
 // = int32
+//
+//lint:ignore U1000
 type binInt32EqualOp struct {
 }
 
@@ -229,6 +249,8 @@ func (op binInt32EqualOp) operation(left, right *int32, result *bool) {
 }
 
 // = string
+//
+//lint:ignore U1000
 type binStringEqualOp struct {
 }
 
@@ -237,6 +259,8 @@ func (op binStringEqualOp) operation(left, right *String, result *bool) {
 }
 
 // > int32
+//
+//lint:ignore U1000
 type binInt32GreatOp struct {
 }
 
@@ -245,6 +269,8 @@ func (op binInt32GreatOp) operation(left, right *int32, result *bool) {
 }
 
 // > float32
+//
+//lint:ignore U1000
 type binFloat32GreatOp struct {
 }
 
@@ -253,6 +279,8 @@ func (op binFloat32GreatOp) operation(left, right *float32, result *bool) {
 }
 
 // < string
+//
+//lint:ignore U1000
 type binStringLessOp struct {
 }
 
@@ -261,6 +289,8 @@ func (op binStringLessOp) operation(left, right *String, result *bool) {
 }
 
 // like
+//
+//lint:ignore U1000
 type binStringLikeOp struct {
 }
 
@@ -269,6 +299,8 @@ func (op binStringLikeOp) operation(left, right *String, result *bool) {
 }
 
 // extract
+//
+//lint:ignore U1000
 type binStringInt32ExtractOp struct {
 }
 

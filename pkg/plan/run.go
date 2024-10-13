@@ -105,8 +105,7 @@ type Runner struct {
 	//for cross product
 	cross *CrossProduct
 	//for hash join
-	hjoin    *HashJoin
-	joinKeys *Chunk
+	hjoin *HashJoin
 
 	//for scan
 	pqFile        source.ParquetFile

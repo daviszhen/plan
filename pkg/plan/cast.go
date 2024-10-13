@@ -50,6 +50,7 @@ var (
 	gTryCastDecimalToDecimalOpWrapper tryCastOpWrapper[Decimal, Decimal]
 )
 
+//lint:ignore U1000
 type tryCastOpWrapper[T any, R any] struct {
 }
 
@@ -63,6 +64,7 @@ func (tryCast tryCastOpWrapper[T, R]) operation(
 	op.operation(input, result)
 }
 
+//lint:ignore U1000
 type tryCastInt32ToInt32 struct {
 }
 
@@ -70,6 +72,7 @@ func (numCast tryCastInt32ToInt32) operation(input *int32, result *int32) {
 	*result = int32(*input)
 }
 
+//lint:ignore U1000
 type tryCastInt32ToFloat32 struct {
 }
 
@@ -77,6 +80,7 @@ func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32) {
 	*result = float32(*input)
 }
 
+//lint:ignore U1000
 type tryCastInt32ToFloat64 struct {
 }
 
@@ -84,6 +88,7 @@ func (numCast tryCastInt32ToFloat64) operation(input *int32, result *float64) {
 	*result = float64(*input)
 }
 
+//lint:ignore U1000
 type tryCastInt32ToDecimal struct {
 	tScale int
 }
@@ -99,6 +104,7 @@ func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
 	}
 }
 
+//lint:ignore U1000
 type tryCastDecimalToFloat32 struct {
 }
 
@@ -108,6 +114,7 @@ func (numCast tryCastDecimalToFloat32) operation(input *Decimal, result *float32
 	*result = float32(v)
 }
 
+//lint:ignore U1000
 type tryCastBigintToInt32 struct{}
 
 func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32) {
@@ -118,12 +125,14 @@ func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32) {
 	*result = val
 }
 
+//lint:ignore U1000
 type tryCastBigintToDecimal struct{}
 
 func (numCast tryCastBigintToDecimal) operation(input *Hugeint, result *Decimal) {
 	panic("usp")
 }
 
+//lint:ignore U1000
 type tryCastDecimalToDecimal struct {
 	dstScale int
 	srcScale int
@@ -155,6 +164,7 @@ func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal
 
 }
 
+//lint:ignore U1000
 type tryCastFloat32ToInt32 struct {
 }
 
@@ -162,6 +172,7 @@ func (numCast tryCastFloat32ToInt32) operation(input *float32, result *int32) {
 	*result = int32(*input)
 }
 
+//lint:ignore U1000
 type tryCastFloat32ToFloat64 struct {
 }
 

@@ -1538,14 +1538,14 @@ func pdqsortBranchless(
 	pdqsortLoop(begin, end, constants, log2(pdqIterDiff(end, begin)) > 0, true, true)
 }
 
-func pdqsort(
-	begin, end *PDQIterator,
-	constants *PDQConstants) {
-	if begin == end {
-		return
-	}
-	pdqsortLoop(begin, end, constants, log2(pdqIterDiff(end, begin)) > 0, true, false)
-}
+//func pdqsort(
+//	begin, end *PDQIterator,
+//	constants *PDQConstants) {
+//	if begin == end {
+//		return
+//	}
+//	pdqsortLoop(begin, end, constants, log2(pdqIterDiff(end, begin)) > 0, true, false)
+//}
 
 func log2(diff int) int {
 	log := 0
@@ -2950,15 +2950,15 @@ func encodeInt32(ptr unsafe.Pointer, value int32) {
 	store[uint8](FlipSign(load[uint8](ptr)), ptr)
 }
 
-func encodeUint32(ptr unsafe.Pointer, value uint32) {
-	store[uint32](BSWAP32(value), ptr)
-}
+//func encodeUint32(ptr unsafe.Pointer, value uint32) {
+//	store[uint32](BSWAP32(value), ptr)
+//}
 
 func encodeInt64(ptr unsafe.Pointer, value int64) {
 	store[uint64](BSWAP64(uint64(value)), ptr)
 	store[uint8](FlipSign(load[uint8](ptr)), ptr)
 }
 
-func encodeUint64(ptr unsafe.Pointer, value uint64) {
-	store[uint64](BSWAP64(value), ptr)
-}
+//func encodeUint64(ptr unsafe.Pointer, value uint64) {
+//	store[uint64](BSWAP64(value), ptr)
+//}

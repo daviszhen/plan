@@ -21,9 +21,8 @@ import (
 )
 
 type RelationAttributes struct {
-	originalName string
-	columns      UnorderedSet
-	cardinality  float64
+	columns     UnorderedSet
+	cardinality float64
 }
 
 func NewRelationAttributes() *RelationAttributes {
@@ -65,11 +64,6 @@ func (set ColumnBindSet) find(bind ColumnBind) bool {
 
 func (set ColumnBindSet) insert(bind ColumnBind) {
 	set[bind] = true
-}
-func (set ColumnBindSet) merge(other ColumnBindSet) {
-	for bind := range other {
-		set.insert(bind)
-	}
 }
 
 func (set ColumnBindSet) empty() bool {
@@ -581,10 +575,6 @@ func (e EstimatedProperties) Copy() *EstimatedProperties {
 
 func (e EstimatedProperties) getCost() float64 {
 	return e.cost
-}
-
-func (e *EstimatedProperties) setCost(c float64) {
-	e.cost = c
 }
 
 func (e *EstimatedProperties) setCard(c float64) {
