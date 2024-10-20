@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -639,7 +640,7 @@ func (run *Runner) aggrInit() error {
 				Typ:     ET_Column,
 				DataTyp: ref.DataTyp,
 				ColRef: ColumnBind{
-					-1,
+					math.MaxUint64,
 					uint64(i),
 				},
 			})
@@ -722,12 +723,13 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				return InvalidOpResult, err
 			}
 
-			//groupChunk.print()
+			groupChunk.print()
 			run.hAggr.Sink(groupChunk)
 
 		}
 		run.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
+		fmt.Println("tuple collection size", run.hAggr._groupings[0]._tableData._finalizedHT._dataCollection._count)
 	}
 	if run.hAggr._has == HAS_SCAN {
 		if run.state.haScanState == nil {

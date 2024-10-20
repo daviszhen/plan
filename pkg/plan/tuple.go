@@ -482,6 +482,10 @@ func (segment *TupleDataSegment) Unpin() {
 	segment.mu._pinnedHeapHandles = nil
 }
 
+func (segment *TupleDataSegment) ChunkCount() int {
+	return size(segment._chunks)
+}
+
 func NewTupleDataSegment(alloc *TupleDataAllocator) *TupleDataSegment {
 	ret := &TupleDataSegment{
 		_allocator: alloc,
@@ -528,21 +532,17 @@ type TupleDataChunkPart struct {
 }
 
 type TupleDataChunkState struct {
-	_data          []UnifiedFormat
-	_rowLocations  *Vector
-	_heapLocations *Vector
-	_heapSizes     *Vector
-	_columnIds     []int
-
-	rawInputData      []UnifiedFormat
-	rawInputRowLocs   *Vector
-	rawInputHeapLocs  *Vector
-	rawInputHeapSizes *Vector
+	_data              []UnifiedFormat
+	_rowLocations      *Vector
+	_heapLocations     *Vector
+	_heapSizes         *Vector
+	_columnIds         []int
+	_childrenOutputIds []int
 }
 
-func NewTupleDataChunkState(cnt int) *TupleDataChunkState {
+func NewTupleDataChunkState(cnt, childrenOutputCnt int) *TupleDataChunkState {
 	ret := &TupleDataChunkState{
-		_data:          make([]UnifiedFormat, cnt),
+		_data:          make([]UnifiedFormat, cnt+childrenOutputCnt),
 		_rowLocations:  NewVector(pointerType(), defaultVectorSize),
 		_heapLocations: NewVector(pointerType(), defaultVectorSize),
 		_heapSizes:     NewVector(ubigintType(), defaultVectorSize),
@@ -550,14 +550,10 @@ func NewTupleDataChunkState(cnt int) *TupleDataChunkState {
 	for i := 0; i < cnt; i++ {
 		ret._columnIds = append(ret._columnIds, i)
 	}
+	for i := 0; i < childrenOutputCnt; i++ {
+		ret._childrenOutputIds = append(ret._childrenOutputIds, i+cnt)
+	}
 	return ret
-}
-
-func (state *TupleDataChunkState) prepareForRawInput(cnt int) {
-	state.rawInputData = make([]UnifiedFormat, cnt)
-	state.rawInputRowLocs = NewVector(pointerType(), defaultVectorSize)
-	state.rawInputHeapLocs = NewVector(pointerType(), defaultVectorSize)
-	state.rawInputHeapSizes = NewVector(ubigintType(), defaultVectorSize)
 }
 
 type TupleDataPinProperties int
@@ -581,4 +577,133 @@ func NewTupleDataPinState() *TupleDataPinState {
 		_properties:  PIN_PRRP_INVALID,
 	}
 	return ret
+}
+
+type TupleDataChunkIterator struct {
+	_collection    *TupleDataCollection
+	_initHeap      bool
+	_startSegIdx   int
+	_startChunkIdx int
+	_endSegIdx     int
+	_endChunkIdx   int
+	_state         TupleDataScanState
+	_curSegIdx     int
+	_curChunkIdx   int
+}
+
+func NewTupleDataChunkIterator(
+	collection *TupleDataCollection,
+	prop TupleDataPinProperties,
+	from, to int,
+	initHeap bool,
+) *TupleDataChunkIterator {
+	ret := &TupleDataChunkIterator{
+		_collection: collection,
+		_initHeap:   initHeap,
+	}
+	ret._state._pinState = *NewTupleDataPinState()
+	ret._state._pinState._properties = prop
+	layout := collection._layout
+	ret._state._chunkState = *NewTupleDataChunkState(layout.columnCount(), layout.childrenOutputCount())
+
+	assertFunc(from < to)
+	assertFunc(from <= collection.ChunkCount())
+
+	idx := 0
+	for segIdx := 0; segIdx < size(collection._segments); segIdx++ {
+		seg := collection._segments[segIdx]
+		if from >= idx && from <= idx+seg.ChunkCount() {
+			//start
+			ret._startSegIdx = segIdx
+			ret._startChunkIdx = from - idx
+		}
+		if to >= idx && to <= idx+seg.ChunkCount() {
+			//end
+			ret._endSegIdx = segIdx
+			ret._endChunkIdx = to - idx
+		}
+		idx += seg.ChunkCount()
+	}
+	ret.Reset()
+	return ret
+}
+
+func NewTupleDataChunkIterator2(
+	collection *TupleDataCollection,
+	prop TupleDataPinProperties,
+	initHeap bool,
+) *TupleDataChunkIterator {
+	return NewTupleDataChunkIterator(
+		collection,
+		prop,
+		0,
+		collection.ChunkCount(),
+		initHeap,
+	)
+}
+
+func (iter *TupleDataChunkIterator) Reset() {
+	iter._state._segmentIdx = iter._startSegIdx
+	iter._state._chunkIdx = iter._startChunkIdx
+	iter._collection.NextScanIndex(
+		&iter._state,
+		&iter._curSegIdx,
+		&iter._curChunkIdx)
+	iter.InitCurrentChunk()
+}
+
+func (iter *TupleDataChunkIterator) InitCurrentChunk() {
+	seg := iter._collection._segments[iter._curSegIdx]
+	seg._allocator.InitChunkState(
+		seg,
+		&iter._state._pinState,
+		&iter._state._chunkState,
+		iter._curChunkIdx,
+		iter._initHeap,
+	)
+}
+
+func (iter *TupleDataChunkIterator) Done() bool {
+	return iter._curSegIdx == iter._endSegIdx &&
+		iter._curChunkIdx == iter._endChunkIdx
+}
+
+func (iter *TupleDataChunkIterator) Next() bool {
+	assertFunc(!iter.Done())
+
+	oldSegIdx := iter._curSegIdx
+	//check end of collection
+	if !iter._collection.NextScanIndex(
+		&iter._state,
+		&iter._curSegIdx,
+		&iter._curChunkIdx) || iter.Done() {
+		iter._collection.FinalizePinState2(
+			&iter._state._pinState,
+			iter._collection._segments[oldSegIdx],
+		)
+		iter._curSegIdx = iter._endSegIdx
+		iter._curChunkIdx = iter._endChunkIdx
+		return false
+	}
+
+	if iter._curSegIdx != oldSegIdx {
+		iter._collection.FinalizePinState2(
+			&iter._state._pinState,
+			iter._collection._segments[oldSegIdx],
+		)
+	}
+	iter.InitCurrentChunk()
+	return true
+}
+
+func (iter *TupleDataChunkIterator) GetCurrentChunkCount() int {
+	return int(iter._collection._segments[iter._curSegIdx]._chunks[iter._curChunkIdx]._count)
+}
+
+func (iter *TupleDataChunkIterator) GetChunkState() *TupleDataChunkState {
+	return &iter._state._chunkState
+}
+
+func (iter *TupleDataChunkIterator) GetRowLocations() []unsafe.Pointer {
+	return getSliceInPhyFormatFlat[unsafe.Pointer](iter._state._chunkState._rowLocations)
 }

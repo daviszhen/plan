@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/daviszhen/plan/pkg/storage"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type IntSet map[int]struct{}
@@ -419,9 +420,18 @@ func (haggr *HashAggr) Sink(chunk *Chunk) {
 		payload._data[i].reference(chunk._data[offset+i])
 	}
 	payload.setCard(chunk.card())
+
+	childrenOutput := &Chunk{}
+	childrenOutput.init(haggr._groupedAggrData._childrenOutputTypes, defaultVectorSize)
+	offset = offset + len(haggr._groupedAggrData._payloadTypes)
+	for i := 0; i < len(haggr._groupedAggrData._childrenOutputTypes); i++ {
+		childrenOutput._data[i].reference(chunk._data[offset+i])
+	}
+	childrenOutput.setCard(chunk.card())
+
 	for _, grouping := range haggr._groupings {
 		grouping._tableData._printHash = haggr._printHash
-		grouping._tableData.Sink(chunk, payload, haggr._nonDistinctFilter)
+		grouping._tableData.Sink(chunk, payload, childrenOutput, haggr._nonDistinctFilter)
 	}
 }
 
@@ -488,18 +498,16 @@ type aggrHTEntry struct {
 	_salt       uint16
 	_pageOffset uint16
 	_pageNr     uint32
-	_rowPtr     unsafe.Pointer
 }
 
 func (ent *aggrHTEntry) clean() {
 	ent._salt = 0
 	ent._pageOffset = 0
 	ent._pageNr = 0
-	ent._rowPtr = nil
 }
 
 func (ent *aggrHTEntry) String() string {
-	return fmt.Sprintf("salt:%d offset:%d nr:%d rowPtr:%x", ent._salt, ent._pageOffset, ent._pageNr, ent._rowPtr)
+	return fmt.Sprintf("salt:%d offset:%d nr:%d", ent._salt, ent._pageOffset, ent._pageNr)
 }
 
 var (
@@ -599,7 +607,7 @@ func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
 	}
 }
 
-func (rpht *RadixPartitionedHashTable) Sink(chunk, payload *Chunk, filter []int) {
+func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, childrenOutput *Chunk, filter []int) {
 	if rpht._finalizedHT == nil {
 		fmt.Println("init finalize ht")
 		//prepare aggr objs
@@ -611,6 +619,7 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk, payload *Chunk, filter []int)
 			rpht._groupedAggrData._childrenOutputTypes,
 			aggrObjs,
 			2*defaultVectorSize,
+			storage.GBufferMgr,
 		)
 		rpht._finalizedHT._printHash = rpht._printHash
 	}
@@ -625,7 +634,7 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk, payload *Chunk, filter []int)
 		state,
 		groupChunk,
 		payload,
-		rawInput,
+		childrenOutput,
 		filter,
 	)
 }
@@ -648,10 +657,6 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 		layout := rpht._finalizedHT._layout
 		for i := 0; i < layout.columnCount()-1; i++ {
 			state._colIds = append(state._colIds, i)
-		}
-
-		for i := 0; i < rpht._finalizedHT._rawInputLayout.columnCount(); i++ {
-			state._rawInputColIds = append(state._rawInputColIds, i)
 		}
 
 		rpht._finalizedHT._dataCollection.InitScan(state)
@@ -696,26 +701,20 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 }
 
 type TupleDataScanState struct {
-	_partIdx int
-	_partCnt int
 	_colIds  []int
 	_rowLocs *Vector
 	_init    bool
 
-	_rawInputColIds  []int
 	_rawInputRowLocs *Vector
 
-	_pinState   *TupleDataPinState
-	_chunkState *TupleDataChunkState
+	_pinState   TupleDataPinState
+	_chunkState TupleDataChunkState
 	_segmentIdx int
 	_chunkIdx   int
 }
 
 func NewTupleDataScanState(colCnt int, prop TupleDataPinProperties) *TupleDataScanState {
-	ret := &TupleDataScanState{
-		_pinState:   NewTupleDataPinState(),
-		_chunkState: NewTupleDataChunkState(colCnt),
-	}
+	ret := &TupleDataScanState{}
 	ret._pinState._properties = prop
 	return ret
 }
@@ -738,6 +737,7 @@ type GroupedAggrHashTable struct {
 	_finalized       bool
 	_predicates      []ET_SubTyp
 	_printHash       bool
+	_bufMgr          *storage.BufferManager
 }
 
 type AggrType int
@@ -881,23 +881,26 @@ func NewGroupedAggrHashTable(
 	childrenOutputTypes []LType,
 	aggrObjs []*AggrObject,
 	initCap int,
+	bufMgr *storage.BufferManager,
 ) *GroupedAggrHashTable {
 	ret := new(GroupedAggrHashTable)
+	ret._bufMgr = bufMgr
 	//hash column in the end of tuple
 	groupTypes = append(groupTypes, hashType())
 	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, childrenOutputTypes, true, true)
 	ret._payloadTypes = payloadTypes
 
 	ret._tupleSize = ret._layout._rowWidth
-	ret._tuplesPerBlock = 0 //?
+	ret._tuplesPerBlock = int(storage.BLOCK_SIZE / uint64(ret._tupleSize))
 
 	ret._hashOffset = ret._layout._offsets[ret._layout.columnCount()-1]
-	ret._dataCollection = NewTupleDataCollection(ret._layout, ret._rawInputLayout)
+	ret._dataCollection = NewTupleDataCollection(ret._layout)
 	ret._pinState = NewTupleDataPinState()
 	ret._dataCollection.InitAppend(ret._pinState, PIN_PRRP_KEEP_PINNED)
 
 	//allocate hash header
-	ret._hashesHdlPtr = cMalloc(BLOCK_SIZE)
+	ret._hashesHdl = ret._bufMgr.Allocate(storage.BLOCK_SIZE, true, nil)
+	ret._hashesHdlPtr = ret._hashesHdl.Ptr()
 	ret._hashPrefixShift = (HASH_WIDTH - 2) * 8
 	ret.Resize(initCap)
 	ret._predicates = make([]ET_SubTyp, ret._layout.columnCount()-1)
@@ -911,7 +914,7 @@ func (aht *GroupedAggrHashTable) AddChunk2(
 	state *AggrHTAppendState,
 	groups *Chunk,
 	payload *Chunk,
-	rawInput *Chunk,
+	childrenOutput *Chunk,
 	filter []int,
 ) int {
 	hashes := NewFlatVector(hashType(), defaultVectorSize)
@@ -924,7 +927,7 @@ func (aht *GroupedAggrHashTable) AddChunk2(
 		groups,
 		hashes,
 		payload,
-		rawInput,
+		childrenOutput,
 		filter,
 	)
 }
@@ -934,7 +937,7 @@ func (aht *GroupedAggrHashTable) AddChunk(
 	groups *Chunk,
 	groupHashes *Vector,
 	payload *Chunk,
-	rawInput *Chunk,
+	childrenOutput *Chunk,
 	filter []int,
 ) int {
 	assertFunc(!aht._finalized)
@@ -948,7 +951,7 @@ func (aht *GroupedAggrHashTable) AddChunk(
 		groupHashes,
 		state._addresses,
 		state._newGroups,
-		rawInput,
+		childrenOutput,
 	)
 	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.card())
 
@@ -983,7 +986,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	groupHashes *Vector,
 	addresses *Vector,
 	newGroupsOut *SelectVector,
-	rawInput *Chunk,
+	childrenOutput *Chunk,
 ) int {
 	assertFunc(!aht._finalized)
 	assertFunc(groups.columnCount()+1 == aht._layout.columnCount())
@@ -1031,13 +1034,12 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 
 	//if state._chunkState == nil {
 	//prepare data structure holding incoming Chunk
-	state._chunkState = NewTupleDataChunkState(aht._layout.columnCount())
-	state._chunkState.prepareForRawInput(aht._rawInputLayout.columnCount())
+	state._chunkState = NewTupleDataChunkState(aht._layout.columnCount(), aht._layout.childrenOutputCount())
 	//}
 
 	//groupChunk converted into chunkstate.data unified format
 	toUnifiedFormat(state._chunkState, state._groupChunk)
-	toUnifiedFormatForRawInput(state._chunkState, rawInput)
+	toUnifiedFormatForChildrenOutput(state._chunkState, childrenOutput)
 
 	if state._groupData == nil {
 		state._groupData = make([]*UnifiedFormat, state._groupChunk.columnCount())
@@ -1093,7 +1095,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				aht._pinState,
 				state._chunkState,
 				state._groupChunk,
-				rawInput,
+				childrenOutput,
 				state._emptyVector,
 				newEntryCount,
 			)
@@ -1105,21 +1107,34 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				incrSelectVectorInPhyFormatFlat(),
 				newEntryCount)
 
+			var blockId int
+			if !empty(aht._payloadHdsPtrs) {
+				blockId = size(aht._payloadHdsPtrs) - 1
+			}
+			aht.UpdateBlockPointers()
+			blockPtr := aht._payloadHdsPtrs[blockId]
+			blockEnd := util.PointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
+
 			//update htEntry & save address
 			rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._chunkState._rowLocations)
-			dedup := make(map[int]struct{})
 			for j := 0; j < newEntryCount; j++ {
-				idx := state._emptyVector.getIndex(j)
-				if _, has := dedup[idx]; has {
-					panic("dup idx")
+				rowLoc := rowLocations[j]
+				if pointerLess(blockEnd, rowLoc) ||
+					pointerLess(rowLoc, blockPtr) {
+					blockId++
+					assertFunc(blockId < size(aht._payloadHdsPtrs))
+					blockPtr = aht._payloadHdsPtrs[blockId]
+					blockEnd = util.PointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
 				}
-				dedup[idx] = struct{}{}
-
+				assertFunc(
+					pointerLessEqual(blockPtr, rowLoc) &&
+						pointerLess(rowLoc, blockEnd))
+				assertFunc(pointerSub(rowLoc, blockPtr)%int64(aht._tupleSize) == 0)
+				idx := state._emptyVector.getIndex(j)
 				htEntry := &htEntrySlice[htOffsetsPtr[idx]]
-				htEntry._pageNr = 1 //TOOD: refine. do not mean anything
-				htEntry._rowPtr = rowLocations[j]
-				addresessSlice[idx] = rowLocations[j]
-
+				htEntry._pageNr = uint32(blockId + 1)
+				htEntry._pageOffset = uint16(pointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
+				addresessSlice[idx] = rowLoc
 			}
 		}
 
@@ -1128,7 +1143,9 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 			for j := 0; j < needCompareCount; j++ {
 				idx := state._groupCompareVector.getIndex(j)
 				htEntry := &htEntrySlice[htOffsetsPtr[idx]]
-				addresessSlice[idx] = htEntry._rowPtr
+				pagePtr := aht._payloadHdsPtrs[htEntry._pageNr-1]
+				pageOffset := int(htEntry._pageOffset) * aht._tupleSize
+				addresessSlice[idx] = pointerAdd(pagePtr, pageOffset)
 			}
 
 			Match(
@@ -1215,40 +1232,62 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 	aht._bitmask = uint64(aht._capacity - 1)
 	byteSize := aht._capacity * aggrEntrySize
 	if byteSize > BLOCK_SIZE {
-		aht._hashesHdlPtr = cMalloc(byteSize)
+		aht._hashesHdl = aht._bufMgr.Allocate(uint64(byteSize), true, nil)
+		aht._hashesHdlPtr = aht._hashesHdl.Ptr()
 	}
-	htEntrySlice := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
-	for i := 0; i < len(htEntrySlice); i++ {
-		htEntrySlice[i].clean()
+	hashesArr := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
+	for i := 0; i < len(hashesArr); i++ {
+		hashesArr[i].clean()
 	}
 	if aht.Count() != 0 {
+		assertFunc(!empty(aht._payloadHdsPtrs))
 		aht._dataCollection.checkDupAll()
-		for _, part := range aht._dataCollection._parts {
-			rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
-			for i := 0; i < part._count; i++ {
-				loc := rowLocs[i]
-				if uintptr(loc) == 0 {
-					continue
+		blockId := 0
+		blockPtr := aht._payloadHdsPtrs[blockId]
+		blockEnt := pointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
+
+		iter := NewTupleDataChunkIterator2(
+			aht._dataCollection,
+			PIN_PRRP_KEEP_PINNED,
+			false,
+		)
+		rowLocs := iter.GetRowLocations()
+		for {
+			for i := 0; i < iter.GetCurrentChunkCount(); i++ {
+				rowLoc := rowLocs[i]
+				if pointerLess(blockEnt, rowLoc) ||
+					pointerLess(rowLoc, blockPtr) {
+					blockId++
+					assertFunc(blockId < len(aht._payloadHdsPtrs))
+					blockPtr = aht._payloadHdsPtrs[blockId]
+					blockEnt = pointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
 				}
 
-				hash := load[uint64](pointerAdd(loc, aht._hashOffset))
+				assertFunc(
+					pointerLessEqual(blockPtr, rowLoc) &&
+						pointerLess(rowLoc, blockEnt))
+				assertFunc(pointerSub(rowLoc, blockPtr)%int64(aht._tupleSize) == 0)
+
+				hash := load[uint64](pointerAdd(rowLoc, aht._hashOffset))
 				assertFunc((hash & aht._bitmask) == (hash % uint64(aht._capacity)))
 				assertFunc((hash >> aht._hashPrefixShift) <= math.MaxUint16)
 				entIdx := hash & aht._bitmask
-				for htEntrySlice[entIdx]._pageNr > 0 {
+				for hashesArr[entIdx]._pageNr > 0 {
 					entIdx++
 					if entIdx >= uint64(aht._capacity) {
 						entIdx = 0
 					}
 				}
-				htEnt := &htEntrySlice[entIdx]
+				htEnt := &hashesArr[entIdx]
 				assertFunc(htEnt._pageNr == 0)
 				htEnt._salt = uint16(hash >> aht._hashPrefixShift)
-				htEnt._pageNr = 1
-				htEnt._rowPtr = loc
-				//if aht._capacity == 16384 {
+				htEnt._pageNr = uint32(1 + blockId)
+				htEnt._pageOffset = uint16(pointerSub(rowLoc, blockPtr))
+			}
 
-				//}
+			next := iter.Next()
+			if !next {
+				break
 			}
 		}
 	}
@@ -1297,7 +1336,7 @@ func InitStates(
 
 	pointers := getSliceInPhyFormatFlat[unsafe.Pointer](addresses)
 	offsets := layout.offsets()
-	aggrIdx := layout.columnCount()
+	aggrIdx := layout.aggrIdx()
 
 	for _, aggr := range layout._aggregates {
 		for i := 0; i < cnt; i++ {

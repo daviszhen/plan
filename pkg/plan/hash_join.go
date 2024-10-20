@@ -482,7 +482,7 @@ func NewJoinHashTable(conds []*Expr,
 	layoutTypes = append(layoutTypes, ht._buildTypes...)
 	layoutTypes = append(layoutTypes, hashType())
 	// init layout
-	ht._layout = NewTupleDataLayout(layoutTypes, nil, true, true)
+	ht._layout = NewTupleDataLayout(layoutTypes, nil, nil, true, true)
 	offsets := ht._layout.offsets()
 	ht._tupleSize = offsets[len(ht._keyTypes)+len(ht._buildTypes)]
 
@@ -490,7 +490,7 @@ func NewJoinHashTable(conds []*Expr,
 	ht._pointerOffset = offsets[len(offsets)-1]
 	ht._entrySize = ht._layout.rowWidth()
 
-	ht._dataCollection = NewTupleDataCollection(ht._layout, nil)
+	ht._dataCollection = NewTupleDataCollection(ht._layout)
 	ht._pinState = NewTupleDataPinState()
 	ht._dataCollection.InitAppend(ht._pinState, PIN_PRRP_KEEP_PINNED)
 	return ht
@@ -540,7 +540,7 @@ func (jht *JoinHashTable) Build(keys *Chunk, payload *Chunk) {
 		sourceChunk.sliceItself(curSel, addedCnt)
 	}
 
-	jht._chunkState = NewTupleDataChunkState(jht._layout.columnCount())
+	jht._chunkState = NewTupleDataChunkState(jht._layout.columnCount(), 0)
 	//save data collection
 	jht._dataCollection.Append(
 		jht._pinState,
@@ -621,29 +621,29 @@ func (jht *JoinHashTable) InitPointerTable() {
 
 func (jht *JoinHashTable) Finalize() {
 	jht.InitPointerTable()
-	hashes := NewFlatVector(hashType(), defaultVectorSize)
-	hashSlice := getSliceInPhyFormatFlat[uint64](hashes)
-	dedup := make(map[unsafe.Pointer]struct{})
-	for _, part := range jht._dataCollection._parts {
-		rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
-		for _, loc := range rowLocs {
-			if loc != nil {
-				if _, has := dedup[loc]; has {
-					panic("has dup row loc")
-				}
-				dedup[loc] = struct{}{}
-			}
-		}
-		//reset hashes
-		for i := 0; i < defaultVectorSize; i++ {
-			hashSlice[i] = uint64(0)
-		}
-		for j := 0; j < part._count; j++ {
-			hashSlice[j] = load[uint64](pointerAdd(rowLocs[j], jht._pointerOffset))
-
-		}
-		jht.InsertHashes(hashes, part._count, rowLocs)
-	}
+	//hashes := NewFlatVector(hashType(), defaultVectorSize)
+	//hashSlice := getSliceInPhyFormatFlat[uint64](hashes)
+	//dedup := make(map[unsafe.Pointer]struct{})
+	//for _, part := range jht._dataCollection._parts {
+	//	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
+	//	for _, loc := range rowLocs {
+	//		if loc != nil {
+	//			if _, has := dedup[loc]; has {
+	//				panic("has dup row loc")
+	//			}
+	//			dedup[loc] = struct{}{}
+	//		}
+	//	}
+	//	//reset hashes
+	//	for i := 0; i < defaultVectorSize; i++ {
+	//		hashSlice[i] = uint64(0)
+	//	}
+	//	for j := 0; j < part._count; j++ {
+	//		hashSlice[j] = load[uint64](pointerAdd(rowLocs[j], jht._pointerOffset))
+	//
+	//	}
+	//	jht.InsertHashes(hashes, part._count, rowLocs)
+	//}
 	jht._finalized = true
 }
 
@@ -883,6 +883,10 @@ func (layout *TupleDataLayout) columnCount() int {
 	return len(layout._types)
 }
 
+func (layout *TupleDataLayout) childrenOutputCount() int {
+	return len(layout._childrenOutputTypes)
+}
+
 func (layout *TupleDataLayout) types() []LType {
 	return copyLTypes(layout._types...)
 }
@@ -907,6 +911,10 @@ func (layout *TupleDataLayout) aggrOffset() int {
 	return layout._bitmapWidth + layout._dataWidth
 }
 
+func (layout *TupleDataLayout) aggrIdx() int {
+	return layout.columnCount() + layout.childrenOutputCount()
+}
+
 func (layout *TupleDataLayout) offsets() []int {
 	return copyTo[int](layout._offsets)
 }
@@ -925,6 +933,7 @@ func (layout *TupleDataLayout) copy() *TupleDataLayout {
 	}
 	res := &TupleDataLayout{}
 	res._types = copyLTypes(layout._types...)
+	res._childrenOutputTypes = copyLTypes(layout._childrenOutputTypes...)
 	res._bitmapWidth = layout._bitmapWidth
 	res._dataWidth = layout._dataWidth
 	res._aggWidth = layout._aggWidth
@@ -936,75 +945,18 @@ func (layout *TupleDataLayout) copy() *TupleDataLayout {
 }
 
 type TupleDataCollection struct {
-	_layout         *TupleDataLayout
-	_rawInputLayout *TupleDataLayout
-	_count          uint64
-	_parts          []*TupleRows
-	_dedup          map[unsafe.Pointer]struct{}
-	_alloc          *TupleDataAllocator
-	_segments       []*TupleDataSegment
+	_layout   *TupleDataLayout
+	_count    uint64
+	_dedup    map[unsafe.Pointer]struct{}
+	_alloc    *TupleDataAllocator
+	_segments []*TupleDataSegment
 }
 
-type TupleRows struct {
-	rowLocations    *Vector
-	_count          int
-	rawInputRowLocs *Vector
-}
-
-type TuplePart struct {
-	data          []UnifiedFormat
-	rowLocations  *Vector
-	heapLocations *Vector
-	heapSizes     *Vector
-
-	rawInputData      []UnifiedFormat
-	rawInputRowLocs   *Vector
-	rawInputHeapLocs  *Vector
-	rawInputHeapSizes *Vector
-	_count            int
-}
-
-func NewTuplePart(cnt int) *TuplePart {
-	ret := &TuplePart{
-		data:          make([]UnifiedFormat, cnt),
-		rowLocations:  NewVector(pointerType(), defaultVectorSize),
-		heapLocations: NewVector(pointerType(), defaultVectorSize),
-		heapSizes:     NewVector(ubigintType(), defaultVectorSize),
-	}
-	return ret
-}
-
-func (part *TuplePart) prepareForRawInput(cnt int) {
-	part.rawInputData = make([]UnifiedFormat, cnt)
-	part.rawInputRowLocs = NewVector(pointerType(), defaultVectorSize)
-	part.rawInputHeapLocs = NewVector(pointerType(), defaultVectorSize)
-	part.rawInputHeapSizes = NewVector(ubigintType(), defaultVectorSize)
-}
-
-func (part *TuplePart) toTupleRows() *TupleRows {
-	ret := &TupleRows{
-		rowLocations: NewVector(pointerType(), defaultVectorSize),
-		_count:       part._count,
-	}
-
-	dst := ret.rowLocations.getData()
-	copy(dst, part.rowLocations.getData())
-
-	if part.rawInputRowLocs != nil {
-		ret.rawInputRowLocs = NewVector(pointerType(), defaultVectorSize)
-		//raw input
-		copy(ret.rawInputRowLocs.getData(), part.rawInputRowLocs.getData())
-	}
-
-	return ret
-}
-
-func NewTupleDataCollection(layout *TupleDataLayout, rawInputLayout *TupleDataLayout) *TupleDataCollection {
+func NewTupleDataCollection(layout *TupleDataLayout) *TupleDataCollection {
 	ret := &TupleDataCollection{
-		_layout:         layout.copy(),
-		_rawInputLayout: rawInputLayout.copy(),
-		_dedup:          make(map[unsafe.Pointer]struct{}),
-		_alloc:          NewTupleDataAllocator(storage.GBufferMgr, layout),
+		_layout: layout.copy(),
+		_dedup:  make(map[unsafe.Pointer]struct{}),
+		_alloc:  NewTupleDataAllocator(storage.GBufferMgr, layout),
 	}
 	return ret
 }
@@ -1029,10 +981,9 @@ func (tuple *TupleDataCollection) AppendUnified(
 	pinState *TupleDataPinState,
 	chunkState *TupleDataChunkState,
 	chunk *Chunk,
-	rawInput *Chunk,
+	childrentOutput *Chunk,
 	appendSel *SelectVector,
-	cnt int,
-) {
+	cnt int) {
 	if cnt == -1 {
 		cnt = chunk.card()
 	}
@@ -1048,44 +999,12 @@ func (tuple *TupleDataCollection) AppendUnified(
 	tuple.Build(pinState, chunkState, 0, uint64(cnt))
 
 	//fill row
-	tuple.scatter(chunkState, chunk, appendSel, cnt)
+	tuple.scatter(chunkState, chunk, appendSel, cnt, false)
 
-	if rawInput != nil {
-		//evaluate the heap size of raw input
-		if !tuple._rawInputLayout.allConst() {
-			tuple.computeHeapSizesForRawInput(chunkState, rawInput, appendSel, cnt)
-		}
-
-		//allocate space for every row for raw input
-		tuple.buildBufferSpaceForRawInput(chunkState, cnt)
-
+	if childrentOutput != nil {
 		//scatter rows
-		tuple.scatterRawInput(chunkState, rawInput, appendSel, cnt)
+		tuple.scatter(chunkState, childrentOutput, appendSel, cnt, true)
 	}
-
-	//chunkState._count = cnt
-	//tuple.savePart(part)
-}
-
-func (tuple *TupleDataCollection) savePart(part *TuplePart) {
-	rows := part.toTupleRows()
-	tuple._count += uint64(rows._count)
-	tuple._parts = append(tuple._parts, rows)
-	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rows.rowLocations)
-	for i, loc := range rowLocs {
-		if i >= rows._count {
-			break
-		}
-		if loc == nil {
-			continue
-		}
-
-		if _, has := tuple._dedup[loc]; has {
-			panic("duplicate row location")
-		}
-		tuple._dedup[loc] = struct{}{}
-	}
-	tuple.checkDupAll()
 }
 
 func (tuple *TupleDataCollection) checkDupAll() {
@@ -1112,7 +1031,9 @@ func (tuple *TupleDataCollection) scatter(
 	state *TupleDataChunkState,
 	chunk *Chunk,
 	appendSel *SelectVector,
-	cnt int) {
+	cnt int,
+	isChildrenOutput bool,
+) {
 	rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._rowLocations)
 	//set bitmap
 	maskBytes := sizeInBytes(tuple._layout.columnCount())
@@ -1127,32 +1048,14 @@ func (tuple *TupleDataCollection) scatter(
 			store[uint64](heapSizes[i], pointerAdd(rowLocations[i], heapSizeOffset))
 		}
 	}
-	for _, i := range state._columnIds {
-		tuple.scatterVector(state, chunk._data[i], int(i), appendSel, cnt)
-	}
-}
-
-func (tuple *TupleDataCollection) scatterRawInput(
-	state *TupleDataChunkState,
-	chunk *Chunk,
-	appendSel *SelectVector,
-	cnt int) {
-	rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state.rawInputRowLocs)
-	//set bitmap
-	maskBytes := sizeInBytes(tuple._rawInputLayout.columnCount())
-	for i := 0; i < cnt; i++ {
-		memset(rowLocations[i], 0xFF, maskBytes)
-	}
-
-	if !tuple._rawInputLayout.allConst() {
-		heapSizeOffset := tuple._rawInputLayout.heapSizeOffset()
-		heapSizes := getSliceInPhyFormatFlat[uint64](state.rawInputHeapSizes)
-		for i := 0; i < cnt; i++ {
-			store[uint64](heapSizes[i], pointerAdd(rowLocations[i], heapSizeOffset))
+	if isChildrenOutput {
+		for i, colIdx := range state._childrenOutputIds {
+			tuple.scatterVector(state, chunk._data[i], colIdx, appendSel, cnt)
 		}
-	}
-	for i := 0; i < tuple._rawInputLayout.columnCount(); i++ {
-		tuple.scatterVectorForRawInput(state, chunk._data[i], i, appendSel, cnt)
+	} else {
+		for _, i := range state._columnIds {
+			tuple.scatterVector(state, chunk._data[i], i, appendSel, cnt)
+		}
 	}
 }
 
@@ -1173,23 +1076,6 @@ func (tuple *TupleDataCollection) scatterVector(
 		colIdx)
 }
 
-func (tuple *TupleDataCollection) scatterVectorForRawInput(
-	state *TupleDataChunkState,
-	src *Vector,
-	colIdx int,
-	appendSel *SelectVector,
-	cnt int) {
-	TupleDataTemplatedScatterSwitch(
-		src,
-		&state.rawInputData[colIdx],
-		appendSel,
-		cnt,
-		tuple._rawInputLayout,
-		state.rawInputRowLocs,
-		state.rawInputHeapLocs,
-		colIdx)
-}
-
 // convert chunk into state.data unified format
 func toUnifiedFormat(state *TupleDataChunkState, chunk *Chunk) {
 	for _, colId := range state._columnIds {
@@ -1197,82 +1083,21 @@ func toUnifiedFormat(state *TupleDataChunkState, chunk *Chunk) {
 	}
 }
 
-func toUnifiedFormatForRawInput(state *TupleDataChunkState, chunk *Chunk) {
-	if chunk == nil {
-		return
-	}
-	for i, vec := range chunk._data {
-		vec.toUnifiedFormat(chunk.card(), &state.rawInputData[i])
+func toUnifiedFormatForChildrenOutput(state *TupleDataChunkState, chunk *Chunk) {
+	for i, colIdx := range state._childrenOutputIds {
+		chunk._data[i].toUnifiedFormat(chunk.card(), &state._data[colIdx])
 	}
 }
 
 // result refers to chunk state.data unified format
 func getVectorData(state *TupleDataChunkState, result []*UnifiedFormat) {
 	vectorData := state._data
-	for i := 0; i < len(vectorData); i++ {
+	for i := 0; i < len(result); i++ {
 		target := result[i]
-		target._sel = state._data[i]._sel
-		target._data = state._data[i]._data
-		target._mask = state._data[i]._mask
-		target._pTypSize = state._data[i]._pTypSize
-	}
-}
-
-func (tuple *TupleDataCollection) buildBufferSpace(part *TuplePart, cnt int) {
-	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
-	heapSizes := getSliceInPhyFormatFlat[uint64](part.heapSizes)
-	heapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.heapLocations)
-
-	for i := 0; i < cnt; i++ {
-		rowLocs[i] = cMalloc(tuple._layout.rowWidth())
-		if rowLocs[i] == nil {
-			panic("row loc is null")
-		}
-		if _, has := tuple._dedup[rowLocs[i]]; has {
-			panic("duplicate row location 2")
-		}
-
-		if tuple._layout.allConst() {
-			continue
-		}
-		//FIXME: do not init heapSizes here
-		//initHeapSizes(rowLocs, heapSizes, i, cnt, tuple._layout.heapSizeOffset())
-		if heapSizes[i] == 0 {
-			continue
-		}
-		heapLocs[i] = cMalloc(int(heapSizes[i]))
-		if heapLocs[i] == nil {
-			panic("heap loc is null")
-		}
-	}
-}
-
-func (tuple *TupleDataCollection) buildBufferSpaceForRawInput(state *TupleDataChunkState, cnt int) {
-	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](state.rawInputRowLocs)
-	heapSizes := getSliceInPhyFormatFlat[uint64](state.rawInputHeapSizes)
-	heapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](state.rawInputHeapLocs)
-
-	for i := 0; i < cnt; i++ {
-		rowLocs[i] = cMalloc(tuple._rawInputLayout.rowWidth())
-		if rowLocs[i] == nil {
-			panic("row loc is null")
-		}
-		if _, has := tuple._dedup[rowLocs[i]]; has {
-			panic("duplicate row location 2")
-		}
-
-		if tuple._rawInputLayout.allConst() {
-			continue
-		}
-		//FIXME: do not init heapSizes here
-		//initHeapSizes(rowLocs, heapSizes, i, cnt, tuple._rawInputLayout.heapSizeOffset())
-		if heapSizes[i] == 0 {
-			continue
-		}
-		heapLocs[i] = cMalloc(int(heapSizes[i]))
-		if heapLocs[i] == nil {
-			panic("heap loc is null")
-		}
+		target._sel = vectorData[i]._sel
+		target._data = vectorData[i]._data
+		target._mask = vectorData[i]._mask
+		target._pTypSize = vectorData[i]._pTypSize
 	}
 }
 
@@ -1289,14 +1114,6 @@ func (tuple *TupleDataCollection) computeHeapSizes(
 
 	for i := 0; i < chunk.columnCount(); i++ {
 		tuple.evaluateHeapSizes(state._heapSizes, chunk._data[i], &state._data[i], appendSel, cnt)
-	}
-}
-
-func (tuple *TupleDataCollection) computeHeapSizesForRawInput(state *TupleDataChunkState, chunk *Chunk, appendSel *SelectVector, cnt int) {
-	heapSizesSlice := getSliceInPhyFormatFlat[uint64](state.rawInputHeapSizes)
-	fill[uint64](heapSizesSlice, size(heapSizesSlice), 0)
-	for i := 0; i < chunk.columnCount(); i++ {
-		tuple.evaluateHeapSizes(state.rawInputHeapSizes, chunk._data[i], &state.rawInputData[i], appendSel, cnt)
 	}
 }
 
@@ -1601,21 +1418,14 @@ func TupleDataTemplatedGather[T any](
 }
 
 func (tuple *TupleDataCollection) InitScan(state *TupleDataScanState) {
-	state._partIdx = 0
-	state._partCnt = len(tuple._parts)
 	////////
-	if state._pinState == nil {
-		state._pinState = NewTupleDataPinState()
-	}
 	state._pinState._rowHandles = make(map[uint32]*storage.BufferHandle)
 	state._pinState._heapHandles = make(map[uint32]*storage.BufferHandle)
 	state._pinState._properties = PIN_PRRP_KEEP_PINNED
 
-	if state._chunkState == nil {
-		state._chunkState = NewTupleDataChunkState(tuple._layout.columnCount())
-	}
 	state._segmentIdx = 0
 	state._chunkIdx = 0
+	state._chunkState = *NewTupleDataChunkState(tuple._layout.columnCount(), tuple._layout.childrenOutputCount())
 	////////
 	state._init = true
 }
@@ -1682,13 +1492,13 @@ func (tuple *TupleDataCollection) Scan(state *TupleDataScanState, result *Chunk)
 
 	if uint32(oldSegIdx) != INVALID_INDEX &&
 		segIdx != oldSegIdx {
-		tuple.FinalizePinState2(state._pinState,
+		tuple.FinalizePinState2(&state._pinState,
 			tuple._segments[oldSegIdx])
 	}
 
 	tuple.ScanAtIndex(
-		state._pinState,
-		state._chunkState,
+		&state._pinState,
+		&state._chunkState,
 		state._chunkState._columnIds,
 		segIdx,
 		chunkIdx,
@@ -1734,4 +1544,12 @@ func (tuple *TupleDataCollection) Unpin() {
 	for _, seg := range tuple._segments {
 		seg.Unpin()
 	}
+}
+
+func (tuple *TupleDataCollection) ChunkCount() int {
+	cnt := 0
+	for _, segment := range tuple._segments {
+		cnt += segment.ChunkCount()
+	}
+	return cnt
 }

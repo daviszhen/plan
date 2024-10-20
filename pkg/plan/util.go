@@ -327,6 +327,10 @@ func pointerLess(lhs, rhs unsafe.Pointer) bool {
 	return uintptr(lhs) < uintptr(rhs)
 }
 
+func pointerLessEqual(lhs, rhs unsafe.Pointer) bool {
+	return uintptr(lhs) <= uintptr(rhs)
+}
+
 func pointerSub(lhs, rhs unsafe.Pointer) int64 {
 	a := uint64(uintptr(lhs))
 	b := uint64(uintptr(rhs))
