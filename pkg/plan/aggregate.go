@@ -684,7 +684,7 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 
 	assertFunc(rpht._groupingSet.count()+len(rpht._nullGroups) == rpht._groupedAggrData.GroupCount())
 	for i := 0; i < len(rpht._groupedAggrData._aggregates); i++ {
-		output._data[rpht._groupedAggrData.GroupCount()+i].reference(scanChunk._data[len(rpht._groupTypes)+i])
+		output._data[rpht._groupedAggrData.GroupCount()+i].reference(scanChunk._data[len(rpht._groupTypes)+len(rpht._groupedAggrData._childrenOutputTypes)+i])
 	}
 
 	assertFunc(len(rpht._groupedAggrData._groupingFuncs) == len(rpht._groupingValues))
