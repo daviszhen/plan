@@ -707,6 +707,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//if run.op.Children[0].Typ == POT_Filter {
 			//
 
+			//fmt.Println("child raw chunk")
 			//childChunk.print()
 			//}
 
@@ -723,7 +724,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				return InvalidOpResult, err
 			}
 
-			groupChunk.print()
+			//groupChunk.print()
 			run.hAggr.Sink(groupChunk)
 
 		}
@@ -785,7 +786,6 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			}
 			filterInputChunk.setCard(groupAndAggrChunk.card())
 			var count int
-			//count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
 			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, filterInputChunk}, state.filterSel)
 			if err != nil {
 				return InvalidOpResult, err

@@ -954,8 +954,8 @@ func (aht *GroupedAggrHashTable) AddChunk(
 		childrenOutput,
 	)
 	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.card())
-
-	//}
+	//fmt.Println("address", "tcnt", groups.card(), "new group count", newGroupCount, "equal", groups.card() == newGroupCount)
+	//state._addresses.print(groups.card())
 
 	filterIdx := 0
 	payloadIdx := 0
@@ -1063,9 +1063,6 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 		for i := 0; i < remainingEntries; i++ {
 			idx := selVec.getIndex(i)
 			htEntry := &htEntrySlice[htOffsetsPtr[idx]]
-
-			//}
-
 			if htEntry._pageNr == 0 {
 				//empty cell
 
@@ -1107,6 +1104,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				incrSelectVectorInPhyFormatFlat(),
 				newEntryCount)
 
+			//newly created block
 			var blockId int
 			if !empty(aht._payloadHdsPtrs) {
 				blockId = size(aht._payloadHdsPtrs) - 1
@@ -1135,6 +1133,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				htEntry._pageNr = uint32(blockId + 1)
 				htEntry._pageOffset = uint16(pointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
 				addresessSlice[idx] = rowLoc
+				//fmt.Println("new rowloc", rowLoc)
 			}
 		}
 
@@ -1146,6 +1145,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				pagePtr := aht._payloadHdsPtrs[htEntry._pageNr-1]
 				pageOffset := int(htEntry._pageOffset) * aht._tupleSize
 				addresessSlice[idx] = pointerAdd(pagePtr, pageOffset)
+				//fmt.Println("old rowloc", addresessSlice[idx])
 			}
 
 			Match(
@@ -1228,6 +1228,7 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 	assertFunc(isPowerOfTwo(uint64(size)))
 	assertFunc(size >= aht._capacity)
 
+	//fmt.Println("resize from ", aht._capacity, "to", size)
 	aht._capacity = size
 	aht._bitmask = uint64(aht._capacity - 1)
 	byteSize := aht._capacity * aggrEntrySize
@@ -1251,8 +1252,9 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 			PIN_PRRP_KEEP_PINNED,
 			false,
 		)
-		rowLocs := iter.GetRowLocations()
+
 		for {
+			rowLocs := iter.GetRowLocations()
 			for i := 0; i < iter.GetCurrentChunkCount(); i++ {
 				rowLoc := rowLocs[i]
 				if pointerLess(blockEnt, rowLoc) ||
@@ -1282,7 +1284,7 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 				assertFunc(htEnt._pageNr == 0)
 				htEnt._salt = uint16(hash >> aht._hashPrefixShift)
 				htEnt._pageNr = uint32(1 + blockId)
-				htEnt._pageOffset = uint16(pointerSub(rowLoc, blockPtr))
+				htEnt._pageOffset = uint16(pointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
 			}
 
 			next := iter.Next()
@@ -1291,6 +1293,27 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 			}
 		}
 	}
+
+	aht.Verify()
+}
+
+func (aht *GroupedAggrHashTable) Verify() {
+	hashesArr := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
+	count := 0
+	for i := 0; i < aht._capacity; i++ {
+		hEnt := hashesArr[i]
+		if hEnt._pageNr > 0 {
+			assertFunc(int(hEnt._pageOffset) < aht._tuplesPerBlock)
+			assertFunc(int(hEnt._pageNr) <= size(aht._payloadHdsPtrs))
+			ptr := pointerAdd(
+				aht._payloadHdsPtrs[hEnt._pageNr-1],
+				int(hEnt._pageOffset)*aht._tupleSize)
+			hash := load[uint64](pointerAdd(ptr, aht._hashOffset))
+			assertFunc(uint64(hEnt._salt) == (hash >> aht._hashPrefixShift))
+			count++
+		}
+	}
+	assertFunc(count == aht.Count())
 }
 
 func (aht *GroupedAggrHashTable) Count() int {

@@ -111,7 +111,7 @@ func Test_1g_q20_order(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantedOp(root, POT_Agg)
 		},
 	)
 	runOps(t, gConf, nil, ops)

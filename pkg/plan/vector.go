@@ -445,6 +445,12 @@ func (vec *Vector) getValue(idx int) *Value {
 			_typ: vec.typ(),
 			_f64: float64(data[idx]),
 		}
+	case LTID_POINTER:
+		data := getSliceInPhyFormatFlat[unsafe.Pointer](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_i64: int64(uintptr(data[idx])),
+		}
 	default:
 		panic("usp")
 	}
@@ -1241,6 +1247,8 @@ func (val Value) String() string {
 		return fmt.Sprintf("%v", val._f64)
 	case LTID_FLOAT:
 		return fmt.Sprintf("%v", val._f64)
+	case LTID_POINTER:
+		return fmt.Sprintf("0x%x", val._i64)
 	default:
 		panic("usp")
 	}
