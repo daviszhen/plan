@@ -621,29 +621,31 @@ func (jht *JoinHashTable) InitPointerTable() {
 
 func (jht *JoinHashTable) Finalize() {
 	jht.InitPointerTable()
-	//hashes := NewFlatVector(hashType(), defaultVectorSize)
-	//hashSlice := getSliceInPhyFormatFlat[uint64](hashes)
-	//dedup := make(map[unsafe.Pointer]struct{})
-	//for _, part := range jht._dataCollection._parts {
-	//	rowLocs := getSliceInPhyFormatFlat[unsafe.Pointer](part.rowLocations)
-	//	for _, loc := range rowLocs {
-	//		if loc != nil {
-	//			if _, has := dedup[loc]; has {
-	//				panic("has dup row loc")
-	//			}
-	//			dedup[loc] = struct{}{}
-	//		}
-	//	}
-	//	//reset hashes
-	//	for i := 0; i < defaultVectorSize; i++ {
-	//		hashSlice[i] = uint64(0)
-	//	}
-	//	for j := 0; j < part._count; j++ {
-	//		hashSlice[j] = load[uint64](pointerAdd(rowLocs[j], jht._pointerOffset))
-	//
-	//	}
-	//	jht.InsertHashes(hashes, part._count, rowLocs)
-	//}
+	hashes := NewFlatVector(hashType(), defaultVectorSize)
+	hashSlice := getSliceInPhyFormatFlat[uint64](hashes)
+	iter := NewTupleDataChunkIterator2(
+		jht._dataCollection,
+		PIN_PRRP_KEEP_PINNED,
+		false,
+	)
+	for {
+		//reset hashes
+		for j := 0; j < defaultVectorSize; j++ {
+			hashSlice[j] = uint64(0)
+		}
+		rowLocs := iter.GetRowLocations()
+		count := iter.GetCurrentChunkCount()
+		for i := 0; i < count; i++ {
+			hashSlice[i] = load[uint64](
+				pointerAdd(rowLocs[i],
+					jht._pointerOffset))
+		}
+		jht.InsertHashes(hashes, count, rowLocs)
+		next := iter.Next()
+		if !next {
+			break
+		}
+	}
 	jht._finalized = true
 }
 
@@ -1426,6 +1428,9 @@ func (tuple *TupleDataCollection) InitScan(state *TupleDataScanState) {
 	state._segmentIdx = 0
 	state._chunkIdx = 0
 	state._chunkState = *NewTupleDataChunkState(tuple._layout.columnCount(), tuple._layout.childrenOutputCount())
+	//read children output also
+	state._chunkState._columnIds = state._colIds
+	state._chunkState._columnIds = append(state._chunkState._columnIds, state._chunkState._childrenOutputIds...)
 	////////
 	state._init = true
 }

@@ -1144,12 +1144,16 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 				break
 			}
 
+			//fmt.Println("right child chunk")
+			//rightChunk.print()
+
 			cnt++
 			err = run.hjoin.Build(rightChunk)
 			if err != nil {
 				return 0, err
 			}
 		}
+		fmt.Println("right hash table count", run.hjoin._ht.count())
 		run.hjoin._hjs = HJS_PROBE
 	}
 

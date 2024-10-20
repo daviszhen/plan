@@ -609,7 +609,7 @@ func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
 
 func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, childrenOutput *Chunk, filter []int) {
 	if rpht._finalizedHT == nil {
-		fmt.Println("init finalize ht")
+		fmt.Println("init aggregate finalize ht")
 		//prepare aggr objs
 		aggrObjs := CreateAggrObjects(rpht._groupedAggrData._bindings)
 
@@ -649,7 +649,7 @@ func (rpht *RadixPartitionedHashTable) FetchAggregates(groups, result *Chunk) {
 	rpht._finalizedHT.FetchAggregates(groups, result)
 }
 
-func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output, rawInput *Chunk) OperatorResult {
+func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output, childrenOutput *Chunk) OperatorResult {
 	if !state._init {
 		if rpht._finalizedHT == nil {
 			return Done
@@ -664,8 +664,9 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 
 	scanTyps := make([]LType, 0)
 	//FIXME:
-	//groupby types + aggr return types + raw input types
+	//groupby types + children output types +aggr return types
 	scanTyps = append(scanTyps, rpht._groupTypes...)
+	scanTyps = append(scanTyps, rpht._groupedAggrData._childrenOutputTypes...)
 	scanTyps = append(scanTyps, rpht._groupedAggrData._aggrReturnTypes...)
 	scanChunk := &Chunk{}
 	scanChunk.init(scanTyps, defaultVectorSize)
@@ -691,7 +692,11 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 		output._data[rpht._groupedAggrData.GroupCount()+len(rpht._groupedAggrData._aggregates)+i].referenceValue(rpht._groupingValues[i])
 	}
 
-	//TODO:split the raw chunk from the scan chunk
+	//split the children output chunk from the scan chunk
+	for i := 0; i < len(rpht._groupedAggrData._childrenOutputTypes); i++ {
+		childrenOutput._data[i].reference(scanChunk._data[len(rpht._groupTypes)+i])
+	}
+	childrenOutput.setCard(cnt)
 
 	if output.card() == 0 {
 		return Done
@@ -1216,7 +1221,8 @@ func (aht *GroupedAggrHashTable) Scan(state *TupleDataScanState, result *Chunk) 
 
 	//FIXME:
 	//get aggr states
-	groupCols := aht._layout.columnCount() - 1
+	//substract 1 fro removing the hash value of group by
+	groupCols := aht._layout.columnCount() - 1 + aht._layout.childrenOutputCount()
 	FinalizeStates(aht._layout, state._chunkState._rowLocations, result, groupCols)
 
 	return result.card()
