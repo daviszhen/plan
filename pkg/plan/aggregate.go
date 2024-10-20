@@ -706,11 +706,9 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 }
 
 type TupleDataScanState struct {
-	_colIds  []int
-	_rowLocs *Vector
-	_init    bool
-
-	_rawInputRowLocs *Vector
+	_colIds []int
+	//_rowLocs *Vector
+	_init bool
 
 	_pinState   TupleDataPinState
 	_chunkState TupleDataChunkState

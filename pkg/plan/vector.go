@@ -209,9 +209,6 @@ func (vec *Vector) setPhyFormat(pf PhyFormat) {
 		vec._aux = nil
 	}
 }
-func (vec *Vector) getData() []byte {
-	return vec._data
-}
 
 func flattenConstVector[T any](data []byte, srcData []byte, pSize int, cnt int) {
 	src := toSlice[T](srcData, pSize)

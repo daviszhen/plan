@@ -161,7 +161,7 @@ func (handle *BlockHandle) ResizeBuffer(sz uint64, delta int64) {
 
 type BlockManager struct {
 	_bufferMgr *BufferManager
-	_blocks    map[BlockID]BlockHandle
+	//_blocks    map[BlockID]BlockHandle
 }
 
 func (mgr *BlockManager) ConvertBlock(id BlockID, srcBuffer *FileBuffer) *Block {
