@@ -95,7 +95,7 @@ func runOps(
 	}
 }
 
-func wantedOp(root *PhysicalOperator, pt POT) bool {
+func wantOp(root *PhysicalOperator, pt POT) bool {
 	if root == nil {
 		return false
 	}
@@ -105,13 +105,30 @@ func wantedOp(root *PhysicalOperator, pt POT) bool {
 	return false
 }
 
+func wantJoin(root *PhysicalOperator, jTyp LOT_JoinType) bool {
+	if root == nil {
+		return false
+	}
+	if root.Typ == POT_Join && root.JoinTyp == jTyp {
+		return true
+	}
+	return false
+}
+
+func wantId(root *PhysicalOperator, id int) bool {
+	if root == nil {
+		return false
+	}
+	return root.Id == id
+}
+
 func Test_1g_q20_order(t *testing.T) {
 	pplan := runTest2(t, tpchQ20())
 
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 		},
 	)
 	runOps(t, gConf, nil, ops)
@@ -123,7 +140,7 @@ func Test_1g_q19_aggr(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Agg)
+			return wantOp(root, POT_Agg)
 		},
 	)
 
@@ -140,7 +157,7 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Limit)
+			return wantOp(root, POT_Limit)
 		},
 	)
 
@@ -153,9 +170,9 @@ func Test_1g_q17_proj_aggr(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Project) &&
-				wantedOp(root.Children[0], POT_Agg) &&
-				wantedOp(root.Children[0].Children[0], POT_Filter)
+			return wantOp(root, POT_Project) &&
+				wantOp(root.Children[0], POT_Agg) &&
+				wantOp(root.Children[0].Children[0], POT_Filter)
 
 		},
 	)
@@ -170,7 +187,7 @@ func Test_1g_q16(t *testing.T) {
 		pplan,
 		func(root *PhysicalOperator) bool {
 
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 			//	len(root.Filters) > 1
 		},
@@ -186,7 +203,7 @@ func Test_1g_q15(t *testing.T) {
 		pplan,
 		func(root *PhysicalOperator) bool {
 
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 			//	len(root.Filters) > 1
 		},
@@ -201,8 +218,8 @@ func Test_1g_q14(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Project) &&
-				wantedOp(root.Children[0], POT_Agg)
+			return wantOp(root, POT_Project) &&
+				wantOp(root.Children[0], POT_Agg)
 
 		},
 	)
@@ -216,7 +233,7 @@ func Test_1g_q12(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -230,7 +247,7 @@ func Test_1g_q11(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -245,7 +262,7 @@ func Test_1g_q10(t *testing.T) {
 		pplan,
 		func(root *PhysicalOperator) bool {
 
-			return wantedOp(root, POT_Limit)
+			return wantOp(root, POT_Limit)
 
 		},
 	)
@@ -259,7 +276,7 @@ func Test_1g_q9(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -273,7 +290,7 @@ func Test_1g_q8(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -287,7 +304,7 @@ func Test_1g_q7(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -309,7 +326,7 @@ func Test_1g_q5(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -323,7 +340,7 @@ func Test_1g_q4(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 
 		},
 	)
@@ -352,7 +369,7 @@ func Test_1g_q1(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 		},
 	)
 	runOps(t, gConf, nil, ops)
@@ -371,7 +388,7 @@ func Test_1g_q22(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 		},
 	)
 	runOps(t, gConf, nil, ops)
@@ -382,8 +399,7 @@ func Test_1g_q13(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
-			//return wantedOp(root, POT_Agg) && wantedOp(root.Children[0], POT_Join)
+			return wantOp(root, POT_Order)
 		},
 	)
 	runOps(t, gConf, nil, ops)

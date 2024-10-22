@@ -1022,7 +1022,8 @@ func (lt LType) getInternalType() PhyType {
 }
 
 func (lt LType) String() string {
-	return fmt.Sprintf("(%v %v %d %d)", lt.id, lt.pTyp, lt.width, lt.scale)
+	//return fmt.Sprintf("(%v %v %d %d)", lt.id, lt.pTyp, lt.width, lt.scale)
+	return fmt.Sprintf("%v", lt.pTyp)
 }
 
 func targetTypeCost(typ LType) int64 {
@@ -1461,11 +1462,12 @@ func (edt ExprDataType) include(o ExprDataType) bool {
 }
 
 func (edt ExprDataType) String() string {
-	null := "null"
-	if edt.NotNull {
-		null = "not null"
-	}
-	return fmt.Sprintf("{%v,%s}", edt.LTyp, null)
+	//null := ""
+	//if edt.NotNull {
+	//	null = "not null"
+	//}
+	//return fmt.Sprintf("{%v,%s}", edt.LTyp, null)
+	return fmt.Sprintf("%v", edt.LTyp)
 }
 
 var InvalidExprDataType = ExprDataType{
@@ -2220,9 +2222,16 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 	head := appendMeta(meta, e.DataTyp.String())
 	switch e.Typ {
 	case ET_Column:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s.%s,%v,%d)",
-			e.Table, e.Name,
-			e.ColRef, e.Depth))
+		if e.Depth != 0 {
+			tree.AddMetaNode(head, fmt.Sprintf("(%s.%s,%v,%d)",
+				e.Table, e.Name,
+				e.ColRef, e.Depth))
+		} else {
+			tree.AddMetaNode(head, fmt.Sprintf("(%s.%s,%v)",
+				e.Table, e.Name,
+				e.ColRef))
+		}
+
 	case ET_SConst:
 		tree.AddMetaNode(head, fmt.Sprintf("(%s)", e.Svalue))
 	case ET_IConst:
@@ -2348,6 +2357,7 @@ func (t POT) String() string {
 type PhysicalOperator struct {
 	Typ POT
 	Tag int //relationTag
+	Id  int
 
 	Index         uint64
 	Index2        uint64
@@ -2379,6 +2389,7 @@ func (po *PhysicalOperator) String() string {
 }
 
 func printPhyOutputs(tree treeprint.Tree, root *PhysicalOperator) {
+	tree.AddMetaNode("id", fmt.Sprintf("%d", root.Id))
 	if len(root.Outputs) != 0 {
 		node := tree.AddMetaBranch("outputs", "")
 		listExprsToTree(node, root.Outputs)
