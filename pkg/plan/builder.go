@@ -250,6 +250,7 @@ type Builder struct {
 
 	names       []string //output column names
 	columnCount int      // count of the select exprs (after expanding star)
+	phyId       int
 }
 
 func NewBuilder() *Builder {
@@ -259,6 +260,12 @@ func NewBuilder() *Builder {
 		aliasMap:   make(map[string]int),
 		projectMap: make(map[string]int),
 	}
+}
+
+func (b *Builder) getPhyId() int {
+	old := b.phyId
+	b.phyId++
+	return old
 }
 
 func (b *Builder) Format(ctx *FormatCtx) {
@@ -1863,6 +1870,7 @@ func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error
 		proot.estimatedCard = root.estimatedCard
 	}
 
+	proot.Id = b.getPhyId()
 	return proot, nil
 }
 

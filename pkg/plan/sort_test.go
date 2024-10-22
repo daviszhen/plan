@@ -425,8 +425,8 @@ func Test_prepareLocalsort(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Project) &&
-				wantedOp(root.Children[0], POT_Agg)
+			return wantOp(root, POT_Project) &&
+				wantOp(root.Children[0], POT_Agg)
 		},
 	)
 	fname := "./test/project_out"
@@ -442,7 +442,7 @@ func Test_localsort(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantedOp(root, POT_Order)
+			return wantOp(root, POT_Order)
 		},
 	)
 
