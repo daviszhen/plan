@@ -1469,6 +1469,8 @@ func WriteToStorage(
 		saveLoop[int32](&vdata, count, ptr, int32ScatterOp{})
 	case DECIMAL:
 		saveLoop[Decimal](&vdata, count, ptr, decimalScatterOp{})
+	case DATE:
+		saveLoop[Date](&vdata, count, ptr, dateScatterOp{})
 	default:
 		panic("usp")
 	}
@@ -1503,6 +1505,8 @@ func ReadFromStorage(
 		readLoop[int32](ptr, count, res)
 	case DECIMAL:
 		readLoop[Decimal](ptr, count, res)
+	case DATE:
+		readLoop[Date](ptr, count, res)
 	default:
 		panic("usp")
 	}

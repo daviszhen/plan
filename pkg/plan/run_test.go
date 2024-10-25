@@ -157,10 +157,47 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantOp(root, POT_Limit)
+			return wantId(root, 9)
 		},
 	)
 
+	runOps(t, gConf, nil, ops)
+}
+
+func Test_prepare_q18(t *testing.T) {
+	pplan := runTest2(t, tpchQ18())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantId(root, 8)
+		},
+	)
+	fname := "./test/q18_out"
+	serial, err := NewFileSerialize(fname)
+	assert.NoError(t, err, fname)
+	assert.NotNil(t, serial)
+	defer serial.Close()
+	runOps(t, gConf, serial, ops)
+}
+
+func Test_q18_with_stub(t *testing.T) {
+	pplan := runTest2(t, tpchQ18())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantId(root, 9)
+		},
+	)
+
+	assertFunc(len(ops) == 1)
+
+	//replace child by stub
+	stubOp := &PhysicalOperator{
+		Typ:     POT_Stub,
+		Outputs: ops[0].Children[0].Outputs,
+		Table:   "./test/q18_out",
+	}
+	ops[0].Children[0] = stubOp
 	runOps(t, gConf, nil, ops)
 }
 
