@@ -17,12 +17,14 @@ package plan
 import (
 	"fmt"
 	"math"
-	"os"
 	"testing"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	dec "github.com/govalues/decimal"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func findOperator(root *PhysicalOperator, fun func(root *PhysicalOperator) bool) []*PhysicalOperator {
@@ -42,37 +44,23 @@ const (
 
 func runOps(
 	t *testing.T,
-	conf *Config,
+	conf *util.Config,
 	serial Serialize,
 	ops []*PhysicalOperator) {
-	var resFile *os.File
-	var err error
-	if len(conf.ResultCfg.FPath) != 0 {
-		resFile, err = os.OpenFile(conf.ResultCfg.FPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			resFile.Sync()
-			resFile.Close()
-		}()
-
-		if conf.ResultCfg.HasHeadLine {
-			_, err = resFile.WriteString("#" + conf.ResultCfg.FPath + "\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
+	_, err := toml.DecodeFile("./config.toml", gConf)
+	if err != nil {
+		fmt.Println(err)
 	}
 	for _, op := range ops {
 
-		if !conf.SkipPlan {
+		if conf.Debug.PrintPlan {
 			fmt.Println(op.String())
 		}
 
 		run := &Runner{
 			op:    op,
 			state: &OperatorState{},
+			cfg:   conf,
 		}
 		err := run.Init()
 		assert.NoError(t, err)
@@ -102,13 +90,8 @@ func runOps(
 					assert.NoError(t, err)
 				}
 
-				if resFile != nil {
-					err = output.saveToFile(resFile)
-					assert.NoError(t, err)
-				}
-
 				rowCnt += output.card()
-				if !conf.SkipOutput {
+				if conf.Debug.PrintResult {
 					output.print()
 				}
 			}
@@ -116,33 +99,6 @@ func runOps(
 		fmt.Println("row Count", rowCnt)
 		run.Close()
 	}
-}
-
-func wantOp(root *PhysicalOperator, pt POT) bool {
-	if root == nil {
-		return false
-	}
-	if root.Typ == pt {
-		return true
-	}
-	return false
-}
-
-func wantJoin(root *PhysicalOperator, jTyp LOT_JoinType) bool {
-	if root == nil {
-		return false
-	}
-	if root.Typ == POT_Join && root.JoinTyp == jTyp {
-		return true
-	}
-	return false
-}
-
-func wantId(root *PhysicalOperator, id int) bool {
-	if root == nil {
-		return false
-	}
-	return root.Id == id
 }
 
 func Test_1g_q20_order(t *testing.T) {
@@ -168,8 +124,8 @@ func Test_1g_q19_aggr(t *testing.T) {
 	)
 
 	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
+		gConf.Debug.EnableMaxScanRows = false
+		gConf.Debug.PrintResult = false
 	}()
 	runOps(t, gConf, nil, ops)
 }

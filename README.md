@@ -24,3 +24,36 @@
 | q20        | right                                                                                   |
 | q21        | right                                                                                   |
 | q22        | right                                                                                   |
+
+
+# tester
+
+配置文件`tester.toml`
+
+配置文件搜索路径。以下路径都没有配置文件，报错退出。
+```text
+./
+./etc/tpch/1g/
+```
+
+## tpch1g
+
+
+
+```shell
+tester help tpch1g
+
+//测试tpch query
+tester tpch1g
+  --query_id int 
+    运行指定序号的query。范围[1,22]。为0时，按顺序执行22条query。
+  --data_path string
+    tpch1g 数据位置
+  --data_format string
+    tpch1g 数据格式。csv,parquet
+  --result_path string
+    query结果位置
+  --need_headline bool
+    query结果第一行为headline行
+
+```

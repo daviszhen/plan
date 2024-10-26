@@ -17,38 +17,14 @@ package plan
 import (
 	"math"
 
-	"github.com/BurntSushi/toml"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 const (
 	INVALID_INDEX uint32 = math.MaxUint32
 )
 
-type ResultConfig struct {
-	FPath       string `tag:"fpath,omitempty"`
-	HasHeadLine bool   `tag:"hasHeadline,omitempty"`
-}
-
-type Config struct {
-	Format             string       `tag:"format"`
-	DataPath           string       `tag:"dataPath"`
-	StandardResultPath string       `tag:"standardResultPath"`
-	ShowRaw            bool         `tag:"showRaw"`
-	EnableMaxScanRows  bool         `tag:"enableMaxScanRows"`
-	MaxScanRows        int          `tag:"maxScanRows"`
-	SkipOutput         bool         `tag:"skipOutput"`
-	SkipPlan           bool         `tag:"skipPlan"`
-	ResultCfg          ResultConfig `tag:"resultCfg"`
-}
-
-var gConf = &Config{}
-
-func init() {
-	_, err := toml.DecodeFile("./config.toml", gConf)
-	if err != nil {
-		panic(err)
-	}
-}
+var gConf = &util.Config{}
 
 type Serialize interface {
 	WriteData(buffer []byte, len int) error

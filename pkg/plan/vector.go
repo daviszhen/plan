@@ -1130,27 +1130,6 @@ func (c *Chunk) print() {
 	//}
 }
 
-func (c *Chunk) saveToFile(resFile *os.File) (err error) {
-	for i := 0; i < c.card(); i++ {
-		for j := 0; j < c.columnCount(); j++ {
-			val := c._data[j].getValue(i)
-			_, err = resFile.WriteString(val.String())
-			if err != nil {
-				return err
-			}
-			_, err = resFile.WriteString("\t")
-			if err != nil {
-				return err
-			}
-		}
-		_, err = resFile.WriteString("\n")
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (c *Chunk) sliceItself(sel *SelectVector, cnt int) {
 	c._count = cnt
 	for i := 0; i < c.columnCount(); i++ {
@@ -1187,6 +1166,29 @@ func (c *Chunk) serialize(serial Serialize) error {
 	//save column data
 	for i := 0; i < c.columnCount(); i++ {
 		err = c._data[i].serialize(c.card(), serial)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Chunk) saveToFile(resFile *os.File) (err error) {
+	rowCnt := c.card()
+	colCnt := c.columnCount()
+	for i := 0; i < rowCnt; i++ {
+		for j := 0; j < colCnt; j++ {
+			val := c._data[j].getValue(i)
+			_, err = resFile.WriteString(val.String())
+			if err != nil {
+				return err
+			}
+			_, err = resFile.WriteString("\t")
+			if err != nil {
+				return err
+			}
+		}
+		_, err = resFile.WriteString("\n")
 		if err != nil {
 			return err
 		}

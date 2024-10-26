@@ -15,6 +15,7 @@
 package util
 
 import (
+	"os"
 	"unsafe"
 )
 
@@ -35,4 +36,12 @@ func AssertFunc(b bool) {
 type Pair[K any, V any] struct {
 	First  K
 	Second V
+}
+
+func FileIsValid(path string) bool {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !stat.IsDir()
 }
