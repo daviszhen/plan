@@ -25,3 +25,4 @@ ast
 *.json
 **/testout/
 **/*.out
+tester

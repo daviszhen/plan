@@ -20,8 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	dec "github.com/govalues/decimal"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func findOperator(root *PhysicalOperator, fun func(root *PhysicalOperator) bool) []*PhysicalOperator {
@@ -41,20 +44,23 @@ const (
 
 func runOps(
 	t *testing.T,
-	conf *Config,
+	conf *util.Config,
 	serial Serialize,
 	ops []*PhysicalOperator) {
+	_, err := toml.DecodeFile("./config.toml", gConf)
+	if err != nil {
+		fmt.Println(err)
+	}
 	for _, op := range ops {
 
-		//if i != 2 {
-		//	continue
-		//}
-
-		fmt.Println(op.String())
+		if conf.Debug.PrintPlan {
+			fmt.Println(op.String())
+		}
 
 		run := &Runner{
 			op:    op,
 			state: &OperatorState{},
+			cfg:   conf,
 		}
 		err := run.Init()
 		assert.NoError(t, err)
@@ -85,7 +91,7 @@ func runOps(
 				}
 
 				rowCnt += output.card()
-				if !conf.SkipOutput {
+				if conf.Debug.PrintResult {
 					output.print()
 				}
 			}
@@ -93,33 +99,6 @@ func runOps(
 		fmt.Println("row Count", rowCnt)
 		run.Close()
 	}
-}
-
-func wantOp(root *PhysicalOperator, pt POT) bool {
-	if root == nil {
-		return false
-	}
-	if root.Typ == pt {
-		return true
-	}
-	return false
-}
-
-func wantJoin(root *PhysicalOperator, jTyp LOT_JoinType) bool {
-	if root == nil {
-		return false
-	}
-	if root.Typ == POT_Join && root.JoinTyp == jTyp {
-		return true
-	}
-	return false
-}
-
-func wantId(root *PhysicalOperator, id int) bool {
-	if root == nil {
-		return false
-	}
-	return root.Id == id
 }
 
 func Test_1g_q20_order(t *testing.T) {
@@ -145,8 +124,8 @@ func Test_1g_q19_aggr(t *testing.T) {
 	)
 
 	defer func() {
-		gConf.EnableMaxScanRows = false
-		gConf.SkipOutput = false
+		gConf.Debug.EnableMaxScanRows = false
+		gConf.Debug.PrintResult = false
 	}()
 	runOps(t, gConf, nil, ops)
 }

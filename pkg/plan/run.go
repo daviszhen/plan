@@ -20,13 +20,222 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	pqLocal "github.com/xitongsys/parquet-go-source/local"
 	pqReader "github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
+	"go.uber.org/zap"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
+
+var tpch1gAsts = []*Ast{
+	tpchQ1(),
+	tpchQ2(),
+	tpchQ3(),
+	tpchQ4(),
+	tpchQ5(),
+	tpchQ6(),
+	tpchQ7(),
+	tpchQ8(),
+	tpchQ9(),
+	tpchQ10(),
+	tpchQ11(),
+	tpchQ12(),
+	tpchQ13(),
+	tpchQ14(),
+	tpchQ15(),
+	tpchQ16(),
+	tpchQ17(),
+	tpchQ18(),
+	tpchQ19(),
+	tpchQ20(),
+	tpchQ21(),
+	tpchQ22(),
+}
+
+func Run(cfg *util.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	if cfg.Tpch1g.QueryId == 0 {
+		for i, ast := range tpch1gAsts {
+			err := execQuery(cfg, i+1, ast)
+			if err != nil {
+				util.Error("execQuery failed", zap.Int("queryId", i+1))
+			}
+		}
+	} else {
+		id := cfg.Tpch1g.QueryId
+		if id <= 0 || id > uint(len(tpch1gAsts)) {
+			return fmt.Errorf("invalid query id:%d", id)
+		}
+		return execQuery(cfg, int(id), tpch1gAsts[id-1])
+	}
+	return nil
+}
+
+func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
+	defer func() {
+		if rErr := recover(); rErr != nil {
+			err = errors.Join(err, errors.New(fmt.Sprint(rErr)))
+		}
+	}()
+	var root *PhysicalOperator
+	root, err = genPhyPlan(ast)
+	if err != nil {
+		return err
+	}
+	fname := fmt.Sprintf("q%d.result", id)
+	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
+	var resFile *os.File
+	if len(path) != 0 {
+		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			resFile.Sync()
+			resFile.Close()
+		}()
+
+		if cfg.Tpch1g.Result.NeedHeadLine {
+			_, err = resFile.WriteString("#" + fname + "\n")
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return execOps(cfg, nil, resFile, []*PhysicalOperator{root})
+}
+
+func genPhyPlan(ast *Ast) (*PhysicalOperator, error) {
+	builder := NewBuilder()
+	err := builder.buildSelect(ast, builder.rootCtx, 0)
+	if err != nil {
+		return nil, err
+	}
+	lp, err := builder.CreatePlan(builder.rootCtx, nil)
+	if err != nil {
+		return nil, err
+	}
+	if lp == nil {
+		return nil, errors.New("nil plan")
+	}
+	checkExprIsValid(lp)
+	lp, err = builder.Optimize(builder.rootCtx, lp)
+	if err != nil {
+		return nil, err
+	}
+	if lp == nil {
+		return nil, errors.New("nil plan")
+	}
+	checkExprIsValid(lp)
+	pp, err := builder.CreatePhyPlan(lp)
+	if err != nil {
+		return nil, err
+	}
+	if pp == nil {
+		return nil, errors.New("nil physical plan")
+	}
+	return pp, nil
+}
+
+func execOps(
+	conf *util.Config,
+	serial Serialize,
+	resFile *os.File,
+	ops []*PhysicalOperator) error {
+	var err error
+
+	for _, op := range ops {
+		if conf.Debug.PrintPlan {
+			fmt.Println(op.String())
+		}
+
+		run := &Runner{
+			op:    op,
+			state: &OperatorState{},
+			cfg:   conf,
+		}
+		err = run.Init()
+		if err != nil {
+			return err
+		}
+
+		rowCnt := 0
+		for {
+			if rowCnt >= conf.Debug.MaxOutputRowCount && conf.Debug.MaxOutputRowCount != -1 {
+				break
+			}
+			output := &Chunk{}
+			output.setCap(defaultVectorSize)
+			result, err := run.Execute(nil, output, run.state)
+			if err != nil {
+				return err
+			}
+			if result == Done {
+				break
+			}
+			if output.card() > 0 {
+				assertFunc(output.card() != 0)
+
+				if serial != nil {
+					err = output.serialize(serial)
+					if err != nil {
+						return err
+					}
+				}
+
+				if resFile != nil {
+					err = output.saveToFile(resFile)
+					if err != nil {
+						return err
+					}
+				}
+
+				rowCnt += output.card()
+				if conf.Debug.PrintResult {
+					output.print()
+				}
+			}
+		}
+		run.Close()
+	}
+	return nil
+}
+
+func wantOp(root *PhysicalOperator, pt POT) bool {
+	if root == nil {
+		return false
+	}
+	if root.Typ == pt {
+		return true
+	}
+	return false
+}
+
+//func wantJoin(root *PhysicalOperator, jTyp LOT_JoinType) bool {
+//	if root == nil {
+//		return false
+//	}
+//	if root.Typ == POT_Join && root.JoinTyp == jTyp {
+//		return true
+//	}
+//	return false
+//}
+
+func wantId(root *PhysicalOperator, id int) bool {
+	if root == nil {
+		return false
+	}
+	return root.Id == id
+}
 
 type OperatorState struct {
 	//order
@@ -86,6 +295,7 @@ type OperatorExec interface {
 }
 
 type Runner struct {
+	cfg   *util.Config
 	op    *PhysicalOperator
 	state *OperatorState
 	//for stub
@@ -130,6 +340,7 @@ func (run *Runner) initChildren() error {
 		childRun := &Runner{
 			op:    child,
 			state: &OperatorState{},
+			cfg:   run.cfg,
 		}
 		err := childRun.Init()
 		if err != nil {
@@ -1215,9 +1426,9 @@ func (run *Runner) scanInit() error {
 	}
 
 	//open data file
-	switch gConf.Format {
+	switch run.cfg.Tpch1g.Data.Format {
 	case "parquet":
-		run.pqFile, err = pqLocal.NewLocalFileReader(gConf.DataPath + "/" + run.op.Table + ".parquet")
+		run.pqFile, err = pqLocal.NewLocalFileReader(run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".parquet")
 		if err != nil {
 			return err
 		}
@@ -1227,7 +1438,7 @@ func (run *Runner) scanInit() error {
 			return err
 		}
 	case "csv":
-		run.tablePath = gConf.DataPath + "/" + run.op.Table + ".tbl"
+		run.tablePath = run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".tbl"
 		run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
 		if err != nil {
 			return err
@@ -1249,7 +1460,7 @@ func (run *Runner) scanInit() error {
 	run.state = &OperatorState{
 		filterExec: filterExec,
 		filterSel:  NewSelectVector(defaultVectorSize),
-		showRaw:    gConf.ShowRaw,
+		showRaw:    run.cfg.Debug.ShowRaw,
 	}
 
 	return nil
@@ -1273,8 +1484,8 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 	if maxCnt == 0 {
 		return false, nil
 	}
-	if gConf.EnableMaxScanRows {
-		if run.maxRows > gConf.MaxScanRows {
+	if run.cfg.Debug.EnableMaxScanRows {
+		if run.maxRows > run.cfg.Debug.MaxScanRows {
 			return true, nil
 		}
 	}
@@ -1283,7 +1494,7 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 	readed.init(run.readedColTyps, maxCnt)
 	var err error
 	//read table
-	switch gConf.Format {
+	switch run.cfg.Tpch1g.Data.Format {
 	case "parquet":
 		err = run.readParquetTable(readed, state, maxCnt)
 		if err != nil {
@@ -1302,7 +1513,7 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 		return true, nil
 	}
 
-	if gConf.EnableMaxScanRows {
+	if run.cfg.Debug.EnableMaxScanRows {
 		run.maxRows += readed.card()
 	}
 
@@ -1314,7 +1525,7 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 }
 
 func (run *Runner) scanClose() error {
-	switch gConf.Format {
+	switch run.cfg.Tpch1g.Data.Format {
 	case "csv":
 		run.reader = nil
 		return run.dataFile.Close()
