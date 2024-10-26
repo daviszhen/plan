@@ -63,13 +63,35 @@ func Run(cfg *util.Config) error {
 		return fmt.Errorf("config is nil")
 	}
 
+	start := time.Now()
+	defer func() {
+		fmt.Printf("Run took %s\n", time.Since(start))
+	}()
 	if cfg.Tpch1g.QueryId == 0 {
-		failed := make([]int, 0)
+		type runResult struct {
+			id   int
+			dur  time.Duration
+			succ bool
+		}
+		res := make([]runResult, 0)
 		for i, ast := range tpch1gAsts {
-			err := execQuery(cfg, i+1, ast)
+			id := i + 1
+			st := time.Now()
+			err := execQuery(cfg, id, ast)
 			if err != nil {
-				util.Error("execQuery failed", zap.Int("queryId", i+1))
-				failed = append(failed, i+1)
+				util.Error("execQuery fail", zap.Int("queryId", id))
+				res = append(res, runResult{id: id, dur: time.Since(st)})
+			}
+			res = append(res, runResult{id: id, dur: time.Since(st), succ: true})
+		}
+		failed := make([]int, 0)
+		for _, re := range res {
+			fmt.Print("Query ", re.id, " took ", re.dur)
+			if re.succ {
+				fmt.Println(" success")
+			} else {
+				fmt.Println(" failed")
+				failed = append(failed, re.id)
 			}
 		}
 		if len(failed) > 0 {
