@@ -1,11 +1,11 @@
-.PHONY: cgo
-cgo:
+.PHONY: tester
+tester:
+	@go build -o tester cmd/tester/main.go
 
 .PHONY: config
 config:
 	$(info [go tidy])
 	@go mod tidy
-
 
 ############# code clean
 

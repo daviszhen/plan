@@ -1,0 +1,13 @@
+[tpch1g.data]
+path = "/home/pengzhen/Documents/tpch-parquet/"
+format = "parquet"
+
+[tpch1g.result]
+path = "/home/pengzhen/Documents/plan/cases/tpch/1g"
+needHeadline = true
+
+[debug]
+showRaw = false
+maxScanRows = 10
+maxOutputRowCount = -1
+printResult=true

@@ -1,4 +1,8 @@
+[tpch1g.data]
+path = "/home/pengzhen/Documents/tpch-parquet/"
 format = "parquet"
-dataPath = "/home/pengzhen/Documents/tpch-parquet/"
+
+[debug]
 showRaw = false
 maxScanRows = 10
+printResult = true

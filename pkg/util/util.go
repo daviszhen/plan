@@ -12,20 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plan
+package util
 
 import (
-	"github.com/daviszhen/plan/pkg/util"
+	"os"
 )
 
-var gConf = &util.Config{}
-
-type Serialize interface {
-	WriteData(buffer []byte, len int) error
-	Close() error
-}
-
-type Deserialize interface {
-	ReadData(buffer []byte, len int) error
-	Close() error
+func FileIsValid(path string) bool {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !stat.IsDir()
 }
