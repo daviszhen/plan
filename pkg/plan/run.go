@@ -64,10 +64,18 @@ func Run(cfg *util.Config) error {
 	}
 
 	if cfg.Tpch1g.QueryId == 0 {
+		failed := make([]int, 0)
 		for i, ast := range tpch1gAsts {
 			err := execQuery(cfg, i+1, ast)
 			if err != nil {
 				util.Error("execQuery failed", zap.Int("queryId", i+1))
+				failed = append(failed, i+1)
+			}
+		}
+		if len(failed) > 0 {
+			fmt.Printf("Failed query count: %d\n", len(failed))
+			for _, i := range failed {
+				fmt.Println("Query", i, "failed")
 			}
 		}
 	} else {
