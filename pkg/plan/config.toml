@@ -1,4 +1,5 @@
 format = "parquet"
 dataPath = "/home/pengzhen/Documents/tpch-parquet/"
+standardResultPath = "/home/pengzhen/Documents/mo-tpch/golden/TPCH_1"
 showRaw = false
 maxScanRows = 10

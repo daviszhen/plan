@@ -994,7 +994,7 @@ func (tuple *TupleDataCollection) AppendUnified(
 	}
 	//evaluate the heap size
 	if !tuple._layout.allConst() {
-		tuple.computeHeapSizes(chunkState, chunk, appendSel, cnt)
+		tuple.computeHeapSizes(chunkState, chunk, childrentOutput, appendSel, cnt)
 	}
 
 	//allocate buffer space for incoming Chunk in chunkstate
@@ -1038,9 +1038,12 @@ func (tuple *TupleDataCollection) scatter(
 ) {
 	rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._rowLocations)
 	//set bitmap
-	maskBytes := sizeInBytes(tuple._layout.columnCount())
-	for i := 0; i < cnt; i++ {
-		memset(rowLocations[i], 0xFF, maskBytes)
+	if !isChildrenOutput {
+		bitsCnt := tuple._layout.columnCount() + tuple._layout.childrenOutputCount()
+		maskBytes := sizeInBytes(bitsCnt)
+		for i := 0; i < cnt; i++ {
+			memset(rowLocations[i], 0xFF, maskBytes)
+		}
 	}
 
 	if !tuple._layout.allConst() {
@@ -1055,8 +1058,8 @@ func (tuple *TupleDataCollection) scatter(
 			tuple.scatterVector(state, chunk._data[i], colIdx, appendSel, cnt)
 		}
 	} else {
-		for _, i := range state._columnIds {
-			tuple.scatterVector(state, chunk._data[i], i, appendSel, cnt)
+		for i, coldIdx := range state._columnIds {
+			tuple.scatterVector(state, chunk._data[i], coldIdx, appendSel, cnt)
 		}
 	}
 }
@@ -1080,8 +1083,8 @@ func (tuple *TupleDataCollection) scatterVector(
 
 // convert chunk into state.data unified format
 func toUnifiedFormat(state *TupleDataChunkState, chunk *Chunk) {
-	for _, colId := range state._columnIds {
-		chunk._data[colId].toUnifiedFormat(chunk.card(), &state._data[colId])
+	for i, colId := range state._columnIds {
+		chunk._data[i].toUnifiedFormat(chunk.card(), &state._data[colId])
 	}
 }
 
@@ -1107,6 +1110,7 @@ func getVectorData(state *TupleDataChunkState, result []*UnifiedFormat) {
 func (tuple *TupleDataCollection) computeHeapSizes(
 	state *TupleDataChunkState,
 	chunk *Chunk,
+	childrenOutput *Chunk,
 	appendSel *SelectVector,
 	cnt int) {
 
@@ -1116,6 +1120,11 @@ func (tuple *TupleDataCollection) computeHeapSizes(
 
 	for i := 0; i < chunk.columnCount(); i++ {
 		tuple.evaluateHeapSizes(state._heapSizes, chunk._data[i], &state._data[i], appendSel, cnt)
+	}
+
+	for i := 0; i < childrenOutput.columnCount(); i++ {
+		colIdx := state._childrenOutputIds[i]
+		tuple.evaluateHeapSizes(state._heapSizes, childrenOutput._data[i], &state._data[colIdx], appendSel, cnt)
 	}
 }
 

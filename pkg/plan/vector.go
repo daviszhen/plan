@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"os"
 	"strings"
 	"time"
 	"unsafe"
@@ -129,7 +130,7 @@ func (buf *VecBuffer) getSelVector() *SelectVector {
 }
 
 const (
-	defaultVectorSize = 8
+	defaultVectorSize = 2048
 )
 
 type Vector struct {
@@ -1057,6 +1058,9 @@ func (c *Chunk) card() int {
 }
 
 func (c *Chunk) columnCount() int {
+	if c == nil {
+		return 0
+	}
 	return len(c._data)
 }
 
@@ -1117,13 +1121,34 @@ func (c *Chunk) print() {
 		for j := 0; j < c.columnCount(); j++ {
 			val := c._data[j].getValue(i)
 			fmt.Print(val)
-			fmt.Print(" | ")
+			fmt.Print("\t")
 		}
 		fmt.Println()
 	}
-	if c.card() > 0 {
-		fmt.Println()
+	//if c.card() > 0 {
+	//	fmt.Println()
+	//}
+}
+
+func (c *Chunk) saveToFile(resFile *os.File) (err error) {
+	for i := 0; i < c.card(); i++ {
+		for j := 0; j < c.columnCount(); j++ {
+			val := c._data[j].getValue(i)
+			_, err = resFile.WriteString(val.String())
+			if err != nil {
+				return err
+			}
+			_, err = resFile.WriteString("\t")
+			if err != nil {
+				return err
+			}
+		}
+		_, err = resFile.WriteString("\n")
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (c *Chunk) sliceItself(sel *SelectVector, cnt int) {
@@ -1474,6 +1499,8 @@ func WriteToStorage(
 		saveLoop[int32](&vdata, count, ptr, int32ScatterOp{})
 	case DECIMAL:
 		saveLoop[Decimal](&vdata, count, ptr, decimalScatterOp{})
+	case DATE:
+		saveLoop[Date](&vdata, count, ptr, dateScatterOp{})
 	default:
 		panic("usp")
 	}
@@ -1508,6 +1535,8 @@ func ReadFromStorage(
 		readLoop[int32](ptr, count, res)
 	case DECIMAL:
 		readLoop[Decimal](ptr, count, res)
+	case DATE:
+		readLoop[Date](ptr, count, res)
 	default:
 		panic("usp")
 	}

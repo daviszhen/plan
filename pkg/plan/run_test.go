@@ -17,6 +17,7 @@ package plan
 import (
 	"fmt"
 	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -44,13 +45,30 @@ func runOps(
 	conf *Config,
 	serial Serialize,
 	ops []*PhysicalOperator) {
+	var resFile *os.File
+	var err error
+	if len(conf.ResultCfg.FPath) != 0 {
+		resFile, err = os.OpenFile(conf.ResultCfg.FPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			resFile.Sync()
+			resFile.Close()
+		}()
+
+		if conf.ResultCfg.HasHeadLine {
+			_, err = resFile.WriteString("#" + conf.ResultCfg.FPath + "\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	for _, op := range ops {
 
-		//if i != 2 {
-		//	continue
-		//}
-
-		fmt.Println(op.String())
+		if !conf.SkipPlan {
+			fmt.Println(op.String())
+		}
 
 		run := &Runner{
 			op:    op,
@@ -81,6 +99,11 @@ func runOps(
 
 				if serial != nil {
 					err = output.serialize(serial)
+					assert.NoError(t, err)
+				}
+
+				if resFile != nil {
+					err = output.saveToFile(resFile)
 					assert.NoError(t, err)
 				}
 
@@ -157,10 +180,47 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantOp(root, POT_Limit)
+			return wantOp(root, POT_Order)
 		},
 	)
 
+	runOps(t, gConf, nil, ops)
+}
+
+func Test_prepare_q18(t *testing.T) {
+	pplan := runTest2(t, tpchQ18())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantId(root, 8)
+		},
+	)
+	fname := "./test/q18_out"
+	serial, err := NewFileSerialize(fname)
+	assert.NoError(t, err, fname)
+	assert.NotNil(t, serial)
+	defer serial.Close()
+	runOps(t, gConf, serial, ops)
+}
+
+func Test_q18_with_stub(t *testing.T) {
+	pplan := runTest2(t, tpchQ18())
+	ops := findOperator(
+		pplan,
+		func(root *PhysicalOperator) bool {
+			return wantId(root, 9)
+		},
+	)
+
+	assertFunc(len(ops) == 1)
+
+	//replace child by stub
+	stubOp := &PhysicalOperator{
+		Typ:     POT_Stub,
+		Outputs: ops[0].Children[0].Outputs,
+		Table:   "./test/q18_out",
+	}
+	ops[0].Children[0] = stubOp
 	runOps(t, gConf, nil, ops)
 }
 
