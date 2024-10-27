@@ -1,29 +1,31 @@
 # plan
 
-| tpch 1g qX | status                                                                                  |
-|------------|-----------------------------------------------------------------------------------------|
-| q1         | right                                                                                   |
-| q2         | right                                                                                   |
-| q3         | right                                                                                   |
-| q4         | right (result same as Duckdb)                                                           |
-| q5         | right                                                                                   |
-| q6         | right                                                                                   |
-| q7         | right                                                                                   |
-| q8         | right                                                                                   |
-| q9         | right                                                                                   |
-| q10        | right (use topN further)                                                                |
-| q11        | right                                                                                   |
-| q12        | right                                                                                   |
-| q13        | almost right (value of COUNT(NULL) is different. duckdb convert left join to inner join |
-| q14        | right                                                                                   |
-| q15        | right                                                                                   |
-| q16        | right(even without distinct);                                                           |
-| q17        | right                                                                                   |
-| q18        | right                                                                                   |
-| q19        | right                                                                                   |
-| q20        | right                                                                                   |
-| q21        | right                                                                                   |
-| q22        | right                                                                                   |
+注意：忽略精度和结果标题
+
+| tpch 1g qX | status                                                   | 与duckdb相同                  | 与mo相同                         |
+|------------|----------------------------------------------------------|----------------------------|-------------------------------|
+| q1         | right                                                    | y                          | y                             |
+| q2         | right                                                    | n (s_ddress,s_comment 不同)  | y                             |
+| q3         | right                                                    | y                          | y                             |
+| q4         | right (result same as Duckdb)                            | y                          | y                             |
+| q5         | right                                                    | y                          | y                             |
+| q6         | right                                                    | y                          | y                             |
+| q7         | right                                                    | y                          | y                             |
+| q8         | right                                                    | y                          | y                             |
+| q9         | right                                                    | y                          | y                             |
+| q10        | right (use topN further)                                 | n (c_address,c_comment 不同) | y                             |
+| q11        | right                                                    | y                          | y                             |
+| q12        | right                                                    | y                          | y                             |
+| q13        | almost right. duckdb convert left join to inner join     | n                          | almost y. count(NULL) is diff |
+| q14        | right                                                    | y                          | y                             |
+| q15        | right                                                    | n (s_address 不同)           | y                             |
+| q16        | right(even without distinct);                            | n                          | n (与duckdb,mo都不同。duckdb与mo相同) |
+| q17        | right                                                    | y                          | y                             |
+| q18        | right                                                    | y                          | y                             |
+| q19        | right                                                    | y                          | y                             |
+| q20        | right                                                    | n (s_address 不同)           | y                             |
+| q21        | right                                                    | y                          | y                             |
+| q22        | right                                                    | y                          | y                             |
 
 
 # tester

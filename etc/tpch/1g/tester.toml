@@ -3,7 +3,7 @@ path = "/home/pengzhen/Documents/tpch-parquet/"
 format = "parquet"
 
 [tpch1g.result]
-path = "./cases/tpch/1g"
+path = "./cases/tpch/1g/plan"
 needHeadline = true
 
 [debug]

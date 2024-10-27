@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	pqLocal "github.com/xitongsys/parquet-go-source/local"
@@ -121,7 +122,7 @@ func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 	if err != nil {
 		return err
 	}
-	fname := fmt.Sprintf("q%d.result", id)
+	fname := fmt.Sprintf("q%d.txt", id)
 	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
 	var resFile *os.File
 	if len(path) != 0 {
@@ -135,7 +136,11 @@ func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 		}()
 
 		if cfg.Tpch1g.Result.NeedHeadLine {
-			_, err = resFile.WriteString("#" + fname + "\n")
+			outputStrs := make([]string, 0)
+			for _, outputExpr := range root.Outputs {
+				outputStrs = append(outputStrs, outputExpr.Alias)
+			}
+			_, err = resFile.WriteString(fmt.Sprintf("#%s\n", strings.Join(outputStrs, "\t")))
 			if err != nil {
 				return err
 			}

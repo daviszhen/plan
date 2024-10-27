@@ -1183,6 +1183,9 @@ func (c *Chunk) saveToFile(resFile *os.File) (err error) {
 			if err != nil {
 				return err
 			}
+			if j == colCnt-1 {
+				continue
+			}
 			_, err = resFile.WriteString("\t")
 			if err != nil {
 				return err
