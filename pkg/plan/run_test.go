@@ -47,7 +47,7 @@ func runOps(
 	conf *util.Config,
 	serial Serialize,
 	ops []*PhysicalOperator) {
-	_, err := toml.DecodeFile("./config.toml", gConf)
+	_, err := toml.DecodeFile("../../etc/tpch/1g/config.toml", gConf)
 	if err != nil {
 		fmt.Println(err)
 	}
