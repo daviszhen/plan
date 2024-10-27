@@ -205,7 +205,6 @@ func Test_1g_q16(t *testing.T) {
 
 			return wantOp(root, POT_Order)
 
-			//	len(root.Filters) > 1
 		},
 	)
 

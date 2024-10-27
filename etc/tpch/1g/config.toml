@@ -6,3 +6,4 @@ format = "parquet"
 showRaw = false
 maxScanRows = 10
 printResult = true
+printPlan = true
