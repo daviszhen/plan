@@ -266,7 +266,9 @@ func NewDistinctAggrCollectionInfo(
 	aggregates []*Expr,
 	indices []int,
 ) *DistinctAggrCollectionInfo {
-	ret := &DistinctAggrCollectionInfo{}
+	ret := &DistinctAggrCollectionInfo{
+		_tableMap: make(map[int]int),
+	}
 	ret._indices = indices
 	ret._aggregates = aggregates
 	ret._tableCount = ret.CreateTableIndexMap()
@@ -409,9 +411,13 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 	return types
 }
 
+func (haggr *HashAggr) SinkDistinct(chunk *Chunk) {
+
+}
+
 func (haggr *HashAggr) Sink(chunk *Chunk) {
 	if haggr._distinctCollectionInfo != nil {
-		panic("usp")
+		haggr.SinkDistinct(chunk)
 	}
 	payload := &Chunk{}
 	payload.init(haggr._groupedAggrData._payloadTypes, defaultVectorSize)

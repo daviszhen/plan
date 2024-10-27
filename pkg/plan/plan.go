@@ -2293,7 +2293,11 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 			branch = tree.AddMetaBranch(head, e.SubTyp)
 			e.Children[0].Print(branch, "")
 		case ET_SubFunc:
-			branch = tree.AddMetaBranch(head, e.Svalue)
+			dist := ""
+			if e.AggrTyp == DISTINCT {
+				dist = "(distinct)"
+			}
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s %s", e.Svalue, dist))
 			for _, child := range e.Children {
 				child.Print(branch, "")
 			}

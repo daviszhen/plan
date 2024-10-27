@@ -1703,7 +1703,7 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 		paramsTypes = append(paramsTypes, when[i].DataTyp)
 	}
 
-	ret, err := b.bindFunc(ET_Case.String(), ET_Case, expr.String(), params, paramsTypes)
+	ret, err := b.bindFunc(ET_Case.String(), ET_Case, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1780,7 +1780,7 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 		}
 		equalParams := []*Expr{params[0], param}
 		equalTypes := []ExprDataType{paramTypes[0], paramTypes[i]}
-		ret0, err := b.bindFunc(et.String(), et, expr.String(), equalParams, equalTypes)
+		ret0, err := b.bindFunc(et.String(), et, expr.String(), equalParams, equalTypes, false)
 		if err != nil {
 			return nil, err
 		}

@@ -141,7 +141,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				argsTypes = append(argsTypes, child.DataTyp)
 			}
 
-			ret, err = b.bindFunc(name, ET_SubFunc, expr.String(), args, argsTypes)
+			ret, err = b.bindFunc(name, ET_SubFunc, expr.String(), args, argsTypes, expr.Expr.Distinct)
 			if err != nil {
 				return nil, err
 			}
@@ -168,7 +168,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				argsTypes = append(argsTypes, child.DataTyp)
 			}
 
-			ret, err = b.bindFunc(ET_Exists.String(), ET_Exists, expr.String(), args, argsTypes)
+			ret, err = b.bindFunc(ET_Exists.String(), ET_Exists, expr.String(), args, argsTypes, false)
 			if err != nil {
 				return nil, err
 			}
@@ -184,7 +184,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 				argsTypes = append(argsTypes, child.DataTyp)
 			}
 
-			ret, err = b.bindFunc(ET_NotExists.String(), ET_NotExists, expr.String(), args, argsTypes)
+			ret, err = b.bindFunc(ET_NotExists.String(), ET_NotExists, expr.String(), args, argsTypes, false)
 			if err != nil {
 				return nil, err
 			}
@@ -227,7 +227,7 @@ func (b *Builder) bindExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth
 	return ret, err
 }
 
-func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []ExprDataType) (*Expr, error) {
+func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []ExprDataType, distinct bool) (*Expr, error) {
 	id, err := GetFunctionId(name)
 	if err != nil {
 		return nil, err
@@ -261,6 +261,9 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 	}
 
 	if IsAgg(name) {
+		if distinct {
+			ret.AggrTyp = DISTINCT
+		}
 		b.aggs = append(b.aggs, ret)
 		ret = &Expr{
 			Typ:     ET_Column,
@@ -270,6 +273,8 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 			ColRef:  ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
 			Depth:   0,
 		}
+	} else if distinct {
+		return nil, fmt.Errorf("distinct used in aggregate function. %s is not aggregate function", name)
 	}
 	return ret, nil
 }
@@ -466,7 +471,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast
 	//>=
 	params := []*Expr{betExpr, left}
 	paramsTypes := []ExprDataType{betExpr.DataTyp, left.DataTyp}
-	ret0, err := b.bindFunc(ET_GreaterEqual.String(), ET_GreaterEqual, expr.String(), params, paramsTypes)
+	ret0, err := b.bindFunc(ET_GreaterEqual.String(), ET_GreaterEqual, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +479,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast
 	//<=
 	params = []*Expr{betExpr, right}
 	paramsTypes = []ExprDataType{betExpr.DataTyp, right.DataTyp}
-	ret1, err := b.bindFunc(ET_LessEqual.String(), ET_LessEqual, expr.String(), params, paramsTypes)
+	ret1, err := b.bindFunc(ET_LessEqual.String(), ET_LessEqual, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +488,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *Ast
 	params = []*Expr{ret0, ret1}
 	paramsTypes = []ExprDataType{ret0.DataTyp, ret1.DataTyp}
 
-	ret, err := b.bindFunc(ET_And.String(), ET_And, expr.String(), params, paramsTypes)
+	ret, err := b.bindFunc(ET_And.String(), ET_And, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +535,7 @@ func (b *Builder) bindBinaryExpr(ctx *BindContext, iwc InWhichClause, expr *Ast,
 		}
 	}
 
-	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []ExprDataType{left.DataTyp, right.DataTyp})
+	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []ExprDataType{left.DataTyp, right.DataTyp}, false)
 	if err != nil {
 		return nil, err
 	}
