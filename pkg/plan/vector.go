@@ -1259,12 +1259,16 @@ func (val Value) String() string {
 		if len(val._str) != 0 {
 			return val._str
 		} else {
-			return fmt.Sprintf("%v.%v", val._i64, val._i64_1)
+			d, err := dec.NewFromInt64(val._i64, val._i64_1, val._typ.scale)
+			if err != nil {
+				panic(err)
+			}
+			return d.String()
 		}
 	case LTID_DATE:
 		dat := time.Date(int(val._i64), time.Month(val._i64_1), int(val._i64_2),
 			0, 0, 0, 0, time.UTC)
-		return dat.String()
+		return dat.Format(time.DateOnly)
 	case LTID_UBIGINT:
 		return fmt.Sprintf("0x%x %d", val._i64, val._i64)
 	case LTID_DOUBLE:

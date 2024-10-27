@@ -125,7 +125,7 @@ func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
 	var resFile *os.File
 	if len(path) != 0 {
-		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
+		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			return err
 		}
