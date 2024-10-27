@@ -19,9 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	pqLocal "github.com/xitongsys/parquet-go-source/local"
@@ -62,11 +64,41 @@ func Run(cfg *util.Config) error {
 		return fmt.Errorf("config is nil")
 	}
 
+	start := time.Now()
+	defer func() {
+		fmt.Printf("Run took %s\n", time.Since(start))
+	}()
 	if cfg.Tpch1g.QueryId == 0 {
+		type runResult struct {
+			id   int
+			dur  time.Duration
+			succ bool
+		}
+		res := make([]runResult, 0)
 		for i, ast := range tpch1gAsts {
-			err := execQuery(cfg, i+1, ast)
+			id := i + 1
+			st := time.Now()
+			err := execQuery(cfg, id, ast)
 			if err != nil {
-				util.Error("execQuery failed", zap.Int("queryId", i+1))
+				util.Error("execQuery fail", zap.Int("queryId", id))
+				res = append(res, runResult{id: id, dur: time.Since(st)})
+			}
+			res = append(res, runResult{id: id, dur: time.Since(st), succ: true})
+		}
+		failed := make([]int, 0)
+		for _, re := range res {
+			fmt.Print("Query ", re.id, " took ", re.dur)
+			if re.succ {
+				fmt.Println(" success")
+			} else {
+				fmt.Println(" failed")
+				failed = append(failed, re.id)
+			}
+		}
+		if len(failed) > 0 {
+			fmt.Printf("Failed query count: %d\n", len(failed))
+			for _, i := range failed {
+				fmt.Println("Query", i, "failed")
 			}
 		}
 	} else {
@@ -90,11 +122,11 @@ func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 	if err != nil {
 		return err
 	}
-	fname := fmt.Sprintf("q%d.result", id)
+	fname := fmt.Sprintf("q%d.txt", id)
 	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
 	var resFile *os.File
 	if len(path) != 0 {
-		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
+		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			return err
 		}
@@ -104,7 +136,11 @@ func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 		}()
 
 		if cfg.Tpch1g.Result.NeedHeadLine {
-			_, err = resFile.WriteString("#" + fname + "\n")
+			outputStrs := make([]string, 0)
+			for _, outputExpr := range root.Outputs {
+				outputStrs = append(outputStrs, outputExpr.Alias)
+			}
+			_, err = resFile.WriteString(fmt.Sprintf("#%s\n", strings.Join(outputStrs, "\t")))
 			if err != nil {
 				return err
 			}
@@ -843,9 +879,17 @@ func (run *Runner) aggrInit() error {
 		}
 
 		//children input types
-		rawInputTypes := make([]LType, 0)
+		refChildrenOutput := make([]*Expr, 0)
 		for i := 0; i < len(run.op.Children[0].Outputs); i++ {
-			rawInputTypes = append(rawInputTypes, run.op.Children[0].Outputs[i].DataTyp.LTyp)
+			ref := run.op.Children[0].Outputs[i]
+			refChildrenOutput = append(refChildrenOutput, &Expr{
+				Typ:     ET_Column,
+				DataTyp: ref.DataTyp,
+				ColRef: ColumnBind{
+					math.MaxUint64,
+					uint64(i),
+				},
+			})
 		}
 
 		run.hAggr = NewHashAggr(
@@ -854,15 +898,16 @@ func (run *Runner) aggrInit() error {
 			run.op.GroupBys,
 			nil,
 			nil,
-			rawInputTypes,
+			refChildrenOutput,
 		)
 		if run.op.Children[0].Typ == POT_Filter {
 			run.hAggr._printHash = true
 		}
-		//groupby exprs + param exprs of aggr functions
+		//groupby exprs + param exprs of aggr functions + reference to the output exprs of children
 		groupExprs := make([]*Expr, 0)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._groups...)
 		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._paramExprs...)
+		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._refChildrenOutput...)
 		run.state.groupbyWithParamsExec = NewExprExec(groupExprs...)
 		run.state.groupbyExec = NewExprExec(run.hAggr._groupedAggrData._groups...)
 		run.state.filterExec = NewExprExec(run.op.Filters...)
@@ -908,6 +953,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//if run.op.Children[0].Typ == POT_Filter {
 			//
 
+			//fmt.Println("child raw chunk")
 			//childChunk.print()
 			//}
 
@@ -916,6 +962,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			typs := make([]LType, 0)
 			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
 			typs = append(typs, run.hAggr._groupedAggrData._payloadTypes...)
+			typs = append(typs, run.hAggr._groupedAggrData._childrenOutputTypes...)
 			groupChunk := &Chunk{}
 			groupChunk.init(typs, defaultVectorSize)
 			err = run.state.groupbyWithParamsExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
@@ -924,11 +971,12 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			}
 
 			//groupChunk.print()
-			run.hAggr.Sink(groupChunk, childChunk)
+			run.hAggr.Sink(groupChunk)
 
 		}
 		run.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
+		fmt.Println("tuple collection size", run.hAggr._groupings[0]._tableData._finalizedHT._dataCollection._count)
 	}
 	if run.hAggr._has == HAS_SCAN {
 		if run.state.haScanState == nil {
@@ -955,7 +1003,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			groupAndAggrChunk.init(groupAddAggrTypes, defaultVectorSize)
 			assertFunc(len(run.hAggr._groupedAggrData._groupingFuncs) == 0)
 			childChunk := &Chunk{}
-			childChunk.init(run.hAggr._groupedAggrData._rawInputTypes, defaultVectorSize)
+			childChunk.init(run.hAggr._groupedAggrData._childrenOutputTypes, defaultVectorSize)
 			res = run.hAggr.GetData(run.state.haScanState, groupAndAggrChunk, childChunk)
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil
@@ -984,7 +1032,6 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			}
 			filterInputChunk.setCard(groupAndAggrChunk.card())
 			var count int
-			//count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, aggrStatesChunk}, state.filterSel)
 			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, filterInputChunk}, state.filterSel)
 			if err != nil {
 				return InvalidOpResult, err
@@ -1343,12 +1390,16 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 				break
 			}
 
+			//fmt.Println("right child chunk")
+			//rightChunk.print()
+
 			cnt++
 			err = run.hjoin.Build(rightChunk)
 			if err != nil {
 				return 0, err
 			}
 		}
+		fmt.Println("right hash table count", run.hjoin._ht.count())
 		run.hjoin._hjs = HJS_PROBE
 	}
 

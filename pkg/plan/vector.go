@@ -210,9 +210,6 @@ func (vec *Vector) setPhyFormat(pf PhyFormat) {
 		vec._aux = nil
 	}
 }
-func (vec *Vector) getData() []byte {
-	return vec._data
-}
 
 func flattenConstVector[T any](data []byte, srcData []byte, pSize int, cnt int) {
 	src := toSlice[T](srcData, pSize)
@@ -445,6 +442,12 @@ func (vec *Vector) getValue(idx int) *Value {
 		return &Value{
 			_typ: vec.typ(),
 			_f64: float64(data[idx]),
+		}
+	case LTID_POINTER:
+		data := getSliceInPhyFormatFlat[unsafe.Pointer](vec)
+		return &Value{
+			_typ: vec.typ(),
+			_i64: int64(uintptr(data[idx])),
 		}
 	default:
 		panic("usp")
@@ -1055,6 +1058,9 @@ func (c *Chunk) card() int {
 }
 
 func (c *Chunk) columnCount() int {
+	if c == nil {
+		return 0
+	}
 	return len(c._data)
 }
 
@@ -1119,9 +1125,9 @@ func (c *Chunk) print() {
 		}
 		fmt.Println()
 	}
-	if c.card() > 0 {
-		fmt.Println()
-	}
+	//if c.card() > 0 {
+	//	fmt.Println()
+	//}
 }
 
 func (c *Chunk) sliceItself(sel *SelectVector, cnt int) {
@@ -1176,6 +1182,9 @@ func (c *Chunk) saveToFile(resFile *os.File) (err error) {
 			_, err = resFile.WriteString(val.String())
 			if err != nil {
 				return err
+			}
+			if j == colCnt-1 {
+				continue
 			}
 			_, err = resFile.WriteString("\t")
 			if err != nil {
@@ -1253,18 +1262,24 @@ func (val Value) String() string {
 		if len(val._str) != 0 {
 			return val._str
 		} else {
-			return fmt.Sprintf("%v.%v", val._i64, val._i64_1)
+			d, err := dec.NewFromInt64(val._i64, val._i64_1, val._typ.scale)
+			if err != nil {
+				panic(err)
+			}
+			return d.String()
 		}
 	case LTID_DATE:
 		dat := time.Date(int(val._i64), time.Month(val._i64_1), int(val._i64_2),
 			0, 0, 0, 0, time.UTC)
-		return dat.String()
+		return dat.Format(time.DateOnly)
 	case LTID_UBIGINT:
 		return fmt.Sprintf("0x%x %d", val._i64, val._i64)
 	case LTID_DOUBLE:
 		return fmt.Sprintf("%v", val._f64)
 	case LTID_FLOAT:
 		return fmt.Sprintf("%v", val._f64)
+	case LTID_POINTER:
+		return fmt.Sprintf("0x%x", val._i64)
 	default:
 		panic("usp")
 	}

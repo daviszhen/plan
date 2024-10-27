@@ -257,12 +257,12 @@ func assertFunc(b bool) {
 	}
 }
 
-type Allocator interface {
+type BytesAllocator interface {
 	Alloc(sz int) []byte
 	Free([]byte)
 }
 
-var gAlloc Allocator = &DefaultAllocator{}
+var gAlloc BytesAllocator = &DefaultAllocator{}
 
 type DefaultAllocator struct {
 }
@@ -325,6 +325,10 @@ func pointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
 
 func pointerLess(lhs, rhs unsafe.Pointer) bool {
 	return uintptr(lhs) < uintptr(rhs)
+}
+
+func pointerLessEqual(lhs, rhs unsafe.Pointer) bool {
+	return uintptr(lhs) <= uintptr(rhs)
 }
 
 func pointerSub(lhs, rhs unsafe.Pointer) int64 {
@@ -391,7 +395,7 @@ func findIf[T ~*Expr | ~string | ~int](data []T, pred func(t T) bool) int {
 }
 
 func cMalloc(sz int) unsafe.Pointer {
-	return C.calloc(C.size_t(sz), 1)
+	return C.malloc(C.size_t(sz))
 }
 
 func cFree(ptr unsafe.Pointer) {
@@ -414,6 +418,14 @@ func back[T any](data []T) T {
 		return data[0]
 	}
 	return data[l-1]
+}
+
+func size[T any](data []T) int {
+	return len(data)
+}
+
+func empty[T any](data []T) bool {
+	return size(data) == 0
 }
 
 // removeIf removes the one that pred is true.

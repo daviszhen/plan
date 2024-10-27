@@ -12,36 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package util
+package storage
 
 import (
-	"os"
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
 
-func AlignValue[T ~uint64](value, align T) T {
-	return (value + (align - 1)) & ^(align - 1)
-}
+const (
+	SECTOR_SIZE       uint64  = 4096
+	BLOCK_HEADER_SIZE uint64  = uint64(unsafe.Sizeof(uint64(0)))
+	BLOCK_ALLOC_SIZE  uint64  = 1 << 18
+	BLOCK_SIZE        uint64  = BLOCK_ALLOC_SIZE - BLOCK_HEADER_SIZE
+	MAX_BLOCK         BlockID = 4611686018427388000
+)
 
-func PointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
-	return unsafe.Add(base, offset)
-}
+type BlockID int64
 
-func AssertFunc(b bool) {
-	if !b {
-		panic("assertion failed")
-	}
-}
-
-type Pair[K any, V any] struct {
-	First  K
-	Second V
-}
-
-func FileIsValid(path string) bool {
-	stat, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	return !stat.IsDir()
+func AllocSize(sz uint64) uint64 {
+	return util.AlignValue(sz+BLOCK_HEADER_SIZE, SECTOR_SIZE)
 }

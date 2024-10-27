@@ -15,7 +15,13 @@
 package plan
 
 import (
+	"math"
+
 	"github.com/daviszhen/plan/pkg/util"
+)
+
+const (
+	INVALID_INDEX uint32 = math.MaxUint32
 )
 
 var gConf = &util.Config{}

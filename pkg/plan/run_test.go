@@ -47,7 +47,7 @@ func runOps(
 	conf *util.Config,
 	serial Serialize,
 	ops []*PhysicalOperator) {
-	_, err := toml.DecodeFile("./config.toml", gConf)
+	_, err := toml.DecodeFile("../../etc/tpch/1g/config.toml", gConf)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -136,7 +136,7 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantId(root, 9)
+			return wantOp(root, POT_Order)
 		},
 	)
 
@@ -205,7 +205,6 @@ func Test_1g_q16(t *testing.T) {
 
 			return wantOp(root, POT_Order)
 
-			//	len(root.Filters) > 1
 		},
 	)
 
