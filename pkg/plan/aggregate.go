@@ -176,6 +176,15 @@ type DistinctAggrData struct {
 	_info            *DistinctAggrCollectionInfo
 }
 
+func (dad *DistinctAggrData) IsDistinct(index int) bool {
+	if !empty(dad._radixTables) {
+		if _, has := dad._info._tableMap[index]; has {
+			return true
+		}
+	}
+	return false
+}
+
 func NewDistinctAggrData(
 	info *DistinctAggrCollectionInfo,
 	groups GroupingSet,
@@ -266,7 +275,9 @@ func NewDistinctAggrCollectionInfo(
 	aggregates []*Expr,
 	indices []int,
 ) *DistinctAggrCollectionInfo {
-	ret := &DistinctAggrCollectionInfo{}
+	ret := &DistinctAggrCollectionInfo{
+		_tableMap: make(map[int]int),
+	}
 	ret._indices = indices
 	ret._aggregates = aggregates
 	ret._tableCount = ret.CreateTableIndexMap()
@@ -394,8 +405,8 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 		return nil
 	}
 	groupIndices := make(IntSet)
-	for _, group := range groups {
-		groupIndices.insert(int(group.ColRef.column()))
+	for gidx, _ := range groups {
+		groupIndices.insert(gidx)
 	}
 	maxIdx := groupIndices.max()
 	assertFunc(maxIdx >= 0)
@@ -403,16 +414,44 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 	for i := 0; i < len(types); i++ {
 		types[i] = null()
 	}
-	for _, group := range groups {
-		types[group.ColRef.column()] = group.DataTyp.LTyp
+	for gidx, group := range groups {
+		types[gidx] = group.DataTyp.LTyp
 	}
 	return types
 }
 
-func (haggr *HashAggr) Sink(chunk *Chunk) {
-	if haggr._distinctCollectionInfo != nil {
-		panic("usp")
+func (haggr *HashAggr) SinkDistinctGrouping(
+	chunk, childrenOutput *Chunk,
+	groupingIdx int,
+) {
+	distinctInfo := haggr._distinctCollectionInfo
+	distinctData := haggr._groupings[groupingIdx]._distinctData
+
+	var tableIdx int
+	var has bool
+	dump := &Chunk{}
+	for _, idx := range distinctInfo._indices {
+		//aggr := haggr._groupedAggrData._aggregates[idx]
+
+		if tableIdx, has = distinctInfo._tableMap[idx]; !has {
+			panic(fmt.Sprintf("no table index for index %d", idx))
+		}
+
+		radixTable := distinctData._radixTables[tableIdx]
+		if radixTable == nil {
+			continue
+		}
+		radixTable.Sink(chunk, dump, childrenOutput, []int{})
 	}
+}
+
+func (haggr *HashAggr) SinkDistinct(chunk, childrenOutput *Chunk) {
+	for i := 0; i < len(haggr._groupings); i++ {
+		haggr.SinkDistinctGrouping(chunk, childrenOutput, i)
+	}
+}
+
+func (haggr *HashAggr) Sink(chunk *Chunk) {
 	payload := &Chunk{}
 	payload.init(haggr._groupedAggrData._payloadTypes, defaultVectorSize)
 	offset := len(haggr._groupedAggrData._groupTypes)
@@ -428,6 +467,10 @@ func (haggr *HashAggr) Sink(chunk *Chunk) {
 		childrenOutput._data[i].reference(chunk._data[offset+i])
 	}
 	childrenOutput.setCard(chunk.card())
+
+	if haggr._distinctCollectionInfo != nil {
+		haggr.SinkDistinct(chunk, childrenOutput)
+	}
 
 	for _, grouping := range haggr._groupings {
 		grouping._tableData._printHash = haggr._printHash
@@ -485,6 +528,126 @@ func (haggr *HashAggr) GetData(state *HashAggrScanState, output, rawInput *Chunk
 		return Done
 	} else {
 		return haveMoreOutput
+	}
+}
+
+func (haggr *HashAggr) Finalize() {
+	haggr.FinalizeInternal(true)
+}
+
+func (haggr *HashAggr) FinalizeInternal(checkDistinct bool) {
+	if checkDistinct && haggr._distinctCollectionInfo != nil {
+		haggr.FinalizeDistinct()
+	}
+	for i := 0; i < len(haggr._groupings); i++ {
+		grouping := haggr._groupings[i]
+		grouping._tableData.Finalize()
+	}
+}
+
+func (haggr *HashAggr) FinalizeDistinct() {
+	for i := 0; i < len(haggr._groupings); i++ {
+		grouping := haggr._groupings[i]
+		distinctData := grouping._distinctData
+
+		for tableIdx := 0; tableIdx < len(distinctData._radixTables); tableIdx++ {
+			if distinctData._radixTables[tableIdx] == nil {
+				continue
+			}
+			radixTable := distinctData._radixTables[tableIdx]
+			radixTable.Finalize()
+		}
+	}
+
+	//finish distinct
+	for i := 0; i < len(haggr._groupings); i++ {
+		grouping := haggr._groupings[i]
+		haggr.DistinctGrouping(grouping, i)
+	}
+}
+
+func (haggr *HashAggr) DistinctGrouping(
+	groupingData *HashAggrGroupingData,
+	groupingIdx int,
+) {
+	aggregates := haggr._distinctCollectionInfo._aggregates
+	data := groupingData._distinctData
+
+	//fake input chunk
+	//group by
+	groupChunk := &Chunk{}
+	groupChunk.init(haggr._inputGroupTypes, defaultVectorSize)
+
+	groups := haggr._groupedAggrData._groups
+	groupbySize := size(groups)
+
+	aggrInputChunk := &Chunk{}
+	aggrInputChunk.init(haggr._groupedAggrData._payloadTypes, defaultVectorSize)
+
+	payloadIdx := 0
+	nextPayloadIdx := 0
+
+	for i := 0; i < len(haggr._groupedAggrData._aggregates); i++ {
+		aggr := aggregates[i]
+
+		//forward payload idx
+		payloadIdx = nextPayloadIdx
+		nextPayloadIdx = payloadIdx + len(aggr.Children)
+
+		//skip non distinct
+		if !data.IsDistinct(i) {
+			continue
+		}
+
+		tableIdx := data._info._tableMap[i]
+		radixTable := data._radixTables[tableIdx]
+
+		//groupby + distinct payload
+		outputChunk := &Chunk{}
+		outputChunk.init(data._groupedAggrData[tableIdx]._groupTypes, defaultVectorSize)
+
+		//children output
+		childrenChunk := &Chunk{}
+		childrenChunk.init(data._groupedAggrData[tableIdx]._childrenOutputTypes, defaultVectorSize)
+
+		//get all data from distinct aggr hashtable
+		//sink them into main hashtable
+
+		scanState := &TupleDataScanState{}
+
+		for {
+			outputChunk.reset()
+			groupChunk.reset()
+			aggrInputChunk.reset()
+			childrenChunk.reset()
+
+			res := radixTable.GetData(scanState, outputChunk, childrenChunk)
+			switch res {
+			case Done:
+				assertFunc(outputChunk.card() == 0)
+				break
+			case InvalidOpResult:
+				panic("invalid op result")
+			}
+			if outputChunk.card() == 0 {
+				break
+			}
+
+			//composite the
+			groupedAggrData := data._groupedAggrData[tableIdx]
+			for groupIdx := 0; groupIdx < groupbySize; groupIdx++ {
+				//group := groupedAggrData._groups[groupIdx]
+				groupChunk._data[groupIdx].reference(outputChunk._data[groupIdx])
+			}
+			groupChunk.setCard(outputChunk.card())
+
+			for childIdx := 0; childIdx < len(groupedAggrData._groups)-groupbySize; childIdx++ {
+				aggrInputChunk._data[payloadIdx+childIdx].reference(
+					outputChunk._data[groupbySize+childIdx])
+			}
+			aggrInputChunk.setCard(outputChunk.card())
+			groupingData._tableData.Sink(groupChunk, aggrInputChunk, childrenChunk, []int{i})
+		}
 	}
 }
 
@@ -555,6 +718,7 @@ type RadixPartitionedHashTable struct {
 	_groupingValues  []*Value
 	_finalizedHT     *GroupedAggrHashTable
 	_printHash       bool
+	_finalized       bool
 }
 
 func NewRadixPartitionedHashTable(
@@ -705,11 +869,16 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 	}
 }
 
+func (rpht *RadixPartitionedHashTable) Finalize() {
+	assertFunc(!rpht._finalized)
+	rpht._finalized = true
+	rpht._finalizedHT.Finalize()
+}
+
 type TupleDataScanState struct {
 	_colIds []int
 	//_rowLocs *Vector
-	_init bool
-
+	_init       bool
 	_pinState   TupleDataPinState
 	_chunkState TupleDataChunkState
 	_segmentIdx int

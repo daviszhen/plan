@@ -272,7 +272,9 @@ func (handle *BufferHandle) Close() {
 	if handle._handle == nil || handle._node == nil {
 		return
 	}
-	handle._handle._blockMgr._bufferMgr.Unpin(handle._handle)
+	if handle._handle._blockMgr != nil {
+		handle._handle._blockMgr._bufferMgr.Unpin(handle._handle)
+	}
 	handle._handle = nil
 	handle._node = nil
 }

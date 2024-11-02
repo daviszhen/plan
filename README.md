@@ -19,7 +19,7 @@
 | q13        | almost right. (duckdb convert left join to inner join) | n                          | almost y. count(NULL) is diff |
 | q14        | right                                                  | y                          | y                             |
 | q15        | right                                                  | n (s_address 不同)           | y                             |
-| q16        | almost right. (no distinct)                            | n                          | n (与duckdb,mo都不同。duckdb与mo相同) |
+| q16        | right                                                  | y                          | y                             |
 | q17        | right                                                  | y                          | y                             |
 | q18        | right                                                  | y                          | y                             |
 | q19        | right                                                  | y                          | y                             |

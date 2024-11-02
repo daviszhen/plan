@@ -82,8 +82,9 @@ func Run(cfg *util.Config) error {
 			if err != nil {
 				util.Error("execQuery fail", zap.Int("queryId", id))
 				res = append(res, runResult{id: id, dur: time.Since(st)})
+			} else {
+				res = append(res, runResult{id: id, dur: time.Since(st), succ: true})
 			}
-			res = append(res, runResult{id: id, dur: time.Since(st), succ: true})
 		}
 		failed := make([]int, 0)
 		for _, re := range res {
@@ -974,6 +975,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			run.hAggr.Sink(groupChunk)
 
 		}
+		run.hAggr.Finalize()
 		run.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
 		fmt.Println("tuple collection size", run.hAggr._groupings[0]._tableData._finalizedHT._dataCollection._count)
