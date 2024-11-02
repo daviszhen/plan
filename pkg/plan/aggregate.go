@@ -878,8 +878,7 @@ func (rpht *RadixPartitionedHashTable) Finalize() {
 type TupleDataScanState struct {
 	_colIds []int
 	//_rowLocs *Vector
-	_init bool
-
+	_init       bool
 	_pinState   TupleDataPinState
 	_chunkState TupleDataChunkState
 	_segmentIdx int
