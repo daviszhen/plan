@@ -983,7 +983,7 @@ func (tuple *TupleDataCollection) AppendUnified(
 	pinState *TupleDataPinState,
 	chunkState *TupleDataChunkState,
 	chunk *Chunk,
-	childrentOutput *Chunk,
+	childrenOutput *Chunk,
 	appendSel *SelectVector,
 	cnt int) {
 	if cnt == -1 {
@@ -994,7 +994,7 @@ func (tuple *TupleDataCollection) AppendUnified(
 	}
 	//evaluate the heap size
 	if !tuple._layout.allConst() {
-		tuple.computeHeapSizes(chunkState, chunk, childrentOutput, appendSel, cnt)
+		tuple.computeHeapSizes(chunkState, chunk, childrenOutput, appendSel, cnt)
 	}
 
 	//allocate buffer space for incoming Chunk in chunkstate
@@ -1003,9 +1003,9 @@ func (tuple *TupleDataCollection) AppendUnified(
 	//fill row
 	tuple.scatter(chunkState, chunk, appendSel, cnt, false)
 
-	if childrentOutput != nil {
+	if childrenOutput != nil {
 		//scatter rows
-		tuple.scatter(chunkState, childrentOutput, appendSel, cnt, true)
+		tuple.scatter(chunkState, childrenOutput, appendSel, cnt, true)
 	}
 }
 
