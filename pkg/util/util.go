@@ -15,7 +15,9 @@
 package util
 
 import (
+	"fmt"
 	"os"
+	"runtime"
 	"unsafe"
 )
 
@@ -44,4 +46,19 @@ func FileIsValid(path string) bool {
 		return false
 	}
 	return !stat.IsDir()
+}
+
+func ConvertPanicError(v interface{}) error {
+	return fmt.Errorf("panic %v: %+v", v, Callers(3))
+}
+
+type Stack []uintptr
+
+// Callers makes the depth customizable.
+func Callers(depth int) *Stack {
+	const numFrames = 32
+	var pcs [numFrames]uintptr
+	n := runtime.Callers(2+depth, pcs[:])
+	var st Stack = pcs[0:n]
+	return &st
 }

@@ -37,6 +37,7 @@ type DebugOptions struct {
 	MaxOutputRowCount int  `tag:"maxOutputRowCount"`
 	PrintResult       bool `tag:"printResult"`
 	PrintPlan         bool `tag:"printPlan"`
+	Count             int  `tag:"count"`
 }
 
 type Config struct {
