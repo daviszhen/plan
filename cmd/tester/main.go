@@ -50,8 +50,12 @@ var RootCmd = &cobra.Command{
 
 func initDebugOptions() {
 	testerCfg.Debug.ShowRaw = viper.GetBool("debug.showRaw")
+	testerCfg.Debug.EnableMaxScanRows = viper.GetBool("debug.enableMaxScanRows")
 	testerCfg.Debug.MaxScanRows = viper.GetInt("debug.maxScanRows")
 	testerCfg.Debug.MaxOutputRowCount = viper.GetInt("debug.maxOutputRowCount")
+	testerCfg.Debug.PrintResult = viper.GetBool("debug.printResult")
+	testerCfg.Debug.PrintPlan = viper.GetBool("debug.printPlan")
+	testerCfg.Debug.Count = viper.GetInt("debug.count")
 }
 
 //tpch1g cmd

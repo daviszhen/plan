@@ -345,6 +345,7 @@ type SumStateOp[T any] struct {
 }
 
 func (SumStateOp[T]) Init(s *State[T]) {
+	s._typ = STATE_SUM
 	s.Init()
 }
 func (SumStateOp[T]) Combine(
@@ -363,8 +364,8 @@ type AvgStateOp[T any] struct {
 }
 
 func (as *AvgStateOp[T]) Init(s *State[T]) {
-	s.Init()
 	s._typ = STATE_AVG
+	s.Init()
 }
 
 func (as *AvgStateOp[T]) Combine(
@@ -383,8 +384,8 @@ type CountStateOp[T any] struct {
 }
 
 func (as *CountStateOp[T]) Init(s *State[T]) {
-	s.Init()
 	s._typ = STATE_COUNT
+	s.Init()
 }
 
 func (as *CountStateOp[T]) Combine(
@@ -403,8 +404,8 @@ type MaxStateOp[T any] struct {
 }
 
 func (as *MaxStateOp[T]) Init(s *State[T]) {
-	s.Init()
 	s._typ = STATE_MAX
+	s.Init()
 }
 
 func (as *MaxStateOp[T]) Combine(
@@ -431,8 +432,8 @@ type MinStateOp[T any] struct {
 }
 
 func (as *MinStateOp[T]) Init(s *State[T]) {
-	s.Init()
 	s._typ = STATE_MIN
+	s.Init()
 }
 
 func (as *MinStateOp[T]) Combine(

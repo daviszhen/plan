@@ -59,6 +59,21 @@ var tpch1gAsts = []*Ast{
 	tpchQ22(),
 }
 
+type runResult struct {
+	id   int
+	dur  time.Duration
+	succ bool
+}
+
+func (res *runResult) String() string {
+	succ := "failed"
+	if res.succ {
+		succ = "success"
+	}
+	return fmt.Sprint("Query ", res.id, " took ", res.dur, " ", succ)
+
+}
+
 func Run(cfg *util.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -68,38 +83,36 @@ func Run(cfg *util.Config) error {
 	defer func() {
 		fmt.Printf("Run took %s\n", time.Since(start))
 	}()
+	repeat := 1
+	if cfg.Debug.Count > 0 {
+		repeat = cfg.Debug.Count
+	}
 	if cfg.Tpch1g.QueryId == 0 {
-		type runResult struct {
-			id   int
-			dur  time.Duration
-			succ bool
-		}
-		res := make([]runResult, 0)
-		for i, ast := range tpch1gAsts {
-			id := i + 1
-			st := time.Now()
-			err := execQuery(cfg, id, ast)
-			if err != nil {
-				util.Error("execQuery fail", zap.Int("queryId", id))
-				res = append(res, runResult{id: id, dur: time.Since(st)})
-			} else {
-				res = append(res, runResult{id: id, dur: time.Since(st), succ: true})
+		for r := 0; r < repeat; r++ {
+			res := make([]runResult, 0)
+			for i, ast := range tpch1gAsts {
+				id := i + 1
+				st := time.Now()
+				err := execQuery(cfg, id, ast)
+				if err != nil {
+					util.Error("execQuery fail", zap.Int("queryId", id), zap.Error(err))
+					res = append(res, runResult{id: id, dur: time.Since(st)})
+				} else {
+					res = append(res, runResult{id: id, dur: time.Since(st), succ: true})
+				}
 			}
-		}
-		failed := make([]int, 0)
-		for _, re := range res {
-			fmt.Print("Query ", re.id, " took ", re.dur)
-			if re.succ {
-				fmt.Println(" success")
-			} else {
-				fmt.Println(" failed")
-				failed = append(failed, re.id)
+			failed := make([]int, 0)
+			for _, re := range res {
+				fmt.Println(re.String())
+				if !re.succ {
+					failed = append(failed, re.id)
+				}
 			}
-		}
-		if len(failed) > 0 {
-			fmt.Printf("Failed query count: %d\n", len(failed))
-			for _, i := range failed {
-				fmt.Println("Query", i, "failed")
+			if len(failed) > 0 {
+				fmt.Printf("Failed query count: %d\n", len(failed))
+				for _, i := range failed {
+					fmt.Println("Query", i, "failed")
+				}
 			}
 		}
 	} else {
@@ -107,7 +120,21 @@ func Run(cfg *util.Config) error {
 		if id <= 0 || id > uint(len(tpch1gAsts)) {
 			return fmt.Errorf("invalid query id:%d", id)
 		}
-		return execQuery(cfg, int(id), tpch1gAsts[id-1])
+		re := runResult{
+			id: int(id),
+		}
+		for i := 0; i < repeat; i++ {
+			st := time.Now()
+			err := execQuery(cfg, int(id), tpch1gAsts[id-1])
+			if err != nil {
+				util.Error("execQuery fail", zap.Uint("queryId", id), zap.Error(err))
+				re.succ = false
+			} else {
+				re.succ = true
+			}
+			re.dur = time.Since(st)
+			fmt.Println(re.String())
+		}
 	}
 	return nil
 }
@@ -115,7 +142,7 @@ func Run(cfg *util.Config) error {
 func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 	defer func() {
 		if rErr := recover(); rErr != nil {
-			err = errors.Join(err, errors.New(fmt.Sprint(rErr)))
+			err = errors.Join(err, util.ConvertPanicError(rErr))
 		}
 	}()
 	var root *PhysicalOperator

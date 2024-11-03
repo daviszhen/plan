@@ -17,6 +17,7 @@ package plan
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 type ColumnBindCountMap map[ColumnBind]int
@@ -219,7 +220,15 @@ func (ref ReferredColumnBindMap) replace(bind, newBind ColumnBind) {
 }
 
 func (ref ReferredColumnBindMap) replaceAll(cmap ColumnBindMap) {
-	for bind, newBind := range cmap {
+	keys := make([]ColumnBind, 0)
+	for bind, _ := range cmap {
+		keys = append(keys, bind)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].less(keys[j])
+	})
+	for _, bind := range keys {
+		newBind := cmap[bind]
 		ref.replace(bind, newBind)
 	}
 }
@@ -229,6 +238,20 @@ func (ref ReferredColumnBindMap) beenReferred(bind ColumnBind) bool {
 		return true
 	}
 	return false
+}
+
+func (ref ReferredColumnBindMap) String() string {
+	sb := strings.Builder{}
+	for bind, exprs := range ref {
+		sb.WriteString(bind.String())
+		sb.WriteString("\n ")
+		for i, expr := range exprs {
+			sb.WriteString(fmt.Sprintf("(%d)", i+1))
+			sb.WriteString(expr.String())
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
 }
 
 type ColumnPrune struct {
