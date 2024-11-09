@@ -26,3 +26,5 @@ ast
 **/testout/
 **/*.out
 tester
+**/*_out
+plandb

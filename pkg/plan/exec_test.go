@@ -221,7 +221,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //}
 
 func Test_testExecute2(t *testing.T) {
-	pplan := runTest2(t, tpchQ20())
+	_, pplan := preparePhyPlan(t, 20)
 	exprs := collectFilterExprs(pplan)
 	compExprs := findExpr(exprs, func(expr *Expr) bool {
 		if expr == nil {

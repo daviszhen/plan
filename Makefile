@@ -1,3 +1,7 @@
+.PHONY: plandb
+plandb:
+	@go build -o plandb cmd/main/main.go
+
 .PHONY: tester
 tester:
 	@go build -o tester cmd/tester/main.go

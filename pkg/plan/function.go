@@ -504,6 +504,34 @@ var operators = []*Function{
 					}
 				},
 			},
+			{
+				Desc: "+",
+				Idx:  4,
+				Args: []ExprDataType{
+					{
+						LTyp: integer(),
+					},
+					{
+						LTyp: integer(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						binaryExecSwitch[int32, int32, int32](
+							chunk._data[0],
+							chunk._data[1],
+							result,
+							count,
+							gBinInt32Int32Add,
+							nil,
+							gBinInt32Int32SingleOpWrapper)
+						return nil
+					}
+				},
+			},
 		},
 		ImplDecider: exactImplDecider,
 	},
@@ -1779,6 +1807,69 @@ var funcs = []*Function{
 					},
 					{
 						LTyp: decimal(DecimalMaxWidthInt64, 0),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  9,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+					{
+						LTyp: dateLTyp(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  10,
+				Args: []ExprDataType{
+					{
+						LTyp: varchar(),
+					},
+					{
+						LTyp: intervalLType(),
+					},
+				},
+				RetTypeDecider: func(types []ExprDataType) ExprDataType {
+					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
+				},
+				Body: func() FunctionBody {
+					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+						castExec(chunk._data[0], result, count)
+						return nil
+					}
+				},
+			},
+			{
+				Desc: "cast",
+				Idx:  11,
+				Args: []ExprDataType{
+					{
+						LTyp: intervalLType(),
+					},
+					{
+						LTyp: dateLTyp(),
 					},
 				},
 				RetTypeDecider: func(types []ExprDataType) ExprDataType {

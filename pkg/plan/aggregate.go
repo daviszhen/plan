@@ -405,7 +405,7 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 		return nil
 	}
 	groupIndices := make(IntSet)
-	for gidx, _ := range groups {
+	for gidx := range groups {
 		groupIndices.insert(gidx)
 	}
 	maxIdx := groupIndices.max()

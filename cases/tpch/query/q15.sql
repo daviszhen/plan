@@ -1,19 +1,4 @@
-/*
-create view q15_revenue0 (supplier_no, total_revenue) as
-	select
-		l_suppkey,
-		sum(l_extendedprice * (1 - l_discount))
-	from
-		lineitem
-	where
-		l_shipdate >= date '1995-12-01'
-		and l_shipdate < date '1995-12-01' + interval '3 month'
-	group by
-		l_suppkey;
-
-Rewrite Q15 using with.
-*/
-
+--postgresql
 with q15_revenue0 as (
 	select
 		l_suppkey as supplier_no,
@@ -22,7 +7,7 @@ with q15_revenue0 as (
 		lineitem
 	where
 		l_shipdate >= date '1995-12-01'
-		and l_shipdate < date '1995-12-01' + interval '3' month
+		and l_shipdate < date '1995-12-01' + interval '3 month'
 	group by
 		l_suppkey
     )
