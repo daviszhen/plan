@@ -25,6 +25,7 @@ var (
 	gBinDateIntervalSub   binDateInterSubOp
 	gBinFloat32Float32Add binFloat32Float32AddOp
 	gBinDecimalDecimalAdd binDecimalDecimalAddOp
+	gBinInt32Int32Add     binInt32Int32AddOp
 
 	//-
 	//float32 - float32
@@ -69,6 +70,7 @@ var (
 	gBinDecimalDecimalOpWrapper       binarySingleOpWrapper[Decimal, Decimal, Decimal]
 	gBinStringBoolSingleOpWrapper     binarySingleOpWrapper[String, String, bool]
 	gBinStringInt32SingleOpWrapper    binarySingleOpWrapper[String, Date, int32]
+	gBinInt32Int32SingleOpWrapper     binarySingleOpWrapper[int32, int32, int32]
 )
 
 type binaryOp[T any, S any, R any] interface {
@@ -154,6 +156,14 @@ func (op binDecimalDecimalAddOp) operation(left *Decimal, right *Decimal, result
 		panic(err)
 	}
 	result.Decimal = d
+}
+
+//lint:ignore U1000
+type binInt32Int32AddOp struct {
+}
+
+func (op binInt32Int32AddOp) operation(left *int32, right *int32, result *int32) {
+	*result = *left + *right
 }
 
 // -

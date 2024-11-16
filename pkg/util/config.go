@@ -14,6 +14,11 @@
 
 package util
 
+type Tpch1gQuery struct {
+	Path    string `tag:"path"`
+	QueryId uint   `tag:"queryId"`
+}
+
 type Tpch1gData struct {
 	Path   string `tag:"path"`
 	Format string `tag:"format"`
@@ -25,9 +30,9 @@ type Tpch1gResult struct {
 }
 
 type Tpch1g struct {
-	QueryId uint         `tag:"queryId"`
-	Data    Tpch1gData   `tag:"data"`
-	Result  Tpch1gResult `tag:"result"`
+	Query  Tpch1gQuery  `tag:"query"`
+	Data   Tpch1gData   `tag:"data"`
+	Result Tpch1gResult `tag:"result"`
 }
 
 type DebugOptions struct {

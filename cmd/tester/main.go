@@ -73,7 +73,8 @@ var tpch1gCmd = &cobra.Command{
 
 func initTpch1gCfg() {
 	initDebugOptions()
-	testerCfg.Tpch1g.QueryId = viper.GetUint("tpch1g.queryId")
+	testerCfg.Tpch1g.Query.QueryId = viper.GetUint("tpch1g.query.queryId")
+	testerCfg.Tpch1g.Query.Path = viper.GetString("tpch1g.query.path")
 	testerCfg.Tpch1g.Data.Path = viper.GetString("tpch1g.data.path")
 	testerCfg.Tpch1g.Data.Format = viper.GetString("tpch1g.data.format")
 	testerCfg.Tpch1g.Result.Path = viper.GetString("tpch1g.result.path")
@@ -82,13 +83,13 @@ func initTpch1gCfg() {
 
 func initTpch1gCmd() {
 	RootCmd.AddCommand(tpch1gCmd)
-	tpch1gCmd.Flags().UintVar(&testerCfg.Tpch1g.QueryId, "query_id", 0, "query id")
+	tpch1gCmd.Flags().UintVar(&testerCfg.Tpch1g.Query.QueryId, "query_id", 0, "query id")
 	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Data.Path, "data_path", "", "tpch 1g data path")
 	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Data.Format, "data_format", "", "tpch 1g data format. csv, parquet")
 	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Result.Path, "result_path", "", "query result path")
 	tpch1gCmd.Flags().BoolVar(&testerCfg.Tpch1g.Result.NeedHeadLine, "need_headline", true, "output headline in query result")
 
-	viper.BindPFlag("tpch1g.queryId", tpch1gCmd.Flags().Lookup("query_id"))
+	viper.BindPFlag("tpch1g.query.queryId", tpch1gCmd.Flags().Lookup("query_id"))
 	viper.BindPFlag("tpch1g.data.path", tpch1gCmd.Flags().Lookup("data_path"))
 	viper.BindPFlag("tpch1g.data.format", tpch1gCmd.Flags().Lookup("data_format"))
 	viper.BindPFlag("tpch1g.result.path", tpch1gCmd.Flags().Lookup("result_path"))

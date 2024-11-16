@@ -25,6 +25,7 @@ import (
 	"unsafe"
 
 	dec "github.com/govalues/decimal"
+	wire "github.com/jeroenrinzema/psql-wire"
 )
 
 type PhyFormat int
@@ -497,8 +498,8 @@ func (vec *Vector) setValue(idx int, val *Value) {
 		case "day":
 			interVal._days = int32(val._i64)
 			interVal._unit = val._str
-		default:
-			panic("usp")
+			//default:
+			//	panic("usp")
 		}
 		slice[idx] = interVal
 	case DATE:
@@ -1233,6 +1234,23 @@ func (c *Chunk) deserialize(deserial Deserialize) error {
 		}
 	}
 	return err
+}
+
+func (c *Chunk) saveToWriter(writer wire.DataWriter) (err error) {
+	rowCnt := c.card()
+	colCnt := c.columnCount()
+	row := make([]any, colCnt)
+	for i := 0; i < rowCnt; i++ {
+		for j := 0; j < colCnt; j++ {
+			val := c._data[j].getValue(i)
+			row[j] = val.String()
+		}
+		err = writer.Row(row)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Value struct {

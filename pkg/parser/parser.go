@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plan
+package parser
 
 import (
 	pg_query "github.com/pganalyze/pg_query_go/v5"

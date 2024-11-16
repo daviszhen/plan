@@ -1,3 +1,6 @@
+[tpch1g.query]
+path ="/home/pengzhen/Documents/temp/plan/cases/tpch/query"
+
 [tpch1g.data]
 path = "/home/pengzhen/Documents/tpch-parquet/"
 format = "parquet"

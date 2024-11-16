@@ -15,49 +15,34 @@
 package plan
 
 import (
+	"context"
 	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	wire "github.com/jeroenrinzema/psql-wire"
+	"github.com/lib/pq/oid"
+	pg_query "github.com/pganalyze/pg_query_go/v5"
 	pqLocal "github.com/xitongsys/parquet-go-source/local"
 	pqReader "github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
 	"go.uber.org/zap"
 
+	"github.com/daviszhen/plan/pkg/parser"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-var tpch1gAsts = []*Ast{
-	tpchQ1(),
-	tpchQ2(),
-	tpchQ3(),
-	tpchQ4(),
-	tpchQ5(),
-	tpchQ6(),
-	tpchQ7(),
-	tpchQ8(),
-	tpchQ9(),
-	tpchQ10(),
-	tpchQ11(),
-	tpchQ12(),
-	tpchQ13(),
-	tpchQ14(),
-	tpchQ15(),
-	tpchQ16(),
-	tpchQ17(),
-	tpchQ18(),
-	tpchQ19(),
-	tpchQ20(),
-	tpchQ21(),
-	tpchQ22(),
-}
+const (
+	tpch1g22 = 22
+)
 
 type runResult struct {
 	id   int
@@ -87,13 +72,22 @@ func Run(cfg *util.Config) error {
 	if cfg.Debug.Count > 0 {
 		repeat = cfg.Debug.Count
 	}
-	if cfg.Tpch1g.QueryId == 0 {
+	if cfg.Tpch1g.Query.QueryId == 0 {
 		for r := 0; r < repeat; r++ {
 			res := make([]runResult, 0)
-			for i, ast := range tpch1gAsts {
+			for i := 0; i < tpch1g22; i++ {
 				id := i + 1
+				stmts, err := genStmts(cfg, id)
+				if err != nil {
+					return err
+				}
+
+				if len(stmts) != 1 || stmts[0] == nil {
+					return fmt.Errorf("invalid statements")
+				}
+
 				st := time.Now()
-				err := execQuery(cfg, id, ast)
+				err = execQuery(cfg, id, stmts[0].GetStmt().GetSelectStmt())
 				if err != nil {
 					util.Error("execQuery fail", zap.Int("queryId", id), zap.Error(err))
 					res = append(res, runResult{id: id, dur: time.Since(st)})
@@ -116,16 +110,26 @@ func Run(cfg *util.Config) error {
 			}
 		}
 	} else {
-		id := cfg.Tpch1g.QueryId
-		if id <= 0 || id > uint(len(tpch1gAsts)) {
+		id := cfg.Tpch1g.Query.QueryId
+		if id <= 0 || id > tpch1g22 {
 			return fmt.Errorf("invalid query id:%d", id)
 		}
 		re := runResult{
 			id: int(id),
 		}
+
+		stmts, err := genStmts(cfg, int(id))
+		if err != nil {
+			return err
+		}
+
+		if len(stmts) != 1 || stmts[0] == nil || stmts[0].GetStmt().GetSelectStmt() == nil {
+			return fmt.Errorf("invalid statements")
+		}
+
 		for i := 0; i < repeat; i++ {
 			st := time.Now()
-			err := execQuery(cfg, int(id), tpch1gAsts[id-1])
+			err = execQuery(cfg, int(id), stmts[0].GetStmt().GetSelectStmt())
 			if err != nil {
 				util.Error("execQuery fail", zap.Uint("queryId", id), zap.Error(err))
 				re.succ = false
@@ -139,16 +143,73 @@ func Run(cfg *util.Config) error {
 	return nil
 }
 
-func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
-	defer func() {
-		if rErr := recover(); rErr != nil {
-			err = errors.Join(err, util.ConvertPanicError(rErr))
-		}
-	}()
+func InitRunner(cfg *util.Config, query string) (*Runner, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+
+	//parse
+	stmts, err := parser.Parse(query)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stmts) != 1 ||
+		stmts[0] == nil ||
+		stmts[0].GetStmt().GetSelectStmt() == nil {
+		return nil, fmt.Errorf("invalid statements")
+	}
+
+	//gen plan
+	var root *PhysicalOperator
+	root, err = genPhyPlan(stmts[0].GetStmt().GetSelectStmt())
+	if err != nil {
+		return nil, err
+	}
+	if root == nil {
+		return nil, fmt.Errorf("nil plan")
+	}
+
+	//gen runner
+	run := &Runner{
+		op:    root,
+		state: &OperatorState{},
+		cfg:   cfg,
+	}
+	err = run.Init()
+	if err != nil {
+		return nil, err
+	}
+
+	return run, nil
+}
+
+func genStmts(cfg *util.Config, id int) ([]*pg_query.RawStmt, error) {
+	sqlPath := path.Join(cfg.Tpch1g.Query.Path, fmt.Sprintf("q%d.sql", id))
+	sqlBytes, err := os.ReadFile(sqlPath)
+	if err != nil {
+		return nil, err
+	}
+	stmts, err := parser.Parse(string(sqlBytes))
+	if err != nil {
+		return nil, err
+	}
+	return stmts, nil
+}
+
+func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
+	//defer func() {
+	//	if rErr := recover(); rErr != nil {
+	//		err = errors.Join(err, util.ConvertPanicError(rErr))
+	//	}
+	//}()
 	var root *PhysicalOperator
 	root, err = genPhyPlan(ast)
 	if err != nil {
 		return err
+	}
+	if root == nil {
+		return fmt.Errorf("nil plan")
 	}
 	fname := fmt.Sprintf("q%d.txt", id)
 	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
@@ -178,12 +239,13 @@ func execQuery(cfg *util.Config, id int, ast *Ast) (err error) {
 	return execOps(cfg, nil, resFile, []*PhysicalOperator{root})
 }
 
-func genPhyPlan(ast *Ast) (*PhysicalOperator, error) {
+func genPhyPlan(ast *pg_query.SelectStmt) (*PhysicalOperator, error) {
 	builder := NewBuilder()
 	err := builder.buildSelect(ast, builder.rootCtx, 0)
 	if err != nil {
 		return nil, err
 	}
+
 	lp, err := builder.CreatePlan(builder.rootCtx, nil)
 	if err != nil {
 		return nil, err
@@ -396,6 +458,48 @@ type Runner struct {
 	outputTypes  []LType
 	outputIndice []int
 	children     []*Runner
+}
+
+func (run *Runner) Columns() wire.Columns {
+	cols := make(wire.Columns, 0)
+	for _, output := range run.op.Outputs {
+		col := wire.Column{
+			//Name:  output.Name,
+			Oid:   oid.T_varchar, //FIXME:
+			Width: int16(output.DataTyp.LTyp.width),
+		}
+		cols = append(cols, col)
+	}
+	return cols
+}
+
+func (run *Runner) Run(
+	ctx context.Context,
+	writer wire.DataWriter) error {
+	if run.cfg.Debug.PrintPlan {
+		fmt.Println(run.op.String())
+	}
+
+	for {
+		output := &Chunk{}
+		output.setCap(defaultVectorSize)
+		result, err := run.Execute(nil, output, run.state)
+		if err != nil {
+			return err
+		}
+		if result == Done {
+			break
+		}
+		if output.card() > 0 {
+			assertFunc(output.card() != 0)
+			err = output.saveToWriter(writer)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (run *Runner) initChildren() error {

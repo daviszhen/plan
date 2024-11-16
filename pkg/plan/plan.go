@@ -465,29 +465,30 @@ func (scatter dateScatterOp) store(src Date, rowLoc unsafe.Pointer, offsetInRow 
 type PhyType int
 
 const (
-	NA PhyType = iota
-	BOOL
-	UINT8
-	INT8
-	UINT16
-	INT16
-	UINT32
-	INT32
-	UINT64
-	INT64
-	FLOAT
-	DOUBLE
-	INTERVAL
-	LIST
-	STRUCT
-	VARCHAR
-	INT128
-	BIT
-	DATE
-	POINTER
-	DECIMAL
-	UNKNOWN
-	INVALID
+	NA       PhyType = 0
+	BOOL             = 1
+	UINT8            = 2
+	INT8             = 3
+	UINT16           = 4
+	INT16            = 5
+	UINT32           = 6
+	INT32            = 7
+	UINT64           = 8
+	INT64            = 9
+	FLOAT            = 11
+	DOUBLE           = 12
+	INTERVAL         = 21
+	LIST             = 23
+	STRUCT           = 24
+	VARCHAR          = 200
+	INT128           = 204
+	UNKNOWN          = 205
+	BIT              = 206
+	DATE             = 207
+	POINTER          = 208
+	DECIMAL          = 209
+
+	INVALID = 255
 )
 
 var pTypeToStr = map[PhyType]string{
@@ -621,48 +622,48 @@ func (pt PhyType) isVarchar() bool {
 type LTypeId int
 
 const (
-	LTID_INVALID LTypeId = iota
-	LTID_NULL
-	LTID_UNKNOWN
-	LTID_ANY
-	LTID_USER
-	LTID_BOOLEAN
-	LTID_TINYINT
-	LTID_SMALLINT
-	LTID_INTEGER
-	LTID_BIGINT
-	LTID_DATE
-	LTID_TIME
-	LTID_TIMESTAMP_SEC
-	LTID_TIMESTAMP_MS
-	LTID_TIMESTAMP
-	LTID_TIMESTAMP_NS
-	LTID_DECIMAL
-	LTID_FLOAT
-	LTID_DOUBLE
-	LTID_CHAR
-	LTID_VARCHAR
-	LTID_BLOB
-	LTID_INTERVAL
-	LTID_UTINYINT
-	LTID_USMALLINT
-	LTID_UINTEGER
-	LTID_UBIGINT
-	LTID_TIMESTAMP_TZ
-	LTID_TIME_TZ
-	LTID_BIT
-	LTID_HUGEINT
-	LTID_POINTER
-	LTID_VALIDITY
-	LTID_UUID
-	LTID_STRUCT
-	LTID_LIST
-	LTID_MAP
-	LTID_TABLE
-	LTID_ENUM
-	LTID_AGGREGATE_STATE
-	LTID_LAMBDA
-	LTID_UNION
+	LTID_INVALID         LTypeId = 0
+	LTID_NULL                    = 1
+	LTID_UNKNOWN                 = 2
+	LTID_ANY                     = 3
+	LTID_USER                    = 4
+	LTID_BOOLEAN                 = 10
+	LTID_TINYINT                 = 11
+	LTID_SMALLINT                = 12
+	LTID_INTEGER                 = 13
+	LTID_BIGINT                  = 14
+	LTID_DATE                    = 15
+	LTID_TIME                    = 16
+	LTID_TIMESTAMP_SEC           = 17
+	LTID_TIMESTAMP_MS            = 18
+	LTID_TIMESTAMP               = 19
+	LTID_TIMESTAMP_NS            = 20
+	LTID_DECIMAL                 = 21
+	LTID_FLOAT                   = 22
+	LTID_DOUBLE                  = 23
+	LTID_CHAR                    = 24
+	LTID_VARCHAR                 = 25
+	LTID_BLOB                    = 26
+	LTID_INTERVAL                = 27
+	LTID_UTINYINT                = 28
+	LTID_USMALLINT               = 29
+	LTID_UINTEGER                = 30
+	LTID_UBIGINT                 = 31
+	LTID_TIMESTAMP_TZ            = 32
+	LTID_TIME_TZ                 = 34
+	LTID_BIT                     = 36
+	LTID_HUGEINT                 = 50
+	LTID_POINTER                 = 51
+	LTID_VALIDITY                = 53
+	LTID_UUID                    = 54
+	LTID_STRUCT                  = 100
+	LTID_LIST                    = 101
+	LTID_MAP                     = 102
+	LTID_TABLE                   = 103
+	LTID_ENUM                    = 104
+	LTID_AGGREGATE_STATE         = 105
+	LTID_LAMBDA                  = 106
+	LTID_UNION                   = 107
 )
 
 var lTypeIdToStr = map[LTypeId]string{
@@ -1807,6 +1808,7 @@ const (
 	ET_NConst // null
 
 	ET_Orderby
+	ET_List
 )
 
 type ET_SubTyp int
@@ -1833,10 +1835,13 @@ const (
 	ET_NotLike
 	ET_Between
 	ET_Case
+	ET_CaseWhen
 	ET_In
 	ET_NotIn
 	ET_Exists
 	ET_NotExists
+	ET_DateAdd
+	ET_DateSub
 )
 
 func (et ET_SubTyp) String() string {
@@ -1883,6 +1888,10 @@ func (et ET_SubTyp) String() string {
 		return "exists"
 	case ET_NotExists:
 		return "not exists"
+	case ET_DateAdd:
+		return "date_add"
+	case ET_DateSub:
+		return "date_sub"
 	default:
 		panic(fmt.Sprintf("usp %v", int(et)))
 	}

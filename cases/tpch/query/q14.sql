@@ -1,3 +1,4 @@
+--postgresql
 select
 	100.00 * sum(case
 		when p_type like 'PROMO%'
@@ -10,4 +11,4 @@ from
 where
 	l_partkey = p_partkey
 	and l_shipdate >= date '1996-04-01'
-	and l_shipdate < date '1996-04-01' + interval '1' month;
+	and l_shipdate < date '1996-04-01' + interval '1 month';

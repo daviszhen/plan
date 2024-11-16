@@ -17,8 +17,10 @@ package plan
 import "C"
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"unsafe"
 
@@ -459,4 +461,21 @@ func greaterFloat[T ~float32 | ~float64](lhs, rhs T) bool {
 
 func alignValue(value int) int {
 	return (value + 7) & (^7)
+}
+
+func toJson(root any, path string) error {
+	data, err := json.Marshal(root)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(data)
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 
+	pg_query "github.com/pganalyze/pg_query_go/v5"
 	"github.com/xlab/treeprint"
 )
 
@@ -99,7 +100,7 @@ type BindContext struct {
 	parent       *BindContext
 	bindings     map[string]*Binding
 	bindingsList []*Binding
-	ctes         map[string]*Ast
+	ctes         map[string]*pg_query.CommonTableExpr
 	cteBindings  map[string]*Binding
 }
 
@@ -107,7 +108,7 @@ func NewBindContext(parent *BindContext) *BindContext {
 	return &BindContext{
 		parent:      parent,
 		bindings:    make(map[string]*Binding, 0),
-		ctes:        make(map[string]*Ast),
+		ctes:        make(map[string]*pg_query.CommonTableExpr, 0),
 		cteBindings: make(map[string]*Binding),
 	}
 }
@@ -370,51 +371,70 @@ func (b *Builder) GetTag() int {
 	return *b.tag
 }
 
-func (b *Builder) expandStar(expr *Ast) ([]*Ast, error) {
+func (b *Builder) expandStar(expr *pg_query.ResTarget) ([]*pg_query.ResTarget, error) {
 	if expr == nil {
 		return nil, nil
 	}
-	if expr.Typ == AstTypeExpr &&
-		expr.Expr.ExprTyp == AstExprTypeColumn &&
-		expr.Expr.Svalue == "*" {
-		if len(b.rootCtx.bindings) == 0 {
-			return nil, errors.New("no table")
-		}
-		ret := make([]*Ast, 0)
-		for _, bind := range b.rootCtx.bindingsList {
-			for _, name := range bind.names {
-				ret = append(ret, column(name))
+	if expr.GetVal().GetColumnRef() != nil {
+		colRef := expr.GetVal().GetColumnRef()
+		star := colRef.GetFields()[0].GetAStar()
+		if star != nil {
+			if len(b.rootCtx.bindings) == 0 {
+				return nil, errors.New("no table")
 			}
-		}
-		return ret, nil
-	}
+			ret := make([]*pg_query.ResTarget, 0)
+			for _, bind := range b.rootCtx.bindingsList {
+				for _, name := range bind.names {
+					colNode := &pg_query.Node_String_{
+						String_: &pg_query.String{
+							Sval: name,
+						},
+					}
 
-	return []*Ast{expr}, nil
+					ret = append(ret, &pg_query.ResTarget{
+						Val: &pg_query.Node{
+							Node: &pg_query.Node_ColumnRef{
+								ColumnRef: &pg_query.ColumnRef{
+									Fields: []*pg_query.Node{
+										{
+											Node: colNode,
+										},
+									},
+								},
+							},
+						},
+					})
+				}
+			}
+			return ret, nil
+		}
+	}
+	return []*pg_query.ResTarget{expr}, nil
 }
 
-func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
+func (b *Builder) buildSelect(sel *pg_query.SelectStmt, ctx *BindContext, depth int) error {
 	var err error
 	b.projectTag = b.GetTag()
 	b.groupTag = b.GetTag()
 	b.aggTag = b.GetTag()
 
-	if len(sel.With.Ctes) != 0 {
-		_, err := b.buildWith(sel.With.Ctes, ctx, depth)
+	if sel.WithClause != nil {
+		_, err := b.buildWith(sel.WithClause, ctx, depth)
 		if err != nil {
 			return err
 		}
 	}
 
 	//from
-	b.fromExpr, err = b.buildTable(sel.Select.From.Tables, ctx, depth)
+	b.fromExpr, err = b.buildTables(sel.FromClause, ctx, depth)
 	if err != nil {
 		return err
 	}
 
 	//expand star
-	newSelectExprs := make([]*Ast, 0)
-	for _, expr := range sel.Select.SelectExprs {
-		ret, err := b.expandStar(expr)
+	newSelectExprs := make([]*pg_query.ResTarget, 0)
+	for _, expr := range sel.TargetList {
+		ret, err := b.expandStar(expr.GetResTarget())
 		if err != nil {
 			return err
 		}
@@ -423,28 +443,38 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 
 	//select expr alias
 	for i, expr := range newSelectExprs {
-		name := expr.String()
-		if expr.Expr.Alias.alias != "" {
-			b.aliasMap[expr.Expr.Alias.alias] = i
-			name = expr.Expr.Alias.alias
+		name := ""
+		colRef := expr.GetVal().GetColumnRef()
+		if colRef != nil {
+			name = colRef.GetFields()[0].GetString_().GetSval()
+		} else {
+			name = expr.GetVal().String()
+		}
+
+		if expr.Name != "" {
+			b.aliasMap[expr.Name] = i
+			name = expr.Name
 		}
 		b.names = append(b.names, name)
-		b.projectMap[expr.Hash()] = i
+		b.projectMap[expr.String()] = i
 	}
 	b.columnCount = len(newSelectExprs)
 
 	//where
-	if sel.Select.Where.Expr != nil {
-		b.whereExpr, err = b.bindExpr(ctx, IWC_WHERE, sel.Select.Where.Expr, depth)
+	if sel.WhereClause != nil {
+		b.whereExpr, err = b.bindExpr(ctx,
+			IWC_WHERE,
+			sel.WhereClause,
+			depth)
 		if err != nil {
 			return err
 		}
 	}
 
 	//group by
-	if len(sel.Select.GroupBy.Exprs) != 0 {
+	if len(sel.GroupClause) != 0 {
 		var retExpr *Expr
-		for _, expr := range sel.Select.GroupBy.Exprs {
+		for _, expr := range sel.GroupClause {
 			retExpr, err = b.bindExpr(ctx, IWC_GROUP, expr, depth)
 			if err != nil {
 				return err
@@ -454,28 +484,28 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 	}
 
 	//having
-	if sel.Select.Having.Expr != nil {
+	if sel.HavingClause != nil {
 		var retExpr *Expr
-		retExpr, err = b.bindExpr(ctx, IWC_HAVING, sel.Select.Having.Expr, depth)
+		retExpr, err = b.bindExpr(ctx, IWC_HAVING, sel.HavingClause, depth)
 		if err != nil {
 			return err
 		}
 		b.havingExpr = retExpr
 	}
 	//select exprs
-	for _, expr := range newSelectExprs {
-		var retExpr *Expr
-		retExpr, err = b.bindExpr(ctx, IWC_SELECT, expr, depth)
+	var retExpr *Expr
+	for i, expr := range newSelectExprs {
+		retExpr, err = b.bindExpr(ctx, IWC_SELECT, expr.GetVal(), depth)
 		if err != nil {
 			return err
 		}
+		retExpr.Alias = b.names[i]
 		b.projectExprs = append(b.projectExprs, retExpr)
 	}
 
 	//order by,limit,distinct
-	if len(sel.OrderBy.Exprs) != 0 {
-		var retExpr *Expr
-		for _, expr := range sel.OrderBy.Exprs {
+	if len(sel.SortClause) != 0 {
+		for _, expr := range sel.SortClause {
 			retExpr, err = b.bindExpr(ctx, IWC_ORDER, expr, depth)
 			if err != nil {
 				return err
@@ -484,16 +514,18 @@ func (b *Builder) buildSelect(sel *Ast, ctx *BindContext, depth int) error {
 		}
 	}
 
-	if sel.Limit.Count != nil {
-		b.limitCount, err = b.bindExpr(ctx, IWC_LIMIT, sel.Limit.Count, depth)
-		if err != nil {
-			return err
+	if sel.LimitOffset != nil || sel.LimitCount != nil {
+		if sel.LimitCount != nil {
+			b.limitCount, err = b.bindExpr(ctx, IWC_LIMIT, sel.LimitCount, depth)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return err
 }
 
-func (b *Builder) findCte(name string, skip bool, ctx *BindContext) *Ast {
+func (b *Builder) findCte(name string, skip bool, ctx *BindContext) *pg_query.CommonTableExpr {
 	if val, has := ctx.ctes[name]; has {
 		if !skip {
 			return val
@@ -505,8 +537,8 @@ func (b *Builder) findCte(name string, skip bool, ctx *BindContext) *Ast {
 	return nil
 }
 
-func (b *Builder) addCte(cte *Ast, ctx *BindContext) error {
-	name := cte.Expr.Alias.alias
+func (b *Builder) addCte(cte *pg_query.CommonTableExpr, ctx *BindContext) error {
+	name := cte.Ctename
 	if _, has := ctx.ctes[name]; has {
 		return fmt.Errorf("duplicate cte %s", name)
 	}
@@ -514,9 +546,9 @@ func (b *Builder) addCte(cte *Ast, ctx *BindContext) error {
 	return nil
 }
 
-func (b *Builder) buildWith(ctes []*Ast, ctx *BindContext, depth int) (*Expr, error) {
-	for _, cte := range ctes {
-		err := b.addCte(cte, ctx)
+func (b *Builder) buildWith(with *pg_query.WithClause, ctx *BindContext, depth int) (*Expr, error) {
+	for _, cte := range with.Ctes {
+		err := b.addCte(cte.GetCommonTableExpr(), ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -524,14 +556,16 @@ func (b *Builder) buildWith(ctes []*Ast, ctx *BindContext, depth int) (*Expr, er
 	return nil, nil
 }
 
-func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
+func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) (*Expr, error) {
 	if table == nil {
 		panic("need table")
 	}
-	switch table.Expr.ExprTyp {
-	case AstExprTypeTable:
+
+	switch rangeNode := table.GetNode().(type) {
+	case *pg_query.Node_RangeVar:
 		db := "tpch"
-		tableName := table.Expr.Svalue
+		tableAst := rangeNode.RangeVar
+		tableName := tableAst.Relname
 		cte := b.findCte(tableName, tableName == b.alias, ctx)
 		if cte != nil {
 			//find cte binding
@@ -553,11 +587,18 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 				//	CTEIndex:  cteBind.index,
 				//}, nil
 			} else {
-				mockSub := withAlias2(
-					subquery(cte.Expr.Children[0], AstSubqueryTypeFrom),
-					cte.Expr.Alias.alias,
-					cte.Expr.Alias.cols...)
-				return b.buildTable(mockSub, ctx, depth)
+				//TODO:refine it
+				nodeRangeSub := &pg_query.Node_RangeSubselect{}
+				nodeRangeSub.RangeSubselect = &pg_query.RangeSubselect{
+					Alias: &pg_query.Alias{
+						Aliasname: cte.Ctename,
+					},
+					Subquery: cte.Ctequery,
+				}
+				node := &pg_query.Node{
+					Node: nodeRangeSub,
+				}
+				return b.buildTable(node, ctx, depth)
 			}
 		}
 		{
@@ -567,8 +608,8 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 				return nil, err
 			}
 			alias := tableName
-			if len(table.Expr.Alias.alias) != 0 {
-				alias = table.Expr.Alias.alias
+			if tableAst.Alias != nil {
+				alias = tableAst.Alias.Aliasname
 			}
 			bind := &Binding{
 				typ:     BT_TABLE,
@@ -595,17 +636,18 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 				BelongCtx: ctx,
 			}, err
 		}
-	case AstExprTypeJoin:
-		return b.buildJoinTable(table, ctx, depth)
-	case AstExprTypeSubquery:
+	case *pg_query.Node_JoinExpr:
+		return b.buildJoinTable(rangeNode.JoinExpr, ctx, depth)
+	case *pg_query.Node_RangeSubselect:
+		subqueryAst := rangeNode.RangeSubselect
 		subBuilder := NewBuilder()
 		subBuilder.tag = b.tag
 		subBuilder.rootCtx.parent = ctx
-		if len(table.Expr.Alias.alias) == 0 {
+		if len(subqueryAst.Alias.Aliasname) == 0 {
 			return nil, errors.New("need alias for subquery")
 		}
-		subBuilder.alias = table.Expr.Alias.alias
-		err := subBuilder.buildSelect(table.Expr.Children[0], subBuilder.rootCtx, 0)
+		subBuilder.alias = subqueryAst.Alias.Aliasname
+		err := subBuilder.buildSelect(subqueryAst.Subquery.GetSelectStmt(), subBuilder.rootCtx, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -621,15 +663,15 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 			if len(expr.Alias) != 0 {
 				name = expr.Alias
 			}
-			if i < len(table.Expr.Alias.cols) {
-				name = table.Expr.Alias.cols[i]
+			if i < len(subqueryAst.Alias.Colnames) {
+				name = subqueryAst.Alias.Colnames[i].GetString_().GetSval()
 			}
 			subNames = append(subNames, name)
 		}
 
 		bind := &Binding{
 			typ:   BT_Subquery,
-			alias: table.Expr.Alias.alias,
+			alias: subqueryAst.Alias.Aliasname,
 			//bind index of subquery is equal to the projectTag of subquery
 			index:   uint64(subBuilder.projectTag),
 			typs:    subTypes,
@@ -654,35 +696,123 @@ func (b *Builder) buildTable(table *Ast, ctx *BindContext, depth int) (*Expr, er
 			BelongCtx:  ctx,
 		}, err
 	default:
-		return nil, fmt.Errorf("usp table type %d", table.Typ)
+		return nil, fmt.Errorf("usp table type %v", table.String())
 	}
 }
 
-func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext, depth int) (*Expr, error) {
+func (b *Builder) buildTables(tables []*pg_query.Node, ctx *BindContext, depth int) (*Expr, error) {
+	if len(tables) == 0 {
+		return nil, fmt.Errorf("no tables")
+	} else if len(tables) == 1 {
+		return b.buildTable(tables[0], ctx, depth)
+	} else if len(tables) == 2 {
+		leftCtx := NewBindContext(ctx)
+		//left
+		left, err := b.buildTable(tables[0], leftCtx, depth)
+		if err != nil {
+			return nil, err
+		}
+
+		rightCtx := NewBindContext(ctx)
+		//right
+		right, err := b.buildTable(tables[1], rightCtx, depth)
+		if err != nil {
+			return nil, err
+		}
+
+		return b.mergeTwoTable(
+			leftCtx,
+			rightCtx,
+			left,
+			right,
+			ET_JoinTypeCross,
+			ctx,
+			depth)
+	} else {
+		nodeCnt := len(tables)
+		leftCtx := NewBindContext(ctx)
+		//left
+		left, err := b.buildTables(tables[:nodeCnt-1], leftCtx, depth)
+		if err != nil {
+			return nil, err
+		}
+
+		rightCtx := NewBindContext(ctx)
+		//right
+		right, err := b.buildTable(tables[nodeCnt-1], rightCtx, depth)
+		if err != nil {
+			return nil, err
+		}
+
+		return b.mergeTwoTable(
+			leftCtx,
+			rightCtx,
+			left,
+			right,
+			ET_JoinTypeCross,
+			ctx,
+			depth)
+	}
+}
+
+func (b *Builder) mergeTwoTable(
+	leftCtx, rightCtx *BindContext,
+	left, right *Expr,
+	jt ET_JoinType,
+	ctx *BindContext, depth int) (*Expr, error) {
+
+	switch jt {
+	case ET_JoinTypeCross, ET_JoinTypeLeft, ET_JoinTypeInner:
+	default:
+		return nil, fmt.Errorf("usp join type %d", jt)
+	}
+
+	err := ctx.AddContext(leftCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	err = ctx.AddContext(rightCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := &Expr{
+		Typ:       ET_Join,
+		JoinTyp:   jt,
+		On:        nil,
+		BelongCtx: ctx,
+		Children:  []*Expr{left, right},
+	}
+
+	return ret, err
+}
+
+func (b *Builder) buildJoinTable(join *pg_query.JoinExpr, ctx *BindContext, depth int) (*Expr, error) {
 	leftCtx := NewBindContext(ctx)
 	//left
-	left, err := b.buildTable(table.Expr.Children[0], leftCtx, depth)
+	left, err := b.buildTable(join.Larg, leftCtx, depth)
 	if err != nil {
 		return nil, err
 	}
 
 	rightCtx := NewBindContext(ctx)
 	//right
-	right, err := b.buildTable(table.Expr.Children[1], rightCtx, depth)
+	right, err := b.buildTable(join.Rarg, rightCtx, depth)
 	if err != nil {
 		return nil, err
 	}
 
 	var jt ET_JoinType
-	switch table.Expr.JoinTyp {
-	case AstJoinTypeCross:
+	switch join.Jointype {
+	case pg_query.JoinType_JOIN_FULL:
 		jt = ET_JoinTypeCross
-	case AstJoinTypeLeft:
+	case pg_query.JoinType_JOIN_LEFT:
 		jt = ET_JoinTypeLeft
-	case AstJoinTypeInner:
+	case pg_query.JoinType_JOIN_INNER:
 		jt = ET_JoinTypeInner
 	default:
-		return nil, fmt.Errorf("usp join type %d", table.Expr.JoinTyp)
+		return nil, fmt.Errorf("usp join type %d", join.Jointype)
 	}
 
 	err = ctx.AddContext(leftCtx)
@@ -696,8 +826,8 @@ func (b *Builder) buildJoinTable(table *Ast, ctx *BindContext, depth int) (*Expr
 	}
 
 	var onExpr *Expr
-	if table.Expr.On != nil {
-		onExpr, err = b.bindExpr(ctx, IWC_JOINON, table.Expr.On, depth)
+	if join.Quals != nil {
+		onExpr, err = b.bindExpr(ctx, IWC_JOINON, join.Quals, depth)
 		if err != nil {
 			return nil, err
 		}
@@ -946,6 +1076,13 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					return nil, nil, err
 				}
 				args = append(args, childExpr)
+			}
+
+			//FIXME:
+			//convert semi to anti
+			if root.Typ == LOT_JOIN &&
+				root.JoinTyp == LOT_JoinTypeSEMI {
+				root.JoinTyp = LOT_JoinTypeANTI
 			}
 
 			//FIXME:
@@ -1617,39 +1754,57 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 	return root, left, err
 }
 
-func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
+func (b *Builder) bindCaseWhen(ctx *BindContext, iwc InWhichClause, expr *pg_query.CaseWhen, depth int) (*Expr, error) {
+	var err error
+	var kase, when *Expr
+	kase, err = b.bindExpr(ctx, iwc, expr.Expr, depth)
+	if err != nil {
+		return nil, err
+	}
+	when, err = b.bindExpr(ctx, iwc, expr.Result, depth)
+	if err != nil {
+		return nil, err
+	}
+	ret := &Expr{
+		Typ:      ET_Func,
+		SubTyp:   ET_CaseWhen,
+		Children: []*Expr{kase, when},
+	}
+	return ret, nil
+}
+
+func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.CaseExpr, depth int) (*Expr, error) {
 	var err error
 	var els *Expr
-	when := make([]*Expr, len(expr.Expr.When))
-	var astWhen []*Ast
-	if expr.Expr.Kase != nil {
+	var temp *Expr
+	when := make([]*Expr, len(expr.Args)*2)
+	var astWhen []*pg_query.Node
+	if expr.Arg != nil {
 		//rewrite it to CASE WHEN kase = compare value ...
-		astWhen = make([]*Ast, len(expr.Expr.When))
-		for i := 0; i < len(expr.Expr.When); i += 2 {
-			astWhen[i] = equal(expr.Expr.Kase, expr.Expr.When[i])
-			astWhen[i+1] = expr.Expr.When[i+1]
-		}
+
+		panic("usp")
+
+		//astWhen = make([]*Ast, len(expr.Expr.When))
+		//for i := 0; i < len(expr.Expr.When); i += 2 {
+		//	astWhen[i] = equal(expr.Expr.Kase, expr.Expr.When[i])
+		//	astWhen[i+1] = expr.Expr.When[i+1]
+		//}
 
 	} else {
-		astWhen = expr.Expr.When
+		astWhen = expr.Args
 	}
 
-	for i := 0; i < len(astWhen); i += 2 {
-		if i+1 >= len(astWhen) {
-			panic("miss then")
-		}
-		when[i], err = b.bindExpr(ctx, iwc, astWhen[i], depth)
+	for i := 0; i < len(astWhen); i++ {
+		temp, err = b.bindExpr(ctx, iwc, astWhen[i], depth)
 		if err != nil {
 			return nil, err
 		}
-		when[i+1], err = b.bindExpr(ctx, iwc, astWhen[i+1], depth)
-		if err != nil {
-			return nil, err
-		}
+		when[i*2] = temp.Children[0]
+		when[i*2+1] = temp.Children[1]
 	}
 
-	if expr.Expr.Els != nil {
-		els, err = b.bindExpr(ctx, iwc, expr.Expr.Els, depth)
+	if expr.Defresult != nil {
+		els, err = b.bindExpr(ctx, iwc, expr.Defresult, depth)
 		if err != nil {
 			return nil, err
 		}
@@ -1710,23 +1865,27 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, d
 	return ret, nil
 }
 
-func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, depth int) (*Expr, error) {
+func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.A_Expr, depth int) (*Expr, error) {
 	var err error
 	var in *Expr
-	var children []*Expr
+	var listExpr *Expr
 
-	in, err = b.bindExpr(ctx, iwc, expr.Expr.In, depth)
+	in, err = b.bindExpr(ctx, iwc, expr.Lexpr, depth)
 	if err != nil {
 		return nil, err
 	}
+
+	listExpr, err = b.bindExpr(ctx, iwc, expr.Rexpr, depth)
+	if err != nil {
+		return nil, err
+	}
+
+	assertFunc(listExpr.Typ == ET_List)
+
 	argsTypes := make([]LType, 0)
-	children = make([]*Expr, len(expr.Expr.Children))
-	for i, child := range expr.Expr.Children {
-		children[i], err = b.bindExpr(ctx, iwc, child, depth)
-		if err != nil {
-			return nil, err
-		}
-		argsTypes = append(argsTypes, children[i].DataTyp.LTyp)
+	children := listExpr.Children
+	for _, child := range listExpr.Children {
+		argsTypes = append(argsTypes, child.DataTyp.LTyp)
 	}
 
 	maxType := in.DataTyp.LTyp
@@ -1764,11 +1923,11 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *Ast, dep
 	}
 
 	var et ET_SubTyp
-	switch expr.Expr.SubTyp {
-	case AstExprSubTypeIn:
+	switch expr.Name[0].GetString_().GetSval() {
+	case "=":
 		et = ET_In
-	case AstExprSubTypeNotIn:
-		et = ET_NotIn
+	//case AstExprSubTypeNotIn:
+	//	et = ET_NotIn
 	default:
 		panic("unhandled default case")
 	}

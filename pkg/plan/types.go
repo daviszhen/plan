@@ -16,15 +16,23 @@ package plan
 
 import (
 	"math"
-
-	"github.com/daviszhen/plan/pkg/util"
 )
 
 const (
 	INVALID_INDEX uint32 = math.MaxUint32
 )
 
-var gConf = &util.Config{}
+type InWhichClause int
+
+const (
+	IWC_SELECT InWhichClause = iota
+	IWC_WHERE
+	IWC_GROUP
+	IWC_HAVING
+	IWC_ORDER
+	IWC_LIMIT
+	IWC_JOINON
+)
 
 type Serialize interface {
 	WriteData(buffer []byte, len int) error

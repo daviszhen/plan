@@ -16,6 +16,9 @@ package plan
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	dec "github.com/govalues/decimal"
 )
@@ -48,6 +51,13 @@ var (
 	gTryCastDecimalToFloat32OpWrapper tryCastOpWrapper[Decimal, float32]
 	gTryCastDecimalToDecimal          tryCastDecimalToDecimal
 	gTryCastDecimalToDecimalOpWrapper tryCastOpWrapper[Decimal, Decimal]
+
+	// varchar => ...
+	gTryCastVarcharToDate          tryCastVarcharToDate
+	gTryCastVarcharToDateOpWrapper tryCastOpWrapper[String, Date]
+
+	gTryCastVarcharToInterval          tryCastVarcharToInterval
+	gTryCastVarcharToIntervalOpWrapper tryCastOpWrapper[String, Interval]
 )
 
 //lint:ignore U1000
@@ -180,6 +190,61 @@ func (numCast tryCastFloat32ToFloat64) operation(input *float32, result *float64
 	*result = float64(*input)
 }
 
+//lint:ignore U1000
+type tryCastVarcharToDate struct {
+}
+
+func (numCast tryCastVarcharToDate) operation(input *String, result *Date) {
+	ti, err := time.Parse(time.DateOnly, input.String())
+	if err != nil {
+		panic(err)
+	}
+	y, m, d := ti.Date()
+	*result = Date{
+		_year:  int32(y),
+		_month: int32(m),
+		_day:   int32(d),
+	}
+}
+
+//lint:ignore U1000
+type tryCastVarcharToInterval struct {
+}
+
+func (numCast tryCastVarcharToInterval) operation(input *String, result *Interval) {
+	is := input.String()
+	seps := strings.Split(is, " ")
+	if len(seps) != 2 {
+		panic(fmt.Sprintf("invalid interval string %v", is))
+	}
+	switch strings.ToLower(seps[1]) {
+	case "year":
+		result._unit = "year"
+		parseInt, err := strconv.ParseInt(seps[0], 10, 64)
+		if err != nil {
+			panic(fmt.Sprintf("invalid interval string %v", is))
+		}
+		result._year = int32(parseInt)
+	case "month":
+		result._unit = "month"
+		parseInt, err := strconv.ParseInt(seps[0], 10, 64)
+		if err != nil {
+			panic(fmt.Sprintf("invalid interval string %v", is))
+		}
+		result._months = int32(parseInt)
+
+	case "day":
+		result._unit = "day"
+		parseInt, err := strconv.ParseInt(seps[0], 10, 64)
+		if err != nil {
+			panic(fmt.Sprintf("invalid interval string %v", is))
+		}
+		result._days = int32(parseInt)
+	default:
+		panic(fmt.Sprintf("invalid interval unit %v", is))
+	}
+}
+
 func castExec(
 	source, result *Vector,
 	count int,
@@ -304,6 +369,31 @@ func castExec(
 				gTryCastDecimalToDecimal,
 				nil,
 				gTryCastDecimalToDecimalOpWrapper,
+			)
+		default:
+			panic("usp")
+		}
+	case LTID_VARCHAR:
+		switch result.typ().id {
+		case LTID_DATE:
+			unaryGenericExec[String, Date](
+				source,
+				result,
+				count,
+				false,
+				gTryCastVarcharToDate,
+				nil,
+				gTryCastVarcharToDateOpWrapper,
+			)
+		case LTID_INTERVAL:
+			unaryGenericExec[String, Interval](
+				source,
+				result,
+				count,
+				false,
+				gTryCastVarcharToInterval,
+				nil,
+				gTryCastVarcharToIntervalOpWrapper,
 			)
 		default:
 			panic("usp")

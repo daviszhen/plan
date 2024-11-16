@@ -221,7 +221,7 @@ func (ref ReferredColumnBindMap) replace(bind, newBind ColumnBind) {
 
 func (ref ReferredColumnBindMap) replaceAll(cmap ColumnBindMap) {
 	keys := make([]ColumnBind, 0)
-	for bind, _ := range cmap {
+	for bind := range cmap {
 		keys = append(keys, bind)
 	}
 	sort.Slice(keys, func(i, j int) bool {
