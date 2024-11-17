@@ -81,7 +81,7 @@ func GetSumAggr(pTyp PhyType) *AggrFunc {
 		fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
 			integer(),
 			hugeint(),
-			DEFAULT_NULL_HANDLING,
+			DefaultNullHandling,
 			SumOp[Hugeint, int32]{},
 			&SumStateOp[Hugeint]{},
 			&HugeintAdd{},
@@ -92,7 +92,7 @@ func GetSumAggr(pTyp PhyType) *AggrFunc {
 		fun := UnaryAggregate[Decimal, State[Decimal], Decimal, SumOp[Decimal, Decimal]](
 			decimal(DecimalMaxWidth, 0),
 			decimal(DecimalMaxWidth, 0),
-			DEFAULT_NULL_HANDLING,
+			DefaultNullHandling,
 			SumOp[Decimal, Decimal]{},
 			&SumStateOp[Decimal]{},
 			&DecimalAdd{},
@@ -113,7 +113,7 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[float64, State[float64], int32, AvgOp[float64, int32]](
 				integer(),
 				double(),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				AvgOp[float64, int32]{},
 				&AvgStateOp[float64]{},
 				&DoubleInt32Add{},
@@ -130,7 +130,7 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[float64, State[float64], float64, AvgOp[float64, float64]](
 				double(),
 				double(),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				AvgOp[float64, float64]{},
 				&AvgStateOp[float64]{},
 				&DoubleAdd{},
@@ -146,7 +146,7 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, AvgOp[Decimal, Decimal]](
 				decimal(DecimalMaxWidth, 0),
 				decimal(DecimalMaxWidth, 0),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				AvgOp[Decimal, Decimal]{},
 				&AvgStateOp[Decimal]{},
 				&DecimalAdd{},
@@ -169,7 +169,7 @@ func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
 				integer(),
 				hugeint(),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				CountOp[Hugeint, int32]{},
 				&CountStateOp[Hugeint]{},
 				&HugeintAdd{},
@@ -185,7 +185,7 @@ func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
 				integer(),
 				hugeint(),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				CountOp[Hugeint, int32]{},
 				&CountStateOp[Hugeint]{},
 				&HugeintAdd{},
@@ -208,7 +208,7 @@ func GetMaxAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MinMaxOp[Decimal, Decimal]](
 				decimal(DecimalMaxWidth, 0),
 				decimal(DecimalMaxWidth, 0),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				MinMaxOp[Decimal, Decimal]{},
 				&MaxStateOp[Decimal]{},
 				&DecimalAdd{},
@@ -231,7 +231,7 @@ func GetMinAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *AggrFunc {
 			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MinMaxOp[Decimal, Decimal]](
 				decimal(DecimalMaxWidth, 0),
 				decimal(DecimalMaxWidth, 0),
-				DEFAULT_NULL_HANDLING,
+				DefaultNullHandling,
 				MinMaxOp[Decimal, Decimal]{},
 				&MinStateOp[Decimal]{},
 				&DecimalAdd{},

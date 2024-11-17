@@ -1015,24 +1015,6 @@ func (data *AggrFinalizeData) ReturnNull() {
 	}
 }
 
-type aggrStateSize func() int
-type aggrInit func(pointer unsafe.Pointer)
-type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
-type aggrCombine func(*Vector, *Vector, *AggrInputData, int)
-type aggrFinalize func(*Vector, *AggrInputData, *Vector, int, int)
-
-// type aggrFunction func(*AggrFunc, []*Expr)
-type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
-
-//type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
-
-type FuncNullHandling int
-
-const (
-	DEFAULT_NULL_HANDLING FuncNullHandling = 0
-	SPECIAL_HANDLING      FuncNullHandling = 1
-)
-
 type AggrFunc struct {
 	_args      []LType
 	_retType   LType

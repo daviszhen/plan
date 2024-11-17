@@ -893,6 +893,25 @@ func (lt LType) isNumeric() bool {
 	return false
 }
 
+var integrals = map[LTypeId]int{
+	LTID_TINYINT:   0,
+	LTID_SMALLINT:  0,
+	LTID_INTEGER:   0,
+	LTID_BIGINT:    0,
+	LTID_UTINYINT:  0,
+	LTID_USMALLINT: 0,
+	LTID_UINTEGER:  0,
+	LTID_UBIGINT:   0,
+	LTID_HUGEINT:   0,
+}
+
+func (lt LType) isIntegral() bool {
+	if _, has := integrals[lt.id]; has {
+		return true
+	}
+	return false
+}
+
 func (lt LType) isPointer() bool {
 	return lt.id == LTID_POINTER
 }

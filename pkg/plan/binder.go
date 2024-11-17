@@ -468,6 +468,17 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 }
 
 func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []ExprDataType, distinct bool) (*Expr, error) {
+	tempArgsTypes := make([]LType, 0)
+	for _, argsType := range argsTypes {
+		tempArgsTypes = append(tempArgsTypes, argsType.LTyp)
+	}
+	if IsAgg(name) {
+		panic("usp")
+	} else {
+		funBinder := FunctionBinder{}
+		return funBinder.BindScalarFunc(name, args, tempArgsTypes), nil
+	}
+
 	id, err := GetFunctionId(name)
 	if err != nil {
 		return nil, err
