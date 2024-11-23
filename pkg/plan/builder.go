@@ -1015,6 +1015,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				Alias:    expr.Alias,
 				FuncId:   expr.FuncId,
 				Children: args,
+				FunImpl:  expr.FunImpl,
 			}, root, nil
 		case ET_In:
 			var childExpr *Expr
@@ -1032,13 +1033,13 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			if root.Typ == LOT_JOIN &&
 				root.JoinTyp == LOT_JoinTypeSEMI &&
 				len(root.OnConds) == 0 {
-				root.OnConds = append(root.OnConds, &Expr{
-					Typ:      ET_Func,
-					SubTyp:   ET_Equal,
-					DataTyp:  expr.DataTyp,
-					FuncId:   EQUAL,
-					Children: copyExprs(args...),
-				})
+				fbinder := FunctionBinder{}
+				e1 := fbinder.BindScalarFunc(
+					ET_Equal.String(),
+					copyExprs(args...),
+					ET_Equal,
+					ET_Equal.isOperator())
+				root.OnConds = append(root.OnConds, e1)
 
 				bExpr := &Expr{
 					Typ:     ET_BConst,
@@ -1046,16 +1047,14 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					Bvalue:  true,
 				}
 
-				retExpr := &Expr{
-					Typ:     ET_Func,
-					SubTyp:  ET_Equal,
-					DataTyp: ExprDataType{LTyp: boolean()},
-					FuncId:  EQUAL,
-					Children: []*Expr{
+				retExpr := fbinder.BindScalarFunc(ET_Equal.String(),
+					[]*Expr{
 						bExpr,
 						copyExpr(bExpr),
 					},
-				}
+					ET_Equal,
+					ET_Equal.isOperator(),
+				)
 
 				return retExpr, root, nil
 			}
@@ -1066,6 +1065,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				Alias:    expr.Alias,
 				FuncId:   expr.FuncId,
 				Children: args,
+				FunImpl:  expr.FunImpl,
 			}, root, nil
 		case ET_NotIn:
 			var childExpr *Expr
@@ -1090,13 +1090,13 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			if root.Typ == LOT_JOIN &&
 				root.JoinTyp == LOT_JoinTypeANTI &&
 				len(root.OnConds) == 0 {
-				root.OnConds = append(root.OnConds, &Expr{
-					Typ:      ET_Func,
-					SubTyp:   ET_Equal,
-					DataTyp:  expr.DataTyp,
-					FuncId:   EQUAL,
-					Children: copyExprs(args...),
-				})
+				fbinder := FunctionBinder{}
+				e1 := fbinder.BindScalarFunc(
+					ET_Equal.String(),
+					copyExprs(args...),
+					ET_Equal,
+					ET_Equal.isOperator())
+				root.OnConds = append(root.OnConds, e1)
 
 				bExpr := &Expr{
 					Typ:     ET_BConst,
@@ -1104,16 +1104,13 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					Bvalue:  true,
 				}
 
-				retExpr := &Expr{
-					Typ:     ET_Func,
-					SubTyp:  ET_Equal,
-					DataTyp: ExprDataType{LTyp: boolean()},
-					FuncId:  EQUAL,
-					Children: []*Expr{
+				retExpr := fbinder.BindScalarFunc(
+					ET_Equal.String(),
+					[]*Expr{
 						bExpr,
 						copyExpr(bExpr),
 					},
-				}
+					ET_Equal, ET_Equal.isOperator())
 
 				return retExpr, root, nil
 			}
@@ -1125,6 +1122,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				Alias:    expr.Alias,
 				FuncId:   expr.FuncId,
 				Children: args,
+				FunImpl:  expr.FunImpl,
 			}, root, nil
 		case ET_Exists, ET_NotExists:
 			var childExpr *Expr
@@ -1153,6 +1151,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				DataTyp:  expr.DataTyp,
 				Alias:    expr.Alias,
 				Children: args,
+				FunImpl:  expr.FunImpl,
 			}, root, nil
 		}
 	case ET_Column:
@@ -1204,16 +1203,12 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				DataTyp: ExprDataType{LTyp: boolean()},
 				Bvalue:  exists,
 			}
-			return &Expr{
-				Typ:     ET_Func,
-				SubTyp:  ET_Equal,
-				Svalue:  "=",
-				FuncId:  EQUAL,
-				DataTyp: ExprDataType{LTyp: boolean()},
-				Children: []*Expr{
-					left, right,
-				},
-			}
+			fbinder := FunctionBinder{}
+			return fbinder.BindScalarFunc(
+				ET_Equal.String(),
+				[]*Expr{left, right},
+				ET_Equal,
+				ET_Equal.isOperator())
 		}
 
 		switch expr.SubqueryTyp {
@@ -1827,14 +1822,14 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 	//case THEN to
 	for i := 0; i < len(when); i += 2 {
-		when[i+1], err = castExpr(when[i+1], retTyp, retTyp.id == LTID_ENUM)
+		when[i+1], err = AddCastToType(when[i+1], retTyp, retTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	//cast ELSE to
-	els, err = castExpr(els, retTyp, retTyp.id == LTID_ENUM)
+	els, err = AddCastToType(els, retTyp, retTyp.id == LTID_ENUM)
 	if err != nil {
 		return nil, err
 	}
@@ -1907,14 +1902,14 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 	paramTypes := make([]ExprDataType, 0)
 	params := make([]*Expr, 0)
 
-	castIn, err := castExpr(in, maxType, false)
+	castIn, err := AddCastToType(in, maxType, false)
 	if err != nil {
 		return nil, err
 	}
 	params = append(params, castIn)
 	paramTypes = append(paramTypes, castIn.DataTyp)
 	for _, child := range children {
-		castChild, err := castExpr(child, maxType, false)
+		castChild, err := AddCastToType(child, maxType, false)
 		if err != nil {
 			return nil, err
 		}

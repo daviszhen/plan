@@ -625,7 +625,6 @@ func (haggr *HashAggr) DistinctGrouping(
 			switch res {
 			case Done:
 				assertFunc(outputChunk.card() == 0)
-				break
 			case InvalidOpResult:
 				panic("invalid op result")
 			}

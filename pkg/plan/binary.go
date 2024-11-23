@@ -21,11 +21,15 @@ import (
 var (
 	//+
 	//date + interval
-	gBinDateIntervalAdd   binDateInterAddOp
-	gBinDateIntervalSub   binDateInterSubOp
-	gBinFloat32Float32Add binFloat32Float32AddOp
-	gBinDecimalDecimalAdd binDecimalDecimalAddOp
-	gBinInt32Int32Add     binInt32Int32AddOp
+	gBinDateIntervalAdd       binDateInterAddOp
+	gBinDateIntervalSub       binDateInterSubOp
+	gBinDateInt32AddOp        binDateInt32AddOp
+	gBinInt32DateAddOp        binInt32DateAddOp
+	gBinFloat32Float32Add     binFloat32Float32AddOp
+	gBinDecimalDecimalAdd     binDecimalDecimalAddOp
+	gBinInt32Int32Add         binInt32Int32AddOp
+	gBinIntervalIntervalAddOp binIntervalIntervalAddOp
+	gBinIntervalDateAddOp     binIntervalDateAddOp
 
 	//-
 	//float32 - float32
@@ -48,6 +52,7 @@ var (
 	// =
 	gBinInt32Equal  binInt32EqualOp
 	gBinStringEqual binStringEqualOp
+	gBinBoolEqual   binBoolEqualOp
 
 	// >
 	gBinInt32Great   binInt32GreatOp
@@ -62,15 +67,20 @@ var (
 	//extract
 	gBinStringInt32Extract binStringInt32ExtractOp
 
-	gBinDateIntervalSingleOpWrapper   binarySingleOpWrapper[Date, Interval, Date]
-	gBinInt32BoolSingleOpWrapper      binarySingleOpWrapper[int32, int32, bool]
-	gBinFloat32Float32SingleOpWrapper binarySingleOpWrapper[float32, float32, float32]
-	gBinFloat64Float64SingleOpWrapper binarySingleOpWrapper[float64, float64, float64]
-	gBinFloat32BoolSingleOpWrapper    binarySingleOpWrapper[float32, float32, bool]
-	gBinDecimalDecimalOpWrapper       binarySingleOpWrapper[Decimal, Decimal, Decimal]
-	gBinStringBoolSingleOpWrapper     binarySingleOpWrapper[String, String, bool]
-	gBinStringInt32SingleOpWrapper    binarySingleOpWrapper[String, Date, int32]
-	gBinInt32Int32SingleOpWrapper     binarySingleOpWrapper[int32, int32, int32]
+	gBinDateIntervalSingleOpWrapper     binarySingleOpWrapper[Date, Interval, Date]
+	gBinDateInt32SingleOpWrapper        binarySingleOpWrapper[Date, int32, Date]
+	gBinInt32DateSingleOpWrapper        binarySingleOpWrapper[int32, Date, Date]
+	gBinInt32BoolSingleOpWrapper        binarySingleOpWrapper[int32, int32, bool]
+	gBinFloat32Float32SingleOpWrapper   binarySingleOpWrapper[float32, float32, float32]
+	gBinFloat64Float64SingleOpWrapper   binarySingleOpWrapper[float64, float64, float64]
+	gBinFloat32BoolSingleOpWrapper      binarySingleOpWrapper[float32, float32, bool]
+	gBinDecimalDecimalOpWrapper         binarySingleOpWrapper[Decimal, Decimal, Decimal]
+	gBinStringBoolSingleOpWrapper       binarySingleOpWrapper[String, String, bool]
+	gBinStringInt32SingleOpWrapper      binarySingleOpWrapper[String, Date, int32]
+	gBinInt32Int32SingleOpWrapper       binarySingleOpWrapper[int32, int32, int32]
+	gBinIntervalIntervalSingleOpWrapper binarySingleOpWrapper[Interval, Interval, Interval]
+	gBinIntervalDateSingleOpWrapper     binarySingleOpWrapper[Interval, Date, Date]
+	gBinBoolBoolSingleOpWrapper         binarySingleOpWrapper[bool, bool, bool]
 )
 
 type binaryOp[T any, S any, R any] interface {
@@ -136,6 +146,38 @@ type binDateInterAddOp struct {
 
 func (op binDateInterAddOp) operation(left *Date, right *Interval, result *Date) {
 	*result = left.addInterval(right)
+}
+
+//lint:ignore U1000
+type binDateInt32AddOp struct {
+}
+
+func (op binDateInt32AddOp) operation(left *Date, right *int32, result *Date) {
+	panic("usp")
+}
+
+//lint:ignore U1000
+type binInt32DateAddOp struct {
+}
+
+func (op binInt32DateAddOp) operation(left *int32, right *Date, result *Date) {
+	panic("usp")
+}
+
+//lint:ignore U1000
+type binIntervalIntervalAddOp struct {
+}
+
+func (op binIntervalIntervalAddOp) operation(left *Interval, right *Interval, result *Interval) {
+	panic("usp")
+}
+
+//lint:ignore U1000
+type binIntervalDateAddOp struct {
+}
+
+func (op binIntervalDateAddOp) operation(left *Interval, right *Date, result *Date) {
+	panic("usp")
 }
 
 //lint:ignore U1000
@@ -258,6 +300,14 @@ func (op binInt32EqualOp) operation(left, right *int32, result *bool) {
 	*result = *left == *right
 }
 
+//lint:ignore U1000
+type binBoolEqualOp struct {
+}
+
+func (op binBoolEqualOp) operation(left, right *bool, result *bool) {
+	*result = *left == *right
+}
+
 // = string
 //
 //lint:ignore U1000
@@ -325,28 +375,26 @@ func (op binStringInt32ExtractOp) operation(left *String, right *Date, result *i
 func binaryExecSwitch[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, S, R],
-	fun binaryFunc[T, S, R],
-	wrapper binaryWrapper[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
 ) {
 	if left.phyFormat().isConst() && right.phyFormat().isConst() {
-		binaryExecConst[T, S, R](left, right, result, count, op, fun, wrapper)
+		binaryExecConst[T, S, R](left, right, result, count, fun, wrapper)
 	} else if left.phyFormat().isFlat() && right.phyFormat().isConst() {
-		binaryExecFlat[T, S, R](left, right, result, count, op, fun, wrapper, false, true)
+		binaryExecFlat[T, S, R](left, right, result, count, fun, wrapper, false, true)
 	} else if left.phyFormat().isConst() && right.phyFormat().isFlat() {
-		binaryExecFlat[T, S, R](left, right, result, count, op, fun, wrapper, true, false)
+		binaryExecFlat[T, S, R](left, right, result, count, fun, wrapper, true, false)
 	} else if left.phyFormat().isFlat() && right.phyFormat().isFlat() {
-		binaryExecFlat[T, S, R](left, right, result, count, op, fun, wrapper, false, false)
+		binaryExecFlat[T, S, R](left, right, result, count, fun, wrapper, false, false)
 	} else {
-		binaryExecGeneric[T, S, R](left, right, result, count, op, fun, wrapper)
+		binaryExecGeneric[T, S, R](left, right, result, count, fun, wrapper)
 	}
 }
 func binaryExecConst[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, S, R],
-	fun binaryFunc[T, S, R],
-	wrapper binaryWrapper[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
 ) {
 	result.setPhyFormat(PF_CONST)
 	if isNullInPhyFormatConst(left) ||
@@ -358,15 +406,14 @@ func binaryExecConst[T any, S any, R any](
 	rSlice := getSliceInPhyFormatConst[S](right)
 	resSlice := getSliceInPhyFormatConst[R](result)
 
-	wrapper.operation(&lSlice[0], &rSlice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, op, fun)
+	wrapper.operation(&lSlice[0], &rSlice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, fun)
 }
 
 func binaryExecFlat[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, S, R],
-	fun binaryFunc[T, S, R],
-	wrapper binaryWrapper[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
 	lconst, rconst bool,
 ) {
 	lSlice := getSliceInPhyFormatFlat[T](left)
@@ -412,7 +459,6 @@ func binaryExecFlat[T any, S any, R any](
 		resSlice,
 		count,
 		resMask,
-		op,
 		fun,
 		wrapper,
 		lconst,
@@ -425,9 +471,8 @@ func binaryExecFlatLoop[T any, S any, R any](
 	resData []R,
 	count int,
 	mask *Bitmap,
-	op binaryOp[T, S, R],
-	fun binaryFunc[T, S, R],
-	wrapper binaryWrapper[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
 	lconst, rconst bool,
 ) {
 	if !mask.AllValid() {
@@ -446,7 +491,7 @@ func binaryExecFlatLoop[T any, S any, R any](
 					if rconst {
 						ridx = 0
 					}
-					wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx, op, fun)
+					wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx, fun)
 				}
 			} else if NoneValidInEntry(ent) {
 				baseIdx = next
@@ -463,7 +508,7 @@ func binaryExecFlatLoop[T any, S any, R any](
 						if rconst {
 							ridx = 0
 						}
-						wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx, op, fun)
+						wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[baseIdx], mask, baseIdx, fun)
 					}
 				}
 			}
@@ -478,7 +523,7 @@ func binaryExecFlatLoop[T any, S any, R any](
 			if rconst {
 				ridx = 0
 			}
-			wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], mask, i, op, fun)
+			wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], mask, i, fun)
 		}
 	}
 }
@@ -486,9 +531,8 @@ func binaryExecFlatLoop[T any, S any, R any](
 func binaryExecGeneric[T any, S any, R any](
 	left, right, result *Vector,
 	count int,
-	op binaryOp[T, S, R],
-	fun binaryFunc[T, S, R],
-	wrapper binaryWrapper[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
 ) {
 	var ldata, rdata UnifiedFormat
 	left.toUnifiedFormat(count, &ldata)
@@ -508,7 +552,6 @@ func binaryExecGeneric[T any, S any, R any](
 		ldata._mask,
 		rdata._mask,
 		result._mask,
-		op,
 		fun,
 		wrapper,
 	)
@@ -523,16 +566,15 @@ func binaryExecGenericLoop[T any, S any, R any](
 	lmask *Bitmap,
 	rmask *Bitmap,
 	resMask *Bitmap,
-	op binaryOp[T, S, R],
-	fun binaryFunc[T, S, R],
-	wrapper binaryWrapper[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
 ) {
 	if !lmask.AllValid() || !rmask.AllValid() {
 		for i := 0; i < count; i++ {
 			lidx := lsel.getIndex(i)
 			ridx := rsel.getIndex(i)
 			if lmask.rowIsValid(uint64(lidx)) && rmask.rowIsValid(uint64(ridx)) {
-				wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], resMask, i, op, fun)
+				wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], resMask, i, fun)
 			} else {
 				resMask.setInvalid(uint64(i))
 			}
@@ -541,7 +583,88 @@ func binaryExecGenericLoop[T any, S any, R any](
 		for i := 0; i < count; i++ {
 			lidx := lsel.getIndex(i)
 			ridx := rsel.getIndex(i)
-			wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], resMask, i, op, fun)
+			wrapper.operation(&ldata[lidx], &rdata[ridx], &resData[i], resMask, i, fun)
 		}
 	}
+}
+
+func BinaryFunction[T, S, R any](
+	op binaryOp[T, S, R],
+	fun BinaryFunc[T, S, R],
+	wrapper BinaryWrapper[T, S, R],
+) ScalarFunc {
+	temp := func(input *Chunk, state *ExprState, result *Vector) {
+		binaryExecSwitch[T, S, R](
+			input._data[0],
+			input._data[1],
+			result,
+			input.card(),
+			fun, wrapper)
+	}
+	return temp
+}
+
+type BinaryFunc[T any, S any, R any] interface {
+	fun(left *T, right *S, result *R, mask *Bitmap, idx int)
+}
+
+type BinaryWrapper[T any, S any, R any] interface {
+	operation(left *T, right *S, result *R, mask *Bitmap, idx int,
+		fun BinaryFunc[T, S, R])
+
+	addsNulls() bool
+}
+
+type BinaryStandardOperatorWrapper[T any, S any, R any] struct {
+	op binaryOp[T, S, R]
+}
+
+func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, S, R]) {
+	wrapper.op.operation(left, right, result)
+}
+
+func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) addsNulls() bool {
+	return false
+}
+
+type BinarySingleArgumentOperatorWrapper[T any, R any] struct {
+	op binaryOp[T, T, R]
+}
+
+func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) operation(
+	left *T, right *T, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, T, R]) {
+	wrapper.op.operation(left, right, result)
+}
+
+func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) addsNulls() bool {
+	return false
+}
+
+type BinaryLambdaWrapper[T any, S any, R any] struct {
+}
+
+func (wrapper *BinaryLambdaWrapper[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, S, R]) {
+	fun.fun(left, right, result, mask, idx)
+}
+
+func (wrapper *BinaryLambdaWrapper[T, S, R]) addsNulls() bool {
+	return false
+}
+
+type BinaryLambdaWrapperWithNulls[T any, S any, R any] struct {
+}
+
+func (wrapper *BinaryLambdaWrapperWithNulls[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, S, R]) {
+	fun.fun(left, right, result, mask, idx)
+}
+
+func (wrapper *BinaryLambdaWrapperWithNulls[T, S, R]) addsNulls() bool {
+	return true
 }

@@ -25,77 +25,52 @@ import (
 
 var (
 	// int32 => ...
-	gTryCastInt32ToInt32            tryCastInt32ToInt32
-	gTryCastInt32ToInt32OpWrapper   tryCastOpWrapper[int32, int32]
-	gTryCastInt32ToFloat32          tryCastInt32ToFloat32
-	gTryCastInt32ToFloat64          tryCastInt32ToFloat64
-	gTryCastInt32ToFloat32OpWrapper tryCastOpWrapper[int32, float32]
-	gTryCastInt32ToFloat64OpWrapper tryCastOpWrapper[int32, float64]
-	gTryCastInt32ToDecimal          tryCastInt32ToDecimal
-	gTryCastInt32ToDecimalWrapper   tryCastOpWrapper[int32, Decimal]
+	gTryCastInt32ToInt32   tryCastInt32ToInt32
+	gTryCastInt32ToFloat32 tryCastInt32ToFloat32
+	gTryCastInt32ToFloat64 tryCastInt32ToFloat64
 
 	// bigint =>
-	gTryCastBigintToInt32            tryCastBigintToInt32
-	gTryCastBigintToInt32OpWrapper   tryCastOpWrapper[Hugeint, int32]
-	gTryCastBigintToDecimal          tryCastBigintToDecimal
-	gTryCastBigintToDecimalOpWrapper tryCastOpWrapper[Hugeint, Decimal]
+	gTryCastBigintToInt32   tryCastBigintToInt32
+	gTryCastBigintToDecimal tryCastBigintToDecimal
 
 	// float32 => ...
-	gTryCastFloat32ToInt32            tryCastFloat32ToInt32
-	gTryCastFloat32ToFloat64          tryCastFloat32ToFloat64
-	gTryCastFloat32ToInt32OpWrapper   tryCastOpWrapper[float32, int32]
-	gTryCastFloat32ToFloat64OpWrapper tryCastOpWrapper[float32, float64]
+	gTryCastFloat32ToInt32   tryCastFloat32ToInt32
+	gTryCastFloat32ToFloat64 tryCastFloat32ToFloat64
 
 	// decimal => ...
-	gTryCastDecimalToFloat32          tryCastDecimalToFloat32
-	gTryCastDecimalToFloat32OpWrapper tryCastOpWrapper[Decimal, float32]
-	gTryCastDecimalToDecimal          tryCastDecimalToDecimal
-	gTryCastDecimalToDecimalOpWrapper tryCastOpWrapper[Decimal, Decimal]
+	gTryCastDecimalToFloat32 tryCastDecimalToFloat32
 
 	// varchar => ...
-	gTryCastVarcharToDate          tryCastVarcharToDate
-	gTryCastVarcharToDateOpWrapper tryCastOpWrapper[String, Date]
+	gTryCastVarcharToDate tryCastVarcharToDate
 
-	gTryCastVarcharToInterval          tryCastVarcharToInterval
-	gTryCastVarcharToIntervalOpWrapper tryCastOpWrapper[String, Interval]
+	gTryCastVarcharToInterval tryCastVarcharToInterval
 )
-
-//lint:ignore U1000
-type tryCastOpWrapper[T any, R any] struct {
-}
-
-func (tryCast tryCastOpWrapper[T, R]) operation(
-	input *T,
-	result *R,
-	mask *Bitmap,
-	idx int,
-	op unaryOp[T, R],
-	fun unaryFunc[T, R]) {
-	op.operation(input, result)
-}
 
 //lint:ignore U1000
 type tryCastInt32ToInt32 struct {
 }
 
-func (numCast tryCastInt32ToInt32) operation(input *int32, result *int32) {
+func (numCast tryCastInt32ToInt32) operation(input *int32, result *int32, _ bool) bool {
 	*result = int32(*input)
+	return true
 }
 
 //lint:ignore U1000
 type tryCastInt32ToFloat32 struct {
 }
 
-func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32) {
+func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32, _ bool) bool {
 	*result = float32(*input)
+	return true
 }
 
 //lint:ignore U1000
 type tryCastInt32ToFloat64 struct {
 }
 
-func (numCast tryCastInt32ToFloat64) operation(input *int32, result *float64) {
+func (numCast tryCastInt32ToFloat64) operation(input *int32, result *float64, _ bool) bool {
 	*result = float64(*input)
+	return true
 }
 
 //lint:ignore U1000
@@ -103,7 +78,7 @@ type tryCastInt32ToDecimal struct {
 	tScale int
 }
 
-func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
+func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal, _ bool) bool {
 	nDec, err := dec.NewFromInt64(int64(*input), 0, numCast.tScale)
 	if err != nil {
 		panic(err)
@@ -112,33 +87,36 @@ func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal) {
 	*result = Decimal{
 		Decimal: nDec,
 	}
+	return true
 }
 
 //lint:ignore U1000
 type tryCastDecimalToFloat32 struct {
 }
 
-func (numCast tryCastDecimalToFloat32) operation(input *Decimal, result *float32) {
+func (numCast tryCastDecimalToFloat32) operation(input *Decimal, result *float32, _ bool) bool {
 	v, ok := input.Float64()
 	assertFunc(ok)
 	*result = float32(v)
+	return true
 }
 
 //lint:ignore U1000
 type tryCastBigintToInt32 struct{}
 
-func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32) {
+func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32, _ bool) bool {
 	val := int32(input._lower)
 	if uint64(val) != input._lower {
 		fmt.Println(input)
 	}
 	*result = val
+	return true
 }
 
 //lint:ignore U1000
 type tryCastBigintToDecimal struct{}
 
-func (numCast tryCastBigintToDecimal) operation(input *Hugeint, result *Decimal) {
+func (numCast tryCastBigintToDecimal) operation(input *Hugeint, result *Decimal, _ bool) bool {
 	panic("usp")
 }
 
@@ -148,7 +126,7 @@ type tryCastDecimalToDecimal struct {
 	srcScale int
 }
 
-func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal) {
+func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal, _ bool) bool {
 	//if numCast.srcScale == numCast.dstScale {
 	//	*result = *input
 	//} else if numCast.srcScale > numCast.dstScale {
@@ -171,30 +149,32 @@ func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal
 		}
 		result.Decimal = ndec
 	}
-
+	return true
 }
 
 //lint:ignore U1000
 type tryCastFloat32ToInt32 struct {
 }
 
-func (numCast tryCastFloat32ToInt32) operation(input *float32, result *int32) {
+func (numCast tryCastFloat32ToInt32) operation(input *float32, result *int32, _ bool) bool {
 	*result = int32(*input)
+	return true
 }
 
 //lint:ignore U1000
 type tryCastFloat32ToFloat64 struct {
 }
 
-func (numCast tryCastFloat32ToFloat64) operation(input *float32, result *float64) {
+func (numCast tryCastFloat32ToFloat64) operation(input *float32, result *float64, _ bool) bool {
 	*result = float64(*input)
+	return true
 }
 
 //lint:ignore U1000
 type tryCastVarcharToDate struct {
 }
 
-func (numCast tryCastVarcharToDate) operation(input *String, result *Date) {
+func (numCast tryCastVarcharToDate) operation(input *String, result *Date, _ bool) bool {
 	ti, err := time.Parse(time.DateOnly, input.String())
 	if err != nil {
 		panic(err)
@@ -205,13 +185,14 @@ func (numCast tryCastVarcharToDate) operation(input *String, result *Date) {
 		_month: int32(m),
 		_day:   int32(d),
 	}
+	return true
 }
 
 //lint:ignore U1000
 type tryCastVarcharToInterval struct {
 }
 
-func (numCast tryCastVarcharToInterval) operation(input *String, result *Interval) {
+func (numCast tryCastVarcharToInterval) operation(input *String, result *Interval, _ bool) bool {
 	is := input.String()
 	seps := strings.Split(is, " ")
 	if len(seps) != 2 {
@@ -243,162 +224,120 @@ func (numCast tryCastVarcharToInterval) operation(input *String, result *Interva
 	default:
 		panic(fmt.Sprintf("invalid interval unit %v", is))
 	}
+	return true
 }
 
 func castExec(
 	source, result *Vector,
 	count int,
 ) {
-	switch source.typ().id {
-	case LTID_INTEGER:
-		switch result.typ().id {
-		case LTID_INTEGER:
-			unaryGenericExec[int32, int32](
-				source,
-				result,
-				count,
-				false,
-				gTryCastInt32ToInt32,
-				nil,
-				gTryCastInt32ToInt32OpWrapper,
-			)
-		case LTID_FLOAT:
-			unaryGenericExec[int32, float32](
-				source,
-				result,
-				count,
-				false,
-				gTryCastInt32ToFloat32,
-				nil,
-				gTryCastInt32ToFloat32OpWrapper,
-			)
-		case LTID_DOUBLE:
-			unaryGenericExec[int32, float64](
-				source,
-				result,
-				count,
-				false,
-				gTryCastInt32ToFloat64,
-				nil,
-				gTryCastInt32ToFloat64OpWrapper,
-			)
-		case LTID_DECIMAL:
-			gTryCastInt32ToDecimal.tScale = result.typ().scale
-			unaryGenericExec[int32, Decimal](
-				source,
-				result,
-				count,
-				false,
-				gTryCastInt32ToDecimal,
-				nil,
-				gTryCastInt32ToDecimalWrapper,
-			)
-		default:
-			panic("usp")
-		}
-	case LTID_FLOAT:
-		switch result.typ().id {
-		case LTID_INTEGER:
-			unaryGenericExec[float32, int32](
-				source,
-				result,
-				count,
-				false,
-				gTryCastFloat32ToInt32,
-				nil,
-				gTryCastFloat32ToInt32OpWrapper,
-			)
-		case LTID_DOUBLE:
-			unaryGenericExec[float32, float64](
-				source,
-				result,
-				count,
-				false,
-				gTryCastFloat32ToFloat64,
-				nil,
-				gTryCastFloat32ToFloat64OpWrapper,
-			)
-		default:
-			panic("usp")
-		}
-	case LTID_HUGEINT:
-		switch result.typ().id {
-		case LTID_INTEGER:
-			unaryGenericExec[Hugeint, int32](
-				source,
-				result,
-				count,
-				false,
-				gTryCastBigintToInt32,
-				nil,
-				gTryCastBigintToInt32OpWrapper,
-			)
-		case LTID_DECIMAL:
-			unaryGenericExec[Hugeint, Decimal](
-				source,
-				result,
-				count,
-				false,
-				gTryCastBigintToDecimal,
-				nil,
-				gTryCastBigintToDecimalOpWrapper,
-			)
-		default:
-			panic("usp")
-		}
-	case LTID_DECIMAL:
-		switch result.typ().id {
-		case LTID_FLOAT:
-			unaryGenericExec[Decimal, float32](
-				source,
-				result,
-				count,
-				false,
-				gTryCastDecimalToFloat32,
-				nil,
-				gTryCastDecimalToFloat32OpWrapper,
-			)
-		case LTID_DECIMAL:
-			gTryCastDecimalToDecimal.srcScale = source.typ().scale
-			gTryCastDecimalToDecimal.dstScale = result.typ().scale
-			unaryGenericExec[Decimal, Decimal](
-				source,
-				result,
-				count,
-				false,
-				gTryCastDecimalToDecimal,
-				nil,
-				gTryCastDecimalToDecimalOpWrapper,
-			)
-		default:
-			panic("usp")
-		}
-	case LTID_VARCHAR:
-		switch result.typ().id {
-		case LTID_DATE:
-			unaryGenericExec[String, Date](
-				source,
-				result,
-				count,
-				false,
-				gTryCastVarcharToDate,
-				nil,
-				gTryCastVarcharToDateOpWrapper,
-			)
-		case LTID_INTERVAL:
-			unaryGenericExec[String, Interval](
-				source,
-				result,
-				count,
-				false,
-				gTryCastVarcharToInterval,
-				nil,
-				gTryCastVarcharToIntervalOpWrapper,
-			)
-		default:
-			panic("usp")
-		}
-	default:
+	panic("usp")
+}
+
+func AddCastToType(expr *Expr, dstTyp LType, tryCast bool) (*Expr, error) {
+	var err error
+	var retExpr *Expr
+	if expr.DataTyp.LTyp.equal(dstTyp) {
+		return expr, nil
+	}
+
+	castInfo := castFuncs.GetCastFunc(expr.DataTyp.LTyp, dstTyp)
+
+	args := []*Expr{
+		expr, //expr to be cast
+		//target type saved in DataTyp field
+		{
+			Typ: ET_IConst,
+			DataTyp: ExprDataType{
+				LTyp: dstTyp,
+			},
+		},
+	}
+
+	retExpr = &Expr{
+		Typ:    ET_Func,
+		SubTyp: ET_SubFunc,
+		Svalue: ET_Cast.String(),
+		DataTyp: ExprDataType{
+			LTyp: dstTyp,
+		},
+		Children:   args,
+		IsOperator: ET_Cast.isOperator(),
+		BindInfo:   nil,
+		FunImpl: &FunctionV2{
+			_name:          ET_Cast.String(),
+			_args:          []LType{expr.DataTyp.LTyp, dstTyp},
+			_retType:       dstTyp,
+			_funcTyp:       ScalarFuncType,
+			_boundCastInfo: castInfo,
+		},
+	}
+
+	return retExpr, err
+}
+
+//lint:ignore U1000
+type NumericTryCast[T any, R any] struct {
+	op CastOp[T, R]
+}
+
+func (cast NumericTryCast[T, R]) operation(input *T, result *R, strict bool) bool {
+	if cast.op == nil {
 		panic("usp")
 	}
+	//FIXME: add overflow check
+	return cast.op.operation(input, result, strict)
+}
+
+type BindCastFuncType func(input *BindCastInput, src, dst LType) *BoundCastInfo
+
+type BindCastFunc struct {
+	_fun  BindCastFuncType
+	_info *BindCastInfo
+}
+
+type CastFunctionSet struct {
+	_bindFuncs []*BindCastFunc
+}
+
+func NoCast(src *Vector, res *Vector, count int, params *CastParams) bool {
+	res.reference(src)
+	return true
+}
+
+var (
+	defNoCast = &BoundCastInfo{
+		_fun: NoCast,
+	}
+)
+
+func (castSet *CastFunctionSet) GetCastFunc(src, dst LType) *BoundCastInfo {
+	if src.equal(dst) {
+		return defNoCast
+	}
+
+	for i := len(castSet._bindFuncs); i > 0; i-- {
+		bindFunc := castSet._bindFuncs[i-1]
+		input := &BindCastInput{
+			_funcSet: castSet,
+			_info:    bindFunc._info,
+		}
+		ret := bindFunc._fun(input, src, dst)
+		if ret != nil && ret._fun != nil {
+			return ret
+		}
+	}
+	panic("usp")
+}
+
+func NewCastFunctionSet() *CastFunctionSet {
+	ret := &CastFunctionSet{}
+	ret._bindFuncs = append(ret._bindFuncs, &BindCastFunc{
+		_fun: DefaultCastFunc,
+	})
+	return ret
+}
+
+func (castSet *CastFunctionSet) ImplicitCastCost(src, dst LType) int64 {
+	return implicitCast(src, dst)
 }

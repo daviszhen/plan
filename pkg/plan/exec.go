@@ -299,10 +299,8 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 
 func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
 	var err error
-	argsTypes := make([]ExprDataType, 0)
 	eState._interChunk.reset()
 	for i, child := range expr.Children {
-		argsTypes = append(argsTypes, child.DataTyp)
 		err = exec.execute(child,
 			eState._children[i],
 			sel,
@@ -313,17 +311,14 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVect
 		}
 	}
 	eState._interChunk.setCard(count)
-	impl, err := GetFunctionImpl(expr.FuncId, argsTypes)
-	if err != nil {
-		return err
-	}
-	if impl == nil {
-		panic(fmt.Sprintf("no function impl: %v %v", expr.FuncId, argsTypes))
+	if expr.FunImpl._boundCastInfo != nil {
+		params := &CastParams{}
+		expr.FunImpl._boundCastInfo._fun(eState._interChunk._data[0], result, count, params)
+	} else {
+		expr.FunImpl._scalar(eState._interChunk, eState, result)
 	}
 
-	body := impl.Body()
-	err = body(eState._interChunk, eState, count, result)
-	return err
+	return nil
 }
 
 func (exec *ExprExec) executeSelect(datas []*Chunk, sel *SelectVector) (int, error) {

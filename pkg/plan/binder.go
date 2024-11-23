@@ -147,7 +147,7 @@ func (b *Builder) bindTypeCast(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	}
 
 	//cast
-	retExpr, err = castExpr(retExpr, resultTyp, resultTyp.id == LTID_ENUM)
+	retExpr, err = AddCastToType(retExpr, resultTyp, resultTyp.id == LTID_ENUM)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_que
 							Fields: []*pg_query.Node{
 								{
 									Node: &pg_query.Node_String_{
-										&pg_query.String{
+										String_: &pg_query.String{
 											Sval: colName,
 										},
 									},
@@ -371,11 +371,11 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		resultTyp = decideResultType(left.DataTyp.LTyp, right.DataTyp.LTyp)
 
 		//cast
-		left, err = castExpr(left, resultTyp, resultTyp.id == LTID_ENUM)
+		left, err = AddCastToType(left, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
-		right, err = castExpr(right, resultTyp, resultTyp.id == LTID_ENUM)
+		right, err = AddCastToType(right, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
@@ -443,11 +443,11 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		resultTyp = decideResultType(left.DataTyp.LTyp, cur.DataTyp.LTyp)
 
 		//cast
-		left, err = castExpr(left, resultTyp, resultTyp.id == LTID_ENUM)
+		left, err = AddCastToType(left, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
-		cur, err = castExpr(cur, resultTyp, resultTyp.id == LTID_ENUM)
+		cur, err = AddCastToType(cur, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
@@ -468,50 +468,9 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 }
 
 func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []ExprDataType, distinct bool) (*Expr, error) {
-	tempArgsTypes := make([]LType, 0)
-	for _, argsType := range argsTypes {
-		tempArgsTypes = append(tempArgsTypes, argsType.LTyp)
-	}
+	funBinder := FunctionBinder{}
 	if IsAgg(name) {
-		panic("usp")
-	} else {
-		funBinder := FunctionBinder{}
-		return funBinder.BindScalarFunc(name, args, tempArgsTypes), nil
-	}
-
-	id, err := GetFunctionId(name)
-	if err != nil {
-		return nil, err
-	}
-
-	impl, err := GetFunctionImpl(id, argsTypes)
-	if err != nil {
-		return nil, err
-	}
-
-	retTyp := impl.RetTypeDecider(argsTypes)
-
-	ret := &Expr{
-		Typ:      ET_Func,
-		SubTyp:   subTyp,
-		Svalue:   name,
-		FuncId:   id,
-		DataTyp:  retTyp,
-		Children: args,
-	}
-
-	//hard code for simplicity
-	if id == DATE_ADD {
-		ret.DataTyp = ExprDataType{
-			LTyp: dateLTyp(),
-		}
-	} else if id == DATE_SUB {
-		ret.DataTyp = ExprDataType{
-			LTyp: dateLTyp(),
-		}
-	}
-
-	if IsAgg(name) {
+		ret := funBinder.BindAggrFunc(name, args, subTyp, false)
 		if distinct {
 			ret.AggrTyp = DISTINCT
 		}
@@ -524,10 +483,10 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 			ColRef:  ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
 			Depth:   0,
 		}
-	} else if distinct {
-		return nil, fmt.Errorf("distinct used in aggregate function. %s is not aggregate function", name)
+		return ret, nil
+	} else {
+		return funBinder.BindScalarFunc(name, args, subTyp, subTyp.isOperator()), nil
 	}
-	return ret, nil
 }
 
 func decideResultType(left LType, right LType) LType {
@@ -564,35 +523,6 @@ func decideResultType(left LType, right LType) LType {
 
 }
 
-func castExpr(e *Expr, target LType, tryCast bool) (*Expr, error) {
-	if e.DataTyp.LTyp.equal(target) {
-		return e, nil
-	}
-	id, err := GetFunctionId("cast")
-	if err != nil {
-		return nil, err
-	}
-	ret := &Expr{
-		Typ:     ET_Func,
-		SubTyp:  ET_SubFunc,
-		Svalue:  "cast",
-		FuncId:  id,
-		DataTyp: ExprDataType{LTyp: target},
-		Children: []*Expr{
-			//expr to be cast
-			e,
-			//target type saved in DataTyp field
-			{
-				Typ: ET_IConst,
-				DataTyp: ExprDataType{
-					LTyp: target,
-				},
-			},
-		},
-	}
-	return ret, nil
-}
-
 func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.A_Expr, depth int) (*Expr, error) {
 	var betExpr *Expr
 	var listExppr *Expr
@@ -617,15 +547,15 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 		resultTyp = decideResultType(betExpr.DataTyp.LTyp, left.DataTyp.LTyp)
 		resultTyp = decideResultType(resultTyp, right.DataTyp.LTyp)
 		//cast
-		betExpr, err = castExpr(betExpr, resultTyp, false)
+		betExpr, err = AddCastToType(betExpr, resultTyp, false)
 		if err != nil {
 			return nil, err
 		}
-		left, err = castExpr(left, resultTyp, false)
+		left, err = AddCastToType(left, resultTyp, false)
 		if err != nil {
 			return nil, err
 		}
-		right, err = castExpr(right, resultTyp, false)
+		right, err = AddCastToType(right, resultTyp, false)
 		if err != nil {
 			return nil, err
 		}
@@ -679,7 +609,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		return nil, err
 	}
 
-	typ := ET_SubqueryTypeScalar
+	var typ ET_SubqueryType
 
 	switch expr.SubLinkType {
 	case pg_query.SubLinkType_ANY_SUBLINK: // IN, = ANY
@@ -697,12 +627,12 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 		resultTyp = decideResultType(testExpr.DataTyp.LTyp, subExpr.DataTyp.LTyp)
 		//cast
-		testExpr, err = castExpr(testExpr, resultTyp, resultTyp.id == LTID_ENUM)
+		testExpr, err = AddCastToType(testExpr, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
 
-		subExpr, err = castExpr(subExpr, resultTyp, resultTyp.id == LTID_ENUM)
+		subExpr, err = AddCastToType(subExpr, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}

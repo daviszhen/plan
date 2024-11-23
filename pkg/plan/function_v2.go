@@ -37,9 +37,9 @@ const (
 type FuncType int
 
 const (
-	ScalarFunc    FuncType = 0
-	AggregateFunc FuncType = 1
-	TableFunc     FuncType = 2
+	ScalarFuncType    FuncType = 0
+	AggregateFuncType FuncType = 1
+	TableFuncType     FuncType = 2
 )
 
 type FunctionV2 struct {
@@ -50,8 +50,9 @@ type FunctionV2 struct {
 	_sideEffects  FuncSideEffects
 	_nullHandling FuncNullHandling
 
-	_scalar scalarFunc
-	_bind   bindScalarFunc
+	_scalar        ScalarFunc
+	_bind          bindScalarFunc
+	_boundCastInfo *BoundCastInfo
 
 	_stateSize aggrStateSize
 	_init      aggrInit
@@ -63,7 +64,29 @@ type FunctionV2 struct {
 	//_window       aggrWindow
 }
 
-type scalarFunc func(*Chunk, *ExprState, *Vector)
+func (fun *FunctionV2) Copy() *FunctionV2 {
+	ret := &FunctionV2{
+		_name:         fun._name,
+		_args:         copyTo(fun._args),
+		_retType:      fun._retType,
+		_funcTyp:      fun._funcTyp,
+		_sideEffects:  fun._sideEffects,
+		_nullHandling: fun._nullHandling,
+		_scalar:       fun._scalar,
+		_bind:         fun._bind,
+		_stateSize:    fun._stateSize,
+		_init:         fun._init,
+		_update:       fun._update,
+		_combine:      fun._combine,
+		_finalize:     fun._finalize,
+		//_func:         fun._func,
+		_simpleUpdate: fun._simpleUpdate,
+		//_window:       fun._window,
+	}
+	return ret
+}
+
+type ScalarFunc func(*Chunk, *ExprState, *Vector)
 
 type aggrStateSize func() int
 type aggrInit func(pointer unsafe.Pointer)
@@ -79,6 +102,10 @@ type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
 type bindScalarFunc func(fun *FunctionV2, args []*Expr) *FunctionData
 
 type FunctionData struct{}
+
+func (fdata FunctionData) copy() *FunctionData {
+	return &FunctionData{}
+}
 
 type FunctionSet struct {
 	_name      string
@@ -100,7 +127,8 @@ func (set *FunctionSet) Add(fun *FunctionV2) {
 
 func (set *FunctionSet) GetFunc(offset int) *FunctionV2 {
 	assertFunc(offset < len(set._functions))
-	return set._functions[offset]
+	//!!!note copy instead of referring directly
+	return set._functions[offset].Copy()
 }
 
 func (set *FunctionSet) GetFuncByArgs(args []LType) *FunctionV2 {
@@ -119,26 +147,26 @@ type FunctionBinder struct {
 func (binder *FunctionBinder) BindScalarFunc(
 	name string,
 	args []*Expr,
-	argsTypes []LType,
+	subTyp ET_SubTyp,
 	isOperator bool,
 ) *Expr {
 	fset := scalarFuncs[name]
 	if fset == nil {
 		panic(fmt.Sprintf("function %s not found", name))
 	}
-	best := binder.BindFunc(name, fset, argsTypes)
+	best := binder.BindFunc2(name, fset, args)
 	if best == -1 {
-		return nil
+		panic(fmt.Sprintf("function %s not found %v", name, args))
 	}
 
 	fun := fset.GetFunc(best)
-	return binder.BindScalarFunc2(fun, args, argsTypes, isOperator)
+	return binder.BindScalarFunc2(fun, args, subTyp, isOperator)
 }
 
 func (binder *FunctionBinder) BindScalarFunc2(
 	fun *FunctionV2,
 	args []*Expr,
-	argsTypes []LType,
+	subTyp ET_SubTyp,
 	isOperator bool,
 ) *Expr {
 	var bindInfo *FunctionData
@@ -146,6 +174,109 @@ func (binder *FunctionBinder) BindScalarFunc2(
 		bindInfo = fun._bind(fun, args)
 	}
 
+	return &Expr{
+		Typ:    ET_Func,
+		SubTyp: subTyp,
+		Svalue: fun._name,
+		DataTyp: ExprDataType{
+			LTyp: fun._retType,
+		},
+		Children:   args,
+		IsOperator: isOperator,
+		BindInfo:   bindInfo,
+		FunImpl:    fun,
+	}
+}
+
+func (binder *FunctionBinder) CastToFuncArgs(fun *FunctionV2, args []*Expr) {
+	var err error
+	for i := 0; i < len(args); i++ {
+		targetType := fun._args[i]
+		if args[i].DataTyp.LTyp.id == LTID_LAMBDA {
+			continue
+		}
+		castRes := RequireCast(args[i].DataTyp.LTyp, targetType)
+		if castRes == DIFFERENT_TYPES {
+			args[i], err = AddCastToType(args[i], targetType, false)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
+func (binder *FunctionBinder) BindAggrFunc(
+	name string,
+	args []*Expr,
+	subTyp ET_SubTyp,
+	isOperator bool,
+) *Expr {
+	fset := aggrFuncs[name]
+	if fset == nil {
+		panic(fmt.Sprintf("function %s not found", name))
+	}
+	best := binder.BindFunc2(name, fset, args)
+	if best == -1 {
+		panic(fmt.Sprintf("function %s not found %v", name, args))
+	}
+
+	fun := fset.GetFunc(best)
+	return binder.BindAggrFunc2(fun, args, subTyp, isOperator)
+}
+
+func (binder *FunctionBinder) BindAggrFunc2(
+	fun *FunctionV2,
+	args []*Expr,
+	subTyp ET_SubTyp,
+	isOperator bool,
+) *Expr {
+	var bindInfo *FunctionData
+	if fun._bind != nil {
+		bindInfo = fun._bind(fun, args)
+	}
+	binder.CastToFuncArgs(fun, args)
+	return &Expr{
+		Typ:    ET_Func,
+		SubTyp: subTyp,
+		Svalue: fun._name,
+		DataTyp: ExprDataType{
+			LTyp: fun._retType,
+		},
+		Children:   args,
+		IsOperator: isOperator,
+		BindInfo:   bindInfo,
+		FunImpl:    fun,
+	}
+}
+
+type LTypeCmpResult int
+
+const (
+	IDENTICAL_TYPE  LTypeCmpResult = 0
+	TARGET_IS_ANY   LTypeCmpResult = 1
+	DIFFERENT_TYPES LTypeCmpResult = 2
+)
+
+func RequireCast(src, dst LType) LTypeCmpResult {
+	if dst.id == LTID_ANY {
+		return TARGET_IS_ANY
+	}
+	if src.id == dst.id {
+		return IDENTICAL_TYPE
+	}
+	return DIFFERENT_TYPES
+}
+
+func (binder *FunctionBinder) BindFunc2(
+	name string,
+	set *FunctionSet,
+	args []*Expr,
+) int {
+	args2 := make([]LType, 0)
+	for _, arg := range args {
+		args2 = append(args2, arg.DataTyp.LTyp)
+	}
+	return binder.BindFuncByArgs(name, set, args2)
 }
 
 func (binder *FunctionBinder) BindFunc(
@@ -212,7 +343,7 @@ func (binder *FunctionBinder) BindFuncCost(
 
 	cost := int64(0)
 	for i, arg := range args {
-		castCost := implicitCast(arg, fun._args[i])
+		castCost := castFuncs.ImplicitCastCost(arg, fun._args[i])
 		if castCost >= 0 {
 			cost += castCost
 		} else {
@@ -224,11 +355,39 @@ func (binder *FunctionBinder) BindFuncCost(
 }
 
 func init() {
-
+	castFuncs = NewCastFunctionSet()
+	RegisterAggrs()
+	RegisterOps()
 }
 
-var scalarFuncs = make(map[string]*FunctionSet)
+type FunctionList map[string]*FunctionSet
 
-func registerOps() {
+func (flist FunctionList) Add(name string, set *FunctionSet) {
+	if _, ok := flist[name]; ok {
+		panic(fmt.Sprintf("function %s already registered", name))
+	}
+	flist[name] = set
+}
 
+var scalarFuncs = make(FunctionList)
+var aggrFuncs = make(FunctionList)
+var castFuncs *CastFunctionSet
+
+func RegisterOps() {
+	AddFunc{}.Register(scalarFuncs)
+	SubFunc{}.Register(scalarFuncs)
+	MultiplyFunc{}.Register(scalarFuncs)
+	LikeFunc{}.Register(scalarFuncs)
+	InFunc{}.Register(scalarFuncs)
+	EqualFunc{}.Register(scalarFuncs)
+	BoolFunc{}.Register(scalarFuncs)
+	Greater{}.Register(scalarFuncs)
+	GreaterThan{}.Register(scalarFuncs)
+	DateAdd{}.Register(scalarFuncs)
+	LessFunc{}.Register(scalarFuncs)
+	LessEqualFunc{}.Register(scalarFuncs)
+}
+
+func RegisterAggrs() {
+	SumFunc{}.Register(aggrFuncs)
 }

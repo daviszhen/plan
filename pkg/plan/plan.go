@@ -466,29 +466,29 @@ type PhyType int
 
 const (
 	NA       PhyType = 0
-	BOOL             = 1
-	UINT8            = 2
-	INT8             = 3
-	UINT16           = 4
-	INT16            = 5
-	UINT32           = 6
-	INT32            = 7
-	UINT64           = 8
-	INT64            = 9
-	FLOAT            = 11
-	DOUBLE           = 12
-	INTERVAL         = 21
-	LIST             = 23
-	STRUCT           = 24
-	VARCHAR          = 200
-	INT128           = 204
-	UNKNOWN          = 205
-	BIT              = 206
-	DATE             = 207
-	POINTER          = 208
-	DECIMAL          = 209
+	BOOL     PhyType = 1
+	UINT8    PhyType = 2
+	INT8     PhyType = 3
+	UINT16   PhyType = 4
+	INT16    PhyType = 5
+	UINT32   PhyType = 6
+	INT32    PhyType = 7
+	UINT64   PhyType = 8
+	INT64    PhyType = 9
+	FLOAT    PhyType = 11
+	DOUBLE   PhyType = 12
+	INTERVAL PhyType = 21
+	LIST     PhyType = 23
+	STRUCT   PhyType = 24
+	VARCHAR  PhyType = 200
+	INT128   PhyType = 204
+	UNKNOWN  PhyType = 205
+	BIT      PhyType = 206
+	DATE     PhyType = 207
+	POINTER  PhyType = 208
+	DECIMAL  PhyType = 209
 
-	INVALID = 255
+	INVALID PhyType = 255
 )
 
 var pTypeToStr = map[PhyType]string{
@@ -623,47 +623,47 @@ type LTypeId int
 
 const (
 	LTID_INVALID         LTypeId = 0
-	LTID_NULL                    = 1
-	LTID_UNKNOWN                 = 2
-	LTID_ANY                     = 3
-	LTID_USER                    = 4
-	LTID_BOOLEAN                 = 10
-	LTID_TINYINT                 = 11
-	LTID_SMALLINT                = 12
-	LTID_INTEGER                 = 13
-	LTID_BIGINT                  = 14
-	LTID_DATE                    = 15
-	LTID_TIME                    = 16
-	LTID_TIMESTAMP_SEC           = 17
-	LTID_TIMESTAMP_MS            = 18
-	LTID_TIMESTAMP               = 19
-	LTID_TIMESTAMP_NS            = 20
-	LTID_DECIMAL                 = 21
-	LTID_FLOAT                   = 22
-	LTID_DOUBLE                  = 23
-	LTID_CHAR                    = 24
-	LTID_VARCHAR                 = 25
-	LTID_BLOB                    = 26
-	LTID_INTERVAL                = 27
-	LTID_UTINYINT                = 28
-	LTID_USMALLINT               = 29
-	LTID_UINTEGER                = 30
-	LTID_UBIGINT                 = 31
-	LTID_TIMESTAMP_TZ            = 32
-	LTID_TIME_TZ                 = 34
-	LTID_BIT                     = 36
-	LTID_HUGEINT                 = 50
-	LTID_POINTER                 = 51
-	LTID_VALIDITY                = 53
-	LTID_UUID                    = 54
-	LTID_STRUCT                  = 100
-	LTID_LIST                    = 101
-	LTID_MAP                     = 102
-	LTID_TABLE                   = 103
-	LTID_ENUM                    = 104
-	LTID_AGGREGATE_STATE         = 105
-	LTID_LAMBDA                  = 106
-	LTID_UNION                   = 107
+	LTID_NULL            LTypeId = 1
+	LTID_UNKNOWN         LTypeId = 2
+	LTID_ANY             LTypeId = 3
+	LTID_USER            LTypeId = 4
+	LTID_BOOLEAN         LTypeId = 10
+	LTID_TINYINT         LTypeId = 11
+	LTID_SMALLINT        LTypeId = 12
+	LTID_INTEGER         LTypeId = 13
+	LTID_BIGINT          LTypeId = 14
+	LTID_DATE            LTypeId = 15
+	LTID_TIME            LTypeId = 16
+	LTID_TIMESTAMP_SEC   LTypeId = 17
+	LTID_TIMESTAMP_MS    LTypeId = 18
+	LTID_TIMESTAMP       LTypeId = 19
+	LTID_TIMESTAMP_NS    LTypeId = 20
+	LTID_DECIMAL         LTypeId = 21
+	LTID_FLOAT           LTypeId = 22
+	LTID_DOUBLE          LTypeId = 23
+	LTID_CHAR            LTypeId = 24
+	LTID_VARCHAR         LTypeId = 25
+	LTID_BLOB            LTypeId = 26
+	LTID_INTERVAL        LTypeId = 27
+	LTID_UTINYINT        LTypeId = 28
+	LTID_USMALLINT       LTypeId = 29
+	LTID_UINTEGER        LTypeId = 30
+	LTID_UBIGINT         LTypeId = 31
+	LTID_TIMESTAMP_TZ    LTypeId = 32
+	LTID_TIME_TZ         LTypeId = 34
+	LTID_BIT             LTypeId = 36
+	LTID_HUGEINT         LTypeId = 50
+	LTID_POINTER         LTypeId = 51
+	LTID_VALIDITY        LTypeId = 53
+	LTID_UUID            LTypeId = 54
+	LTID_STRUCT          LTypeId = 100
+	LTID_LIST            LTypeId = 101
+	LTID_MAP             LTypeId = 102
+	LTID_TABLE           LTypeId = 103
+	LTID_ENUM            LTypeId = 104
+	LTID_AGGREGATE_STATE LTypeId = 105
+	LTID_LAMBDA          LTypeId = 106
+	LTID_UNION           LTypeId = 107
 )
 
 var lTypeIdToStr = map[LTypeId]string{
@@ -731,6 +731,21 @@ type LType struct {
 	pTyp  PhyType
 	width int
 	scale int
+}
+
+func Numeric() []LType {
+	typs := []LTypeId{
+		LTID_TINYINT, LTID_SMALLINT, LTID_INTEGER,
+		LTID_BIGINT, LTID_HUGEINT, LTID_FLOAT,
+		LTID_DOUBLE, LTID_DECIMAL, LTID_UTINYINT,
+		LTID_USMALLINT, LTID_UINTEGER, LTID_UBIGINT,
+	}
+	ret := make([]LType, len(typs))
+	for i, typ := range typs {
+		ret[i].id = typ
+		ret[i].pTyp = ret[i].getInternalType()
+	}
+	return ret
 }
 
 func (lt LType) serialize(serial Serialize) error {
@@ -839,6 +854,14 @@ func varchar2(width int) LType {
 
 func dateLTyp() LType {
 	return makeLType(LTID_DATE)
+}
+
+func timeLTyp() LType {
+	return makeLType(LTID_TIME)
+}
+
+func timestampLTyp() LType {
+	return makeLType(LTID_TIMESTAMP)
 }
 
 func boolean() LType {
@@ -1797,7 +1820,7 @@ func checkExprs(e ...*Expr) {
 				panic("invalid between")
 			}
 		}
-		if expr.Typ == ET_Func && expr.FuncId == INVALID_FUNC {
+		if expr.Typ == ET_Func && expr.FunImpl == nil {
 			panic("invalid function")
 		}
 		if expr.DataTyp.LTyp.id == LTID_INVALID {
@@ -1861,6 +1884,7 @@ const (
 	ET_NotExists
 	ET_DateAdd
 	ET_DateSub
+	ET_Cast
 )
 
 func (et ET_SubTyp) String() string {
@@ -1911,8 +1935,59 @@ func (et ET_SubTyp) String() string {
 		return "date_add"
 	case ET_DateSub:
 		return "date_sub"
+	case ET_Cast:
+		return "cast"
 	default:
 		panic(fmt.Sprintf("usp %v", int(et)))
+	}
+}
+
+func (et ET_SubTyp) isOperator() bool {
+	switch et {
+	case ET_Add:
+		return true
+	case ET_Sub:
+		return true
+	case ET_Mul:
+		return true
+	case ET_Div:
+		return true
+	case ET_Equal:
+		return true
+	case ET_NotEqual:
+		return true
+	case ET_Greater:
+		return true
+	case ET_GreaterEqual:
+		return true
+	case ET_Less:
+		return true
+	case ET_LessEqual:
+		return true
+	case ET_And:
+		return true
+	case ET_Or:
+		return true
+	case ET_Not:
+		return true
+	case ET_Like:
+		return true
+	case ET_NotLike:
+		return true
+	case ET_Between:
+		return true
+	case ET_Case:
+		return true
+	case ET_In:
+		return true
+	case ET_NotIn:
+		return true
+	case ET_Exists:
+		return true
+	case ET_NotExists:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1961,8 +2036,11 @@ type Expr struct {
 	SubqueryTyp ET_SubqueryType
 	CTEIndex    uint64
 
-	BelongCtx *BindContext // context for table and join
-	On        *Expr        //JoinOn
+	BelongCtx  *BindContext // context for table and join
+	On         *Expr        //JoinOn
+	IsOperator bool
+	BindInfo   *FunctionData
+	FunImpl    *FunctionV2
 }
 
 func (e *Expr) equal(o *Expr) bool {
@@ -1980,7 +2058,7 @@ func (e *Expr) copy() *Expr {
 		return nil
 	}
 
-	if e.Typ == ET_Func && e.FuncId == INVALID_FUNC {
+	if e.Typ == ET_Func && e.FunImpl == nil {
 		panic("invalid fun in copy")
 	}
 
@@ -2009,6 +2087,9 @@ func (e *Expr) copy() *Expr {
 		CTEIndex:    e.CTEIndex,
 		BelongCtx:   e.BelongCtx,
 		On:          e.On.copy(),
+		IsOperator:  e.IsOperator,
+		BindInfo:    e.BindInfo,
+		FunImpl:     e.FunImpl,
 	}
 	for _, child := range e.Children {
 		ret.Children = append(ret.Children, child.copy())
@@ -2658,13 +2739,8 @@ func splitExprByOr(expr *Expr) []*Expr {
 }
 
 func andExpr(a, b *Expr) *Expr {
-	return &Expr{
-		Typ:      ET_Func,
-		SubTyp:   ET_And,
-		FuncId:   AND,
-		DataTyp:  ExprDataType{LTyp: boolean()},
-		Children: []*Expr{a, b},
-	}
+	binder := FunctionBinder{}
+	return binder.BindScalarFunc(ET_And.String(), []*Expr{a, b}, ET_And, ET_And.isOperator())
 }
 
 func combineExprsByAnd(exprs ...*Expr) *Expr {
@@ -2680,13 +2756,8 @@ func combineExprsByAnd(exprs ...*Expr) *Expr {
 }
 
 func orExpr(a, b *Expr) *Expr {
-	return &Expr{
-		Typ:      ET_Func,
-		SubTyp:   ET_Or,
-		FuncId:   OR,
-		DataTyp:  ExprDataType{LTyp: boolean()},
-		Children: []*Expr{a, b},
-	}
+	binder := FunctionBinder{}
+	return binder.BindScalarFunc(ET_Or.String(), []*Expr{a, b}, ET_Or, ET_Or.isOperator())
 }
 
 func combineExprsByOr(exprs ...*Expr) *Expr {
@@ -2743,6 +2814,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				DataTyp:  expr.DataTyp,
 				FuncId:   expr.FuncId,
 				Children: []*Expr{left, right},
+				FunImpl:  expr.FunImpl,
 			}, hasCorCol
 		case ET_SubFunc:
 			args := make([]*Expr, 0, len(expr.Children))
@@ -2758,6 +2830,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				FuncId:   expr.FuncId,
 				DataTyp:  expr.DataTyp,
 				Children: args,
+				FunImpl:  expr.FunImpl,
 			}, hasCorCol
 		default:
 			panic(fmt.Sprintf("usp %v", expr.SubTyp))

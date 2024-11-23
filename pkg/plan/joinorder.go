@@ -651,6 +651,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					SubTyp:  condition.SubTyp,
 					DataTyp: condition.DataTyp,
 					FuncId:  condition.FuncId,
+					FunImpl: condition.FunImpl,
 				}
 				invert := !isSubset(left.set, filter.leftSet)
 				if !(condition.SubTyp == ET_Equal || condition.SubTyp == ET_In) {
@@ -744,6 +745,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					DataTyp:  filter.DataTyp,
 					FuncId:   filter.FuncId,
 					Children: []*Expr{nil, nil},
+					FunImpl:  filter.FunImpl,
 				}
 				if !invert {
 					cond.Children[0], cond.Children[1] = filter.Children[0], filter.Children[1]

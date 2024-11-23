@@ -1159,7 +1159,11 @@ func FinalizeStates(
 		if !sameType {
 			//TODO: put the cast in build plan stage
 			//cast
-			castExec(target, result._data[targetOffset], result.card())
+			src := target.typ()
+			dst := result._data[targetOffset].typ()
+			castInfo := castFuncs.GetCastFunc(src, dst)
+			castParams := &CastParams{}
+			castInfo._fun(target, result._data[targetOffset], result.card(), castParams)
 		}
 
 		//next aggr state

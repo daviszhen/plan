@@ -879,10 +879,10 @@ func (run *Runner) filterInit() error {
 func initFilterExec(filters []*Expr) (*ExprExec, error) {
 	//init filter
 	//convert filters into "... AND ..."
-	var err error
+	//var err error
 	var andFilter *Expr
 	if len(filters) > 0 {
-		var impl *Impl
+		//var impl *Impl
 		andFilter = filters[0]
 		for i, filter := range filters {
 			if i > 0 {
@@ -890,26 +890,16 @@ func initFilterExec(filters []*Expr) (*ExprExec, error) {
 					filter.DataTyp.LTyp.id != LTID_BOOLEAN {
 					return nil, fmt.Errorf("need boolean expr")
 				}
-				argsTypes := []ExprDataType{
-					andFilter.DataTyp,
-					filter.DataTyp,
-				}
-				impl, err = GetFunctionImpl(
-					AND,
-					argsTypes)
-				if err != nil {
-					return nil, err
-				}
-				andFilter = &Expr{
-					Typ:     ET_Func,
-					SubTyp:  ET_And,
-					DataTyp: impl.RetTypeDecider(argsTypes),
-					FuncId:  AND,
-					Children: []*Expr{
+				binder := FunctionBinder{}
+				andFilter = binder.BindScalarFunc(
+					ET_And.String(),
+					[]*Expr{
 						andFilter,
 						filter,
 					},
-				}
+					ET_And,
+					ET_And.isOperator(),
+				)
 			}
 		}
 	}

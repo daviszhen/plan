@@ -14,6 +14,14 @@
 
 package plan
 
+import (
+	"fmt"
+)
+
+type CastOp[T any, R any] interface {
+	operation(input *T, result *R, strict bool) bool
+}
+
 type unaryOp[T any, R any] interface {
 	operation(input *T, result *R)
 }
@@ -22,37 +30,29 @@ type unaryFunc[T any, R any] interface {
 	fun(input *T, result *R)
 }
 
-type unaryWrapper[T any, R any] interface {
-	operation(input *T, result *R, mask *Bitmap, idx int, op unaryOp[T, R], fun unaryFunc[T, R])
-}
-
 func unaryGenericExec[T any, R any](
 	input, result *Vector,
 	count int,
+	data *UnaryData,
 	addNulls bool,
-	op unaryOp[T, R],
-	fun unaryFunc[T, R],
-	wrapper unaryWrapper[T, R],
-) {
+	op UnaryOp2[T, R]) {
+	wrapper := &GenericUnaryWrapper[T, R]{
+		op: op,
+	}
 	unaryExecStandard[T, R](
-		input,
-		result,
+		input, result,
 		count,
+		data,
 		addNulls,
-		op,
-		fun,
-		wrapper,
-	)
+		wrapper)
 }
 
 func unaryExecStandard[T any, R any](
 	input, result *Vector,
 	count int,
+	data *UnaryData,
 	addNulls bool,
-	op unaryOp[T, R],
-	fun unaryFunc[T, R],
-	wrapper unaryWrapper[T, R],
-) {
+	wrapper UnaryWrapper[T, R]) {
 	if input.phyFormat().isConst() {
 		result.setPhyFormat(PF_CONST)
 		lslice := getSliceInPhyFormatConst[T](input)
@@ -61,7 +61,7 @@ func unaryExecStandard[T any, R any](
 			setNullInPhyFormatConst(result, true)
 		} else {
 			setNullInPhyFormatConst(result, false)
-			wrapper.operation(&lslice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, op, fun)
+			wrapper.operation(&lslice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, data)
 		}
 	} else if input.phyFormat().isFlat() {
 		result.setPhyFormat(PF_FLAT)
@@ -73,9 +73,8 @@ func unaryExecStandard[T any, R any](
 			count,
 			getMaskInPhyFormatFlat(input),
 			getMaskInPhyFormatFlat(result),
+			data,
 			addNulls,
-			op,
-			fun,
 			wrapper,
 		)
 	} else {
@@ -91,9 +90,8 @@ func unaryExecStandard[T any, R any](
 			uv._sel,
 			uv._mask,
 			getMaskInPhyFormatFlat(result),
+			data,
 			addNulls,
-			op,
-			fun,
 			wrapper,
 		)
 	}
@@ -105,10 +103,9 @@ func unaryExecFlat[T any, R any](
 	count int,
 	mask *Bitmap,
 	resMask *Bitmap,
+	data *UnaryData,
 	addNulls bool,
-	op unaryOp[T, R],
-	fun unaryFunc[T, R],
-	wrapper unaryWrapper[T, R],
+	wrapper UnaryWrapper[T, R],
 ) {
 	if !mask.AllValid() {
 		if !addNulls {
@@ -123,13 +120,7 @@ func unaryExecFlat[T any, R any](
 			next := min(baseIdx+8, count)
 			if AllValidInEntry(ent) {
 				for ; baseIdx < next; baseIdx++ {
-					wrapper.operation(
-						&input[baseIdx],
-						&result[baseIdx],
-						resMask,
-						baseIdx,
-						op,
-						fun)
+					wrapper.operation(&input[baseIdx], &result[baseIdx], resMask, baseIdx, data)
 				}
 			} else if NoneValidInEntry(ent) {
 				baseIdx = next
@@ -138,28 +129,14 @@ func unaryExecFlat[T any, R any](
 				start := baseIdx
 				for ; baseIdx < next; baseIdx++ {
 					if rowIsValidInEntry(ent, uint64(baseIdx-start)) {
-						wrapper.operation(
-							&input[baseIdx],
-							&result[baseIdx],
-							resMask,
-							baseIdx,
-							op,
-							fun,
-						)
+						wrapper.operation(&input[baseIdx], &result[baseIdx], resMask, baseIdx, data)
 					}
 				}
 			}
 		}
 	} else {
 		for i := 0; i < count; i++ {
-			wrapper.operation(
-				&input[i],
-				&result[i],
-				resMask,
-				i,
-				op,
-				fun,
-			)
+			wrapper.operation(&input[i], &result[i], resMask, i, data)
 		}
 	}
 }
@@ -171,23 +148,15 @@ func unaryExecLoop[T any, R any](
 	sel *SelectVector,
 	mask *Bitmap,
 	resMask *Bitmap,
+	data *UnaryData,
 	addNulls bool,
-	op unaryOp[T, R],
-	fun unaryFunc[T, R],
-	wrapper unaryWrapper[T, R],
+	wrapper UnaryWrapper[T, R],
 ) {
 	if !mask.AllValid() {
 		for i := 0; i < count; i++ {
 			idx := sel.getIndex(i)
 			if mask.rowIsValidUnsafe(uint64(idx)) {
-				wrapper.operation(
-					&input[idx],
-					&result[i],
-					resMask,
-					i,
-					op,
-					fun,
-				)
+				wrapper.operation(&input[idx], &result[i], resMask, i, data)
 			} else {
 				resMask.setInvalid(uint64(i))
 			}
@@ -195,14 +164,82 @@ func unaryExecLoop[T any, R any](
 	} else {
 		for i := 0; i < count; i++ {
 			idx := sel.getIndex(i)
-			wrapper.operation(
-				&input[idx],
-				&result[i],
-				resMask,
-				i,
-				op,
-				fun,
-			)
+			wrapper.operation(&input[idx], &result[i], resMask, i, data)
 		}
+	}
+}
+
+//lint:ignore U1000
+type UnaryWrapper[T any, R any] interface {
+	operation(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
+}
+
+//lint:ignore U1000
+type UnaryOp2[T any, R any] interface {
+	operation(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
+}
+
+//lint:ignore U1000
+type GenericUnaryWrapper[T any, R any] struct {
+	op UnaryOp2[T, R]
+}
+
+func (wrapper *GenericUnaryWrapper[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+) {
+	wrapper.op.operation(input, result, mask, idx, data)
+}
+
+//lint:ignore U1000
+type UnaryOperatorWrapper[T any, R any] struct {
+	op unaryOp[T, R]
+}
+
+func (wrapper *UnaryOperatorWrapper[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+) {
+	wrapper.op.operation(input, result)
+}
+
+//lint:ignore U1000
+type UnaryLambdaWrapper[T any, R any] struct {
+	fun unaryFunc[T, R]
+}
+
+func (wrapper *UnaryLambdaWrapper[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+) {
+	wrapper.fun.fun(input, result)
+}
+
+//lint:ignore U1000
+type VectorTryCastOperator[T any, R any] struct {
+	op CastOp[T, R]
+}
+
+func (vtcop VectorTryCastOperator[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData) {
+	ret := vtcop.op.operation(input, result, false)
+	if !ret {
+		err := fmt.Sprintf("VectorTryCastOperator[%d]: operation failed", idx)
+		data._tryCastData._errorMsg = &err
+		data._tryCastData._allConverted = false
+		mask.setInvalid(uint64(idx))
 	}
 }
