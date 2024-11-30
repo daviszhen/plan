@@ -911,7 +911,7 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	var err error
 	var count int
 	if !filterOnLocal {
-		fmt.Println("filter read child 4", input.card())
+		//fmt.Println("filter read child 4", input.card())
 	}
 	if filterOnLocal {
 		count, err = run.state.filterExec.executeSelect([]*Chunk{nil, nil, input}, run.state.filterSel)
@@ -933,7 +933,7 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 		output.sliceIndice(input, run.state.filterSel, count, 0, run.outputIndice)
 	}
 	if !filterOnLocal {
-		fmt.Println("filter read child 5", output.card())
+		//fmt.Println("filter read child 5", output.card())
 	}
 	return nil
 }
@@ -944,7 +944,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 	var err error
 	if len(run.children) != 0 {
 		for {
-			fmt.Println("filter read child 1")
+			//fmt.Println("filter read child 1")
 			res, err = run.execChild(run.children[0], childChunk, state)
 			if err != nil {
 				return 0, err
@@ -956,7 +956,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 				return res, nil
 			}
 			if childChunk.card() > 0 {
-				fmt.Println("filter read child 2", childChunk.card())
+				//fmt.Println("filter read child 2", childChunk.card())
 				break
 			}
 		}
@@ -966,7 +966,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 	if err != nil {
 		return 0, err
 	}
-	fmt.Println("filter read child 3", childChunk.card())
+	//fmt.Println("filter read child 3", childChunk.card())
 	return haveMoreOutput, nil
 }
 
