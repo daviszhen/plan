@@ -2840,8 +2840,8 @@ func CompareVal(
 		return TemplatedCompareVal[String](
 			lPtr,
 			rPtr,
-			gBinStringEqual,
-			gBinStringLessOp,
+			binStringEqualOp,
+			binStringLessOp,
 		)
 	default:
 		panic("usp")
@@ -2856,12 +2856,12 @@ func TemplatedCompareVal[T any](
 	lVal := load[T](lPtr)
 	rVal := load[T](rPtr)
 	eRet := false
-	equalOp.operation(&lVal, &rVal, &eRet)
+	equalOp(&lVal, &rVal, &eRet)
 	if eRet {
 		return 0
 	}
 	lRet := false
-	lessOp.operation(&lVal, &rVal, &lRet)
+	lessOp(&lVal, &rVal, &lRet)
 	if lRet {
 		return -1
 	}

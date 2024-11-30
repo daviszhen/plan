@@ -280,7 +280,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+						//binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -422,11 +422,11 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Date, Interval, Date](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDateIntervalAdd,
-							nil,
-							gBinDateIntervalSingleOpWrapper)
+						//binaryExecSwitch[Date, Interval, Date](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinDateIntervalAdd,
+						//	nil,
+						//	gBinDateIntervalSingleOpWrapper)
 						return nil
 					}
 				},
@@ -447,14 +447,14 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinFloat32Float32Add,
-							nil,
-							gBinFloat32Float32SingleOpWrapper)
+						//binaryExecSwitch[float32, float32, float32](
+						//	chunk._data[0],
+						//	chunk._data[1],
+						//	result,
+						//	count,
+						//	gBinFloat32Float32Add,
+						//	nil,
+						//	gBinFloat32Float32SingleOpWrapper)
 						return nil
 					}
 				},
@@ -475,11 +475,11 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDecimalDecimalAdd,
-							nil,
-							gBinDecimalDecimalOpWrapper)
+						//binaryExecSwitch[Decimal, Decimal, Decimal](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinDecimalDecimalAdd,
+						//	nil,
+						//	gBinDecimalDecimalOpWrapper)
 						return nil
 					}
 				},
@@ -520,14 +520,14 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, int32](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinInt32Int32Add,
-							nil,
-							gBinInt32Int32SingleOpWrapper)
+						//binaryExecSwitch[int32, int32, int32](
+						//	chunk._data[0],
+						//	chunk._data[1],
+						//	result,
+						//	count,
+						//	gBinInt32Int32Add,
+						//	nil,
+						//	gBinInt32Int32SingleOpWrapper)
 						return nil
 					}
 				},
@@ -554,14 +554,14 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinFloat32Float32SubOp,
-							nil,
-							gBinFloat32Float32SingleOpWrapper)
+						//binaryExecSwitch[float32, float32, float32](
+						//	chunk._data[0],
+						//	chunk._data[1],
+						//	result,
+						//	count,
+						//	gBinFloat32Float32SubOp,
+						//	nil,
+						//	gBinFloat32Float32SingleOpWrapper)
 						return nil
 					}
 				},
@@ -582,11 +582,11 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDecimalDecimalSubOp,
-							nil,
-							gBinDecimalDecimalOpWrapper)
+						//binaryExecSwitch[Decimal, Decimal, Decimal](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinDecimalDecimalSubOp,
+						//	nil,
+						//	gBinDecimalDecimalOpWrapper)
 						return nil
 					}
 				},
@@ -633,11 +633,11 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDecimalDecimalMulOp,
-							nil,
-							gBinDecimalDecimalOpWrapper)
+						//binaryExecSwitch[Decimal, Decimal, Decimal](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinDecimalDecimalMulOp,
+						//	nil,
+						//	gBinDecimalDecimalOpWrapper)
 						return nil
 					}
 				},
@@ -658,7 +658,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Multi, nil, gBinFloat32Float32SingleOpWrapper)
+						//binaryExecSwitch[float32, float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Multi, nil, gBinFloat32Float32SingleOpWrapper)
 						return nil
 					}
 				},
@@ -679,7 +679,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float64, float64, float64](chunk._data[0], chunk._data[1], result, count, gBinFloat64Multi, nil, gBinFloat64Float64SingleOpWrapper)
+						//binaryExecSwitch[float64, float64, float64](chunk._data[0], chunk._data[1], result, count, gBinFloat64Multi, nil, gBinFloat64Float64SingleOpWrapper)
 						return nil
 					}
 				},
@@ -706,14 +706,14 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinDecimalDiv,
-							nil,
-							gBinDecimalDecimalOpWrapper)
+						//binaryExecSwitch[Decimal, Decimal, Decimal](
+						//	chunk._data[0],
+						//	chunk._data[1],
+						//	result,
+						//	count,
+						//	gBinDecimalDiv,
+						//	nil,
+						//	gBinDecimalDecimalOpWrapper)
 						return nil
 					}
 				},
@@ -734,7 +734,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Div, nil, gBinFloat32Float32SingleOpWrapper)
+						//binaryExecSwitch[float32, float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Div, nil, gBinFloat32Float32SingleOpWrapper)
 						return nil
 					}
 				},
@@ -761,7 +761,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
+						//binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -940,7 +940,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, bool](chunk._data[0], chunk._data[1], result, count, gBinFloat32Great, nil, gBinFloat32BoolSingleOpWrapper)
+						//binaryExecSwitch[float32, float32, bool](chunk._data[0], chunk._data[1], result, count, gBinFloat32Great, nil, gBinFloat32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -1001,7 +1001,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Great, nil, gBinInt32BoolSingleOpWrapper)
+						//binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Great, nil, gBinInt32BoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -1229,7 +1229,7 @@ var operators = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[String, String, bool](chunk._data[0], chunk._data[1], result, count, gBinStringLike, nil, gBinStringBoolSingleOpWrapper)
+						//binaryExecSwitch[String, String, bool](chunk._data[0], chunk._data[1], result, count, gBinStringLike, nil, gBinStringBoolSingleOpWrapper)
 						return nil
 					}
 				},
@@ -1562,11 +1562,11 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Date, Interval, Date](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDateIntervalAdd,
-							nil,
-							gBinDateIntervalSingleOpWrapper)
+						//binaryExecSwitch[Date, Interval, Date](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinDateIntervalAdd,
+						//	nil,
+						//	gBinDateIntervalSingleOpWrapper)
 						return nil
 					}
 				},
@@ -1589,11 +1589,11 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Date, Interval, Date](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDateIntervalSub,
-							nil,
-							gBinDateIntervalSingleOpWrapper)
+						//binaryExecSwitch[Date, Interval, Date](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinDateIntervalSub,
+						//	nil,
+						//	gBinDateIntervalSingleOpWrapper)
 						return nil
 					}
 				},
@@ -1616,11 +1616,11 @@ var funcs = []*Function{
 				},
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[String, Date, int32](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinStringInt32Extract,
-							nil,
-							gBinStringInt32SingleOpWrapper)
+						//binaryExecSwitch[String, Date, int32](
+						//	chunk._data[0], chunk._data[1], result, count,
+						//	gBinStringInt32Extract,
+						//	nil,
+						//	gBinStringInt32SingleOpWrapper)
 						return nil
 					}
 				},
@@ -1911,28 +1911,28 @@ var funcs = []*Function{
 				Body: func() FunctionBody {
 					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
 
-						if chunk.columnCount() == 3 {
-							ternaryExecGeneric[String, int64, int64, String](
-								chunk._data[0],
-								chunk._data[1],
-								chunk._data[2],
-								result,
-								count,
-								nil,
-								substringFunc{},
-								ternaryLambdaWrapper[String, int64, int64, String]{},
-							)
-						} else {
-							binaryExecSwitch[String, int64, String](
-								chunk._data[0],
-								chunk._data[1],
-								result,
-								count,
-								nil,
-								substringFuncWithoutLength{},
-								binaryLambdaWrapper[String, int64, String]{},
-							)
-						}
+						//if chunk.columnCount() == 3 {
+						//	ternaryExecGeneric[String, int64, int64, String](
+						//		chunk._data[0],
+						//		chunk._data[1],
+						//		chunk._data[2],
+						//		result,
+						//		count,
+						//		nil,
+						//		substringFunc{},
+						//		ternaryLambdaWrapper[String, int64, int64, String]{},
+						//	)
+						//} else {
+						//	binaryExecSwitch[String, int64, String](
+						//		chunk._data[0],
+						//		chunk._data[1],
+						//		result,
+						//		count,
+						//		nil,
+						//		substringFuncWithoutLength{},
+						//		binaryLambdaWrapper[String, int64, String]{},
+						//	)
+						//}
 
 						return nil
 					}

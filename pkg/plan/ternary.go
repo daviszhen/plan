@@ -28,10 +28,6 @@ type ternaryFunc[A any, B any, C any, R any] interface {
 	fun(*A, *B, *C, *R)
 }
 
-//lint:ignore U1000
-type substringFunc struct {
-}
-
 const (
 	upperLimit = int64(math.MaxUint32)
 	lowerLimit = -int64(math.MaxUint32) - 1
@@ -100,7 +96,7 @@ func sliceString(sdata unsafe.Pointer, offset, length int64, result *String) {
 		int(length))
 }
 
-func (sub substringFunc) fun(s *String, offset *int64, length *int64, result *String) {
+func substringFunc(s *String, offset *int64, length *int64, result *String) {
 	slen := s.len()
 	sdata := s.data()
 

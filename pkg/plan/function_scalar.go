@@ -75,7 +75,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: lTyp,
 				_funcTyp: ScalarFuncType,
-				_scalar:  GetScalarIntegerFunction(lTyp.getInternalType()),
+				_scalar:  GetScalarIntegerFunction(lTyp.getInternalType(), "+", true),
 				_bind:    nil,
 			}
 		} else {
@@ -84,7 +84,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: lTyp,
 				_funcTyp: ScalarFuncType,
-				_scalar:  GetScalarBinaryFunction(lTyp.getInternalType()),
+				_scalar:  GetScalarBinaryFunction(lTyp.getInternalType(), "+", false),
 				_bind:    nil,
 			}
 		}
@@ -97,10 +97,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: dateLTyp(),
 				_funcTyp: ScalarFuncType,
-				_scalar: BinaryFunction[Date, int32, Date](
-					gBinDateInt32AddOp,
-					nil,
-					gBinDateInt32SingleOpWrapper),
+				_scalar:  BinaryFunction[Date, int32, Date](binDateInt32AddOp),
 			}
 		} else if rTyp.id == LTID_INTERVAL {
 			return &FunctionV2{
@@ -108,10 +105,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: dateLTyp(),
 				_funcTyp: ScalarFuncType,
-				_scalar: BinaryFunction[Date, Interval, Date](
-					gBinDateIntervalAdd,
-					nil,
-					gBinDateIntervalSingleOpWrapper),
+				_scalar:  BinaryFunction[Date, Interval, Date](binDateInterAddOp),
 			}
 		} else if rTyp.id == LTID_TIME {
 			panic("usp")
@@ -123,10 +117,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: dateLTyp(),
 				_funcTyp: ScalarFuncType,
-				_scalar: BinaryFunction[int32, Date, Date](
-					gBinInt32DateAddOp,
-					nil,
-					gBinInt32DateSingleOpWrapper),
+				_scalar:  BinaryFunction[int32, Date, Date](binInt32DateAddOp),
 			}
 		}
 	case LTID_INTERVAL:
@@ -137,10 +128,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: intervalLType(),
 				_funcTyp: ScalarFuncType,
-				_scalar: BinaryFunction[Interval, Interval, Interval](
-					gBinIntervalIntervalAddOp,
-					nil,
-					gBinIntervalIntervalSingleOpWrapper),
+				_scalar:  BinaryFunction[Interval, Interval, Interval](binIntervalIntervalAddOp),
 			}
 		case LTID_DATE:
 			return &FunctionV2{
@@ -148,10 +136,7 @@ func (add AddFunc) Func2(lTyp, rTyp LType) *FunctionV2 {
 				_args:    []LType{lTyp, rTyp},
 				_retType: dateLTyp(),
 				_funcTyp: ScalarFuncType,
-				_scalar: BinaryFunction[Interval, Date, Date](
-					gBinIntervalDateAddOp,
-					nil,
-					gBinIntervalDateSingleOpWrapper),
+				_scalar:  BinaryFunction[Interval, Date, Date](binIntervalDateAddOp),
 			}
 		default:
 			panic("usp")
@@ -206,10 +191,7 @@ func (sub SubFunc) Register(funcList FunctionList) {
 		_args:    []LType{float(), float()},
 		_retType: float(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[float32, float32, float32](
-			gBinFloat32Float32SubOp,
-			nil,
-			gBinFloat32Float32SingleOpWrapper),
+		_scalar:  BinaryFunction[float32, float32, float32](binFloat32Float32SubOp),
 	}
 
 	subDec := &FunctionV2{
@@ -217,10 +199,7 @@ func (sub SubFunc) Register(funcList FunctionList) {
 		_args:    []LType{decimal(DecimalMaxWidthInt64, 0), decimal(DecimalMaxWidthInt64, 0)},
 		_retType: decimal(DecimalMaxWidthInt64, 0),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[Decimal, Decimal, Decimal](
-			gBinDecimalDecimalSubOp,
-			nil,
-			gBinDecimalDecimalOpWrapper),
+		_scalar:  BinaryFunction[Decimal, Decimal, Decimal](binDecimalDecimalSubOp),
 	}
 
 	subDate := &FunctionV2{
@@ -245,21 +224,33 @@ func (like LikeFunc) Register(funcList FunctionList) {
 		_args:    []LType{varchar(), varchar()},
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[String, String, bool](
-			gBinStringLike,
-			nil,
-			gBinStringBoolSingleOpWrapper),
+		_scalar:  BinaryFunction[String, String, bool](binStringLikeOp),
 	}
 	set := NewFunctionSet(ET_Like.String(), ScalarFuncType)
 	set.Add(likeFunc)
 	funcList.Add(ET_Like.String(), set)
 }
 
-func GetScalarIntegerFunction(ptyp PhyType) ScalarFunc {
+func GetScalarIntegerFunction(ptyp PhyType, opKind string, checkOverflow bool) ScalarFunc {
+	fmt.Println("GetScalarIntegerFunction", ptyp, opKind, checkOverflow)
+	switch opKind {
+	case "+":
+		return GetScalarIntegerAddFunction(ptyp, checkOverflow)
+	case "-":
+	case "*":
+	}
+
 	return nil
 }
 
-func GetScalarBinaryFunction(ptyp PhyType) ScalarFunc {
+func GetScalarBinaryFunction(ptyp PhyType, opKind string, checkOverflow bool) ScalarFunc {
+	fmt.Println("GetScalarBinaryFunction", ptyp, opKind, checkOverflow)
+	switch opKind {
+	case "+":
+		return GetScalarBinaryAddFunction(ptyp, checkOverflow)
+	case "-":
+	case "*":
+	}
 	return nil
 }
 
@@ -272,11 +263,7 @@ func (in InFunc) Register(funcList FunctionList) {
 		_args:    []LType{integer(), integer()},
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[int32, int32, bool](
-			gBinInt32Equal,
-			nil,
-			gBinInt32BoolSingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[int32, int32, bool](binInt32EqualOp),
 	}
 
 	inVarchar := &FunctionV2{
@@ -284,11 +271,7 @@ func (in InFunc) Register(funcList FunctionList) {
 		_args:    []LType{varchar(), varchar()},
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[String, String, bool](
-			gBinStringEqual,
-			nil,
-			gBinStringBoolSingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[String, String, bool](binStringEqualOp),
 	}
 
 	set := NewFunctionSet(ET_In.String(), ScalarFuncType)
@@ -308,11 +291,7 @@ func (equal EqualFunc) Register(funcList FunctionList) {
 		_args:    []LType{integer(), integer()},
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[int32, int32, bool](
-			gBinInt32Equal,
-			nil,
-			gBinInt32BoolSingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[int32, int32, bool](binInt32EqualOp),
 	}
 
 	equalStr := &FunctionV2{
@@ -327,11 +306,7 @@ func (equal EqualFunc) Register(funcList FunctionList) {
 		_args:    []LType{boolean(), boolean()},
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[bool, bool, bool](
-			gBinBoolEqual,
-			nil,
-			gBinBoolBoolSingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[bool, bool, bool](binBoolEqualOp),
 	}
 
 	set.Add(equalFunc1)
@@ -390,11 +365,7 @@ func (Greater) Register(funcList FunctionList) {
 		_args:    []LType{float(), float()},
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[float32, float32, bool](
-			gBinFloat32Great,
-			nil,
-			gBinFloat32BoolSingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[float32, float32, bool](binFloat32GreatOp),
 	}
 
 	set.Add(gtInteger)
@@ -438,11 +409,7 @@ func (DateAdd) Register(funcList FunctionList) {
 		_args:    []LType{dateLTyp(), intervalLType()},
 		_retType: dateLTyp(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[Date, Interval, Date](
-			gBinDateIntervalAdd,
-			nil,
-			gBinDateIntervalSingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[Date, Interval, Date](binDateInterAddOp),
 	}
 
 	set.Add(f)
@@ -505,11 +472,7 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 		_args:    []LType{float(), float()},
 		_retType: float(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[float32, float32, float32](
-			gBinFloat32Multi,
-			nil,
-			gBinFloat32Float32SingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[float32, float32, float32](binFloat32MultiOp),
 	}
 
 	mulDouble := &FunctionV2{
@@ -517,11 +480,7 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 		_args:    []LType{double(), double()},
 		_retType: double(),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[float64, float64, float64](
-			gBinFloat64Multi,
-			nil,
-			gBinFloat64Float64SingleOpWrapper,
-		),
+		_scalar:  BinaryFunction[float64, float64, float64](binFloat64MultiOp),
 	}
 
 	mulDec := &FunctionV2{
@@ -529,11 +488,7 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 		_args:    []LType{decimal(DecimalMaxWidthInt64, 0), decimal(DecimalMaxWidthInt64, 0)},
 		_retType: decimal(DecimalMaxWidthInt64, 0),
 		_funcTyp: ScalarFuncType,
-		_scalar: BinaryFunction[Decimal, Decimal, Decimal](
-			gBinDecimalDecimalMulOp,
-			nil,
-			gBinDecimalDecimalOpWrapper,
-		),
+		_scalar:  BinaryFunction[Decimal, Decimal, Decimal](binDecimalDecimalMulOp),
 	}
 
 	set.Add(mulFloat)
