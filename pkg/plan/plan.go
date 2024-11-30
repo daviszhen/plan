@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
-	"reflect"
 	"strings"
 	"time"
 	"unsafe"
@@ -1066,6 +1065,9 @@ func (lt LType) getInternalType() PhyType {
 
 func (lt LType) String() string {
 	//return fmt.Sprintf("(%v %v %d %d)", lt.id, lt.pTyp, lt.width, lt.scale)
+	if lt.id == LTID_DECIMAL {
+		return fmt.Sprintf("%v(%d,%d)", lt.pTyp, lt.width, lt.scale)
+	}
 	return fmt.Sprintf("%v", lt.pTyp)
 }
 
@@ -2047,7 +2049,79 @@ func (e *Expr) equal(o *Expr) bool {
 	if e == nil && o == nil {
 		return true
 	} else if e != nil && o != nil {
-		return reflect.DeepEqual(e, o)
+		if e.Typ != o.Typ {
+			return false
+		}
+		if e.SubTyp != o.SubTyp {
+			return false
+		}
+		if e.DataTyp != o.DataTyp {
+			return false
+		}
+		if e.AggrTyp != o.AggrTyp {
+			return false
+		}
+		if e.Index != o.Index {
+			return false
+		}
+		if e.Database != o.Database {
+			return false
+		}
+		if e.Table != o.Table {
+			return false
+		}
+		if e.Name != o.Name {
+			return false
+		}
+		if e.ColRef != o.ColRef {
+			return false
+		}
+		if e.Depth != o.Depth {
+			return false
+		}
+		if e.Svalue != o.Svalue {
+			return false
+		}
+		if e.Ivalue != o.Ivalue {
+			return false
+		}
+		if e.Fvalue != o.Fvalue {
+			return false
+		}
+		if e.Bvalue != o.Bvalue {
+			return false
+		}
+		if e.Desc != o.Desc {
+			return false
+		}
+		if e.JoinTyp != o.JoinTyp {
+			return false
+		}
+		if e.Alias != o.Alias {
+			return false
+		}
+		if e.SubqueryTyp != o.SubqueryTyp {
+			return false
+		}
+		if e.CTEIndex != o.CTEIndex {
+			return false
+		}
+		if e.IsOperator != o.IsOperator {
+			return false
+		}
+		if !e.On.equal(o.On) {
+			return false
+		}
+		//children
+		if len(e.Children) != len(o.Children) {
+			return false
+		}
+		for i, child := range e.Children {
+			if !child.equal(o.Children[i]) {
+				return false
+			}
+		}
+		return true
 	} else {
 		return false
 	}

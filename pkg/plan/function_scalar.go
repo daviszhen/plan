@@ -232,7 +232,6 @@ func (like LikeFunc) Register(funcList FunctionList) {
 }
 
 func GetScalarIntegerFunction(ptyp PhyType, opKind string, checkOverflow bool) ScalarFunc {
-	fmt.Println("GetScalarIntegerFunction", ptyp, opKind, checkOverflow)
 	switch opKind {
 	case "+":
 		return GetScalarIntegerAddFunction(ptyp, checkOverflow)
@@ -244,7 +243,6 @@ func GetScalarIntegerFunction(ptyp PhyType, opKind string, checkOverflow bool) S
 }
 
 func GetScalarBinaryFunction(ptyp PhyType, opKind string, checkOverflow bool) ScalarFunc {
-	fmt.Println("GetScalarBinaryFunction", ptyp, opKind, checkOverflow)
 	switch opKind {
 	case "+":
 		return GetScalarBinaryAddFunction(ptyp, checkOverflow)
