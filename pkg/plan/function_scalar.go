@@ -231,6 +231,22 @@ func (like LikeFunc) Register(funcList FunctionList) {
 	funcList.Add(ET_Like.String(), set)
 }
 
+type NotLikeFunc struct {
+}
+
+func (like NotLikeFunc) Register(funcList FunctionList) {
+	likeFunc := &FunctionV2{
+		_name:    ET_NotLike.String(),
+		_args:    []LType{varchar(), varchar()},
+		_retType: boolean(),
+		_funcTyp: ScalarFuncType,
+		//_scalar:  BinaryFunction[String, String, bool](binStringLikeOp),
+	}
+	set := NewFunctionSet(ET_NotLike.String(), ScalarFuncType)
+	set.Add(likeFunc)
+	funcList.Add(ET_NotLike.String(), set)
+}
+
 func GetScalarIntegerFunction(ptyp PhyType, opKind string, checkOverflow bool) ScalarFunc {
 	switch opKind {
 	case "+":
@@ -312,6 +328,32 @@ func (equal EqualFunc) Register(funcList FunctionList) {
 	set.Add(equalBool)
 
 	funcList.Add(ET_Equal.String(), set)
+}
+
+type NotEqualFunc struct {
+}
+
+func (equal NotEqualFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet(ET_NotEqual.String(), ScalarFuncType)
+
+	notEqualFunc1 := &FunctionV2{
+		_name:    ET_NotEqual.String(),
+		_args:    []LType{integer(), integer()},
+		_retType: boolean(),
+		_funcTyp: ScalarFuncType,
+	}
+
+	notEqualStr := &FunctionV2{
+		_name:    ET_NotEqual.String(),
+		_args:    []LType{varchar(), varchar()},
+		_retType: boolean(),
+		_funcTyp: ScalarFuncType,
+	}
+
+	set.Add(notEqualFunc1)
+	set.Add(notEqualStr)
+
+	funcList.Add(ET_NotEqual.String(), set)
 }
 
 type BoolFunc struct {
@@ -426,7 +468,32 @@ func (LessFunc) Register(funcList FunctionList) {
 		_retType: boolean(),
 		_funcTyp: ScalarFuncType,
 	}
+
+	lInt := &FunctionV2{
+		_name:    ET_Less.String(),
+		_args:    []LType{integer(), integer()},
+		_retType: boolean(),
+		_funcTyp: ScalarFuncType,
+	}
+
+	lFloat := &FunctionV2{
+		_name:    ET_Less.String(),
+		_args:    []LType{float(), float()},
+		_retType: boolean(),
+		_funcTyp: ScalarFuncType,
+	}
+
+	lDouble := &FunctionV2{
+		_name:    ET_Less.String(),
+		_args:    []LType{double(), double()},
+		_retType: boolean(),
+		_funcTyp: ScalarFuncType,
+	}
+
 	set.Add(l)
+	set.Add(lInt)
+	set.Add(lFloat)
+	set.Add(lDouble)
 	funcList.Add(ET_Less.String(), set)
 }
 
@@ -494,4 +561,61 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 	set.Add(mulDec)
 
 	funcList.Add(ET_Mul.String(), set)
+}
+
+type DevideFunc struct {
+}
+
+func (DevideFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet(ET_Div.String(), ScalarFuncType)
+
+	divFloat := &FunctionV2{
+		_name:    ET_Div.String(),
+		_args:    []LType{float(), float()},
+		_retType: float(),
+		_funcTyp: ScalarFuncType,
+		_scalar:  BinaryFunction[float32, float32, float32](binFloat32DivOp),
+	}
+
+	divDec := &FunctionV2{
+		_name:    ET_Div.String(),
+		_args:    []LType{decimal(DecimalMaxWidthInt64, 0), decimal(DecimalMaxWidthInt64, 0)},
+		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_funcTyp: ScalarFuncType,
+		_scalar:  BinaryFunction[Decimal, Decimal, Decimal](binDecimalDivOp),
+	}
+
+	set.Add(divFloat)
+	set.Add(divDec)
+
+	funcList.Add(ET_Div.String(), set)
+}
+
+type CaseFunc struct {
+}
+
+func (CaseFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet(ET_Case.String(), ScalarFuncType)
+
+	caseDec := &FunctionV2{
+		_name: ET_Case.String(),
+		_args: []LType{
+			decimal(DecimalMaxWidthInt64, 0),
+			boolean(),
+			decimal(DecimalMaxWidthInt64, 0)},
+		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_funcTyp: ScalarFuncType,
+	}
+
+	divInt := &FunctionV2{
+		_name:    ET_Case.String(),
+		_args:    []LType{integer(), boolean(), integer()},
+		_retType: integer(),
+		_funcTyp: ScalarFuncType,
+	}
+
+	set.Add(caseDec)
+	set.Add(divInt)
+
+	funcList.Add(ET_Case.String(), set)
 }

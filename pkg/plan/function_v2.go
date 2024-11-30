@@ -377,17 +377,24 @@ func RegisterOps() {
 	AddFunc{}.Register(scalarFuncs)
 	SubFunc{}.Register(scalarFuncs)
 	MultiplyFunc{}.Register(scalarFuncs)
+	DevideFunc{}.Register(scalarFuncs)
 	LikeFunc{}.Register(scalarFuncs)
+	NotLikeFunc{}.Register(scalarFuncs)
 	InFunc{}.Register(scalarFuncs)
 	EqualFunc{}.Register(scalarFuncs)
+	NotEqualFunc{}.Register(scalarFuncs)
 	BoolFunc{}.Register(scalarFuncs)
 	Greater{}.Register(scalarFuncs)
 	GreaterThan{}.Register(scalarFuncs)
 	DateAdd{}.Register(scalarFuncs)
 	LessFunc{}.Register(scalarFuncs)
 	LessEqualFunc{}.Register(scalarFuncs)
+	CaseFunc{}.Register(scalarFuncs)
 }
 
 func RegisterAggrs() {
 	SumFunc{}.Register(aggrFuncs)
+	AvgFunc{}.Register(aggrFuncs)
+	CountFunc{}.Register(aggrFuncs)
+	MaxFunc{}.Register(aggrFuncs)
 }

@@ -37,3 +37,68 @@ func (SumFunc) Register(funcList FunctionList) {
 
 	funcList.Add("sum", set)
 }
+
+type AvgFunc struct {
+}
+
+func (AvgFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet("avg", AggregateFuncType)
+
+	avgInt := &FunctionV2{
+		_name:    "avg",
+		_args:    []LType{integer()},
+		_retType: double(),
+		_funcTyp: AggregateFuncType,
+	}
+	avgDec := &FunctionV2{
+		_name:    "avg",
+		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
+		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_funcTyp: AggregateFuncType,
+	}
+	set.Add(avgInt)
+	set.Add(avgDec)
+
+	funcList.Add("avg", set)
+}
+
+type CountFunc struct {
+}
+
+func (CountFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet("count", AggregateFuncType)
+
+	countInt := &FunctionV2{
+		_name:    "count",
+		_args:    []LType{integer()},
+		_retType: integer(),
+		_funcTyp: AggregateFuncType,
+	}
+	countDec := &FunctionV2{
+		_name:    "count",
+		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
+		_retType: integer(),
+		_funcTyp: AggregateFuncType,
+	}
+	set.Add(countInt)
+	set.Add(countDec)
+
+	funcList.Add("count", set)
+}
+
+type MaxFunc struct {
+}
+
+func (MaxFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet("max", AggregateFuncType)
+
+	maxDec := &FunctionV2{
+		_name:    "max",
+		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
+		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_funcTyp: AggregateFuncType,
+	}
+	set.Add(maxDec)
+
+	funcList.Add("max", set)
+}
