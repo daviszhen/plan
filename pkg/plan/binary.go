@@ -18,9 +18,70 @@ import (
 	"math"
 )
 
-type binaryOp[T any, S any, R any] func(left *T, right *S, result *R)
+type BinaryOp[T any, S any, R any] func(left *T, right *S, result *R)
 
-type binaryFunc[T any, S any, R any] func(left *T, right *S, result *R)
+type BinaryFunc[T any, S any, R any] func(left *T, right *S, result *R, mask *Bitmap, idx int)
+
+type BinaryWrapper[T any, S any, R any] interface {
+	operation(left *T, right *S, result *R, mask *Bitmap, idx int,
+		fun BinaryFunc[T, S, R])
+
+	addsNulls() bool
+}
+
+type BinaryStandardOperatorWrapper[T any, S any, R any] struct {
+	op BinaryOp[T, S, R]
+}
+
+func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, S, R]) {
+	wrapper.op(left, right, result)
+}
+
+func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) addsNulls() bool {
+	return false
+}
+
+type BinarySingleArgumentOperatorWrapper[T any, R any] struct {
+	op BinaryOp[T, T, R]
+}
+
+func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) operation(
+	left *T, right *T, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, T, R]) {
+	wrapper.op(left, right, result)
+}
+
+func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) addsNulls() bool {
+	return false
+}
+
+type BinaryLambdaWrapper[T any, S any, R any] struct {
+}
+
+func (wrapper *BinaryLambdaWrapper[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, S, R]) {
+	fun(left, right, result, mask, idx)
+}
+
+func (wrapper *BinaryLambdaWrapper[T, S, R]) addsNulls() bool {
+	return false
+}
+
+type BinaryLambdaWrapperWithNulls[T any, S any, R any] struct {
+}
+
+func (wrapper *BinaryLambdaWrapperWithNulls[T, S, R]) operation(
+	left *T, right *S, result *R, mask *Bitmap, idx int,
+	fun BinaryFunc[T, S, R]) {
+	fun(left, right, result, mask, idx)
+}
+
+func (wrapper *BinaryLambdaWrapperWithNulls[T, S, R]) addsNulls() bool {
+	return true
+}
 
 func substringFuncWithoutLength(s *String, offset *int64, result *String) {
 	length := int64(math.MaxUint32)
@@ -410,13 +471,13 @@ func binaryExecGenericLoop[T any, S any, R any](
 }
 
 func BinaryFunction[T, S, R any](
-	op binaryOp[T, S, R],
+	op BinaryOp[T, S, R],
 ) ScalarFunc {
 	return ExecuteStandard[T, S, R](op)
 }
 
 func ExecuteStandard[T, S, R any](
-	op binaryOp[T, S, R],
+	op BinaryOp[T, S, R],
 ) ScalarFunc {
 	wrapper := &BinaryStandardOperatorWrapper[T, S, R]{op: op}
 	temp := func(input *Chunk, state *ExprState, result *Vector) {
@@ -428,69 +489,4 @@ func ExecuteStandard[T, S, R any](
 			nil, wrapper)
 	}
 	return temp
-}
-
-type BinaryFunc[T any, S any, R any] interface {
-	fun(left *T, right *S, result *R, mask *Bitmap, idx int)
-}
-
-type BinaryWrapper[T any, S any, R any] interface {
-	operation(left *T, right *S, result *R, mask *Bitmap, idx int,
-		fun BinaryFunc[T, S, R])
-
-	addsNulls() bool
-}
-
-type BinaryStandardOperatorWrapper[T any, S any, R any] struct {
-	op binaryOp[T, S, R]
-}
-
-func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) operation(
-	left *T, right *S, result *R, mask *Bitmap, idx int,
-	fun BinaryFunc[T, S, R]) {
-	wrapper.op(left, right, result)
-}
-
-func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) addsNulls() bool {
-	return false
-}
-
-type BinarySingleArgumentOperatorWrapper[T any, R any] struct {
-	op binaryOp[T, T, R]
-}
-
-func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) operation(
-	left *T, right *T, result *R, mask *Bitmap, idx int,
-	fun BinaryFunc[T, T, R]) {
-	wrapper.op(left, right, result)
-}
-
-func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) addsNulls() bool {
-	return false
-}
-
-type BinaryLambdaWrapper[T any, S any, R any] struct {
-}
-
-func (wrapper *BinaryLambdaWrapper[T, S, R]) operation(
-	left *T, right *S, result *R, mask *Bitmap, idx int,
-	fun BinaryFunc[T, S, R]) {
-	fun.fun(left, right, result, mask, idx)
-}
-
-func (wrapper *BinaryLambdaWrapper[T, S, R]) addsNulls() bool {
-	return false
-}
-
-type BinaryLambdaWrapperWithNulls[T any, S any, R any] struct {
-}
-
-func (wrapper *BinaryLambdaWrapperWithNulls[T, S, R]) operation(
-	left *T, right *S, result *R, mask *Bitmap, idx int,
-	fun BinaryFunc[T, S, R]) {
-	fun.fun(left, right, result, mask, idx)
-}
-
-func (wrapper *BinaryLambdaWrapperWithNulls[T, S, R]) addsNulls() bool {
-	return true
 }

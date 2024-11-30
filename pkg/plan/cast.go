@@ -23,63 +23,23 @@ import (
 	dec "github.com/govalues/decimal"
 )
 
-var (
-	// int32 => ...
-	gTryCastInt32ToInt32   tryCastInt32ToInt32
-	gTryCastInt32ToFloat32 tryCastInt32ToFloat32
-	gTryCastInt32ToFloat64 tryCastInt32ToFloat64
-
-	// bigint =>
-	gTryCastBigintToInt32   tryCastBigintToInt32
-	gTryCastBigintToDecimal tryCastBigintToDecimal
-
-	// float32 => ...
-	gTryCastFloat32ToInt32   tryCastFloat32ToInt32
-	gTryCastFloat32ToFloat64 tryCastFloat32ToFloat64
-
-	// decimal => ...
-	gTryCastDecimalToFloat32 tryCastDecimalToFloat32
-
-	// varchar => ...
-	gTryCastVarcharToDate tryCastVarcharToDate
-
-	gTryCastVarcharToInterval tryCastVarcharToInterval
-)
-
-//lint:ignore U1000
-type tryCastInt32ToInt32 struct {
-}
-
-func (numCast tryCastInt32ToInt32) operation(input *int32, result *int32, _ bool) bool {
+func tryCastInt32ToInt32(input *int32, result *int32, _ bool) bool {
 	*result = int32(*input)
 	return true
 }
 
-//lint:ignore U1000
-type tryCastInt32ToFloat32 struct {
-}
-
-func (numCast tryCastInt32ToFloat32) operation(input *int32, result *float32, _ bool) bool {
+func tryCastInt32ToFloat32(input *int32, result *float32, _ bool) bool {
 	*result = float32(*input)
 	return true
 }
 
-//lint:ignore U1000
-type tryCastInt32ToFloat64 struct {
-}
-
-func (numCast tryCastInt32ToFloat64) operation(input *int32, result *float64, _ bool) bool {
+func tryCastInt32ToFloat64(input *int32, result *float64, _ bool) bool {
 	*result = float64(*input)
 	return true
 }
 
-//lint:ignore U1000
-type tryCastInt32ToDecimal struct {
-	tScale int
-}
-
-func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal, _ bool) bool {
-	nDec, err := dec.NewFromInt64(int64(*input), 0, numCast.tScale)
+func tryCastInt32ToDecimal(input *int32, result *Decimal, tScale int, _ bool) bool {
+	nDec, err := dec.NewFromInt64(int64(*input), 0, tScale)
 	if err != nil {
 		panic(err)
 	}
@@ -90,21 +50,14 @@ func (numCast tryCastInt32ToDecimal) operation(input *int32, result *Decimal, _ 
 	return true
 }
 
-//lint:ignore U1000
-type tryCastDecimalToFloat32 struct {
-}
-
-func (numCast tryCastDecimalToFloat32) operation(input *Decimal, result *float32, _ bool) bool {
+func tryCastDecimalToFloat32(input *Decimal, result *float32, _ bool) bool {
 	v, ok := input.Float64()
 	assertFunc(ok)
 	*result = float32(v)
 	return true
 }
 
-//lint:ignore U1000
-type tryCastBigintToInt32 struct{}
-
-func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32, _ bool) bool {
+func tryCastBigintToInt32(input *Hugeint, result *int32, _ bool) bool {
 	val := int32(input._lower)
 	if uint64(val) != input._lower {
 		fmt.Println(input)
@@ -113,20 +66,11 @@ func (numCast tryCastBigintToInt32) operation(input *Hugeint, result *int32, _ b
 	return true
 }
 
-//lint:ignore U1000
-type tryCastBigintToDecimal struct{}
-
-func (numCast tryCastBigintToDecimal) operation(input *Hugeint, result *Decimal, _ bool) bool {
+func tryCastBigintToDecimal(input *Hugeint, result *Decimal, _ bool) bool {
 	panic("usp")
 }
 
-//lint:ignore U1000
-type tryCastDecimalToDecimal struct {
-	dstScale int
-	srcScale int
-}
-
-func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal, _ bool) bool {
+func tryCastDecimalToDecimal(input *Decimal, result *Decimal, srcScale, dstScale int, _ bool) bool {
 	//if numCast.srcScale == numCast.dstScale {
 	//	*result = *input
 	//} else if numCast.srcScale > numCast.dstScale {
@@ -134,16 +78,16 @@ func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal
 	//} else {
 	//
 	//}
-	w, f, ok := input.Int64(numCast.dstScale)
+	w, f, ok := input.Int64(dstScale)
 	if ok {
-		ndec, err := dec.NewFromInt64(w, f, numCast.dstScale)
+		ndec, err := dec.NewFromInt64(w, f, dstScale)
 		if err != nil {
 			panic(err)
 		}
 		result.Decimal = ndec
 	} else {
 
-		ndec, err := dec.ParseExact(input.String(), numCast.dstScale)
+		ndec, err := dec.ParseExact(input.String(), dstScale)
 		if err != nil {
 			panic(err)
 		}
@@ -152,29 +96,17 @@ func (numCast tryCastDecimalToDecimal) operation(input *Decimal, result *Decimal
 	return true
 }
 
-//lint:ignore U1000
-type tryCastFloat32ToInt32 struct {
-}
-
-func (numCast tryCastFloat32ToInt32) operation(input *float32, result *int32, _ bool) bool {
+func tryCastFloat32ToInt32(input *float32, result *int32, _ bool) bool {
 	*result = int32(*input)
 	return true
 }
 
-//lint:ignore U1000
-type tryCastFloat32ToFloat64 struct {
-}
-
-func (numCast tryCastFloat32ToFloat64) operation(input *float32, result *float64, _ bool) bool {
+func tryCastFloat32ToFloat64(input *float32, result *float64, _ bool) bool {
 	*result = float64(*input)
 	return true
 }
 
-//lint:ignore U1000
-type tryCastVarcharToDate struct {
-}
-
-func (numCast tryCastVarcharToDate) operation(input *String, result *Date, _ bool) bool {
+func tryCastVarcharToDate(input *String, result *Date, _ bool) bool {
 	ti, err := time.Parse(time.DateOnly, input.String())
 	if err != nil {
 		panic(err)
@@ -188,11 +120,7 @@ func (numCast tryCastVarcharToDate) operation(input *String, result *Date, _ boo
 	return true
 }
 
-//lint:ignore U1000
-type tryCastVarcharToInterval struct {
-}
-
-func (numCast tryCastVarcharToInterval) operation(input *String, result *Interval, _ bool) bool {
+func tryCastVarcharToInterval(input *String, result *Interval, _ bool) bool {
 	is := input.String()
 	seps := strings.Split(is, " ")
 	if len(seps) != 2 {
@@ -286,7 +214,7 @@ func (cast NumericTryCast[T, R]) operation(input *T, result *R, strict bool) boo
 		panic("usp")
 	}
 	//FIXME: add overflow check
-	return cast.op.operation(input, result, strict)
+	return cast.op(input, result, strict)
 }
 
 type BindCastFuncType func(input *BindCastInput, src, dst LType) *BoundCastInfo

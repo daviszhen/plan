@@ -18,16 +18,78 @@ import (
 	"fmt"
 )
 
-type CastOp[T any, R any] interface {
-	operation(input *T, result *R, strict bool) bool
+type CastOp[T any, R any] func(input *T, result *R, strict bool) bool
+
+type UnaryOp[T any, R any] func(input *T, result *R)
+
+type UnaryFunc[T any, R any] func(input *T, result *R)
+
+type UnaryOp2[T any, R any] func(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
+
+//lint:ignore U1000
+type UnaryWrapper[T any, R any] interface {
+	operation(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
 }
 
-type unaryOp[T any, R any] interface {
-	operation(input *T, result *R)
+//lint:ignore U1000
+type GenericUnaryWrapper[T any, R any] struct {
+	op UnaryOp2[T, R]
 }
 
-type unaryFunc[T any, R any] interface {
-	fun(input *T, result *R)
+func (wrapper *GenericUnaryWrapper[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+) {
+	wrapper.op(input, result, mask, idx, data)
+}
+
+//lint:ignore U1000
+type UnaryOperatorWrapper[T any, R any] struct {
+	op UnaryOp[T, R]
+}
+
+func (wrapper *UnaryOperatorWrapper[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+) {
+	wrapper.op(input, result)
+}
+
+//lint:ignore U1000
+type UnaryLambdaWrapper[T any, R any] struct {
+	fun UnaryFunc[T, R]
+}
+
+func (wrapper *UnaryLambdaWrapper[T, R]) operation(
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+) {
+	wrapper.fun(input, result)
+}
+
+func VectorTryCastOperator[T, R any](
+	input *T,
+	result *R,
+	mask *Bitmap,
+	idx int,
+	data *UnaryData,
+	op CastOp[T, R]) {
+	ret := op(input, result, false)
+	if !ret {
+		err := fmt.Sprintf("VectorTryCastOperator[%d]: operation failed", idx)
+		data._tryCastData._errorMsg = &err
+		data._tryCastData._allConverted = false
+		mask.setInvalid(uint64(idx))
+	}
 }
 
 func unaryGenericExec[T any, R any](
@@ -166,80 +228,5 @@ func unaryExecLoop[T any, R any](
 			idx := sel.getIndex(i)
 			wrapper.operation(&input[idx], &result[i], resMask, i, data)
 		}
-	}
-}
-
-//lint:ignore U1000
-type UnaryWrapper[T any, R any] interface {
-	operation(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
-}
-
-//lint:ignore U1000
-type UnaryOp2[T any, R any] interface {
-	operation(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
-}
-
-//lint:ignore U1000
-type GenericUnaryWrapper[T any, R any] struct {
-	op UnaryOp2[T, R]
-}
-
-func (wrapper *GenericUnaryWrapper[T, R]) operation(
-	input *T,
-	result *R,
-	mask *Bitmap,
-	idx int,
-	data *UnaryData,
-) {
-	wrapper.op.operation(input, result, mask, idx, data)
-}
-
-//lint:ignore U1000
-type UnaryOperatorWrapper[T any, R any] struct {
-	op unaryOp[T, R]
-}
-
-func (wrapper *UnaryOperatorWrapper[T, R]) operation(
-	input *T,
-	result *R,
-	mask *Bitmap,
-	idx int,
-	data *UnaryData,
-) {
-	wrapper.op.operation(input, result)
-}
-
-//lint:ignore U1000
-type UnaryLambdaWrapper[T any, R any] struct {
-	fun unaryFunc[T, R]
-}
-
-func (wrapper *UnaryLambdaWrapper[T, R]) operation(
-	input *T,
-	result *R,
-	mask *Bitmap,
-	idx int,
-	data *UnaryData,
-) {
-	wrapper.fun.fun(input, result)
-}
-
-//lint:ignore U1000
-type VectorTryCastOperator[T any, R any] struct {
-	op CastOp[T, R]
-}
-
-func (vtcop VectorTryCastOperator[T, R]) operation(
-	input *T,
-	result *R,
-	mask *Bitmap,
-	idx int,
-	data *UnaryData) {
-	ret := vtcop.op.operation(input, result, false)
-	if !ret {
-		err := fmt.Sprintf("VectorTryCastOperator[%d]: operation failed", idx)
-		data._tryCastData._errorMsg = &err
-		data._tryCastData._allConverted = false
-		mask.setInvalid(uint64(idx))
 	}
 }

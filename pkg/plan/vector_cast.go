@@ -31,8 +31,8 @@ func TryCastLoop[T any, R any](
 	params *CastParams,
 	op CastOp[T, R],
 ) bool {
-	tryCastOp := &VectorTryCastOperator[T, R]{
-		op: op,
+	tryCastOp := func(input *T, result *R, mask *Bitmap, idx int, data *UnaryData) {
+		VectorTryCastOperator(input, result, mask, idx, data, op)
 	}
 	return TemplatedTryCastLoop[T, R](
 		src,

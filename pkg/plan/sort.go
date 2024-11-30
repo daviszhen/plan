@@ -2850,8 +2850,8 @@ func CompareVal(
 
 func TemplatedCompareVal[T any](
 	lPtr, rPtr unsafe.Pointer,
-	equalOp binaryOp[T, T, bool],
-	lessOp binaryOp[T, T, bool],
+	equalOp BinaryOp[T, T, bool],
+	lessOp BinaryOp[T, T, bool],
 ) int {
 	lVal := load[T](lPtr)
 	rVal := load[T](rPtr)

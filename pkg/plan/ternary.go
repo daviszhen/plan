@@ -20,12 +20,23 @@ import (
 	"unsafe"
 )
 
-type ternaryOp[A any, B any, C any, R any] interface {
-	operation(*A, *B, *C, *R)
+type TernaryOp[A any, B any, C any, R any] func(*A, *B, *C, *R)
+
+type TernaryFunc[A any, B any, C any, R any] func(*A, *B, *C, *R)
+
+type TernaryWrapper[A any, B any, C any, R any] interface {
+	operation(*A, *B, *C, *R, *Bitmap, int, TernaryFunc[A, B, C, R])
 }
 
-type ternaryFunc[A any, B any, C any, R any] interface {
-	fun(*A, *B, *C, *R)
+//lint:ignore U1000
+type TernaryLambdaWrapper[A any, B any, C any, R any] struct {
+	fun TernaryFunc[A, B, C, R]
+}
+
+func (wrapper TernaryLambdaWrapper[A, B, C, R]) operation(
+	a *A, b *B, c *C, res *R, _ *Bitmap, _ int,
+	fun TernaryFunc[A, B, C, R]) {
+	fun(a, b, c, res)
 }
 
 const (
@@ -113,31 +124,12 @@ func substringFunc(s *String, offset *int64, length *int64, result *String) {
 	sliceString(sdata, start, end-start, result)
 }
 
-type ternaryWrapper[A any, B any, C any, R any] interface {
-	operation(*A, *B, *C, *R, *Bitmap, int,
-		ternaryOp[A, B, C, R],
-		ternaryFunc[A, B, C, R],
-	)
-}
-
-//lint:ignore U1000
-type ternaryLambdaWrapper[A any, B any, C any, R any] struct {
-}
-
-func (wrapper ternaryLambdaWrapper[A, B, C, R]) operation(
-	a *A, b *B, c *C, res *R, _ *Bitmap, _ int,
-	op ternaryOp[A, B, C, R],
-	fun ternaryFunc[A, B, C, R],
-) {
-	fun.fun(a, b, c, res)
-}
-
 func ternaryExecGeneric[A any, B any, C any, R any](
 	a, b, c, res *Vector,
 	count int,
-	op ternaryOp[A, B, C, R],
-	fun ternaryFunc[A, B, C, R],
-	wrapper ternaryWrapper[A, B, C, R],
+	op TernaryOp[A, B, C, R],
+	fun TernaryFunc[A, B, C, R],
+	wrapper TernaryWrapper[A, B, C, R],
 ) {
 	if a.phyFormat().isConst() &&
 		b.phyFormat().isConst() &&
@@ -153,16 +145,7 @@ func ternaryExecGeneric[A any, B any, C any, R any](
 			cSlice := getSliceInPhyFormatConst[C](c)
 			resSlice := getSliceInPhyFormatConst[R](res)
 			resMask := getMaskInPhyFormatConst(res)
-			wrapper.operation(
-				&aSlice[0],
-				&bSlice[0],
-				&cSlice[0],
-				&resSlice[0],
-				resMask,
-				0,
-				op,
-				fun,
-			)
+			wrapper.operation(&aSlice[0], &bSlice[0], &cSlice[0], &resSlice[0], resMask, 0, fun)
 		}
 	} else {
 		res.setPhyFormat(PF_FLAT)
@@ -202,9 +185,9 @@ func ternaryExecLoop[A any, B any, C any, R any](
 	count int,
 	asel, bsel, csel *SelectVector,
 	amask, bmask, cmask, resMask *Bitmap,
-	op ternaryOp[A, B, C, R],
-	fun ternaryFunc[A, B, C, R],
-	wrapper ternaryWrapper[A, B, C, R],
+	op TernaryOp[A, B, C, R],
+	fun TernaryFunc[A, B, C, R],
+	wrapper TernaryWrapper[A, B, C, R],
 ) {
 	if !amask.AllValid() ||
 		!bmask.AllValid() ||
@@ -216,16 +199,7 @@ func ternaryExecLoop[A any, B any, C any, R any](
 			if amask.rowIsValid(uint64(aidx)) &&
 				bmask.rowIsValid(uint64(bidx)) &&
 				cmask.rowIsValid(uint64(cidx)) {
-				wrapper.operation(
-					&adata[aidx],
-					&bdata[bidx],
-					&cdata[cidx],
-					&resData[i],
-					resMask,
-					i,
-					op,
-					fun,
-				)
+				wrapper.operation(&adata[aidx], &bdata[bidx], &cdata[cidx], &resData[i], resMask, i, fun)
 			} else {
 				resMask.setInvalid(uint64(i))
 			}
@@ -235,16 +209,7 @@ func ternaryExecLoop[A any, B any, C any, R any](
 			aidx := asel.getIndex(i)
 			bidx := bsel.getIndex(i)
 			cidx := csel.getIndex(i)
-			wrapper.operation(
-				&adata[aidx],
-				&bdata[bidx],
-				&cdata[cidx],
-				&resData[i],
-				resMask,
-				i,
-				op,
-				fun,
-			)
+			wrapper.operation(&adata[aidx], &bdata[bidx], &cdata[cidx], &resData[i], resMask, i, fun)
 		}
 	}
 }

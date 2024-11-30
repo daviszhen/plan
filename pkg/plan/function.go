@@ -1920,7 +1920,7 @@ var funcs = []*Function{
 						//		count,
 						//		nil,
 						//		substringFunc{},
-						//		ternaryLambdaWrapper[String, int64, int64, String]{},
+						//		TernaryLambdaWrapper[String, int64, int64, String]{},
 						//	)
 						//} else {
 						//	binaryExecSwitch[String, int64, String](

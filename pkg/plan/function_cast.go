@@ -156,7 +156,7 @@ func IntegerCastToSwitch(
 	case LTID_TINYINT:
 	case LTID_SMALLINT:
 	case LTID_INTEGER:
-		ret._fun = MakeCastFunc[int32, int32](NumericTryCast[int32, int32]{op: gTryCastInt32ToInt32})
+		ret._fun = MakeCastFunc[int32, int32](tryCastInt32ToInt32)
 	case LTID_BIGINT:
 	case LTID_UTINYINT:
 	case LTID_USMALLINT:
@@ -164,13 +164,14 @@ func IntegerCastToSwitch(
 	case LTID_UBIGINT:
 	case LTID_HUGEINT:
 	case LTID_FLOAT:
-		ret._fun = MakeCastFunc[int32, float32](NumericTryCast[int32, float32]{op: gTryCastInt32ToFloat32})
+		ret._fun = MakeCastFunc[int32, float32](tryCastInt32ToFloat32)
 	case LTID_DOUBLE:
-		ret._fun = MakeCastFunc[int32, float64](NumericTryCast[int32, float64]{op: gTryCastInt32ToFloat64})
+		ret._fun = MakeCastFunc[int32, float64](tryCastInt32ToFloat64)
 	case LTID_DECIMAL:
-		decCast := tryCastInt32ToDecimal{}
-		decCast.tScale = dst.scale
-		ret._fun = MakeCastFunc[int32, Decimal](NumericTryCast[int32, Decimal]{op: decCast})
+		decCast := func(input *int32, result *Decimal, _ bool) bool {
+			return tryCastInt32ToDecimal(input, result, dst.scale, true)
+		}
+		ret._fun = MakeCastFunc[int32, Decimal](decCast)
 	default:
 		panic("usp")
 	}
@@ -187,7 +188,7 @@ func FloatCastToSwitch(
 	case LTID_TINYINT:
 	case LTID_SMALLINT:
 	case LTID_INTEGER:
-		ret._fun = MakeCastFunc[float32, int32](NumericTryCast[float32, int32]{op: gTryCastFloat32ToInt32})
+		ret._fun = MakeCastFunc[float32, int32](tryCastFloat32ToInt32)
 	case LTID_BIGINT:
 	case LTID_UTINYINT:
 	case LTID_USMALLINT:
@@ -196,7 +197,7 @@ func FloatCastToSwitch(
 	case LTID_HUGEINT:
 	case LTID_FLOAT:
 	case LTID_DOUBLE:
-		ret._fun = MakeCastFunc[float32, float64](NumericTryCast[float32, float64]{op: gTryCastFloat32ToFloat64})
+		ret._fun = MakeCastFunc[float32, float64](tryCastFloat32ToFloat64)
 	default:
 		panic("usp")
 	}
@@ -213,7 +214,7 @@ func HugeintCastToSwitch(
 	case LTID_TINYINT:
 	case LTID_SMALLINT:
 	case LTID_INTEGER:
-		ret._fun = MakeCastFunc[Hugeint, int32](NumericTryCast[Hugeint, int32]{op: gTryCastBigintToInt32})
+		ret._fun = MakeCastFunc[Hugeint, int32](tryCastBigintToInt32)
 	case LTID_BIGINT:
 	case LTID_UTINYINT:
 	case LTID_USMALLINT:
@@ -223,7 +224,7 @@ func HugeintCastToSwitch(
 	case LTID_FLOAT:
 	case LTID_DOUBLE:
 	case LTID_DECIMAL:
-		ret._fun = MakeCastFunc[Hugeint, Decimal](NumericTryCast[Hugeint, Decimal]{op: gTryCastBigintToDecimal})
+		ret._fun = MakeCastFunc[Hugeint, Decimal](tryCastBigintToDecimal)
 	default:
 		panic("usp")
 	}
@@ -247,13 +248,13 @@ func DecimalCastToSwitch(
 	case LTID_UBIGINT:
 	case LTID_HUGEINT:
 	case LTID_FLOAT:
-		ret._fun = MakeCastFunc[Decimal, float32](NumericTryCast[Decimal, float32]{op: gTryCastDecimalToFloat32})
+		ret._fun = MakeCastFunc[Decimal, float32](tryCastDecimalToFloat32)
 	case LTID_DOUBLE:
 	case LTID_DECIMAL:
-		decCast := tryCastDecimalToDecimal{}
-		decCast.srcScale = src.scale
-		decCast.dstScale = dst.scale
-		ret._fun = MakeCastFunc[Decimal, Decimal](NumericTryCast[Decimal, Decimal]{op: decCast})
+		decCast := func(input *Decimal, result *Decimal, _ bool) bool {
+			return tryCastDecimalToDecimal(input, result, src.scale, dst.scale, true)
+		}
+		ret._fun = MakeCastFunc[Decimal, Decimal](decCast)
 	default:
 		panic("usp")
 	}
@@ -267,9 +268,9 @@ func StringCastToSwitch(
 	ret := &BoundCastInfo{}
 	switch dst.id {
 	case LTID_DATE:
-		ret._fun = MakeCastFunc[String, Date](NumericTryCast[String, Date]{op: gTryCastVarcharToDate})
+		ret._fun = MakeCastFunc[String, Date](tryCastVarcharToDate)
 	case LTID_INTERVAL:
-		ret._fun = MakeCastFunc[String, Interval](NumericTryCast[String, Interval]{op: gTryCastVarcharToInterval})
+		ret._fun = MakeCastFunc[String, Interval](tryCastVarcharToInterval)
 	default:
 		panic("usp")
 	}
