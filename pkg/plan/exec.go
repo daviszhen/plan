@@ -37,7 +37,7 @@ func NewExprState(expr *Expr, eeState *ExprExecState) *ExprState {
 }
 
 func (es *ExprState) addChild(child *Expr) {
-	es._types = append(es._types, child.DataTyp.LTyp)
+	es._types = append(es._types, child.DataTyp)
 	es._children = append(es._children, initExprState(child, es._execState))
 }
 
@@ -263,7 +263,7 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 	switch expr.Typ {
 	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
 		val := &Value{
-			_typ:  expr.DataTyp.LTyp,
+			_typ:  expr.DataTyp,
 			_i64:  expr.Ivalue,
 			_f64:  expr.Fvalue,
 			_str:  expr.Svalue,
@@ -277,7 +277,7 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 		}
 		//TODO: to date
 		val := &Value{
-			_typ:   expr.DataTyp.LTyp,
+			_typ:   expr.DataTyp,
 			_i64:   int64(d.Year()),
 			_i64_1: int64(d.Month()),
 			_i64_2: int64(d.Day()),
@@ -285,7 +285,7 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 		result.referenceValue(val)
 	case ET_IntervalConst:
 		val := &Value{
-			_typ: expr.DataTyp.LTyp,
+			_typ: expr.DataTyp,
 			_i64: expr.Ivalue,
 			_f64: expr.Fvalue,
 			_str: expr.Svalue,
@@ -299,10 +299,8 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 
 func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
 	var err error
-	argsTypes := make([]ExprDataType, 0)
 	eState._interChunk.reset()
 	for i, child := range expr.Children {
-		argsTypes = append(argsTypes, child.DataTyp)
 		err = exec.execute(child,
 			eState._children[i],
 			sel,
@@ -313,17 +311,14 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVect
 		}
 	}
 	eState._interChunk.setCard(count)
-	impl, err := GetFunctionImpl(expr.FuncId, argsTypes)
-	if err != nil {
-		return err
-	}
-	if impl == nil {
-		panic(fmt.Sprintf("no function impl: %v %v", expr.FuncId, argsTypes))
+	if expr.FunImpl._boundCastInfo != nil {
+		params := &CastParams{}
+		expr.FunImpl._boundCastInfo._fun(eState._interChunk._data[0], result, count, params)
+	} else {
+		expr.FunImpl._scalar(eState._interChunk, eState, result)
 	}
 
-	body := impl.Body()
-	err = body(eState._interChunk, eState, count, result)
-	return err
+	return nil
 }
 
 func (exec *ExprExec) executeSelect(datas []*Chunk, sel *SelectVector) (int, error) {

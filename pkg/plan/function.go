@@ -16,104 +16,9 @@ package plan
 
 import (
 	"fmt"
+	"math"
+	"unsafe"
 )
-
-type FuncId int
-
-type Function struct {
-	Id FuncId
-
-	// all implementation versions
-	Impls []*Impl
-
-	// decide which implementation should be used
-	ImplDecider func(*Function, []ExprDataType) (int, []ExprDataType)
-}
-
-type FunctionBody func(chunk *Chunk, state *ExprState, count int, result *Vector) error
-
-type Impl struct {
-	Desc           string
-	Idx            int
-	Args           []ExprDataType
-	RetTypeDecider func([]ExprDataType) ExprDataType
-	Body           func() FunctionBody
-	IsAgg          bool
-	IsWindow       bool
-}
-
-const (
-	INVALID_FUNC FuncId = iota
-	//agg
-	MIN
-	COUNT
-	SUM
-	MAX
-	AVG
-	//operator
-	EQUAL
-	NOT_EQUAL
-	IN
-	NOT_IN
-	BETWEEN
-	AND
-	OR
-	ADD
-	SUB
-	MUL
-	DIV
-	GREAT_EQUAL
-	GREAT
-	LESS_EQUAL
-	LESS
-	LIKE
-	NOT_LIKE
-	CASE
-	EXISTS
-	NOT_EXISTS
-	//functions
-	DATE_ADD
-	DATE_SUB
-	EXTRACT
-	SUBSTRING
-	CAST
-)
-
-var funcName2Id = map[string]FuncId{
-	"min":        MIN,
-	"date_add":   DATE_ADD,
-	"date_sub":   DATE_SUB,
-	"count":      COUNT,
-	"extract":    EXTRACT,
-	"sum":        SUM,
-	"max":        MAX,
-	"avg":        AVG,
-	"substring":  SUBSTRING,
-	"cast":       CAST,
-	"=":          EQUAL,
-	"<>":         NOT_EQUAL,
-	"!=":         NOT_EQUAL,
-	"in":         IN,
-	"not in":     NOT_IN,
-	"between":    BETWEEN,
-	"and":        AND,
-	"or":         OR,
-	"+":          ADD,
-	"-":          SUB,
-	"*":          MUL,
-	"/":          DIV,
-	">=":         GREAT_EQUAL,
-	">":          GREAT,
-	"<=":         LESS_EQUAL,
-	"<":          LESS,
-	"like":       LIKE,
-	"not like":   NOT_LIKE,
-	"case":       CASE,
-	"exists":     EXISTS,
-	"not exists": NOT_EXISTS,
-}
-
-var allFunctions = map[FuncId]*Function{}
 
 var aggNames = map[string]int{
 	"min":   1,
@@ -130,1815 +35,390 @@ func IsAgg(name string) bool {
 	return false
 }
 
-func GetFunctionId(name string) (FuncId, error) {
-	if id, ok := funcName2Id[name]; ok {
-		return id, nil
-	}
-	return 0, fmt.Errorf("no function %s", name)
+type FuncNullHandling int
+
+const (
+	DefaultNullHandling FuncNullHandling = 0
+	SpecialHandling     FuncNullHandling = 1
+)
+
+type FuncSideEffects int
+
+const (
+	NoSideEffects  FuncSideEffects = 0
+	HasSideEffects FuncSideEffects = 1
+)
+
+type FuncType int
+
+const (
+	ScalarFuncType    FuncType = 0
+	AggregateFuncType FuncType = 1
+	TableFuncType     FuncType = 2
+)
+
+type FunctionV2 struct {
+	_name         string
+	_args         []LType
+	_retType      LType
+	_funcTyp      FuncType
+	_sideEffects  FuncSideEffects
+	_nullHandling FuncNullHandling
+
+	_scalar        ScalarFunc
+	_bind          bindScalarFunc
+	_boundCastInfo *BoundCastInfo
+
+	_stateSize aggrStateSize
+	_init      aggrInit
+	_update    aggrUpdate
+	_combine   aggrCombine
+	_finalize  aggrFinalize
+	//_func         aggrFunction
+	_simpleUpdate aggrSimpleUpdate
+	//_window       aggrWindow
 }
 
-func GetFunctionImpl(id FuncId, argsTypes []ExprDataType) (*Impl, error) {
-	if fun, ok := allFunctions[id]; !ok {
-		panic(fmt.Sprintf("no function %v", id))
-	} else {
-		if fun.ImplDecider == nil {
-			panic("usp")
-		}
-		implIdx, _ := fun.ImplDecider(fun, argsTypes)
-		if implIdx < 0 {
-			//no right impl
-			panic("no right impl")
-		} else {
-			//right impl
-			impl := fun.Impls[implIdx]
-			return impl, nil
-		}
+func (fun *FunctionV2) Copy() *FunctionV2 {
+	ret := &FunctionV2{
+		_name:         fun._name,
+		_args:         copyTo(fun._args),
+		_retType:      fun._retType,
+		_funcTyp:      fun._funcTyp,
+		_sideEffects:  fun._sideEffects,
+		_nullHandling: fun._nullHandling,
+		_scalar:       fun._scalar,
+		_bind:         fun._bind,
+		_stateSize:    fun._stateSize,
+		_init:         fun._init,
+		_update:       fun._update,
+		_combine:      fun._combine,
+		_finalize:     fun._finalize,
+		//_func:         fun._func,
+		_simpleUpdate: fun._simpleUpdate,
+		//_window:       fun._window,
+	}
+	return ret
+}
+
+type ScalarFunc func(*Chunk, *ExprState, *Vector)
+
+type aggrStateSize func() int
+type aggrInit func(pointer unsafe.Pointer)
+type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
+type aggrCombine func(*Vector, *Vector, *AggrInputData, int)
+type aggrFinalize func(*Vector, *AggrInputData, *Vector, int, int)
+
+// type aggrFunction func(*AggrFunc, []*Expr)
+type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
+
+//type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
+
+type bindScalarFunc func(fun *FunctionV2, args []*Expr) *FunctionData
+
+const (
+	DecimalBindData    = "decimal"
+	DecimalNegBindData = "decimalNeg"
+)
+
+type FunctionData struct {
+	_funDataTyp    string
+	_checkOverflow bool
+	_boundTyp      LTypeId
+}
+
+func (fdata FunctionData) copy() *FunctionData {
+	return &FunctionData{}
+}
+
+type FunctionSet struct {
+	_name      string
+	_functions []*FunctionV2
+	_funcTyp   FuncType
+}
+
+func NewFunctionSet(name string, ftyp FuncType) *FunctionSet {
+	ret := &FunctionSet{
+		_name:    name,
+		_funcTyp: ftyp,
+	}
+	return ret
+}
+
+func (set *FunctionSet) Add(fun *FunctionV2) {
+	set._functions = append(set._functions, fun)
+}
+
+func (set *FunctionSet) GetFunc(offset int) *FunctionV2 {
+	assertFunc(offset < len(set._functions))
+	//!!!note copy instead of referring directly
+	return set._functions[offset].Copy()
+}
+
+func (set *FunctionSet) GetFuncByArgs(args []LType) *FunctionV2 {
+	idx := gFuncBinder.BindFunc(set._name, set, args)
+	if idx == -1 {
+		panic(fmt.Sprintf("function %s impl not found", set._name))
+	}
+	return set.GetFunc(idx)
+}
+
+var gFuncBinder FunctionBinder
+
+type FunctionBinder struct {
+}
+
+func (binder *FunctionBinder) BindScalarFunc(
+	name string,
+	args []*Expr,
+	subTyp ET_SubTyp,
+	isOperator bool,
+) *Expr {
+	fset := scalarFuncs[name]
+	if fset == nil {
+		panic(fmt.Sprintf("function %s not found", name))
+	}
+	best := binder.BindFunc2(name, fset, args)
+	if best == -1 {
+		panic(fmt.Sprintf("function %s not found %v", name, args))
+	}
+
+	fun := fset.GetFunc(best)
+	return binder.BindScalarFunc2(fun, args, subTyp, isOperator)
+}
+
+func (binder *FunctionBinder) BindScalarFunc2(
+	fun *FunctionV2,
+	args []*Expr,
+	subTyp ET_SubTyp,
+	isOperator bool,
+) *Expr {
+	var bindInfo *FunctionData
+	if fun._bind != nil {
+		bindInfo = fun._bind(fun, args)
+	}
+
+	return &Expr{
+		Typ:        ET_Func,
+		SubTyp:     subTyp,
+		Svalue:     fun._name,
+		DataTyp:    fun._retType,
+		Children:   args,
+		IsOperator: isOperator,
+		BindInfo:   bindInfo,
+		FunImpl:    fun,
 	}
 }
 
-func exactImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataType) {
-	for i, impl := range fun.Impls {
-		if len(argsTypes) != len(impl.Args) {
+func (binder *FunctionBinder) CastToFuncArgs(fun *FunctionV2, args []*Expr) {
+	var err error
+	for i := 0; i < len(args); i++ {
+		targetType := fun._args[i]
+		if args[i].DataTyp.id == LTID_LAMBDA {
 			continue
 		}
-		equalTyp := true
-		for j, arg := range impl.Args {
-			if !arg.equal(argsTypes[j]) &&
-				!arg.include(argsTypes[j]) {
-				equalTyp = false
-				break
+		castRes := RequireCast(args[i].DataTyp, targetType)
+		if castRes == DIFFERENT_TYPES {
+			args[i], err = AddCastToType(args[i], targetType, false)
+			if err != nil {
+				panic(err)
 			}
 		}
-		if equalTyp {
-			return i, impl.Args
-		}
 	}
-	return -1, nil
 }
 
-func opInImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataType) {
-	if len(argsTypes) < 1 {
-		return -1, nil
+func (binder *FunctionBinder) BindAggrFunc(
+	name string,
+	args []*Expr,
+	subTyp ET_SubTyp,
+	isOperator bool,
+) *Expr {
+	fset := aggrFuncs[name]
+	if fset == nil {
+		panic(fmt.Sprintf("function %s not found", name))
 	}
-	for i, impl := range fun.Impls {
-		equalTyp := true
-		for _, arg := range argsTypes {
-			if !impl.Args[0].equal(arg) &&
-				!impl.Args[0].include(arg) {
-				equalTyp = false
-				break
-			}
-		}
-		if equalTyp {
-			return i, impl.Args
-		}
+	best := binder.BindFunc2(name, fset, args)
+	if best == -1 {
+		panic(fmt.Sprintf("function %s not found %v", name, args))
 	}
-	return -1, nil
+
+	fun := fset.GetFunc(best)
+	return binder.BindAggrFunc2(fun, args, subTyp, isOperator)
 }
 
-func ignoreTypesImplDecider(fun *Function, argsTypes []ExprDataType) (int, []ExprDataType) {
-	return 0, nil
+func (binder *FunctionBinder) BindAggrFunc2(
+	fun *FunctionV2,
+	args []*Expr,
+	subTyp ET_SubTyp,
+	isOperator bool,
+) *Expr {
+	var bindInfo *FunctionData
+	if fun._bind != nil {
+		bindInfo = fun._bind(fun, args)
+	}
+	binder.CastToFuncArgs(fun, args)
+	return &Expr{
+		Typ:        ET_Func,
+		SubTyp:     subTyp,
+		Svalue:     fun._name,
+		DataTyp:    fun._retType,
+		Children:   args,
+		IsOperator: isOperator,
+		BindInfo:   bindInfo,
+		FunImpl:    fun,
+	}
 }
 
-func decideNull(types []ExprDataType) bool {
-	for _, typ := range types {
-		if !typ.NotNull {
-			return true
-		}
+type LTypeCmpResult int
+
+const (
+	IDENTICAL_TYPE  LTypeCmpResult = 0
+	TARGET_IS_ANY   LTypeCmpResult = 1
+	DIFFERENT_TYPES LTypeCmpResult = 2
+)
+
+func RequireCast(src, dst LType) LTypeCmpResult {
+	if dst.id == LTID_ANY {
+		return TARGET_IS_ANY
 	}
-	return false
+	if src.id == dst.id {
+		return IDENTICAL_TYPE
+	}
+	return DIFFERENT_TYPES
 }
 
-func registerFunctions(funs []*Function, needAgg bool) {
-	for _, fun := range funs {
-		if _, ok := allFunctions[fun.Id]; ok {
-			panic(fmt.Sprintf("function %v already exists", fun.Id))
-		}
-		if len(fun.Impls) == 0 {
-			panic(fmt.Sprintf("function %v need impl", fun.Id))
-		}
-		for i := 1; i < len(fun.Impls); i++ {
-			if fun.Impls[i].Idx != i {
-				panic(fmt.Sprintf("function %v impl %d has wrong index", fun.Id, i))
-			}
-		}
-		if needAgg {
-			hasAgg := false
-			for _, impl := range fun.Impls {
-				if impl.IsAgg {
-					hasAgg = true
-					break
-				}
-			}
-			if !hasAgg {
-				panic(fmt.Sprintf("function %v need agg impl", fun.Id))
-			}
-		}
-		allFunctions[fun.Id] = fun
+func (binder *FunctionBinder) BindFunc2(
+	name string,
+	set *FunctionSet,
+	args []*Expr,
+) int {
+	args2 := make([]LType, 0)
+	for _, arg := range args {
+		args2 = append(args2, arg.DataTyp)
 	}
+	return binder.BindFuncByArgs(name, set, args2)
+}
+
+func (binder *FunctionBinder) BindFunc(
+	name string,
+	set *FunctionSet,
+	args []LType,
+) int {
+	return binder.BindFuncByArgs(name, set, args)
+}
+
+func (binder *FunctionBinder) BindFuncByArgs(
+	name string,
+	set *FunctionSet,
+	args []LType,
+) int {
+	funs := binder.BindFuncByArgs2(name, set, args)
+	if len(funs) == 0 {
+		return -1
+	} else if len(funs) > 1 {
+		panic(fmt.Sprintf("multiple func imp for %v", name))
+	}
+
+	return funs[0]
+}
+
+func (binder *FunctionBinder) BindFuncByArgs2(
+	name string,
+	set *FunctionSet,
+	args []LType,
+) []int {
+	bestFunc := -1
+	lowestCost := int64(math.MaxInt64)
+	candidates := make([]int, 0)
+	for i, fun := range set._functions {
+		cost := binder.BindFuncCost(fun, args)
+		if cost < 0 {
+			continue
+		}
+		if cost == lowestCost {
+			candidates = append(candidates, i)
+			continue
+		}
+		if cost > lowestCost {
+			continue
+		}
+		candidates = candidates[:0]
+		lowestCost = cost
+		bestFunc = i
+	}
+	if bestFunc == -1 {
+		return candidates
+	}
+	candidates = append(candidates, bestFunc)
+	return candidates
+}
+
+func (binder *FunctionBinder) BindFuncCost(
+	fun *FunctionV2,
+	args []LType,
+) int64 {
+	if len(fun._args) != len(args) {
+		return -1
+	}
+
+	cost := int64(0)
+	for i, arg := range args {
+		castCost := castFuncs.ImplicitCastCost(arg, fun._args[i])
+		if castCost >= 0 {
+			cost += castCost
+		} else {
+			return -1
+		}
+	}
+
+	return cost
 }
 
 func init() {
-	registerFunctions(operators, false)
-
-	registerFunctions(aggFuncs, true)
-
-	registerFunctions(funcs, false)
+	castFuncs = NewCastFunctionSet()
+	RegisterAggrs()
+	RegisterOps()
 }
 
-var operators = []*Function{
-	{
-		Id: IN,
-		Impls: []*Impl{
-			{
-				Desc: "in",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp in varchar")
-					}
-				},
-			},
-			{
-				Desc: "in",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: opInImplDecider,
-	},
-	{
-		Id: NOT_IN,
-		Impls: []*Impl{
-			{
-				Desc: "not in",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp not in varchar")
-					}
-				},
-			},
-			{
-				Desc: "not in",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp not in int")
-					}
-				},
-			},
-		},
-		ImplDecider: opInImplDecider,
-	},
-	{
-		Id: BETWEEN,
-		Impls: []*Impl{
-			{
-				Desc: "between",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp between float,float,float")
-					}
-				},
-			},
-			{
-				Desc: "between",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp between int,int,int")
-					}
-				},
-			},
-			{
-				Desc: "between",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp between date,date,date")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: ADD,
-		Impls: []*Impl{
-			{
-				Desc: "+",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: intervalLType(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Date, Interval, Date](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDateIntervalAdd,
-							nil,
-							gBinDateIntervalSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "+",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinFloat32Float32Add,
-							nil,
-							gBinFloat32Float32SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "+",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDecimalDecimalAdd,
-							nil,
-							gBinDecimalDecimalOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "+",
-				Idx:  3,
-				Args: []ExprDataType{
-					{
-						LTyp: intervalLType(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp interval + date")
-					}
-				},
-			},
-			{
-				Desc: "+",
-				Idx:  4,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, int32](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinInt32Int32Add,
-							nil,
-							gBinInt32Int32SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: SUB,
-		Impls: []*Impl{
-			{
-				Desc: "-",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinFloat32Float32SubOp,
-							nil,
-							gBinFloat32Float32SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "-",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDecimalDecimalSubOp,
-							nil,
-							gBinDecimalDecimalOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "-",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp date - date")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: MUL,
-		Impls: []*Impl{
-			{
-				Desc: "*",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDecimalDecimalMulOp,
-							nil,
-							gBinDecimalDecimalOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "*",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Multi, nil, gBinFloat32Float32SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "*",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: double(),
-					},
-					{
-						LTyp: double(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float64, float64, float64](chunk._data[0], chunk._data[1], result, count, gBinFloat64Multi, nil, gBinFloat64Float64SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: DIV,
-		Impls: []*Impl{
-			{
-				Desc: "/",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Decimal, Decimal, Decimal](
-							chunk._data[0],
-							chunk._data[1],
-							result,
-							count,
-							gBinDecimalDiv,
-							nil,
-							gBinDecimalDecimalOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "/",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, float32](chunk._data[0], chunk._data[1], result, count, gBinFloat32Div, nil, gBinFloat32Float32SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: EQUAL,
-		Impls: []*Impl{
-			{
-				Desc: "=",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Equal, nil, gBinInt32BoolSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "=",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp varchar = varchar")
-					}
-				},
-			},
-			{
-				Desc: "=",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp deciaml = decimal")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: NOT_EQUAL,
-		Impls: []*Impl{
-			{
-				Desc: "<>",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp int <> int")
-					}
-				},
-			},
-			{
-				Desc: "<>",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp varchar <> varchar")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: GREAT_EQUAL,
-		Impls: []*Impl{
-			{
-				Desc: ">=",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp date >= date")
-					}
-				},
-			},
-			{
-				Desc: ">=",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp int >= int")
-					}
-				},
-			},
-			{
-				Desc: ">=",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp int >= int")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: GREAT,
-		Impls: []*Impl{
-			{
-				Desc: ">",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[float32, float32, bool](chunk._data[0], chunk._data[1], result, count, gBinFloat32Great, nil, gBinFloat32BoolSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: ">",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp decimal > decimal")
-					}
-				},
-			},
-			{
-				Desc: ">",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp date > date")
-					}
-				},
-			},
-			{
-				Desc: ">",
-				Idx:  3,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[int32, int32, bool](chunk._data[0], chunk._data[1], result, count, gBinInt32Great, nil, gBinInt32BoolSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: LESS_EQUAL,
-		Impls: []*Impl{
-			{
-				Desc: "<=",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp date <= date")
-					}
-				},
-			},
-			{
-				Desc: "<=",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp int <= int")
-					}
-				},
-			},
-			{
-				Desc: "<=",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp int <= int")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: LESS,
-		Impls: []*Impl{
-			{
-				Desc: "<",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: dateLTyp(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp date < date")
-					}
-				},
-			},
-			{
-				Desc: "<",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp int < int")
-					}
-				},
-			},
-			{
-				Desc: "<",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp float < float")
-					}
-				},
-			},
-			{
-				Desc: "<",
-				Idx:  3,
-				Args: []ExprDataType{
-					{
-						LTyp: double(),
-					},
-					{
-						LTyp: double(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp double < double")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: AND,
-		Impls: []*Impl{
-			{
-				Desc: "and",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: boolean(),
-					},
-					{
-						LTyp: boolean(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp bool and bool")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: OR,
-		Impls: []*Impl{
-			{
-				Desc: "or",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: boolean(),
-					},
-					{
-						LTyp: boolean(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp bool or bool")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: LIKE,
-		Impls: []*Impl{
-			{
-				Desc: "like",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[String, String, bool](chunk._data[0], chunk._data[1], result, count, gBinStringLike, nil, gBinStringBoolSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: opInImplDecider,
-	},
-	{
-		Id: NOT_LIKE,
-		Impls: []*Impl{
-			{
-				Desc: "not like",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp not like varchar")
-					}
-				},
-			},
-		},
-		ImplDecider: opInImplDecider,
-	},
-	{
-		Id: CASE,
-		Impls: []*Impl{
-			{
-				Desc: "case",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: boolean(),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[2].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
+type FunctionList map[string]*FunctionSet
 
-						return fmt.Errorf("usp case 1")
-					}
-				},
-			},
-			{
-				Desc: "case",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: boolean(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[2].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp case 2")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: EXISTS,
-		Impls: []*Impl{
-			{
-				Desc: "exists",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp exists int")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: NOT_EXISTS,
-		Impls: []*Impl{
-			{
-				Desc: "not exists",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: boolean(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp not exists bool")
-					}
-				},
-			},
-			{
-				Desc: "not exists",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: boolean(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp not exists int")
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
+func (flist FunctionList) Add(name string, set *FunctionSet) {
+	if _, ok := flist[name]; ok {
+		panic(fmt.Sprintf("function %s already registered", name))
+	}
+	flist[name] = set
 }
 
-var aggFuncs = []*Function{
-	{
-		Id: MAX,
-		Impls: []*Impl{
-			{
-				Desc: "max",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp max (decimal)")
-					}
-				},
-				IsAgg: true,
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: MIN,
-		Impls: []*Impl{
-			{
-				Desc: "min",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp min (decimal)")
-					}
-				},
-				IsAgg: true,
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: SUM,
-		Impls: []*Impl{
-			{
-				Desc: "sum",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[0].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp sum(decimal)")
-					}
-				},
-				IsAgg: true,
-			},
-			{
-				Desc: "sum",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: integer(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp sum(int)")
-					}
-				},
-				IsAgg: true,
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: COUNT,
-		Impls: []*Impl{
-			{
-				Desc: "count",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{
-						LTyp:    integer(),
-						NotNull: true,
-					}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp count(decimal)")
-					}
-				},
-				IsAgg: true,
-			},
-		},
-		ImplDecider: ignoreTypesImplDecider,
-	},
-	{
-		Id: AVG,
-		Impls: []*Impl{
-			{
-				Desc: "avg",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{
-						LTyp:    types[0].LTyp,
-						NotNull: decideNull(types),
-					}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp avg(decimal)")
-					}
-				},
-				IsAgg: true,
-			},
-			{
-				Desc: "avg",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{
-						LTyp:    double(),
-						NotNull: decideNull(types),
-					}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp avg(int)")
-					}
-				},
-				IsAgg: true,
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
+var scalarFuncs = make(FunctionList)
+var aggrFuncs = make(FunctionList)
+var castFuncs *CastFunctionSet
+
+func RegisterOps() {
+	AddFunc{}.Register(scalarFuncs)
+	SubFunc{}.Register(scalarFuncs)
+	MultiplyFunc{}.Register(scalarFuncs)
+	DevideFunc{}.Register(scalarFuncs)
+	LikeFunc{}.Register(scalarFuncs)
+	NotLikeFunc{}.Register(scalarFuncs)
+	InFunc{}.Register(scalarFuncs)
+	EqualFunc{}.Register(scalarFuncs)
+	NotEqualFunc{}.Register(scalarFuncs)
+	BoolFunc{}.Register(scalarFuncs)
+	Greater{}.Register(scalarFuncs)
+	GreaterThan{}.Register(scalarFuncs)
+	DateAdd{}.Register(scalarFuncs)
+	DateSub{}.Register(scalarFuncs)
+	LessFunc{}.Register(scalarFuncs)
+	LessEqualFunc{}.Register(scalarFuncs)
+	CaseFunc{}.Register(scalarFuncs)
+	ExtractFunc{}.Register(scalarFuncs)
+	SubstringFunc{}.Register(scalarFuncs)
 }
 
-var funcs = []*Function{
-	{
-		Id: DATE_ADD,
-		Impls: []*Impl{
-			{
-				Desc: "date_add",
-				Idx:  0,
-				Args: []ExprDataType{
-					{LTyp: dateLTyp()},
-					{LTyp: intervalLType()},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Date, Interval, Date](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDateIntervalAdd,
-							nil,
-							gBinDateIntervalSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: DATE_SUB,
-		Impls: []*Impl{
-			{
-				Desc: "date_sub",
-				Idx:  0,
-				Args: []ExprDataType{
-					{LTyp: dateLTyp()},
-					{LTyp: intervalLType()},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: dateLTyp(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[Date, Interval, Date](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinDateIntervalSub,
-							nil,
-							gBinDateIntervalSingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: EXTRACT,
-		Impls: []*Impl{
-			{
-				Desc: "extract",
-				Idx:  0,
-				Args: []ExprDataType{
-					{LTyp: varchar()},
-					{LTyp: dateLTyp()},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: integer(), NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						binaryExecSwitch[String, Date, int32](
-							chunk._data[0], chunk._data[1], result, count,
-							gBinStringInt32Extract,
-							nil,
-							gBinStringInt32SingleOpWrapper)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: CAST,
-		Impls: []*Impl{
-			{
-				Desc: "cast",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						return fmt.Errorf("usp cast(decimal,int)")
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  1,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  2,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  3,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  4,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  5,
-				Args: []ExprDataType{
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: double(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  6,
-				Args: []ExprDataType{
-					{
-						LTyp: float(),
-					},
-					{
-						LTyp: double(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  7,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: float(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  8,
-				Args: []ExprDataType{
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-					{
-						LTyp: decimal(DecimalMaxWidthInt64, 0),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  9,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  10,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-					{
-						LTyp: intervalLType(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-			{
-				Desc: "cast",
-				Idx:  11,
-				Args: []ExprDataType{
-					{
-						LTyp: intervalLType(),
-					},
-					{
-						LTyp: dateLTyp(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{LTyp: types[1].LTyp, NotNull: decideNull(types)}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-						castExec(chunk._data[0], result, count)
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
-	{
-		Id: SUBSTRING,
-		Impls: []*Impl{
-			{
-				Desc: "substring",
-				Idx:  0,
-				Args: []ExprDataType{
-					{
-						LTyp: varchar(),
-					},
-					{
-						LTyp: integer(),
-					},
-					{
-						LTyp: integer(),
-					},
-				},
-				RetTypeDecider: func(types []ExprDataType) ExprDataType {
-					return ExprDataType{
-						LTyp:    varchar(),
-						NotNull: decideNull(types),
-					}
-				},
-				Body: func() FunctionBody {
-					return func(chunk *Chunk, state *ExprState, count int, result *Vector) error {
-
-						if chunk.columnCount() == 3 {
-							ternaryExecGeneric[String, int64, int64, String](
-								chunk._data[0],
-								chunk._data[1],
-								chunk._data[2],
-								result,
-								count,
-								nil,
-								substringFunc{},
-								ternaryLambdaWrapper[String, int64, int64, String]{},
-							)
-						} else {
-							binaryExecSwitch[String, int64, String](
-								chunk._data[0],
-								chunk._data[1],
-								result,
-								count,
-								nil,
-								substringFuncWithoutLength{},
-								binaryLambdaWrapper[String, int64, String]{},
-							)
-						}
-
-						return nil
-					}
-				},
-			},
-		},
-		ImplDecider: exactImplDecider,
-	},
+func RegisterAggrs() {
+	SumFunc{}.Register(aggrFuncs)
+	AvgFunc{}.Register(aggrFuncs)
+	CountFunc{}.Register(aggrFuncs)
+	MaxFunc{}.Register(aggrFuncs)
+	MinFunc{}.Register(aggrFuncs)
 }

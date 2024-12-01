@@ -133,7 +133,7 @@ func Test_1g_q19_aggr(t *testing.T) {
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
-			return wantOp(root, POT_Agg)
+			return wantId(root, 4)
 		},
 	)
 

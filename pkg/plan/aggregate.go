@@ -95,9 +95,9 @@ func (gad *GroupedAggrData) InitGroupby(
 	//aggr exprs
 	for _, aggr := range exprs {
 		gad._bindings = append(gad._bindings, aggr)
-		gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp.LTyp)
+		gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp)
 		for _, child := range aggr.Children {
-			gad._payloadTypes = append(gad._payloadTypes, child.DataTyp.LTyp)
+			gad._payloadTypes = append(gad._payloadTypes, child.DataTyp)
 			gad._paramExprs = append(gad._paramExprs, child)
 		}
 		gad._aggregates = append(gad._aggregates, aggr)
@@ -110,11 +110,11 @@ func (gad *GroupedAggrData) InitDistinct(
 	rawInputTypes []LType,
 ) {
 	gad.InitDistinctGroups(groups)
-	gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp.LTyp)
+	gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp)
 	for _, child := range aggr.Children {
-		gad._groupTypes = append(gad._groupTypes, child.DataTyp.LTyp)
+		gad._groupTypes = append(gad._groupTypes, child.DataTyp)
 		gad._groups = append(gad._groups, child.copy())
-		gad._payloadTypes = append(gad._payloadTypes, child.DataTyp.LTyp)
+		gad._payloadTypes = append(gad._payloadTypes, child.DataTyp)
 	}
 	gad._childrenOutputTypes = rawInputTypes
 }
@@ -127,7 +127,7 @@ func (gad *GroupedAggrData) InitDistinctGroups(
 	}
 
 	for _, group := range groups {
-		gad._groupTypes = append(gad._groupTypes, group.DataTyp.LTyp)
+		gad._groupTypes = append(gad._groupTypes, group.DataTyp)
 		gad._groups = append(gad._groups, group.copy())
 	}
 }
@@ -138,14 +138,14 @@ func (gad *GroupedAggrData) SetGroupingFuncs(funcs [][]int) {
 
 func (gad *GroupedAggrData) InitGroupbyGroups(groups []*Expr) {
 	for _, g := range groups {
-		gad._groupTypes = append(gad._groupTypes, g.DataTyp.LTyp)
+		gad._groupTypes = append(gad._groupTypes, g.DataTyp)
 	}
 	gad._groups = groups
 }
 
 func (gad *GroupedAggrData) InitChildrenOutput(outputs []*Expr) {
 	for _, output := range outputs {
-		gad._childrenOutputTypes = append(gad._childrenOutputTypes, output.DataTyp.LTyp)
+		gad._childrenOutputTypes = append(gad._childrenOutputTypes, output.DataTyp)
 	}
 	gad._refChildrenOutput = outputs
 }
@@ -415,7 +415,7 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 		types[i] = null()
 	}
 	for gidx, group := range groups {
-		types[gidx] = group.DataTyp.LTyp
+		types[gidx] = group.DataTyp
 	}
 	return types
 }
@@ -625,7 +625,6 @@ func (haggr *HashAggr) DistinctGrouping(
 			switch res {
 			case Done:
 				assertFunc(outputChunk.card() == 0)
-				break
 			case InvalidOpResult:
 				panic("invalid op result")
 			}
@@ -921,7 +920,7 @@ const (
 
 type AggrObject struct {
 	_name        string
-	_func        *AggrFunc
+	_func        *FunctionV2
 	_childCount  int
 	_payloadSize int
 	_aggrType    AggrType
@@ -933,32 +932,10 @@ func NewAggrObject(aggr *Expr) *AggrObject {
 	ret := new(AggrObject)
 	ret._childCount = len(aggr.Children)
 	ret._aggrType = aggr.AggrTyp
-	ret._retType = aggr.DataTyp.LTyp.getInternalType()
+	ret._retType = aggr.DataTyp.getInternalType()
 	ret._name = aggr.Svalue
-	switch aggr.Svalue {
-	case "sum":
-		ret._func = GetSumAggr(aggr.DataTyp.LTyp.getInternalType())
-		ret._payloadSize = ret._func._stateSize()
-	case "avg":
-		assertFunc(len(aggr.Children) != 0)
-		ret._func = GetAvgAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
-		ret._payloadSize = ret._func._stateSize()
-	case "count":
-		assertFunc(len(aggr.Children) != 0)
-		ret._func = GetCountAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
-		ret._payloadSize = ret._func._stateSize()
-	case "max":
-		assertFunc(len(aggr.Children) != 0)
-		ret._func = GetMaxAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
-		ret._payloadSize = ret._func._stateSize()
-	case "min":
-		assertFunc(len(aggr.Children) != 0)
-		ret._func = GetMinAggr(aggr.DataTyp.LTyp.getInternalType(), aggr.Children[0].DataTyp.LTyp.getInternalType())
-		ret._payloadSize = ret._func._stateSize()
-	default:
-		panic("usp")
-	}
-
+	ret._func = aggr.FunImpl
+	ret._payloadSize = ret._func._stateSize()
 	return ret
 }
 
@@ -1013,38 +990,6 @@ func (data *AggrFinalizeData) ReturnNull() {
 	default:
 		panic("usp")
 	}
-}
-
-type aggrStateSize func() int
-type aggrInit func(pointer unsafe.Pointer)
-type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
-type aggrCombine func(*Vector, *Vector, *AggrInputData, int)
-type aggrFinalize func(*Vector, *AggrInputData, *Vector, int, int)
-
-// type aggrFunction func(*AggrFunc, []*Expr)
-type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
-
-//type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
-
-type FuncNullHandling int
-
-const (
-	DEFAULT_NULL_HANDLING FuncNullHandling = 0
-	SPECIAL_HANDLING      FuncNullHandling = 1
-)
-
-type AggrFunc struct {
-	_args      []LType
-	_retType   LType
-	_stateSize aggrStateSize
-	_init      aggrInit
-	_update    aggrUpdate
-	_combine   aggrCombine
-	_finalize  aggrFinalize
-	//_func         aggrFunction
-	_simpleUpdate aggrSimpleUpdate
-	//_window       aggrWindow
-	_nullHandling FuncNullHandling
 }
 
 func NewGroupedAggrHashTable(

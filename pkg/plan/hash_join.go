@@ -65,11 +65,11 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 	hj._hjs = HJS_INIT
 	hj._conds = copyExprs(conds...)
 	for _, cond := range conds {
-		hj._keyTypes = append(hj._keyTypes, cond.Children[0].DataTyp.LTyp)
+		hj._keyTypes = append(hj._keyTypes, cond.Children[0].DataTyp)
 	}
 
 	for i, output := range op.Children[0].Outputs {
-		hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp.LTyp)
+		hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp)
 		hj._leftIndice = append(hj._leftIndice, i)
 	}
 
@@ -77,8 +77,8 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		//right child output types
 		rightIdxOffset := len(hj._scanNextTyps)
 		for i, output := range op.Children[1].Outputs {
-			hj._buildTypes = append(hj._buildTypes, output.DataTyp.LTyp)
-			hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp.LTyp)
+			hj._buildTypes = append(hj._buildTypes, output.DataTyp)
+			hj._scanNextTyps = append(hj._scanNextTyps, output.DataTyp)
 			hj._rightIndice = append(hj._rightIndice, rightIdxOffset+i)
 		}
 	}
@@ -468,7 +468,7 @@ func NewJoinHashTable(conds []*Expr,
 		_joinType:   joinTyp,
 	}
 	for _, cond := range conds {
-		typ := cond.Children[0].DataTyp.LTyp
+		typ := cond.Children[0].DataTyp
 		if cond.SubTyp == ET_Equal || cond.SubTyp == ET_In {
 			assertFunc(len(ht._equalTypes) == len(ht._keyTypes))
 			ht._equalTypes = append(ht._equalTypes, typ)
@@ -1279,11 +1279,6 @@ func TupleDataTemplatedScatterSwitch(
 			colIdx,
 			dateScatterOp{},
 		)
-	//if layout.offsets()[colIdx] == 33 {
-	//	rowPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
-	//	dt := load[Date](pointerAdd(rowPtrs[0], 33))
-
-	//}
 	case DOUBLE:
 		TupleDataTemplatedScatter[float64](
 			srcFormat,
@@ -1294,6 +1289,17 @@ func TupleDataTemplatedScatterSwitch(
 			heapLocations,
 			colIdx,
 			float64ScatterOp{},
+		)
+	case INT128:
+		TupleDataTemplatedScatter[Hugeint](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			hugeintScatterOp{},
 		)
 	default:
 		panic("usp ")
@@ -1385,6 +1391,16 @@ func TupleDataTemplatedGatherSwitch(
 		)
 	case DATE:
 		TupleDataTemplatedGather[Date](
+			layout,
+			rowLocs,
+			colIdx,
+			scanSel,
+			scanCnt,
+			target,
+			targetSel,
+		)
+	case INT128:
+		TupleDataTemplatedGather[Hugeint](
 			layout,
 			rowLocs,
 			colIdx,

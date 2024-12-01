@@ -85,9 +85,8 @@ func handler(ctx context.Context, query string) (wire.PreparedStatements, error)
 }
 
 type ExecCtx struct {
-	cfg    *util.Config
-	run    *plan.Runner
-	handle wire.PreparedStatementFn
+	cfg *util.Config
+	run *plan.Runner
 }
 
 func (exec *ExecCtx) handleX(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {

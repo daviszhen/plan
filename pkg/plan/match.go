@@ -168,6 +168,20 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalDecimalOp{},
 			)
+		case INT128:
+			TemplatedMatchType[Hugeint](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				equalHugeintOp{},
+			)
 		default:
 			panic("usp")
 		}

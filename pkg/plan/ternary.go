@@ -20,16 +20,34 @@ import (
 	"unsafe"
 )
 
-type ternaryOp[A any, B any, C any, R any] interface {
-	operation(*A, *B, *C, *R)
-}
+type TernaryOp[A any, B any, C any, R any] func(*A, *B, *C, *R)
 
-type ternaryFunc[A any, B any, C any, R any] interface {
-	fun(*A, *B, *C, *R)
+type TernaryFunc[A any, B any, C any, R any] func(*A, *B, *C, *R)
+
+type TernaryWrapper[A any, B any, C any, R any] interface {
+	operation(*A, *B, *C, *R, *Bitmap, int, TernaryFunc[A, B, C, R])
 }
 
 //lint:ignore U1000
-type substringFunc struct {
+type TernaryStandardOperatorWrapper[A any, B any, C any, R any] struct {
+	op TernaryOp[A, B, C, R]
+}
+
+func (wrapper *TernaryStandardOperatorWrapper[A, B, C, R]) operation(
+	a *A, b *B, c *C, res *R, _ *Bitmap, _ int,
+	fun TernaryFunc[A, B, C, R]) {
+	wrapper.op(a, b, c, res)
+}
+
+//lint:ignore U1000
+type TernaryLambdaWrapper[A any, B any, C any, R any] struct {
+	fun TernaryFunc[A, B, C, R]
+}
+
+func (wrapper TernaryLambdaWrapper[A, B, C, R]) operation(
+	a *A, b *B, c *C, res *R, _ *Bitmap, _ int,
+	fun TernaryFunc[A, B, C, R]) {
+	fun(a, b, c, res)
 }
 
 const (
@@ -100,7 +118,7 @@ func sliceString(sdata unsafe.Pointer, offset, length int64, result *String) {
 		int(length))
 }
 
-func (sub substringFunc) fun(s *String, offset *int64, length *int64, result *String) {
+func substringFunc(s *String, offset *int64, length *int64, result *String) {
 	slen := s.len()
 	sdata := s.data()
 
@@ -117,31 +135,35 @@ func (sub substringFunc) fun(s *String, offset *int64, length *int64, result *St
 	sliceString(sdata, start, end-start, result)
 }
 
-type ternaryWrapper[A any, B any, C any, R any] interface {
-	operation(*A, *B, *C, *R, *Bitmap, int,
-		ternaryOp[A, B, C, R],
-		ternaryFunc[A, B, C, R],
-	)
+func TernaryFunction[A any, B any, C any, R any](
+	op TernaryOp[A, B, C, R],
+) ScalarFunc {
+	return TernaryExecStandard[A, B, C, R](op)
 }
 
-//lint:ignore U1000
-type ternaryLambdaWrapper[A any, B any, C any, R any] struct {
-}
+func TernaryExecStandard[A any, B any, C any, R any](
+	op TernaryOp[A, B, C, R],
+) ScalarFunc {
+	wrapper := &TernaryStandardOperatorWrapper[A, B, C, R]{op: op}
+	temp := func(input *Chunk, state *ExprState, result *Vector) {
+		ternaryExecGeneric[A, B, C, R](
+			input._data[0],
+			input._data[1],
+			input._data[2],
+			result,
+			input.card(),
+			nil,
+			wrapper)
 
-func (wrapper ternaryLambdaWrapper[A, B, C, R]) operation(
-	a *A, b *B, c *C, res *R, _ *Bitmap, _ int,
-	op ternaryOp[A, B, C, R],
-	fun ternaryFunc[A, B, C, R],
-) {
-	fun.fun(a, b, c, res)
+	}
+	return temp
 }
 
 func ternaryExecGeneric[A any, B any, C any, R any](
 	a, b, c, res *Vector,
 	count int,
-	op ternaryOp[A, B, C, R],
-	fun ternaryFunc[A, B, C, R],
-	wrapper ternaryWrapper[A, B, C, R],
+	fun TernaryFunc[A, B, C, R],
+	wrapper TernaryWrapper[A, B, C, R],
 ) {
 	if a.phyFormat().isConst() &&
 		b.phyFormat().isConst() &&
@@ -157,16 +179,7 @@ func ternaryExecGeneric[A any, B any, C any, R any](
 			cSlice := getSliceInPhyFormatConst[C](c)
 			resSlice := getSliceInPhyFormatConst[R](res)
 			resMask := getMaskInPhyFormatConst(res)
-			wrapper.operation(
-				&aSlice[0],
-				&bSlice[0],
-				&cSlice[0],
-				&resSlice[0],
-				resMask,
-				0,
-				op,
-				fun,
-			)
+			wrapper.operation(&aSlice[0], &bSlice[0], &cSlice[0], &resSlice[0], resMask, 0, fun)
 		}
 	} else {
 		res.setPhyFormat(PF_FLAT)
@@ -193,7 +206,6 @@ func ternaryExecGeneric[A any, B any, C any, R any](
 			bdata._mask,
 			cdata._mask,
 			resMask,
-			op,
 			fun,
 			wrapper,
 		)
@@ -206,9 +218,8 @@ func ternaryExecLoop[A any, B any, C any, R any](
 	count int,
 	asel, bsel, csel *SelectVector,
 	amask, bmask, cmask, resMask *Bitmap,
-	op ternaryOp[A, B, C, R],
-	fun ternaryFunc[A, B, C, R],
-	wrapper ternaryWrapper[A, B, C, R],
+	fun TernaryFunc[A, B, C, R],
+	wrapper TernaryWrapper[A, B, C, R],
 ) {
 	if !amask.AllValid() ||
 		!bmask.AllValid() ||
@@ -220,16 +231,7 @@ func ternaryExecLoop[A any, B any, C any, R any](
 			if amask.rowIsValid(uint64(aidx)) &&
 				bmask.rowIsValid(uint64(bidx)) &&
 				cmask.rowIsValid(uint64(cidx)) {
-				wrapper.operation(
-					&adata[aidx],
-					&bdata[bidx],
-					&cdata[cidx],
-					&resData[i],
-					resMask,
-					i,
-					op,
-					fun,
-				)
+				wrapper.operation(&adata[aidx], &bdata[bidx], &cdata[cidx], &resData[i], resMask, i, fun)
 			} else {
 				resMask.setInvalid(uint64(i))
 			}
@@ -239,16 +241,7 @@ func ternaryExecLoop[A any, B any, C any, R any](
 			aidx := asel.getIndex(i)
 			bidx := bsel.getIndex(i)
 			cidx := csel.getIndex(i)
-			wrapper.operation(
-				&adata[aidx],
-				&bdata[bidx],
-				&cdata[cidx],
-				&resData[i],
-				resMask,
-				i,
-				op,
-				fun,
-			)
+			wrapper.operation(&adata[aidx], &bdata[bidx], &cdata[cidx], &resData[i], resMask, i, fun)
 		}
 	}
 }

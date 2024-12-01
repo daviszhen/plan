@@ -198,11 +198,11 @@ func genStmts(cfg *util.Config, id int) ([]*pg_query.RawStmt, error) {
 }
 
 func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
-	//defer func() {
-	//	if rErr := recover(); rErr != nil {
-	//		err = errors.Join(err, util.ConvertPanicError(rErr))
-	//	}
-	//}()
+	defer func() {
+		if rErr := recover(); rErr != nil {
+			err = errors.Join(err, util.ConvertPanicError(rErr))
+		}
+	}()
 	var root *PhysicalOperator
 	root, err = genPhyPlan(ast)
 	if err != nil {
@@ -213,6 +213,7 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 	}
 	fname := fmt.Sprintf("q%d.txt", id)
 	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
+	fmt.Println("Execute query", path)
 	var resFile *os.File
 	if len(path) != 0 {
 		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -466,7 +467,7 @@ func (run *Runner) Columns() wire.Columns {
 		col := wire.Column{
 			//Name:  output.Name,
 			Oid:   oid.T_varchar, //FIXME:
-			Width: int16(output.DataTyp.LTyp.width),
+			Width: int16(output.DataTyp.width),
 		}
 		cols = append(cols, col)
 	}
@@ -521,7 +522,7 @@ func (run *Runner) initChildren() error {
 
 func (run *Runner) initOutput() {
 	for _, output := range run.op.Outputs {
-		run.outputTypes = append(run.outputTypes, output.DataTyp.LTyp)
+		run.outputTypes = append(run.outputTypes, output.DataTyp)
 		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
 	}
 }
@@ -658,7 +659,7 @@ func (run *Runner) limitInit() error {
 	//collect children output types
 	childTypes := make([]LType, 0)
 	for _, outputExpr := range run.op.Children[0].Outputs {
-		childTypes = append(childTypes, outputExpr.DataTyp.LTyp)
+		childTypes = append(childTypes, outputExpr.DataTyp)
 	}
 
 	run.limit = NewLimit(childTypes, run.op.Limit, run.op.Offset)
@@ -741,14 +742,14 @@ func (run *Runner) orderInit() error {
 	realOrderByExprs := make([]*Expr, 0)
 	for _, by := range run.op.OrderBys {
 		child := by.Children[0]
-		keyTypes = append(keyTypes, child.DataTyp.LTyp)
+		keyTypes = append(keyTypes, child.DataTyp)
 		realOrderByExprs = append(realOrderByExprs, child)
 	}
 
 	payLoadTypes := make([]LType, 0)
 	for _, output := range run.op.Outputs {
 		payLoadTypes = append(payLoadTypes,
-			output.DataTyp.LTyp)
+			output.DataTyp)
 	}
 
 	run.localSort = NewLocalSort(
@@ -879,37 +880,27 @@ func (run *Runner) filterInit() error {
 func initFilterExec(filters []*Expr) (*ExprExec, error) {
 	//init filter
 	//convert filters into "... AND ..."
-	var err error
+	//var err error
 	var andFilter *Expr
 	if len(filters) > 0 {
-		var impl *Impl
+		//var impl *Impl
 		andFilter = filters[0]
 		for i, filter := range filters {
 			if i > 0 {
-				if andFilter.DataTyp.LTyp.id != LTID_BOOLEAN ||
-					filter.DataTyp.LTyp.id != LTID_BOOLEAN {
+				if andFilter.DataTyp.id != LTID_BOOLEAN ||
+					filter.DataTyp.id != LTID_BOOLEAN {
 					return nil, fmt.Errorf("need boolean expr")
 				}
-				argsTypes := []ExprDataType{
-					andFilter.DataTyp,
-					filter.DataTyp,
-				}
-				impl, err = GetFunctionImpl(
-					AND,
-					argsTypes)
-				if err != nil {
-					return nil, err
-				}
-				andFilter = &Expr{
-					Typ:     ET_Func,
-					SubTyp:  ET_And,
-					DataTyp: impl.RetTypeDecider(argsTypes),
-					FuncId:  AND,
-					Children: []*Expr{
+				binder := FunctionBinder{}
+				andFilter = binder.BindScalarFunc(
+					ET_And.String(),
+					[]*Expr{
 						andFilter,
 						filter,
 					},
-				}
+					ET_And,
+					ET_And.isOperator(),
+				)
 			}
 		}
 	}
@@ -921,8 +912,7 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	var err error
 	var count int
 	//if !filterOnLocal {
-	//
-	//	input.print()
+	//	//fmt.Println("filter read child 4", input.card())
 	//}
 	if filterOnLocal {
 		count, err = run.state.filterExec.executeSelect([]*Chunk{nil, nil, input}, run.state.filterSel)
@@ -936,10 +926,6 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 		}
 	}
 
-	//if !filterOnLocal {
-
-	//}
-
 	if count == input.card() {
 		//reference
 		output.referenceIndice(input, run.outputIndice)
@@ -947,6 +933,9 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 		//slice
 		output.sliceIndice(input, run.state.filterSel, count, 0, run.outputIndice)
 	}
+	//if !filterOnLocal {
+	//	//fmt.Println("filter read child 5", output.card())
+	//}
 	return nil
 }
 
@@ -956,6 +945,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 	var err error
 	if len(run.children) != 0 {
 		for {
+			//fmt.Println("filter read child 1")
 			res, err = run.execChild(run.children[0], childChunk, state)
 			if err != nil {
 				return 0, err
@@ -967,6 +957,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 				return res, nil
 			}
 			if childChunk.card() > 0 {
+				//fmt.Println("filter read child 2", childChunk.card())
 				break
 			}
 		}
@@ -976,6 +967,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 	if err != nil {
 		return 0, err
 	}
+	//fmt.Println("filter read child 3", childChunk.card())
 	return haveMoreOutput, nil
 }
 
@@ -999,11 +991,9 @@ func (run *Runner) aggrInit() error {
 		if len(run.op.GroupBys) == 0 {
 			//group by 1
 			constExpr := &Expr{
-				Typ: ET_IConst,
-				DataTyp: ExprDataType{
-					LTyp: integer(),
-				},
-				Ivalue: 1,
+				Typ:     ET_IConst,
+				DataTyp: integer(),
+				Ivalue:  1,
 			}
 			run.op.GroupBys = append(run.op.GroupBys, constExpr)
 
@@ -1282,7 +1272,7 @@ func (run *Runner) joinInit() error {
 	} else {
 		types := make([]LType, len(run.op.Children[1].Outputs))
 		for i, e := range run.op.Children[1].Outputs {
-			types[i] = e.DataTyp.LTyp
+			types[i] = e.DataTyp
 		}
 		//output pos -> [child,pos]
 		outputPosMap := make(map[int]ColumnBind)
@@ -1548,7 +1538,7 @@ func (run *Runner) joinClose() error {
 func (run *Runner) projInit() error {
 	projTypes := make([]LType, 0)
 	for _, proj := range run.op.Projects {
-		projTypes = append(projTypes, proj.DataTyp.LTyp)
+		projTypes = append(projTypes, proj.DataTyp)
 	}
 	run.state = &OperatorState{
 		projTypes:  projTypes,
@@ -1603,7 +1593,7 @@ func (run *Runner) scanInit() error {
 	for _, col := range run.op.Columns {
 		if idx, has := cat.Column2Idx[col]; has {
 			run.colIndice = append(run.colIndice, idx)
-			run.readedColTyps = append(run.readedColTyps, cat.Types[idx].LTyp)
+			run.readedColTyps = append(run.readedColTyps, cat.Types[idx])
 		} else {
 			return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
 		}

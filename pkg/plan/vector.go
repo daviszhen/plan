@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"math/rand"
 	"os"
 	"strings"
@@ -450,6 +451,13 @@ func (vec *Vector) getValue(idx int) *Value {
 			_typ: vec.typ(),
 			_i64: int64(uintptr(data[idx])),
 		}
+	case LTID_HUGEINT:
+		data := getSliceInPhyFormatFlat[Hugeint](vec)
+		return &Value{
+			_typ:   vec.typ(),
+			_i64:   data[idx]._upper,
+			_i64_1: int64(data[idx]._lower),
+		}
 	default:
 		panic("usp")
 	}
@@ -536,6 +544,10 @@ func (vec *Vector) setValue(idx int, val *Value) {
 	case BOOL:
 		slice := toSlice[bool](vec._data, pTyp.size())
 		slice[idx] = val._bool
+	case INT128:
+		slice := toSlice[Hugeint](vec._data, pTyp.size())
+		slice[idx]._upper = val._i64
+		slice[idx]._lower = uint64(val._i64_1)
 	default:
 		panic("usp")
 	}
@@ -1298,6 +1310,12 @@ func (val Value) String() string {
 		return fmt.Sprintf("%v", val._f64)
 	case LTID_POINTER:
 		return fmt.Sprintf("0x%x", val._i64)
+	case LTID_HUGEINT:
+		h := big.NewInt(val._i64)
+		l := big.NewInt(val._i64_1)
+		h.Lsh(h, 64)
+		h.Add(h, l)
+		return fmt.Sprintf("%v", h.String())
 	default:
 		panic("usp")
 	}
