@@ -216,6 +216,10 @@ func (h Hugeint) String() string {
 	return fmt.Sprintf("[%d %d]", h._upper, h._lower)
 }
 
+func (h *Hugeint) equal(o *Hugeint) bool {
+	return h._lower == o._lower && h._upper == o._upper
+}
+
 func negateHugeint(input *Hugeint, result *Hugeint) {
 	if input._upper == math.MinInt64 && input._lower == 0 {
 		panic("-hugeint overflow")
@@ -360,6 +364,24 @@ func (scatter int32ScatterOp) randValue() int32 {
 
 func (scatter int32ScatterOp) store(src int32, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
 	store[int32](src, pointerAdd(rowLoc, offsetInRow))
+}
+
+type hugeintScatterOp struct {
+}
+
+func (scatter hugeintScatterOp) nullValue() Hugeint {
+	return Hugeint{
+		_lower: 0,
+		_upper: math.MinInt64,
+	}
+}
+
+func (scatter hugeintScatterOp) randValue() Hugeint {
+	return Hugeint{}
+}
+
+func (scatter hugeintScatterOp) store(src Hugeint, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	store[Hugeint](src, pointerAdd(rowLoc, offsetInRow))
 }
 
 type uint64ScatterOp struct {
@@ -1490,51 +1512,6 @@ func (dt DataType) String() string {
 	return "invalid"
 }
 
-type ExprDataType struct {
-	LTyp    LType
-	NotNull bool
-}
-
-func (edt ExprDataType) equal(o ExprDataType) bool {
-	if edt.NotNull != o.NotNull {
-		return false
-	}
-	return edt.LTyp.equal(o.LTyp)
-}
-
-func (edt ExprDataType) include(o ExprDataType) bool {
-	if !edt.LTyp.equal(o.LTyp) {
-		if edt.LTyp.id != o.LTyp.id {
-			return false
-		}
-		switch edt.LTyp.id {
-		case LTID_DECIMAL:
-			if implicitCast(o.LTyp, edt.LTyp) >= 0 {
-				return true
-			}
-		}
-		return false
-	}
-	if edt.NotNull {
-		return o.NotNull
-	} else {
-		return true
-	}
-}
-
-func (edt ExprDataType) String() string {
-	//null := ""
-	//if edt.NotNull {
-	//	null = "not null"
-	//}
-	//return fmt.Sprintf("{%v,%s}", edt.LTyp, null)
-	return fmt.Sprintf("%v", edt.LTyp)
-}
-
-var InvalidExprDataType = ExprDataType{
-	LTyp: invalidLType(),
-}
-
 type LOT int
 
 const (
@@ -1841,7 +1818,7 @@ func checkExprs(e ...*Expr) {
 		if expr.Typ == ET_Func && expr.FunImpl == nil {
 			panic("invalid function")
 		}
-		if expr.DataTyp.LTyp.id == LTID_INVALID {
+		if expr.DataTyp.id == LTID_INVALID {
 			panic("invalid logical type")
 		}
 	}
@@ -2036,7 +2013,7 @@ const (
 type Expr struct {
 	Typ     ET
 	SubTyp  ET_SubTyp
-	DataTyp ExprDataType
+	DataTyp LType
 	AggrTyp AggrType
 
 	Children []*Expr
@@ -2056,7 +2033,6 @@ type Expr struct {
 	Alias       string
 	SubBuilder  *Builder     // builder for subquery
 	SubCtx      *BindContext // context for subquery
-	FuncId      FuncId
 	SubqueryTyp ET_SubqueryType
 	CTEIndex    uint64
 
@@ -2178,7 +2154,6 @@ func (e *Expr) copy() *Expr {
 		Alias:       e.Alias,
 		SubBuilder:  e.SubBuilder,
 		SubCtx:      e.SubCtx,
-		FuncId:      e.FuncId,
 		SubqueryTyp: e.SubqueryTyp,
 		CTEIndex:    e.CTEIndex,
 		BelongCtx:   e.BelongCtx,
@@ -2381,7 +2356,7 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			ctx.Write(")")
 
 		case ET_SubFunc:
-			ctx.Writef("%s_%d(", e.Svalue, e.FuncId)
+			ctx.Writef("%s(", e.Svalue)
 			for idx, child := range e.Children {
 				if idx > 0 {
 					ctx.Write(", ")
@@ -2450,7 +2425,7 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 	case ET_FConst:
 		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Fvalue))
 	case ET_DecConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s %d %d)", e.Svalue, e.DataTyp.LTyp.width, e.DataTyp.LTyp.scale))
+		tree.AddMetaNode(head, fmt.Sprintf("(%s %d %d)", e.Svalue, e.DataTyp.width, e.DataTyp.scale))
 	case ET_TABLE:
 		tree.AddNode(fmt.Sprintf("%s.%s", e.Database, e.Table))
 	case ET_Join:
@@ -2780,7 +2755,7 @@ type CatalogTable struct {
 	Db         string
 	Table      string
 	Columns    []string
-	Types      []ExprDataType
+	Types      []LType
 	PK         []int
 	Column2Idx map[string]int
 	Stats      *Stats
@@ -2908,7 +2883,6 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				SubTyp:   expr.SubTyp,
 				Svalue:   expr.SubTyp.String(),
 				DataTyp:  expr.DataTyp,
-				FuncId:   expr.FuncId,
 				Children: []*Expr{left, right},
 				FunImpl:  expr.FunImpl,
 			}, hasCorCol
@@ -2923,7 +2897,6 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				Typ:      expr.Typ,
 				SubTyp:   expr.SubTyp,
 				Svalue:   expr.Svalue,
-				FuncId:   expr.FuncId,
 				DataTyp:  expr.DataTyp,
 				Children: args,
 				FunImpl:  expr.FunImpl,

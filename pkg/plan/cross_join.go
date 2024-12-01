@@ -463,6 +463,22 @@ func (copy *dateValueCopy) Operation(dst, src *Date) {
 	*dst = *src
 }
 
+type hugeintValueCopy struct {
+}
+
+func (copy *hugeintValueCopy) Assign(
+	metaData *ColumnDataMetaData,
+	dst, src unsafe.Pointer,
+	dstIdx, srcIdx int) {
+	dPtr := pointerAdd(dst, dstIdx*int128Size)
+	sPtr := pointerAdd(src, srcIdx*int128Size)
+	copy.Operation((*Hugeint)(dPtr), (*Hugeint)(sPtr))
+}
+
+func (copy *hugeintValueCopy) Operation(dst, src *Hugeint) {
+	*dst = *src
+}
+
 type varcharValueCopy struct {
 }
 
@@ -538,6 +554,15 @@ func ColumnDataCopySwitch(
 			offset,
 			count,
 			&dateValueCopy{},
+		)
+	case INT128:
+		TemplatedColumnDataCopy[Hugeint](
+			metaData,
+			srcData,
+			src,
+			offset,
+			count,
+			&hugeintValueCopy{},
 		)
 	default:
 		panic("usp")

@@ -117,6 +117,13 @@ func (e equalDecimalOp) operation(left, right *Decimal) bool {
 	return left.equal(right)
 }
 
+type equalHugeintOp struct {
+}
+
+func (e equalHugeintOp) operation(left, right *Hugeint) bool {
+	return left.equal(right)
+}
+
 // <>
 
 //lint:ignore U1000
@@ -239,6 +246,26 @@ type greatInt32Op struct {
 
 func (e greatInt32Op) operation(left, right *int32) bool {
 	return *left > *right
+}
+
+type greatHugeintOp struct {
+}
+
+func (e greatHugeintOp) operation(left, right *Hugeint) bool {
+	upperBigger := left._upper > right._upper
+	upperEqual := left._upper == right._upper
+	lowerBigger := left._lower > right._lower
+	return upperBigger || upperEqual && lowerBigger
+}
+
+type lessHugeintOp struct {
+}
+
+func (e lessHugeintOp) operation(left, right *Hugeint) bool {
+	upperSmaller := left._upper < right._upper
+	upperEqual := left._upper == right._upper
+	lowerSmaller := left._lower < right._lower
+	return upperSmaller || upperEqual && lowerSmaller
 }
 
 // decimal
@@ -400,13 +427,15 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 		switch left.typ().getInternalType() {
 		case INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatInt32Op{})
+		case INT128:
+			return selectBinary[Hugeint](left, right, sel, count, trueSel, falseSel, greatHugeintOp{})
 		case DATE:
 			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, greatDateOp{})
 		case FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, greatFloat32Op{})
 		case DECIMAL:
 			return selectBinary[Decimal](left, right, sel, count, trueSel, falseSel, greatDecimalOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, UNKNOWN, BIT, INVALID:
 			panic("usp")
 		default:
 			panic("usp")

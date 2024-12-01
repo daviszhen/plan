@@ -28,6 +28,7 @@ type TernaryWrapper[A any, B any, C any, R any] interface {
 	operation(*A, *B, *C, *R, *Bitmap, int, TernaryFunc[A, B, C, R])
 }
 
+//lint:ignore U1000
 type TernaryStandardOperatorWrapper[A any, B any, C any, R any] struct {
 	op TernaryOp[A, B, C, R]
 }

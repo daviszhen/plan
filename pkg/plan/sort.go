@@ -81,9 +81,9 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 		}
 
 		ret._orderByNullTypes = append(ret._orderByNullTypes, OBNT_NULLS_FIRST)
-		ret._logicalTypes = append(ret._logicalTypes, realOrder.DataTyp.LTyp)
+		ret._logicalTypes = append(ret._logicalTypes, realOrder.DataTyp)
 
-		interTyp := realOrder.DataTyp.LTyp.getInternalType()
+		interTyp := realOrder.DataTyp.getInternalType()
 		ret._constantSize = append(ret._constantSize, interTyp.isConstant())
 
 		ret._hasNull = append(ret._hasNull, true)
@@ -1070,6 +1070,18 @@ func RadixScatter(
 			offset,
 			dateEncoder{},
 		)
+	case INT128:
+		TemplatedRadixScatter[Hugeint](
+			&vdata,
+			sel,
+			serCount,
+			keyLocs,
+			desc,
+			hasNull,
+			nullsFirst,
+			offset,
+			hugeEncoder{},
+		)
 	default:
 		panic("usp")
 	}
@@ -1243,6 +1255,17 @@ func Scatter(
 				colNo,
 				layout,
 				float64ScatterOp{},
+			)
+		case INT128:
+			TemplatedScatter[Hugeint](
+				col,
+				rows,
+				sel,
+				count,
+				colOffset,
+				colNo,
+				layout,
+				hugeintScatterOp{},
 			)
 		default:
 			panic("usp")
@@ -2945,6 +2968,17 @@ func (dateEncoder) TypeSize() int {
 	return dateSize
 }
 
+type hugeEncoder struct{}
+
+func (hugeEncoder) EncodeData(ptr unsafe.Pointer, d *Hugeint) {
+	encodeInt64(ptr, d._upper)
+	encodeUint64(pointerAdd(ptr, int64Size), d._lower)
+}
+
+func (hugeEncoder) TypeSize() int {
+	return int128Size
+}
+
 func encodeInt32(ptr unsafe.Pointer, value int32) {
 	store[uint32](BSWAP32(uint32(value)), ptr)
 	store[uint8](FlipSign(load[uint8](ptr)), ptr)
@@ -2959,6 +2993,6 @@ func encodeInt64(ptr unsafe.Pointer, value int64) {
 	store[uint8](FlipSign(load[uint8](ptr)), ptr)
 }
 
-//func encodeUint64(ptr unsafe.Pointer, value uint64) {
-//	store[uint64](BSWAP64(value), ptr)
-//}
+func encodeUint64(ptr unsafe.Pointer, value uint64) {
+	store[uint64](BSWAP64(value), ptr)
+}

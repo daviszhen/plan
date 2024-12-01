@@ -81,7 +81,6 @@ func GetScalarIntegerAddFunctionWithoutOverflowCheck(ptyp PhyType) ScalarFunc {
 	default:
 		panic("usp")
 	}
-	return nil
 }
 
 func addInt8CheckOf(left, right, result *int8) {
@@ -192,7 +191,6 @@ func GetScalarIntegerAddFunctionWithOverflowCheck(ptyp PhyType) ScalarFunc {
 	default:
 		panic("not implement")
 	}
-	return nil
 }
 
 func addHugeint(left, right, result *Hugeint) {

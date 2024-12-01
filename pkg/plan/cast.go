@@ -16,6 +16,7 @@ package plan
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,12 @@ import (
 
 func tryCastInt32ToInt32(input *int32, result *int32, _ bool) bool {
 	*result = int32(*input)
+	return true
+}
+
+func tryCastInt32ToHugeint(input *int32, result *Hugeint, _ bool) bool {
+	result._upper = 0
+	result._lower = uint64(*input)
 	return true
 }
 
@@ -63,6 +70,17 @@ func tryCastBigintToInt32(input *Hugeint, result *int32, _ bool) bool {
 		fmt.Println(input)
 	}
 	*result = val
+	return true
+}
+
+func tryCastBigintToFloat32(input *Hugeint, result *float32, _ bool) bool {
+	switch input._upper {
+	case -1:
+		*result = -float32(math.MaxUint64-input._lower) - 1
+	default:
+		*result = float32(input._lower) +
+			float32(input._upper)*float32(math.MaxUint64)
+	}
 	return true
 }
 
@@ -165,36 +183,32 @@ func castExec(
 func AddCastToType(expr *Expr, dstTyp LType, tryCast bool) (*Expr, error) {
 	var err error
 	var retExpr *Expr
-	if expr.DataTyp.LTyp.equal(dstTyp) {
+	if expr.DataTyp.equal(dstTyp) {
 		return expr, nil
 	}
 
-	castInfo := castFuncs.GetCastFunc(expr.DataTyp.LTyp, dstTyp)
+	castInfo := castFuncs.GetCastFunc(expr.DataTyp, dstTyp)
 
 	args := []*Expr{
 		expr, //expr to be cast
 		//target type saved in DataTyp field
 		{
-			Typ: ET_IConst,
-			DataTyp: ExprDataType{
-				LTyp: dstTyp,
-			},
+			Typ:     ET_IConst,
+			DataTyp: dstTyp,
 		},
 	}
 
 	retExpr = &Expr{
-		Typ:    ET_Func,
-		SubTyp: ET_SubFunc,
-		Svalue: ET_Cast.String(),
-		DataTyp: ExprDataType{
-			LTyp: dstTyp,
-		},
+		Typ:        ET_Func,
+		SubTyp:     ET_SubFunc,
+		Svalue:     ET_Cast.String(),
+		DataTyp:    dstTyp,
 		Children:   args,
 		IsOperator: ET_Cast.isOperator(),
 		BindInfo:   nil,
 		FunImpl: &FunctionV2{
 			_name:          ET_Cast.String(),
-			_args:          []LType{expr.DataTyp.LTyp, dstTyp},
+			_args:          []LType{expr.DataTyp, dstTyp},
 			_retType:       dstTyp,
 			_funcTyp:       ScalarFuncType,
 			_boundCastInfo: castInfo,

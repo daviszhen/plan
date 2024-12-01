@@ -203,6 +203,23 @@ func (op HashOpDecimal) operation(input Decimal, isNull bool) uint64 {
 	}
 }
 
+type HashFuncHugeint struct {
+}
+
+func (HashFuncHugeint) fun(value Hugeint) uint64 {
+	return murmurhash64(uint64(value._upper)) ^ murmurhash64(uint64(value._lower))
+}
+
+type HashOpHugeint struct{}
+
+func (op HashOpHugeint) operation(input Hugeint, isNull bool) uint64 {
+	if isNull {
+		return NULL_HASH
+	} else {
+		return HashFuncHugeint{}.fun(input)
+	}
+}
+
 func HashTypeSwitch(
 	input, result *Vector,
 	rsel *SelectVector,
@@ -219,6 +236,8 @@ func HashTypeSwitch(
 		TemplatedLoopHash[String](input, result, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
 	case DECIMAL:
 		TemplatedLoopHash[Decimal](input, result, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
+	case INT128:
+		TemplatedLoopHash[Hugeint](input, result, rsel, count, hasRsel, HashOpHugeint{}, HashFuncHugeint{})
 	default:
 		panic("Unknown input type")
 	}

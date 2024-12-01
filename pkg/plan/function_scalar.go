@@ -25,8 +25,8 @@ func ScalarNopFunc(input *Chunk, state *ExprState, result *Vector) {
 }
 
 func NopDecimalBind(fun *FunctionV2, args []*Expr) *FunctionData {
-	fun._retType = args[0].DataTyp.LTyp
-	fun._args[0] = args[0].DataTyp.LTyp
+	fun._retType = args[0].DataTyp
+	fun._args[0] = args[0].DataTyp
 	return nil
 }
 
@@ -39,12 +39,12 @@ func BindDecimalAddSubstract(fun *FunctionV2, args []*Expr) *FunctionData {
 	}
 
 	for _, arg := range args {
-		if arg.DataTyp.LTyp.id == LTID_UNKNOWN {
+		if arg.DataTyp.id == LTID_UNKNOWN {
 			continue
 		}
-		maxWidth = max(maxWidth, arg.DataTyp.LTyp.width)
-		maxScale = max(maxScale, arg.DataTyp.LTyp.scale)
-		maxWidthOverScale = max(maxWidthOverScale, arg.DataTyp.LTyp.width-arg.DataTyp.LTyp.scale)
+		maxWidth = max(maxWidth, arg.DataTyp.width)
+		maxScale = max(maxScale, arg.DataTyp.scale)
+		maxWidthOverScale = max(maxWidthOverScale, arg.DataTyp.width-arg.DataTyp.scale)
 	}
 	assertFunc(maxWidth > 0)
 	//for add/sub, plus 1 extra on the width
@@ -62,10 +62,10 @@ func BindDecimalAddSubstract(fun *FunctionV2, args []*Expr) *FunctionData {
 	resTyp := decimal(requireWidth, maxScale)
 	//cast all input types
 	for i, arg := range args {
-		scale := arg.DataTyp.LTyp.scale
+		scale := arg.DataTyp.scale
 		if scale == resTyp.scale &&
-			arg.DataTyp.LTyp.getInternalType() == resTyp.getInternalType() {
-			fun._args[i] = arg.DataTyp.LTyp
+			arg.DataTyp.getInternalType() == resTyp.getInternalType() {
+			fun._args[i] = arg.DataTyp
 		} else {
 			fun._args[i] = resTyp
 		}
@@ -237,7 +237,7 @@ func negateInterval(input *Interval, result *Interval) {
 }
 
 func DecimalNegateBind(fun *FunctionV2, args []*Expr) *FunctionData {
-	decTyp := args[0].DataTyp.LTyp
+	decTyp := args[0].DataTyp
 	fun._scalar = GetScalarUnaryFunction(decTyp, "-")
 	fun._args[0] = decTyp
 	fun._retType = decTyp
@@ -425,14 +425,14 @@ func BindDecimalMultiply(fun *FunctionV2, args []*Expr) *FunctionData {
 	resWidth, resScale := 0, 0
 	maxWidth := 0
 	for _, arg := range args {
-		if arg.DataTyp.LTyp.id == LTID_UNKNOWN {
+		if arg.DataTyp.id == LTID_UNKNOWN {
 			continue
 		}
-		if arg.DataTyp.LTyp.width > maxWidth {
-			maxWidth = arg.DataTyp.LTyp.width
+		if arg.DataTyp.width > maxWidth {
+			maxWidth = arg.DataTyp.width
 		}
-		resWidth += arg.DataTyp.LTyp.width
-		resScale += arg.DataTyp.LTyp.scale
+		resWidth += arg.DataTyp.width
+		resScale += arg.DataTyp.scale
 	}
 	assertFunc(maxWidth > 0)
 	if resScale > DecimalMaxWidth {
@@ -451,10 +451,10 @@ func BindDecimalMultiply(fun *FunctionV2, args []*Expr) *FunctionData {
 
 	resTyp := decimal(resWidth, resScale)
 	for i, arg := range args {
-		if arg.DataTyp.LTyp.getInternalType() == resTyp.getInternalType() {
-			fun._args[i] = arg.DataTyp.LTyp
+		if arg.DataTyp.getInternalType() == resTyp.getInternalType() {
+			fun._args[i] = arg.DataTyp
 		} else {
-			fun._args[i] = decimal(resWidth, arg.DataTyp.LTyp.scale)
+			fun._args[i] = decimal(resWidth, arg.DataTyp.scale)
 		}
 	}
 	fun._retType = resTyp
@@ -485,13 +485,22 @@ func (DevideFunc) Register(funcList FunctionList) {
 		_args:    []LType{decimal(DecimalMaxWidthInt64, 0), decimal(DecimalMaxWidthInt64, 0)},
 		_retType: decimal(DecimalMaxWidthInt64, 0),
 		_funcTyp: ScalarFuncType,
-		_scalar:  BinaryFunction[Decimal, Decimal, Decimal](binDecimalDivOp),
+		_bind:    BindDecimalDivide,
 	}
 
 	set.Add(divFloat)
 	set.Add(divDec)
 
 	funcList.Add(ET_Div.String(), set)
+}
+
+func BindDecimalDivide(fun *FunctionV2, args []*Expr) *FunctionData {
+	fun._retType = args[0].DataTyp
+	for i, arg := range args {
+		fun._args[i] = arg.DataTyp
+	}
+	fun._scalar = BinaryFunction[Decimal, Decimal, Decimal](binDecimalDivOp)
+	return nil
 }
 
 type LikeFunc struct {
@@ -570,7 +579,6 @@ func GetScalarIntegerMulFunctionWithOverflow(ptyp PhyType) ScalarFunc {
 	default:
 		panic("not implement")
 	}
-	return nil
 }
 
 func mulUint64CheckOf(left *uint64, right *uint64, result *uint64) {
@@ -1483,7 +1491,7 @@ func (CaseFunc) Register(funcList FunctionList) {
 
 func BindDecimalCaseWhen(fun *FunctionV2, args []*Expr) *FunctionData {
 	//type of else
-	fun._retType = args[0].DataTyp.LTyp
+	fun._retType = args[0].DataTyp
 	return nil
 }
 

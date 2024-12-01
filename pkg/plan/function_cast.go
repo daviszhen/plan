@@ -163,6 +163,7 @@ func IntegerCastToSwitch(
 	case LTID_UINTEGER:
 	case LTID_UBIGINT:
 	case LTID_HUGEINT:
+		ret._fun = MakeCastFunc[int32, Hugeint](tryCastInt32ToHugeint)
 	case LTID_FLOAT:
 		ret._fun = MakeCastFunc[int32, float32](tryCastInt32ToFloat32)
 	case LTID_DOUBLE:
@@ -222,6 +223,7 @@ func HugeintCastToSwitch(
 	case LTID_UBIGINT:
 	case LTID_HUGEINT:
 	case LTID_FLOAT:
+		ret._fun = MakeCastFunc[Hugeint, float32](tryCastBigintToFloat32)
 	case LTID_DOUBLE:
 	case LTID_DECIMAL:
 		ret._fun = MakeCastFunc[Hugeint, Decimal](tryCastBigintToDecimal)

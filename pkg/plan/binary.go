@@ -29,6 +29,7 @@ type BinaryWrapper[T any, S any, R any] interface {
 	addsNulls() bool
 }
 
+//lint:ignore U1000
 type BinaryStandardOperatorWrapper[T any, S any, R any] struct {
 	op BinaryOp[T, S, R]
 }
@@ -43,6 +44,7 @@ func (wrapper *BinaryStandardOperatorWrapper[T, S, R]) addsNulls() bool {
 	return false
 }
 
+//lint:ignore U1000
 type BinarySingleArgumentOperatorWrapper[T any, R any] struct {
 	op BinaryOp[T, T, R]
 }
@@ -57,6 +59,7 @@ func (wrapper *BinarySingleArgumentOperatorWrapper[T, R]) addsNulls() bool {
 	return false
 }
 
+//lint:ignore U1000
 type BinaryLambdaWrapper[T any, S any, R any] struct {
 }
 
@@ -70,6 +73,7 @@ func (wrapper *BinaryLambdaWrapper[T, S, R]) addsNulls() bool {
 	return false
 }
 
+//lint:ignore U1000
 type BinaryLambdaWrapperWithNulls[T any, S any, R any] struct {
 }
 

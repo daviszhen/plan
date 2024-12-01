@@ -37,7 +37,7 @@ func NewExprState(expr *Expr, eeState *ExprExecState) *ExprState {
 }
 
 func (es *ExprState) addChild(child *Expr) {
-	es._types = append(es._types, child.DataTyp.LTyp)
+	es._types = append(es._types, child.DataTyp)
 	es._children = append(es._children, initExprState(child, es._execState))
 }
 
@@ -263,7 +263,7 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 	switch expr.Typ {
 	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
 		val := &Value{
-			_typ:  expr.DataTyp.LTyp,
+			_typ:  expr.DataTyp,
 			_i64:  expr.Ivalue,
 			_f64:  expr.Fvalue,
 			_str:  expr.Svalue,
@@ -277,7 +277,7 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 		}
 		//TODO: to date
 		val := &Value{
-			_typ:   expr.DataTyp.LTyp,
+			_typ:   expr.DataTyp,
 			_i64:   int64(d.Year()),
 			_i64_1: int64(d.Month()),
 			_i64_2: int64(d.Day()),
@@ -285,7 +285,7 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVect
 		result.referenceValue(val)
 	case ET_IntervalConst:
 		val := &Value{
-			_typ: expr.DataTyp.LTyp,
+			_typ: expr.DataTyp,
 			_i64: expr.Ivalue,
 			_f64: expr.Fvalue,
 			_str: expr.Svalue,

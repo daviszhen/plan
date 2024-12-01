@@ -222,7 +222,7 @@ func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		}
 	}
 	args := make([]*Expr, 0)
-	argsTypes := make([]ExprDataType, 0)
+	argsTypes := make([]LType, 0)
 	for _, arg := range expr.Args {
 		child, err = b.bindExpr(ctx, iwc, arg, depth)
 		if err != nil {
@@ -253,11 +253,9 @@ func (b *Builder) bindAConst(ctx *BindContext, iwc InWhichClause, expr *pg_query
 	switch realExpr := expr.GetVal().(type) {
 	case *pg_query.A_Const_Sval:
 		ret = &Expr{
-			Typ: ET_SConst,
-			DataTyp: ExprDataType{
-				LTyp: varchar(),
-			},
-			Svalue: realExpr.Sval.Sval,
+			Typ:     ET_SConst,
+			DataTyp: varchar(),
+			Svalue:  realExpr.Sval.Sval,
 		}
 	case *pg_query.A_Const_Fval:
 		fval, err = strconv.ParseFloat(realExpr.Fval.Fval, 64)
@@ -265,19 +263,15 @@ func (b *Builder) bindAConst(ctx *BindContext, iwc InWhichClause, expr *pg_query
 			return nil, err
 		}
 		ret = &Expr{
-			Typ: ET_FConst,
-			DataTyp: ExprDataType{
-				LTyp: float(),
-			},
-			Fvalue: fval,
+			Typ:     ET_FConst,
+			DataTyp: float(),
+			Fvalue:  fval,
 		}
 	case *pg_query.A_Const_Ival:
 		ret = &Expr{
-			Typ: ET_IConst,
-			DataTyp: ExprDataType{
-				LTyp: integer(),
-			},
-			Ivalue: int64(realExpr.Ival.Ival),
+			Typ:     ET_IConst,
+			DataTyp: integer(),
+			Ivalue:  int64(realExpr.Ival.Ival),
 		}
 
 	default:
@@ -354,21 +348,21 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 	}
 
 	if et == ET_Add &&
-		(left.DataTyp.LTyp.isDate() && right.DataTyp.LTyp.isInterval() ||
-			left.DataTyp.LTyp.isInterval() && right.DataTyp.LTyp.isDate()) {
+		(left.DataTyp.isDate() && right.DataTyp.isInterval() ||
+			left.DataTyp.isInterval() && right.DataTyp.isDate()) {
 		//date + interval or interval + date => date
 		et = ET_DateAdd
 	} else if et == ET_Sub &&
-		left.DataTyp.LTyp.isDate() &&
-		right.DataTyp.LTyp.isDate() {
+		left.DataTyp.isDate() &&
+		right.DataTyp.isDate() {
 		//date - date => interval
 	} else if et == ET_Sub &&
-		left.DataTyp.LTyp.isDate() &&
-		right.DataTyp.LTyp.isInterval() {
+		left.DataTyp.isDate() &&
+		right.DataTyp.isInterval() {
 		//date - interval => date
 		et = ET_DateSub
 	} else {
-		resultTyp = decideResultType(left.DataTyp.LTyp, right.DataTyp.LTyp)
+		resultTyp = decideResultType(left.DataTyp, right.DataTyp)
 
 		//cast
 		left, err = AddCastToType(left, resultTyp, resultTyp.id == LTID_ENUM)
@@ -381,7 +375,7 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		}
 	}
 
-	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []ExprDataType{left.DataTyp, right.DataTyp}, false)
+	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []LType{left.DataTyp, right.DataTyp}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +434,7 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 			return nil, err
 		}
 
-		resultTyp = decideResultType(left.DataTyp.LTyp, cur.DataTyp.LTyp)
+		resultTyp = decideResultType(left.DataTyp, cur.DataTyp)
 
 		//cast
 		left, err = AddCastToType(left, resultTyp, resultTyp.id == LTID_ENUM)
@@ -458,7 +452,7 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 			et,
 			expr.String(),
 			[]*Expr{left, cur},
-			[]ExprDataType{left.DataTyp, cur.DataTyp},
+			[]LType{left.DataTyp, cur.DataTyp},
 			false)
 		if err != nil {
 			return nil, err
@@ -467,7 +461,7 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	return left, nil
 }
 
-func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []ExprDataType, distinct bool) (*Expr, error) {
+func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []LType, distinct bool) (*Expr, error) {
 	funBinder := FunctionBinder{}
 	if IsAgg(name) {
 		ret := funBinder.BindAggrFunc(name, args, subTyp, false)
@@ -544,8 +538,8 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	left = listExppr.Children[0]
 	right = listExppr.Children[1]
 	{
-		resultTyp = decideResultType(betExpr.DataTyp.LTyp, left.DataTyp.LTyp)
-		resultTyp = decideResultType(resultTyp, right.DataTyp.LTyp)
+		resultTyp = decideResultType(betExpr.DataTyp, left.DataTyp)
+		resultTyp = decideResultType(resultTyp, right.DataTyp)
 		//cast
 		betExpr, err = AddCastToType(betExpr, resultTyp, false)
 		if err != nil {
@@ -563,7 +557,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 
 	//>=
 	params := []*Expr{betExpr, left}
-	paramsTypes := []ExprDataType{betExpr.DataTyp, left.DataTyp}
+	paramsTypes := []LType{betExpr.DataTyp, left.DataTyp}
 	ret0, err := b.bindFunc(ET_GreaterEqual.String(), ET_GreaterEqual, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
@@ -571,7 +565,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 
 	//<=
 	params = []*Expr{betExpr, right}
-	paramsTypes = []ExprDataType{betExpr.DataTyp, right.DataTyp}
+	paramsTypes = []LType{betExpr.DataTyp, right.DataTyp}
 	ret1, err := b.bindFunc(ET_LessEqual.String(), ET_LessEqual, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
@@ -579,7 +573,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 
 	// >= && <=
 	params = []*Expr{ret0, ret1}
-	paramsTypes = []ExprDataType{ret0.DataTyp, ret1.DataTyp}
+	paramsTypes = []LType{ret0.DataTyp, ret1.DataTyp}
 
 	ret, err := b.bindFunc(ET_And.String(), ET_And, expr.String(), params, paramsTypes, false)
 	if err != nil {
@@ -625,7 +619,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 			SubqueryTyp: typ,
 		}
 
-		resultTyp = decideResultType(testExpr.DataTyp.LTyp, subExpr.DataTyp.LTyp)
+		resultTyp = decideResultType(testExpr.DataTyp, subExpr.DataTyp)
 		//cast
 		testExpr, err = AddCastToType(testExpr, resultTyp, resultTyp.id == LTID_ENUM)
 		if err != nil {
@@ -644,7 +638,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 			et,
 			expr.String(),
 			[]*Expr{testExpr, subExpr},
-			[]ExprDataType{testExpr.DataTyp, subExpr.DataTyp},
+			[]LType{testExpr.DataTyp, subExpr.DataTyp},
 			false)
 		if err != nil {
 			return nil, err
@@ -669,11 +663,9 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		assertFunc(testExpr == nil)
 
 		retExpr = &Expr{
-			Typ:        ET_Subquery,
-			SubBuilder: subBuilder,
-			DataTyp: ExprDataType{
-				LTyp: boolean(),
-			},
+			Typ:         ET_Subquery,
+			SubBuilder:  subBuilder,
+			DataTyp:     boolean(),
 			SubCtx:      subBuilder.rootCtx,
 			SubqueryTyp: typ,
 		}
