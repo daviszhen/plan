@@ -80,8 +80,15 @@ func (CountFunc) Register(funcList FunctionList) {
 		_retType: integer(),
 		_funcTyp: AggregateFuncType,
 	}
+	countVarChar := &FunctionV2{
+		_name:    "count",
+		_args:    []LType{varchar()},
+		_retType: integer(),
+		_funcTyp: AggregateFuncType,
+	}
 	set.Add(countInt)
 	set.Add(countDec)
+	set.Add(countVarChar)
 
 	funcList.Add("count", set)
 }
@@ -101,4 +108,21 @@ func (MaxFunc) Register(funcList FunctionList) {
 	set.Add(maxDec)
 
 	funcList.Add("max", set)
+}
+
+type MinFunc struct {
+}
+
+func (MinFunc) Register(funcList FunctionList) {
+	set := NewFunctionSet("min", AggregateFuncType)
+
+	minDec := &FunctionV2{
+		_name:    "min",
+		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
+		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_funcTyp: AggregateFuncType,
+	}
+	set.Add(minDec)
+
+	funcList.Add("min", set)
 }

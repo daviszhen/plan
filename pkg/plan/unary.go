@@ -92,6 +92,29 @@ func VectorTryCastOperator[T, R any](
 	}
 }
 
+func UnaryFunction[T any, R any](
+	op UnaryOp[T, R]) ScalarFunc {
+	wrapper := &UnaryOperatorWrapper[T, R]{}
+	temp := func(input *Chunk, state *ExprState, result *Vector) {
+		unaryExecStandard[T, R](
+			input._data[0],
+			result,
+			input.card(),
+			nil,
+			false,
+			wrapper)
+	}
+	return temp
+}
+
+func UnaryExecuteStandard[T any, R any](
+	input, result *Vector,
+	count int,
+	data *UnaryData,
+	addNulls bool) {
+
+}
+
 func unaryGenericExec[T any, R any](
 	input, result *Vector,
 	count int,

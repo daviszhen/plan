@@ -76,6 +76,8 @@ func GetScalarIntegerAddFunctionWithoutOverflowCheck(ptyp PhyType) ScalarFunc {
 		return BinaryFunction[uint32, uint32, uint32](addUint32)
 	case UINT64:
 		return BinaryFunction[uint64, uint64, uint64](addUint64)
+	case DECIMAL:
+		return BinaryFunction[Decimal, Decimal, Decimal](binDecimalDecimalAddOp)
 	default:
 		panic("usp")
 	}
@@ -185,6 +187,8 @@ func GetScalarIntegerAddFunctionWithOverflowCheck(ptyp PhyType) ScalarFunc {
 		return BinaryFunction[uint32, uint32, uint32](addUint32CheckOf)
 	case UINT64:
 		return BinaryFunction[uint64, uint64, uint64](addUint64CheckOf)
+	case DECIMAL:
+		return BinaryFunction[Decimal, Decimal, Decimal](binDecimalDecimalAddOp)
 	default:
 		panic("not implement")
 	}
@@ -192,6 +196,10 @@ func GetScalarIntegerAddFunctionWithOverflowCheck(ptyp PhyType) ScalarFunc {
 }
 
 func addHugeint(left, right, result *Hugeint) {
+	panic("usp")
+}
+
+func subHugeint(left *Hugeint, right *Hugeint, result *Hugeint) {
 	panic("usp")
 }
 

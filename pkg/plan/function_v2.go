@@ -101,7 +101,16 @@ type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
 
 type bindScalarFunc func(fun *FunctionV2, args []*Expr) *FunctionData
 
-type FunctionData struct{}
+const (
+	DecimalBindData    = "decimal"
+	DecimalNegBindData = "decimalNeg"
+)
+
+type FunctionData struct {
+	_funDataTyp    string
+	_checkOverflow bool
+	_boundTyp      LTypeId
+}
 
 func (fdata FunctionData) copy() *FunctionData {
 	return &FunctionData{}
@@ -387,9 +396,12 @@ func RegisterOps() {
 	Greater{}.Register(scalarFuncs)
 	GreaterThan{}.Register(scalarFuncs)
 	DateAdd{}.Register(scalarFuncs)
+	DateSub{}.Register(scalarFuncs)
 	LessFunc{}.Register(scalarFuncs)
 	LessEqualFunc{}.Register(scalarFuncs)
 	CaseFunc{}.Register(scalarFuncs)
+	ExtractFunc{}.Register(scalarFuncs)
+	SubstringFunc{}.Register(scalarFuncs)
 }
 
 func RegisterAggrs() {
@@ -397,4 +409,5 @@ func RegisterAggrs() {
 	AvgFunc{}.Register(aggrFuncs)
 	CountFunc{}.Register(aggrFuncs)
 	MaxFunc{}.Register(aggrFuncs)
+	MinFunc{}.Register(aggrFuncs)
 }

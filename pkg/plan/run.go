@@ -198,11 +198,11 @@ func genStmts(cfg *util.Config, id int) ([]*pg_query.RawStmt, error) {
 }
 
 func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
-	//defer func() {
-	//	if rErr := recover(); rErr != nil {
-	//		err = errors.Join(err, util.ConvertPanicError(rErr))
-	//	}
-	//}()
+	defer func() {
+		if rErr := recover(); rErr != nil {
+			err = errors.Join(err, util.ConvertPanicError(rErr))
+		}
+	}()
 	var root *PhysicalOperator
 	root, err = genPhyPlan(ast)
 	if err != nil {
@@ -213,6 +213,7 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 	}
 	fname := fmt.Sprintf("q%d.txt", id)
 	path := filepath.Join(cfg.Tpch1g.Result.Path, fname)
+	fmt.Println("Execute query", path)
 	var resFile *os.File
 	if len(path) != 0 {
 		resFile, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)

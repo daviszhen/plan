@@ -216,6 +216,18 @@ func (h Hugeint) String() string {
 	return fmt.Sprintf("[%d %d]", h._upper, h._lower)
 }
 
+func negateHugeint(input *Hugeint, result *Hugeint) {
+	if input._upper == math.MinInt64 && input._lower == 0 {
+		panic("-hugeint overflow")
+	}
+	result._lower = math.MaxUint64 - input._lower + 1
+	if input._lower == 0 {
+		result._upper = -1 - input._upper + 1
+	} else {
+		result._upper = -1 - input._upper
+	}
+}
+
 // addInplace
 // return
 //
@@ -308,6 +320,10 @@ func (dec *Decimal) Greater(lhs, rhs *Decimal) bool {
 		panic("decimal sub failed")
 	}
 	return d.IsPos()
+}
+
+func negateDecimal(input *Decimal, result *Decimal) {
+	result.Decimal = input.Decimal.Neg()
 }
 
 type ScatterOp[T any] interface {
@@ -722,7 +738,7 @@ const (
 	DecimalMaxWidthInt32  = 9
 	DecimalMaxWidthInt64  = 18
 	DecimalMaxWidthInt128 = 38
-	DecimalMaxWidth       = 38
+	DecimalMaxWidth       = DecimalMaxWidthInt128
 )
 
 type LType struct {
@@ -1887,6 +1903,8 @@ const (
 	ET_DateAdd
 	ET_DateSub
 	ET_Cast
+	ET_Extract
+	ET_Substring
 )
 
 func (et ET_SubTyp) String() string {
@@ -1939,6 +1957,10 @@ func (et ET_SubTyp) String() string {
 		return "date_sub"
 	case ET_Cast:
 		return "cast"
+	case ET_Extract:
+		return "extract"
+	case ET_Substring:
+		return "substring"
 	default:
 		panic(fmt.Sprintf("usp %v", int(et)))
 	}

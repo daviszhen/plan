@@ -28,6 +28,16 @@ type TernaryWrapper[A any, B any, C any, R any] interface {
 	operation(*A, *B, *C, *R, *Bitmap, int, TernaryFunc[A, B, C, R])
 }
 
+type TernaryStandardOperatorWrapper[A any, B any, C any, R any] struct {
+	op TernaryOp[A, B, C, R]
+}
+
+func (wrapper *TernaryStandardOperatorWrapper[A, B, C, R]) operation(
+	a *A, b *B, c *C, res *R, _ *Bitmap, _ int,
+	fun TernaryFunc[A, B, C, R]) {
+	wrapper.op(a, b, c, res)
+}
+
 //lint:ignore U1000
 type TernaryLambdaWrapper[A any, B any, C any, R any] struct {
 	fun TernaryFunc[A, B, C, R]
@@ -124,10 +134,33 @@ func substringFunc(s *String, offset *int64, length *int64, result *String) {
 	sliceString(sdata, start, end-start, result)
 }
 
+func TernaryFunction[A any, B any, C any, R any](
+	op TernaryOp[A, B, C, R],
+) ScalarFunc {
+	return TernaryExecStandard[A, B, C, R](op)
+}
+
+func TernaryExecStandard[A any, B any, C any, R any](
+	op TernaryOp[A, B, C, R],
+) ScalarFunc {
+	wrapper := &TernaryStandardOperatorWrapper[A, B, C, R]{op: op}
+	temp := func(input *Chunk, state *ExprState, result *Vector) {
+		ternaryExecGeneric[A, B, C, R](
+			input._data[0],
+			input._data[1],
+			input._data[2],
+			result,
+			input.card(),
+			nil,
+			wrapper)
+
+	}
+	return temp
+}
+
 func ternaryExecGeneric[A any, B any, C any, R any](
 	a, b, c, res *Vector,
 	count int,
-	op TernaryOp[A, B, C, R],
 	fun TernaryFunc[A, B, C, R],
 	wrapper TernaryWrapper[A, B, C, R],
 ) {
@@ -172,7 +205,6 @@ func ternaryExecGeneric[A any, B any, C any, R any](
 			bdata._mask,
 			cdata._mask,
 			resMask,
-			op,
 			fun,
 			wrapper,
 		)
@@ -185,7 +217,6 @@ func ternaryExecLoop[A any, B any, C any, R any](
 	count int,
 	asel, bsel, csel *SelectVector,
 	amask, bmask, cmask, resMask *Bitmap,
-	op TernaryOp[A, B, C, R],
 	fun TernaryFunc[A, B, C, R],
 	wrapper TernaryWrapper[A, B, C, R],
 ) {
