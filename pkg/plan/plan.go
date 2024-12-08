@@ -15,63 +15,28 @@
 package plan
 
 import (
-	"bytes"
 	"fmt"
-	"math"
-	"math/rand/v2"
 	"strings"
-	"time"
-	"unsafe"
 
-	dec "github.com/govalues/decimal"
 	"github.com/huandu/go-clone"
 	"github.com/xlab/treeprint"
+
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/storage"
 )
-
-type String struct {
-	_len  int
-	_data unsafe.Pointer
-}
-
-func (s *String) dataSlice() []byte {
-	return pointerToSlice[byte](s._data, s._len)
-}
-
-func (s *String) data() unsafe.Pointer {
-	return s._data
-}
-func (s *String) String() string {
-	t := s.dataSlice()
-	return string(t)
-}
-
-func (s *String) equal(o *String) bool {
-	if s._len != o._len {
-		return false
-	}
-	sSlice := pointerToSlice[byte](s._data, s._len)
-	oSlice := pointerToSlice[byte](o._data, o._len)
-	return bytes.Equal(sSlice, oSlice)
-}
-
-func (s *String) less(o *String) bool {
-	sSlice := pointerToSlice[byte](s._data, s._len)
-	oSlice := pointerToSlice[byte](o._data, o._len)
-	return bytes.Compare(sSlice, oSlice) < 0
-}
 
 // WildcardMatch implements wildcard pattern match algorithm.
 // pattern and target are ascii characters
 // TODO: add \_ and \%
-func WildcardMatch(pattern, target *String) bool {
+func WildcardMatch(pattern, target *common.String) bool {
 	var p = 0
 	var t = 0
 	var positionOfPercentPlusOne int = -1
 	var positionOfTargetEncounterPercent int = -1
-	plen := pattern.len()
-	tlen := target.len()
-	pSlice := pattern.dataSlice()
-	tSlice := target.dataSlice()
+	plen := pattern.Length()
+	tlen := target.Length()
+	pSlice := pattern.DataSlice()
+	tSlice := target.DataSlice()
 	for t < tlen {
 		//%
 		if p < plen && pSlice[p] == '%' {
@@ -108,1380 +73,11 @@ func WildcardMatch(pattern, target *String) bool {
 	return p >= plen
 }
 
-func (s *String) len() int {
-	return s._len
-}
-
-func (s String) nullLen() int {
-	return 0
-}
+var _ TypeOp[common.Decimal] = new(common.Decimal)
 
 //lint:ignore U1000
-type Date struct {
-	_year  int32
-	_month int32
-	_day   int32
-}
-
-func (d *Date) equal(o *Date) bool {
-	return d._year == o._year && d._month == o._month && d._day == o._day
-}
-
-func (d *Date) less(o *Date) bool {
-	d1 := d.toDate()
-	o1 := o.toDate()
-	return d1.Before(o1)
-}
-
-func (d *Date) toDate() time.Time {
-	return time.Date(int(d._year), time.Month(d._month), int(d._day), 0, 0, 0, 0, time.UTC)
-}
-
-func (d *Date) addInterval(rhs *Interval) Date {
-	lhsD := d.toDate()
-	resD := lhsD.AddDate(int(rhs._year), int(rhs._months), int(rhs._days))
-	y, m, day := resD.Date()
-	return Date{
-		_year:  int32(y),
-		_month: int32(m),
-		_day:   int32(day),
-	}
-}
-
-func (d *Date) subInterval(rhs *Interval) Date {
-	lhsD := d.toDate()
-	resD := lhsD.AddDate(int(-rhs._year), int(-rhs._months), int(-rhs._days))
-	y, m, day := resD.Date()
-	return Date{
-		_year:  int32(y),
-		_month: int32(m),
-		_day:   int32(day),
-	}
-}
 
 //lint:ignore U1000
-type Interval struct {
-	_months int32
-	_days   int32
-	_micros int32
-
-	_unit string
-	_year int32
-}
-
-func (i *Interval) equal(o *Interval) bool {
-	return i._months == o._months &&
-		i._days == o._days &&
-		i._micros == o._micros
-}
-
-func (i *Interval) less(o *Interval) bool {
-	panic("usp")
-}
-
-func (i *Interval) milli() int64 {
-	switch i._unit {
-	case "year":
-		d := time.Date(
-			int(1970+i._year),
-			1,
-			1,
-			0, 0, 0, 0, time.UTC)
-		return d.UnixMilli()
-	case "month":
-		d := time.Date(
-			1970,
-			time.Month(1+i._months),
-			1,
-			0, 0, 0, 0, time.UTC)
-		return d.UnixMilli()
-	case "day":
-		d := time.Date(
-			1970,
-			1,
-			int(1+i._days),
-			0, 0, 0, 0, time.UTC)
-		return d.UnixMilli()
-	default:
-		panic("usp")
-	}
-}
-
-type Hugeint struct {
-	_lower uint64
-	_upper int64
-}
-
-func (h Hugeint) String() string {
-	return fmt.Sprintf("[%d %d]", h._upper, h._lower)
-}
-
-func (h *Hugeint) equal(o *Hugeint) bool {
-	return h._lower == o._lower && h._upper == o._upper
-}
-
-func negateHugeint(input *Hugeint, result *Hugeint) {
-	if input._upper == math.MinInt64 && input._lower == 0 {
-		panic("-hugeint overflow")
-	}
-	result._lower = math.MaxUint64 - input._lower + 1
-	if input._lower == 0 {
-		result._upper = -1 - input._upper + 1
-	} else {
-		result._upper = -1 - input._upper
-	}
-}
-
-// addInplace
-// return
-//
-//	false : overflow
-func addInplace(lhs, rhs *Hugeint) bool {
-	ladd := lhs._lower + rhs._lower
-	overflow := int64(0)
-	if ladd < lhs._lower {
-		overflow = 1
-	}
-	if rhs._upper >= 0 {
-		//rhs is positive
-		if lhs._upper > (math.MaxInt64 - rhs._upper - overflow) {
-			return false
-		}
-		lhs._upper = lhs._upper + overflow + rhs._upper
-	} else {
-		//rhs is negative
-		if lhs._upper < (math.MinInt64 - rhs._upper - overflow) {
-			return false
-		}
-		lhs._upper = lhs._upper + (overflow + rhs._upper)
-	}
-	lhs._lower += rhs._lower
-	if lhs._upper == math.MinInt64 && lhs._lower == 0 {
-		return false
-	}
-	return true
-}
-
-func (h *Hugeint) Add(lhs, rhs *Hugeint) {
-	if !addInplace(lhs, rhs) {
-		panic("hugint and overflow")
-	}
-}
-func (h *Hugeint) Mul(lhs, rhs *Hugeint) {}
-
-func (h *Hugeint) Less(lhs, rhs *Hugeint) bool {
-	panic("usp")
-}
-func (h *Hugeint) Greater(lhs, rhs *Hugeint) bool {
-	panic("usp")
-}
-
-var _ TypeOp[Decimal] = new(Decimal)
-
-type Decimal struct {
-	dec.Decimal
-}
-
-func (dec *Decimal) equal(o *Decimal) bool {
-	d, err := dec.Decimal.Sub(o.Decimal)
-	if err != nil {
-		panic(err)
-	}
-	return d.IsZero()
-}
-
-func (dec *Decimal) String() string {
-	return dec.Decimal.String()
-}
-
-func (dec *Decimal) Add(lhs *Decimal, rhs *Decimal) {
-	res, err := lhs.Decimal.Add(rhs.Decimal)
-	if err != nil {
-		panic(err)
-	}
-	lhs.Decimal = res
-}
-
-func (dec *Decimal) Mul(lhs *Decimal, rhs *Decimal) {
-	res, err := lhs.Decimal.Mul(rhs.Decimal)
-	if err != nil {
-		panic(err)
-	}
-	lhs.Decimal = res
-}
-
-func (dec *Decimal) Less(lhs, rhs *Decimal) bool {
-	d, err := lhs.Decimal.Sub(rhs.Decimal)
-	if err != nil {
-		panic("decimal sub failed")
-	}
-	return d.IsNeg()
-}
-
-func (dec *Decimal) Greater(lhs, rhs *Decimal) bool {
-	d, err := lhs.Decimal.Sub(rhs.Decimal)
-	if err != nil {
-		panic("decimal sub failed")
-	}
-	return d.IsPos()
-}
-
-func negateDecimal(input *Decimal, result *Decimal) {
-	result.Decimal = input.Decimal.Neg()
-}
-
-type ScatterOp[T any] interface {
-	nullValue() T
-	randValue() T
-	store(src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer)
-}
-
-type int8ScatterOp struct {
-}
-
-func (scatter int8ScatterOp) nullValue() int8 {
-	return 0
-}
-
-func (scatter int8ScatterOp) randValue() int8 {
-	return int8(rand.Int32())
-}
-
-func (scatter int8ScatterOp) store(src int8, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	store[int8](src, pointerAdd(rowLoc, offsetInRow))
-}
-
-type int32ScatterOp struct {
-}
-
-func (scatter int32ScatterOp) nullValue() int32 {
-	return 0
-}
-
-func (scatter int32ScatterOp) randValue() int32 {
-	return rand.Int32()
-}
-
-func (scatter int32ScatterOp) store(src int32, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	store[int32](src, pointerAdd(rowLoc, offsetInRow))
-}
-
-type hugeintScatterOp struct {
-}
-
-func (scatter hugeintScatterOp) nullValue() Hugeint {
-	return Hugeint{
-		_lower: 0,
-		_upper: math.MinInt64,
-	}
-}
-
-func (scatter hugeintScatterOp) randValue() Hugeint {
-	return Hugeint{}
-}
-
-func (scatter hugeintScatterOp) store(src Hugeint, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	store[Hugeint](src, pointerAdd(rowLoc, offsetInRow))
-}
-
-type uint64ScatterOp struct {
-}
-
-func (scatter uint64ScatterOp) nullValue() uint64 {
-	return 0
-}
-
-func (scatter uint64ScatterOp) randValue() uint64 {
-	return rand.Uint64()
-}
-
-func (scatter uint64ScatterOp) store(src uint64, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	store[uint64](src, pointerAdd(rowLoc, offsetInRow))
-}
-
-type float64ScatterOp struct {
-}
-
-func (scatter float64ScatterOp) nullValue() float64 {
-	return 0
-}
-
-func (scatter float64ScatterOp) randValue() float64 {
-	return rand.Float64()
-}
-func (scatter float64ScatterOp) store(src float64, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	store[float64](src, pointerAdd(rowLoc, offsetInRow))
-}
-
-type stringScatterOp struct {
-}
-
-func (scatter stringScatterOp) nullValue() String {
-	return String{_data: nil}
-}
-
-func (scatter stringScatterOp) randValue() String {
-	start := 32
-	end := 126
-	l := int(rand.UintN(1024))
-	if l == 0 {
-		return String{}
-	} else {
-		data := cMalloc(l)
-		ret := String{
-			_data: data,
-			_len:  l,
-		}
-		dSlice := ret.dataSlice()
-		for i := 0; i < l; i++ {
-			j := rand.UintN(uint(end-start) + 1)
-			dSlice[i] = byte(j + ' ')
-		}
-		return ret
-	}
-}
-
-func (scatter stringScatterOp) store(src String, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	if heapLoc == nil || *heapLoc == nil {
-		panic("invalid heap location")
-	}
-	dst := pointerToSlice[byte](*heapLoc, src.len())
-	srcSlice := pointerToSlice[byte](src.data(), src.len())
-	copy(dst, srcSlice)
-	newS := String{
-		_data: *heapLoc,
-		_len:  src.len(),
-	}
-	store[String](newS, pointerAdd(rowLoc, offsetInRow))
-	assertFunc(newS.String() == src.String())
-	*heapLoc = pointerAdd(*heapLoc, src.len())
-}
-
-type decimalScatterOp struct {
-}
-
-func (scatter decimalScatterOp) nullValue() Decimal {
-	zero := dec.Zero
-	return Decimal{zero}
-}
-
-func (scatter decimalScatterOp) randValue() Decimal {
-	return Decimal{
-		Decimal: dec.MustNew(rand.Int64N(1000000), 2),
-	}
-}
-
-func (scatter decimalScatterOp) store(src Decimal, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	dst := src.Decimal
-	store[Decimal](Decimal{dst}, pointerAdd(rowLoc, offsetInRow))
-}
-
-type dateScatterOp struct {
-}
-
-func (scatter dateScatterOp) nullValue() Date {
-	return Date{_year: 1970, _month: 1, _day: 1}
-}
-
-func (scatter dateScatterOp) randValue() Date {
-	now := time.Now().Unix()
-	diff := rand.Int64N(24 * 3600)
-	t := time.Unix(now+diff, 0)
-	y, m, d := t.Date()
-	return Date{
-		_year:  int32(y),
-		_month: int32(m),
-		_day:   int32(d),
-	}
-}
-func (scatter dateScatterOp) store(src Date, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
-	dst := src
-	store[Date](dst, pointerAdd(rowLoc, offsetInRow))
-}
-
-type PhyType int
-
-const (
-	NA       PhyType = 0
-	BOOL     PhyType = 1
-	UINT8    PhyType = 2
-	INT8     PhyType = 3
-	UINT16   PhyType = 4
-	INT16    PhyType = 5
-	UINT32   PhyType = 6
-	INT32    PhyType = 7
-	UINT64   PhyType = 8
-	INT64    PhyType = 9
-	FLOAT    PhyType = 11
-	DOUBLE   PhyType = 12
-	INTERVAL PhyType = 21
-	LIST     PhyType = 23
-	STRUCT   PhyType = 24
-	VARCHAR  PhyType = 200
-	INT128   PhyType = 204
-	UNKNOWN  PhyType = 205
-	BIT      PhyType = 206
-	DATE     PhyType = 207
-	POINTER  PhyType = 208
-	DECIMAL  PhyType = 209
-
-	INVALID PhyType = 255
-)
-
-var pTypeToStr = map[PhyType]string{
-	NA:       "NA",
-	BOOL:     "BOOL",
-	UINT8:    "UINT8",
-	INT8:     "INT8",
-	UINT16:   "UINT16",
-	INT16:    "INT16",
-	UINT32:   "UINT32",
-	INT32:    "INT32",
-	UINT64:   "UINT64",
-	INT64:    "INT64",
-	FLOAT:    "FLOAT",
-	DOUBLE:   "DOUBLE",
-	INTERVAL: "INTERVAL",
-	LIST:     "LIST",
-	STRUCT:   "STRUCT",
-	VARCHAR:  "VARCHAR",
-	INT128:   "INT128",
-	UNKNOWN:  "UNKNOWN",
-	BIT:      "BIT",
-	DATE:     "DATE",
-	POINTER:  "POINTER",
-	DECIMAL:  "DECIMAL",
-	INVALID:  "INVALID",
-}
-
-func (pt PhyType) String() string {
-	if s, has := pTypeToStr[pt]; has {
-		return s
-	}
-	panic(fmt.Sprintf("usp %d", pt))
-}
-
-var (
-	boolSize     int
-	int8Size     int
-	int16Size    int
-	int32Size    int
-	int64Size    int
-	int128Size   int
-	intervalSize int
-	dateSize     int
-	varcharSize  int
-	pointerSize  int
-	decimalSize  int
-	float32Size  int
-)
-
-func init() {
-	b := false
-	boolSize = int(unsafe.Sizeof(b))
-	i := int8(0)
-	int8Size = int(unsafe.Sizeof(i))
-	int16Size = int8Size * 2
-	int32Size = int8Size * 4
-	int64Size = int8Size * 8
-	int128Size = int(unsafe.Sizeof(Hugeint{}))
-	intervalSize = int(unsafe.Sizeof(Interval{}))
-	dateSize = int(unsafe.Sizeof(Date{}))
-	varcharSize = int(unsafe.Sizeof(String{}))
-	pointerSize = int(unsafe.Sizeof(unsafe.Pointer(&b)))
-	decimalSize = int(unsafe.Sizeof(Decimal{}))
-	f := float32(0)
-	float32Size = int(unsafe.Sizeof(f))
-}
-
-func (pt PhyType) size() int {
-	switch pt {
-	case BIT:
-		panic("usp")
-	case BOOL:
-		return boolSize
-	case INT8:
-		return int8Size
-	case INT16:
-		return int16Size
-	case INT32:
-		return int32Size
-	case INT64:
-		return int64Size
-	case UINT8:
-		return int8Size
-	case UINT16:
-		return int16Size
-	case UINT32:
-		return int32Size
-	case UINT64:
-		return int64Size
-	case INT128:
-		return int128Size
-	case FLOAT:
-		return float32Size
-	case DOUBLE:
-		return int64Size
-	case VARCHAR:
-		return varcharSize
-	case INTERVAL:
-		return intervalSize
-	case STRUCT:
-	case UNKNOWN:
-		return 0
-	case LIST:
-		panic("usp")
-	case DATE:
-		return dateSize
-	case POINTER:
-		return pointerSize
-	case DECIMAL:
-		return decimalSize
-	default:
-		panic("usp")
-	}
-	panic("usp")
-}
-
-func (pt PhyType) isConstant() bool {
-	return pt >= BOOL && pt <= DOUBLE ||
-		pt == INTERVAL ||
-		pt == INT128 ||
-		pt == DATE ||
-		pt == POINTER ||
-		pt == DECIMAL
-}
-
-func (pt PhyType) isVarchar() bool {
-	return pt == VARCHAR
-}
-
-type LTypeId int
-
-const (
-	LTID_INVALID         LTypeId = 0
-	LTID_NULL            LTypeId = 1
-	LTID_UNKNOWN         LTypeId = 2
-	LTID_ANY             LTypeId = 3
-	LTID_USER            LTypeId = 4
-	LTID_BOOLEAN         LTypeId = 10
-	LTID_TINYINT         LTypeId = 11
-	LTID_SMALLINT        LTypeId = 12
-	LTID_INTEGER         LTypeId = 13
-	LTID_BIGINT          LTypeId = 14
-	LTID_DATE            LTypeId = 15
-	LTID_TIME            LTypeId = 16
-	LTID_TIMESTAMP_SEC   LTypeId = 17
-	LTID_TIMESTAMP_MS    LTypeId = 18
-	LTID_TIMESTAMP       LTypeId = 19
-	LTID_TIMESTAMP_NS    LTypeId = 20
-	LTID_DECIMAL         LTypeId = 21
-	LTID_FLOAT           LTypeId = 22
-	LTID_DOUBLE          LTypeId = 23
-	LTID_CHAR            LTypeId = 24
-	LTID_VARCHAR         LTypeId = 25
-	LTID_BLOB            LTypeId = 26
-	LTID_INTERVAL        LTypeId = 27
-	LTID_UTINYINT        LTypeId = 28
-	LTID_USMALLINT       LTypeId = 29
-	LTID_UINTEGER        LTypeId = 30
-	LTID_UBIGINT         LTypeId = 31
-	LTID_TIMESTAMP_TZ    LTypeId = 32
-	LTID_TIME_TZ         LTypeId = 34
-	LTID_BIT             LTypeId = 36
-	LTID_HUGEINT         LTypeId = 50
-	LTID_POINTER         LTypeId = 51
-	LTID_VALIDITY        LTypeId = 53
-	LTID_UUID            LTypeId = 54
-	LTID_STRUCT          LTypeId = 100
-	LTID_LIST            LTypeId = 101
-	LTID_MAP             LTypeId = 102
-	LTID_TABLE           LTypeId = 103
-	LTID_ENUM            LTypeId = 104
-	LTID_AGGREGATE_STATE LTypeId = 105
-	LTID_LAMBDA          LTypeId = 106
-	LTID_UNION           LTypeId = 107
-)
-
-var lTypeIdToStr = map[LTypeId]string{
-	LTID_INVALID:         "LTID_INVALID",
-	LTID_NULL:            "LTID_NULL",
-	LTID_UNKNOWN:         "LTID_UNKNOWN",
-	LTID_ANY:             "LTID_ANY",
-	LTID_USER:            "LTID_USER",
-	LTID_BOOLEAN:         "LTID_BOOLEAN",
-	LTID_TINYINT:         "LTID_TINYINT",
-	LTID_SMALLINT:        "LTID_SMALLINT",
-	LTID_INTEGER:         "LTID_INTEGER",
-	LTID_BIGINT:          "LTID_BIGINT",
-	LTID_DATE:            "LTID_DATE",
-	LTID_TIME:            "LTID_TIME",
-	LTID_TIMESTAMP_SEC:   "LTID_TIMESTAMP_SEC",
-	LTID_TIMESTAMP_MS:    "LTID_TIMESTAMP_MS",
-	LTID_TIMESTAMP:       "LTID_TIMESTAMP",
-	LTID_TIMESTAMP_NS:    "LTID_TIMESTAMP_NS",
-	LTID_DECIMAL:         "LTID_DECIMAL",
-	LTID_FLOAT:           "LTID_FLOAT",
-	LTID_DOUBLE:          "LTID_DOUBLE",
-	LTID_CHAR:            "LTID_CHAR",
-	LTID_VARCHAR:         "LTID_VARCHAR",
-	LTID_BLOB:            "LTID_BLOB",
-	LTID_INTERVAL:        "LTID_INTERVAL",
-	LTID_UTINYINT:        "LTID_UTINYINT",
-	LTID_USMALLINT:       "LTID_USMALLINT",
-	LTID_UINTEGER:        "LTID_UINTEGER",
-	LTID_UBIGINT:         "LTID_UBIGINT",
-	LTID_TIMESTAMP_TZ:    "LTID_TIMESTAMP_TZ",
-	LTID_TIME_TZ:         "LTID_TIME_TZ",
-	LTID_BIT:             "LTID_BIT",
-	LTID_HUGEINT:         "LTID_HUGEINT",
-	LTID_POINTER:         "LTID_POINTER",
-	LTID_VALIDITY:        "LTID_VALIDITY",
-	LTID_UUID:            "LTID_UUID",
-	LTID_STRUCT:          "LTID_STRUCT",
-	LTID_LIST:            "LTID_LIST",
-	LTID_MAP:             "LTID_MAP",
-	LTID_TABLE:           "LTID_TABLE",
-	LTID_ENUM:            "LTID_ENUM",
-	LTID_AGGREGATE_STATE: "LTID_AGGREGATE_STATE",
-	LTID_LAMBDA:          "LTID_LAMBDA",
-	LTID_UNION:           "LTID_UNION",
-}
-
-func (id LTypeId) String() string {
-	if s, has := lTypeIdToStr[id]; has {
-		return s
-	}
-	panic(fmt.Sprintf("usp %d", id))
-}
-
-const (
-	DecimalMaxWidthInt16  = 4
-	DecimalMaxWidthInt32  = 9
-	DecimalMaxWidthInt64  = 18
-	DecimalMaxWidthInt128 = 38
-	DecimalMaxWidth       = DecimalMaxWidthInt128
-)
-
-type LType struct {
-	id    LTypeId
-	pTyp  PhyType
-	width int
-	scale int
-}
-
-func Numeric() []LType {
-	typs := []LTypeId{
-		LTID_TINYINT, LTID_SMALLINT, LTID_INTEGER,
-		LTID_BIGINT, LTID_HUGEINT, LTID_FLOAT,
-		LTID_DOUBLE, LTID_DECIMAL, LTID_UTINYINT,
-		LTID_USMALLINT, LTID_UINTEGER, LTID_UBIGINT,
-	}
-	ret := make([]LType, len(typs))
-	for i, typ := range typs {
-		ret[i].id = typ
-		ret[i].pTyp = ret[i].getInternalType()
-	}
-	return ret
-}
-
-func (lt LType) serialize(serial Serialize) error {
-	err := Write[int](int(lt.id), serial)
-	if err != nil {
-		return err
-	}
-	err = Write[int](lt.width, serial)
-	if err != nil {
-		return err
-	}
-	err = Write[int](lt.scale, serial)
-	if err != nil {
-		return err
-	}
-	return err
-}
-
-func deserializeLType(deserial Deserialize) (LType, error) {
-	id := 0
-	width := 0
-	scale := 0
-	err := Read[int](&id, deserial)
-	if err != nil {
-		return LType{}, err
-	}
-	err = Read[int](&width, deserial)
-	if err != nil {
-		return LType{}, err
-	}
-	err = Read[int](&scale, deserial)
-	if err != nil {
-		return LType{}, err
-	}
-
-	ret := LType{
-		id:    LTypeId(id),
-		width: width,
-		scale: scale,
-	}
-	ret.pTyp = ret.getInternalType()
-	return ret, err
-}
-
-func makeLType(id LTypeId) LType {
-	ret := LType{id: id}
-	ret.pTyp = ret.getInternalType()
-	return ret
-}
-
-func null() LType {
-	return makeLType(LTID_NULL)
-}
-
-func invalidLType() LType {
-	return makeLType(LTID_INVALID)
-}
-
-func decimal(width, scale int) LType {
-	ret := makeLType(LTID_DECIMAL)
-	ret.width = width
-	ret.scale = scale
-	return ret
-}
-
-func hugeint() LType {
-	return makeLType(LTID_HUGEINT)
-}
-
-func bigint() LType {
-	return makeLType(LTID_BIGINT)
-}
-
-func integer() LType {
-	return makeLType(LTID_INTEGER)
-}
-
-func hashType() LType {
-	return makeLType(LTID_UBIGINT)
-}
-
-func float() LType {
-	return makeLType(LTID_FLOAT)
-}
-
-func double() LType {
-	return makeLType(LTID_DOUBLE)
-}
-
-func tinyint() LType {
-	return makeLType(LTID_TINYINT)
-}
-
-func smallint() LType {
-	return makeLType(LTID_SMALLINT)
-}
-
-func varchar() LType {
-	return makeLType(LTID_VARCHAR)
-}
-func varchar2(width int) LType {
-	ret := makeLType(LTID_VARCHAR)
-	ret.width = width
-	return ret
-}
-
-func dateLTyp() LType {
-	return makeLType(LTID_DATE)
-}
-
-func timeLTyp() LType {
-	return makeLType(LTID_TIME)
-}
-
-func timestampLTyp() LType {
-	return makeLType(LTID_TIMESTAMP)
-}
-
-func boolean() LType {
-	return makeLType(LTID_BOOLEAN)
-}
-
-func intervalLType() LType {
-	return makeLType(LTID_INTERVAL)
-}
-
-func pointerType() LType {
-	return makeLType(LTID_POINTER)
-}
-
-func ubigintType() LType {
-	return makeLType(LTID_UBIGINT)
-}
-
-func copyLTypes(typs ...LType) []LType {
-	ret := make([]LType, 0)
-	ret = append(ret, typs...)
-	return ret
-}
-
-var numerics = map[LTypeId]int{
-	LTID_TINYINT:   0,
-	LTID_SMALLINT:  0,
-	LTID_INTEGER:   0,
-	LTID_BIGINT:    0,
-	LTID_HUGEINT:   0,
-	LTID_FLOAT:     0,
-	LTID_DOUBLE:    0,
-	LTID_DECIMAL:   0,
-	LTID_UTINYINT:  0,
-	LTID_USMALLINT: 0,
-	LTID_UINTEGER:  0,
-	LTID_UBIGINT:   0,
-}
-
-func (lt LType) isDate() bool {
-	return lt.id == LTID_DATE
-}
-
-func (lt LType) isInterval() bool {
-	return lt.id == LTID_INTERVAL
-}
-
-func (lt LType) isNumeric() bool {
-	if _, has := numerics[lt.id]; has {
-		return true
-	}
-	return false
-}
-
-var integrals = map[LTypeId]int{
-	LTID_TINYINT:   0,
-	LTID_SMALLINT:  0,
-	LTID_INTEGER:   0,
-	LTID_BIGINT:    0,
-	LTID_UTINYINT:  0,
-	LTID_USMALLINT: 0,
-	LTID_UINTEGER:  0,
-	LTID_UBIGINT:   0,
-	LTID_HUGEINT:   0,
-}
-
-func (lt LType) isIntegral() bool {
-	if _, has := integrals[lt.id]; has {
-		return true
-	}
-	return false
-}
-
-func (lt LType) isPointer() bool {
-	return lt.id == LTID_POINTER
-}
-
-func (lt LType) getDecimalSize() (bool, int, int) {
-	switch lt.id {
-	case LTID_NULL:
-		return true, 0, 0
-	case LTID_BOOLEAN:
-		return true, 1, 0
-	case LTID_TINYINT:
-		// tinyint: [-127, 127] = DECIMAL(3,0)
-		return true, 3, 0
-	case LTID_SMALLINT:
-		// smallint: [-32767, 32767] = DECIMAL(5,0)
-		return true, 5, 0
-	case LTID_INTEGER:
-		// integer: [-2147483647, 2147483647] = DECIMAL(10,0)
-		return true, 10, 0
-	case LTID_BIGINT:
-		// bigint: [-9223372036854775807, 9223372036854775807] = DECIMAL(19,0)
-		return true, 19, 0
-	case LTID_UTINYINT:
-		// UInt8 — [0 : 255]
-		return true, 3, 0
-	case LTID_USMALLINT:
-		// UInt16 — [0 : 65535]
-		return true, 5, 0
-	case LTID_UINTEGER:
-		// UInt32 — [0 : 4294967295]
-		return true, 10, 0
-	case LTID_UBIGINT:
-		// UInt64 — [0 : 18446744073709551615]
-		return true, 20, 0
-	case LTID_HUGEINT:
-		// hugeint: max size decimal (38, 0)
-		// note that a hugeint is not guaranteed to fit in this
-		return true, 38, 0
-	case LTID_DECIMAL:
-		return true, lt.width, lt.scale
-	default:
-		return false, 0, 0
-	}
-}
-
-func (lt LType) equal(o LType) bool {
-	if lt.id != o.id {
-		return false
-	}
-	switch lt.id {
-	case LTID_DECIMAL:
-		return lt.width == o.width && lt.scale == o.scale
-	default:
-
-	}
-	return true
-}
-
-func (lt LType) getInternalType() PhyType {
-	switch lt.id {
-	case LTID_BOOLEAN:
-		return BOOL
-	case LTID_TINYINT:
-		return INT8
-	case LTID_UTINYINT:
-		return UINT8
-	case LTID_SMALLINT:
-		return INT16
-	case LTID_USMALLINT:
-		return UINT16
-	case LTID_NULL, LTID_INTEGER:
-		return INT32
-	case LTID_DATE:
-		return DATE
-	case LTID_UINTEGER:
-		return UINT32
-	case LTID_BIGINT, LTID_TIME,
-		LTID_TIMESTAMP, LTID_TIMESTAMP_SEC,
-		LTID_TIMESTAMP_NS, LTID_TIMESTAMP_MS,
-		LTID_TIME_TZ, LTID_TIMESTAMP_TZ:
-		return INT64
-	case LTID_UBIGINT:
-		return UINT64
-	case LTID_HUGEINT, LTID_UUID:
-		return INT128
-	case LTID_FLOAT:
-		return FLOAT
-	case LTID_DOUBLE:
-		return DOUBLE
-	case LTID_DECIMAL:
-		//if lt.width <= DecimalMaxWidthInt16 {
-		//	return INT16
-		//} else if lt.width <= DecimalMaxWidthInt32 {
-		//	return INT32
-		//} else if lt.width <= DecimalMaxWidthInt64 {
-		//	return INT64
-		//} else if lt.width <= DecimalMaxWidthInt128 {
-		//	return INT128
-		//} else {
-
-		//}
-		return DECIMAL
-	case LTID_VARCHAR, LTID_CHAR, LTID_BLOB, LTID_BIT:
-		return VARCHAR
-	case LTID_INTERVAL:
-		return INTERVAL
-	case LTID_UNION, LTID_STRUCT:
-		return STRUCT
-	case LTID_LIST, LTID_MAP:
-		return LIST
-	case LTID_POINTER:
-		return UINT64
-	case LTID_VALIDITY:
-		return BIT
-	case LTID_ENUM:
-		{
-			panic("usp enum")
-		}
-	case LTID_TABLE, LTID_LAMBDA, LTID_ANY, LTID_INVALID, LTID_UNKNOWN:
-		return INVALID
-	case LTID_USER:
-		return UNKNOWN
-	case LTID_AGGREGATE_STATE:
-		return VARCHAR
-	default:
-		panic(fmt.Sprintf("usp logical type %d", lt))
-	}
-}
-
-func (lt LType) String() string {
-	//return fmt.Sprintf("(%v %v %d %d)", lt.id, lt.pTyp, lt.width, lt.scale)
-	if lt.id == LTID_DECIMAL {
-		return fmt.Sprintf("%v(%d,%d)", lt.pTyp, lt.width, lt.scale)
-	}
-	return fmt.Sprintf("%v", lt.pTyp)
-}
-
-func targetTypeCost(typ LType) int64 {
-	switch typ.id {
-	case LTID_INTEGER:
-		return 103
-	case LTID_BIGINT:
-		return 101
-	case LTID_DOUBLE:
-		return 102
-	case LTID_HUGEINT:
-		return 120
-	case LTID_TIMESTAMP:
-		return 120
-	case LTID_VARCHAR:
-		return 149
-	case LTID_DECIMAL:
-		return 104
-	case LTID_STRUCT, LTID_MAP, LTID_LIST, LTID_UNION:
-		return 160
-	default:
-		return 110
-	}
-}
-
-var tinyintTo = map[LTypeId]int{
-	LTID_SMALLINT: 0,
-	LTID_INTEGER:  0,
-	LTID_BIGINT:   0,
-	LTID_HUGEINT:  0,
-	LTID_FLOAT:    0,
-	LTID_DOUBLE:   0,
-	LTID_DECIMAL:  0,
-}
-
-func implicitCastTinyint(to LType) int64 {
-	if _, has := tinyintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var utinyintTo = map[LTypeId]int{
-	LTID_USMALLINT: 0,
-	LTID_UINTEGER:  0,
-	LTID_UBIGINT:   0,
-	LTID_SMALLINT:  0,
-	LTID_INTEGER:   0,
-	LTID_BIGINT:    0,
-	LTID_HUGEINT:   0,
-	LTID_FLOAT:     0,
-	LTID_DOUBLE:    0,
-	LTID_DECIMAL:   0,
-}
-
-func implicitCastUTinyint(to LType) int64 {
-	if _, has := utinyintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var smallintTo = map[LTypeId]int{
-	LTID_INTEGER: 0,
-	LTID_BIGINT:  0,
-	LTID_HUGEINT: 0,
-	LTID_FLOAT:   0,
-	LTID_DOUBLE:  0,
-	LTID_DECIMAL: 0,
-}
-
-func implicitCastSmallint(to LType) int64 {
-	if _, has := smallintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var usmallintTo = map[LTypeId]int{
-	LTID_UINTEGER: 0,
-	LTID_UBIGINT:  0,
-	LTID_INTEGER:  0,
-	LTID_BIGINT:   0,
-	LTID_HUGEINT:  0,
-	LTID_FLOAT:    0,
-	LTID_DOUBLE:   0,
-	LTID_DECIMAL:  0,
-}
-
-func implicitCastUSmallint(to LType) int64 {
-	if _, has := usmallintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var hugeintTo = map[LTypeId]int{
-	LTID_FLOAT:   0,
-	LTID_DOUBLE:  0,
-	LTID_DECIMAL: 0,
-}
-
-func implicitCastHugeint(to LType) int64 {
-	if _, has := hugeintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var floatTo = map[LTypeId]int{
-	LTID_DOUBLE: 0,
-}
-
-func implicitCastFloat(to LType) int64 {
-	if _, has := floatTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var doubleTo = map[LTypeId]int{}
-
-func implicitCastDouble(to LType) int64 {
-	if _, has := doubleTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var dateTo = map[LTypeId]int{
-	LTID_TIMESTAMP: 0,
-}
-
-func implicitCastDate(to LType) int64 {
-	if _, has := dateTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var decimalTo = map[LTypeId]int{
-	LTID_FLOAT:  0,
-	LTID_DOUBLE: 0,
-}
-
-func implicitCastDecimal(to LType) int64 {
-	if _, has := decimalTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var integerTo = map[LTypeId]int{
-	LTID_BIGINT:  0,
-	LTID_HUGEINT: 0,
-	LTID_FLOAT:   0,
-	LTID_DOUBLE:  0,
-	LTID_DECIMAL: 0,
-}
-
-func implicitCastInteger(to LType) int64 {
-	if _, has := integerTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var uintTo = map[LTypeId]int{
-	LTID_UBIGINT: 0,
-	LTID_BIGINT:  0,
-	LTID_HUGEINT: 0,
-	LTID_FLOAT:   0,
-	LTID_DOUBLE:  0,
-	LTID_DECIMAL: 0,
-}
-
-func implicitCastUInteger(to LType) int64 {
-	if _, has := uintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var bigintTo = map[LTypeId]int{
-	LTID_FLOAT:   0,
-	LTID_DOUBLE:  0,
-	LTID_HUGEINT: 0,
-	LTID_DECIMAL: 0,
-}
-
-func implicitCastBigint(to LType) int64 {
-	if _, has := bigintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-var ubigintTo = map[LTypeId]int{
-	LTID_FLOAT:   0,
-	LTID_DOUBLE:  0,
-	LTID_HUGEINT: 0,
-	LTID_DECIMAL: 0,
-}
-
-func implicitCastUBigint(to LType) int64 {
-	if _, has := ubigintTo[to.id]; has {
-		return targetTypeCost(to)
-	}
-	return -1
-}
-
-func implicitCast(from, to LType) int64 {
-	if from.id == LTID_NULL {
-		//cast NULL to anything
-		return targetTypeCost(to)
-	}
-	if from.id == LTID_UNKNOWN {
-		//parameter expr cast no cost
-		return 0
-	}
-	if to.id == LTID_ANY {
-		//cast to any
-		return 1
-	}
-	if from.id == to.id {
-		//same. no cost
-		return 0
-	}
-	if to.id == LTID_VARCHAR {
-		//anything cast to varchar
-		return targetTypeCost(to)
-	}
-	switch from.id {
-	case LTID_TINYINT:
-		return implicitCastTinyint(to)
-	case LTID_SMALLINT:
-		return implicitCastSmallint(to)
-	case LTID_INTEGER:
-		return implicitCastInteger(to)
-	case LTID_BIGINT:
-		return implicitCastBigint(to)
-	case LTID_UTINYINT:
-		return implicitCastUTinyint(to)
-	case LTID_USMALLINT:
-		return implicitCastUSmallint(to)
-	case LTID_UINTEGER:
-		return implicitCastUInteger(to)
-	case LTID_UBIGINT:
-		return implicitCastUBigint(to)
-	case LTID_HUGEINT:
-		return implicitCastHugeint(to)
-	case LTID_FLOAT:
-		return implicitCastFloat(to)
-	case LTID_DOUBLE:
-		return implicitCastDouble(to)
-	case LTID_DATE:
-		return implicitCastDate(to)
-	case LTID_DECIMAL:
-		return implicitCastDecimal(to)
-	default:
-		return -1
-	}
-}
-
-func decimalSizeCheck(left, right LType) LType {
-	if left.id != LTID_DECIMAL && right.id != LTID_DECIMAL {
-		panic("wrong type")
-	}
-	if left.id == right.id {
-		panic("wrong type")
-	}
-
-	if left.id == LTID_DECIMAL {
-		return decimalSizeCheck(right, left)
-	}
-
-	can, owith, _ := left.getDecimalSize()
-	if !can {
-		panic(fmt.Sprintf("to decimal failed. %v ", left))
-	}
-	ewidth := right.width - right.scale
-	if owith > ewidth {
-		newWidth := owith + right.scale
-		newWidth = min(newWidth, DecimalMaxWidth)
-		return decimal(newWidth, right.scale)
-	}
-	return right
-}
-
-func decideNumericType(left, right LType) LType {
-	if left.id > right.id {
-		return decideNumericType(right, left)
-	}
-
-	if implicitCast(left, right) >= 0 {
-		if right.id == LTID_DECIMAL {
-			return decimalSizeCheck(left, right)
-		}
-		return right
-	}
-
-	if implicitCast(right, left) >= 0 {
-		if left.id == LTID_DECIMAL {
-			return decimalSizeCheck(right, left)
-		}
-		return left
-	}
-	//types that can not be cast implicitly.
-	//they are different.
-	//left is signed and right is unsigned.
-	//upcast
-	if left.id == LTID_BIGINT || right.id == LTID_UBIGINT {
-		return hugeint()
-	}
-	if left.id == LTID_INTEGER || right.id == LTID_UINTEGER {
-		return bigint()
-	}
-	if left.id == LTID_SMALLINT || right.id == LTID_USMALLINT {
-		return integer()
-	}
-	if left.id == LTID_TINYINT || right.id == LTID_UTINYINT {
-		return smallint()
-	}
-	panic(fmt.Sprintf("imcompatible %v %v", left, right))
-}
-
-func MaxLType(left, right LType) LType {
-	//digit type
-	if left.id != right.id &&
-		left.isNumeric() && right.isNumeric() {
-		return decideNumericType(left, right)
-	} else if left.id == LTID_UNKNOWN {
-		return right
-	} else if right.id == LTID_UNKNOWN {
-		return left
-	} else if left.id < right.id {
-		if left.id == LTID_DATE && right.id == LTID_INTERVAL {
-			return left
-		} else if left.id == LTID_INTERVAL && right.id == LTID_DATE {
-			return right
-		}
-		return right
-	}
-	if right.id < left.id {
-		return left
-	}
-	id := left.id
-	if id == LTID_ENUM {
-		if left.equal(right) {
-			return left
-		} else {
-			//enum cast to varchar
-			return varchar()
-		}
-	}
-	if id == LTID_VARCHAR {
-		//no collation here
-		return right
-	}
-	if id == LTID_DECIMAL {
-		//decide the width & scal of the final deciaml
-		leftNum := left.width - left.scale
-		rightNum := right.width - right.scale
-		num := max(leftNum, rightNum)
-		scale := max(left.scale, right.scale)
-		width := num + scale
-		if width > DecimalMaxWidth {
-			width = DecimalMaxWidth
-			scale = width - num
-		}
-		return decimal(width, scale)
-	}
-	//same
-	return left
-}
 
 type DataType int
 
@@ -1515,13 +111,16 @@ func (dt DataType) String() string {
 type LOT int
 
 const (
-	LOT_Project  LOT = 0
-	LOT_Filter   LOT = 1
-	LOT_Scan     LOT = 2
-	LOT_JOIN     LOT = 3
-	LOT_AggGroup LOT = 4
-	LOT_Order    LOT = 5
-	LOT_Limit    LOT = 6
+	LOT_Project      LOT = 0
+	LOT_Filter       LOT = 1
+	LOT_Scan         LOT = 2
+	LOT_JOIN         LOT = 3
+	LOT_AggGroup     LOT = 4
+	LOT_Order        LOT = 5
+	LOT_Limit        LOT = 6
+	LOT_CreateSchema LOT = 7
+	LOT_CreateTable  LOT = 8
+	LOT_Insert       LOT = 9
 )
 
 func (lt LOT) String() string {
@@ -1540,6 +139,12 @@ func (lt LOT) String() string {
 		return "Order"
 	case LOT_Limit:
 		return "Limit"
+	case LOT_CreateSchema:
+		return "CreateSchema"
+	case LOT_CreateTable:
+		return "CreateTable"
+	case LOT_Insert:
+		return "Insert"
 	default:
 		panic(fmt.Sprintf("usp %d", lt))
 	}
@@ -1580,6 +185,41 @@ func (lojt LOT_JoinType) String() string {
 	}
 }
 
+type ScanType int
+
+const (
+	ScanTypeTable      ScanType = 0
+	ScanTypeValuesList ScanType = 1
+	ScanTypeCopyFrom   ScanType = 2
+)
+
+func (st ScanType) String() string {
+	switch st {
+	case ScanTypeTable:
+		return "scan table"
+	case ScanTypeValuesList:
+		return "scan values list"
+	case ScanTypeCopyFrom:
+		return "scan copy from"
+	default:
+		panic("usp")
+	}
+}
+
+type ScanOption struct {
+	Kind string
+	Opt  string
+}
+
+type ScanInfo struct {
+	ReturnedTypes []common.LType
+	Names         []string
+	ColumnIds     []int
+	FilePath      string
+	Opts          []*ScanOption
+	Format        string //for CopyFrom
+}
+
 type LogicalOperator struct {
 	Typ              LOT
 	Children         []*LogicalOperator
@@ -1604,24 +244,44 @@ type LogicalOperator struct {
 	estimatedCard    uint64
 	estimatedProps   *EstimatedProperties
 	Outputs          []*Expr
-	Counts           ColumnBindCountMap `json:"-"`
-	ColRefToPos      ColumnBindPosMap   `json:"-"`
+	IfNotExists      bool
+	ColDefs          []*storage.ColumnDefinition //for create table
+	Constraints      []*storage.Constraint       //for create table
+	TableEnt         *storage.CatalogEntry       //for insert
+	TableIndex       int                         //for insert
+	ExpectedTypes    []common.LType              //for insert
+	IsValuesList     bool                        //for insert ... values
+	ScanTyp          ScanType
+	Types            []common.LType //for insert ... values
+	Names            []string       //for insert ... values
+	Values           [][]*Expr      //for insert ... values
+	ColName2Idx      map[string]int
+	//column seq no in table -> column seq no in Insert
+	ColumnIndexMap []int //for insert
+	ScanInfo       *ScanInfo
+	Counts         ColumnBindCountMap `json:"-"`
+	ColRefToPos    ColumnBindPosMap   `json:"-"`
 }
 
-func (lo *LogicalOperator) EstimatedCard() uint64 {
+func (lo *LogicalOperator) EstimatedCard(txn *storage.Txn) uint64 {
 	if lo.Typ == LOT_Scan {
-		catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
-		if err != nil {
-			panic(err)
+		{
+			return lo.TableEnt.GetStats2(0).Count()
 		}
-		return uint64(catalogTable.Stats.RowCount)
+		{
+			//catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
+			//if err != nil {
+			//	panic(err)
+			//}
+			//return uint64(catalogTable.Stats.RowCount)
+		}
 	}
 	if lo.hasEstimatedCard {
 		return lo.estimatedCard
 	}
 	maxCard := uint64(0)
 	for _, child := range lo.Children {
-		childCard := child.EstimatedCard()
+		childCard := child.EstimatedCard(txn)
 		maxCard = max(maxCard, childCard)
 	}
 	lo.hasEstimatedCard = true
@@ -1656,16 +316,13 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 			tableInfo = fmt.Sprintf("%v.%v", lo.Database, lo.Table)
 		}
 		tree.AddMetaNode("table", tableInfo)
-		catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
-		if err != nil {
-			panic("no table")
-		}
-		printColumns := func(cols []string) string {
+
+		printColumns := func(col2Idx map[string]int, typs []common.LType, cols []string) string {
 			t := strings.Builder{}
 			t.WriteByte('\n')
 			for i, col := range cols {
-				idx := catalogTable.Column2Idx[col]
-				t.WriteString(fmt.Sprintf("col %d %v %v", i, col, catalogTable.Types[idx]))
+				idx := col2Idx[col]
+				t.WriteString(fmt.Sprintf("col %d %v %v", i, col, typs[idx]))
 				t.WriteByte('\n')
 			}
 			return t.String()
@@ -1681,28 +338,33 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 		//}
 		if len(lo.Columns) > 0 {
 			//tree.AddMetaNode("columns", printColumns2(lo.Outputs))
-			tree.AddMetaNode("columns", printColumns(lo.Columns))
+			tree.AddMetaNode("columns", printColumns(lo.ColName2Idx, lo.Types, lo.Columns))
 		} else {
-			tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
+			panic("usp")
+			//catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
+			//if err != nil {
+			//	panic("no table")
+			//}
+			//tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
 		}
 		node := tree.AddBranch("filters")
 		listExprsToTree(node, lo.Filters)
-		printStats := func(columns []string) string {
-			sb := strings.Builder{}
-			sb.WriteString(fmt.Sprintf("rowcount %v\n", lo.Stats.RowCount))
-			for colIdx, colName := range lo.Columns {
-				originIdx := catalogTable.Column2Idx[colName]
-				sb.WriteString(fmt.Sprintf("col %v %v ", colIdx, colName))
-				sb.WriteString(lo.Stats.ColStats[originIdx].String())
-				sb.WriteByte('\n')
-			}
-			return sb.String()
-		}
-		if len(lo.Columns) > 0 {
-			tree.AddMetaNode("stats", printStats(lo.Columns))
-		} else {
-			tree.AddMetaNode("stats", printStats(catalogTable.Columns))
-		}
+		//printStats := func(columns []string) string {
+		//	sb := strings.Builder{}
+		//	sb.WriteString(fmt.Sprintf("rowcount %v\n", lo.Stats.RowCount))
+		//	for colIdx, colName := range lo.Columns {
+		//		originIdx := catalogTable.Column2Idx[colName]
+		//		sb.WriteString(fmt.Sprintf("col %v %v ", colIdx, colName))
+		//		sb.WriteString(lo.Stats.ColStats[originIdx].String())
+		//		sb.WriteByte('\n')
+		//	}
+		//	return sb.String()
+		//}
+		//if len(lo.Columns) > 0 {
+		//	tree.AddMetaNode("stats", printStats(lo.Columns))
+		//} else {
+		//	tree.AddMetaNode("stats", printStats(catalogTable.Columns))
+		//}
 
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
@@ -1739,6 +401,18 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 	case LOT_Limit:
 		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", lo.Limit.String()))
 		printOutputs(tree, lo)
+	case LOT_CreateSchema:
+		tree = tree.AddBranch(fmt.Sprintf("CreateSchema: %v %v", lo.Database, lo.IfNotExists))
+	case LOT_CreateTable:
+		tree = tree.AddBranch(fmt.Sprintf("CreateTable: %v %v %v",
+			lo.Database, lo.Table, lo.IfNotExists))
+		node := tree.AddMetaBranch("colDefs", "")
+		listColDefsToTree(node, lo.ColDefs)
+		consStr := make([]string, 0)
+		for _, cons := range lo.Constraints {
+			consStr = append(consStr, cons.String())
+		}
+		tree.AddMetaNode("constraints", strings.Join(consStr, ","))
 	default:
 		panic(fmt.Sprintf("usp %v", lo.Typ))
 	}
@@ -1818,7 +492,7 @@ func checkExprs(e ...*Expr) {
 		if expr.Typ == ET_Func && expr.FunImpl == nil {
 			panic("invalid function")
 		}
-		if expr.DataTyp.id == LTID_INVALID {
+		if expr.DataTyp.Id == common.LTID_INVALID {
 			panic("invalid logical type")
 		}
 	}
@@ -1827,9 +501,10 @@ func checkExprs(e ...*Expr) {
 type ET int
 
 const (
-	ET_Column ET = iota //column
-	ET_TABLE            //table
-	ET_Join             //join
+	ET_Column     ET = iota //column
+	ET_TABLE                //table
+	ET_ValuesList           //for insert
+	ET_Join                 //join
 	ET_CTE
 
 	ET_Func
@@ -2013,7 +688,7 @@ const (
 type Expr struct {
 	Typ     ET
 	SubTyp  ET_SubTyp
-	DataTyp LType
+	DataTyp common.LType
 	AggrTyp AggrType
 
 	Children []*Expr
@@ -2036,11 +711,18 @@ type Expr struct {
 	SubqueryTyp ET_SubqueryType
 	CTEIndex    uint64
 
-	BelongCtx  *BindContext // context for table and join
-	On         *Expr        //JoinOn
-	IsOperator bool
-	BindInfo   *FunctionData
-	FunImpl    *FunctionV2
+	BelongCtx   *BindContext // context for table and join
+	On          *Expr        //JoinOn
+	IsOperator  bool
+	BindInfo    *FunctionData
+	FunImpl     *FunctionV2
+	Constraints []*storage.Constraint //for column def of create table
+	//for insert ... values
+	Types       []common.LType
+	Names       []string
+	Values      [][]*Expr
+	ColName2Idx map[string]int
+	TabEnt      *storage.CatalogEntry
 }
 
 func (e *Expr) equal(o *Expr) bool {
@@ -2425,7 +1107,7 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 	case ET_FConst:
 		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Fvalue))
 	case ET_DecConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s %d %d)", e.Svalue, e.DataTyp.width, e.DataTyp.scale))
+		tree.AddMetaNode(head, fmt.Sprintf("(%s %d %d)", e.Svalue, e.DataTyp.Width, e.DataTyp.Scale))
 	case ET_TABLE:
 		tree.AddNode(fmt.Sprintf("%s.%s", e.Database, e.Table))
 	case ET_Join:
@@ -2508,27 +1190,33 @@ func (e *Expr) String() string {
 type POT int
 
 const (
-	POT_Project POT = iota
-	POT_With
-	POT_Filter
-	POT_Agg
-	POT_Join
-	POT_Order
-	POT_Limit
-	POT_Scan
-	POT_Stub //test stub
+	POT_Project      POT = 0
+	POT_With         POT = 1
+	POT_Filter       POT = 2
+	POT_Agg          POT = 3
+	POT_Join         POT = 4
+	POT_Order        POT = 5
+	POT_Limit        POT = 6
+	POT_Scan         POT = 7
+	POT_Stub         POT = 8 //test stub
+	POT_CreateSchema POT = 9
+	POT_CreateTable  POT = 10
+	POT_Insert       POT = 11
 )
 
 var potToStr = map[POT]string{
-	POT_Project: "project",
-	POT_With:    "with",
-	POT_Filter:  "filter",
-	POT_Agg:     "agg",
-	POT_Join:    "join",
-	POT_Order:   "order",
-	POT_Limit:   "limit",
-	POT_Scan:    "scan",
-	POT_Stub:    "stub",
+	POT_Project:      "project",
+	POT_With:         "with",
+	POT_Filter:       "filter",
+	POT_Agg:          "agg",
+	POT_Join:         "join",
+	POT_Order:        "order",
+	POT_Limit:        "limit",
+	POT_Scan:         "scan",
+	POT_Stub:         "stub",
+	POT_CreateSchema: "createSchema",
+	POT_CreateTable:  "createTable",
+	POT_Insert:       "insert",
 }
 
 func (t POT) String() string {
@@ -2562,8 +1250,19 @@ type PhysicalOperator struct {
 	Offset        *Expr
 	estimatedCard uint64
 	ChunkCount    int //for stub
-
-	Children []*PhysicalOperator
+	IfNotExists   bool
+	ColDefs       []*storage.ColumnDefinition //for create table
+	Constraints   []*storage.Constraint       //for create table
+	TableEnt      *storage.CatalogEntry
+	ScanTyp       ScanType
+	Types         []common.LType        //for insert ... values
+	collection    *ColumnDataCollection //for insert ... values
+	ColName2Idx   map[string]int
+	InsertTypes   []common.LType //for insert ... values
+	//column seq no in table -> column seq no in Insert
+	ColumnIndexMap []int //for insert
+	ScanInfo       *ScanInfo
+	Children       []*PhysicalOperator
 }
 
 func (po *PhysicalOperator) String() string {
@@ -2573,7 +1272,7 @@ func (po *PhysicalOperator) String() string {
 }
 
 func printPhyOutputs(tree treeprint.Tree, root *PhysicalOperator) {
-	tree.AddMetaNode("id", fmt.Sprintf("%d", root.Id))
+	tree.AddMetaNode("Id", fmt.Sprintf("%d", root.Id))
 	if len(root.Outputs) != 0 {
 		node := tree.AddMetaBranch("outputs", "")
 		listExprsToTree(node, root.Outputs)
@@ -2608,24 +1307,28 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 			tableInfo = fmt.Sprintf("%v.%v", po.Database, po.Table)
 		}
 		tree.AddMetaNode("table", tableInfo)
-		catalogTable, err := tpchCatalog().Table(po.Database, po.Table)
-		if err != nil {
-			panic("no table")
-		}
-		printColumns := func(cols []string) string {
-			t := strings.Builder{}
-			t.WriteByte('\n')
-			for i, col := range cols {
-				t.WriteString(fmt.Sprintf("col %d %v", i, col))
+		if po.ScanTyp == ScanTypeTable {
+			printColumns := func(cols []string) string {
+				t := strings.Builder{}
 				t.WriteByte('\n')
+				for i, col := range cols {
+					t.WriteString(fmt.Sprintf("col %d %v", i, col))
+					t.WriteByte('\n')
+				}
+				return t.String()
 			}
-			return t.String()
+			if len(po.Columns) > 0 {
+				tree.AddMetaNode("columns", printColumns(po.Columns))
+			} else {
+				panic("usp")
+				//catalogTable, err := tpchCatalog().Table(po.Database, po.Table)
+				//if err != nil {
+				//	panic("no table")
+				//}
+				//tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
+			}
 		}
-		if len(po.Columns) > 0 {
-			tree.AddMetaNode("columns", printColumns(po.Columns))
-		} else {
-			tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
-		}
+
 		node := tree.AddBranch("filters")
 		listExprsToTree(node, po.Filters)
 		//printStats := func(columns []string) string {
@@ -2683,6 +1386,19 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 	case POT_Stub:
 		tree = tree.AddBranch(fmt.Sprintf("Stub: %v %v", po.Table, po.ChunkCount))
 		printPhyOutputs(tree, po)
+	case POT_CreateSchema:
+		tree = tree.AddBranch(fmt.Sprintf("CreateSchema: %v %v", po.Database, po.IfNotExists))
+	case POT_CreateTable:
+		tree = tree.AddBranch(fmt.Sprintf("CreateTable: %v %v %v", po.Database, po.Table, po.IfNotExists))
+		node := tree.AddMetaBranch("colDefs", "")
+		listColDefsToTree(node, po.ColDefs)
+		consStr := make([]string, 0)
+		for _, cons := range po.Constraints {
+			consStr = append(consStr, cons.String())
+		}
+		tree.AddMetaNode("constraints", strings.Join(consStr, ","))
+	case POT_Insert:
+		tree = tree.AddBranch(fmt.Sprintf("Insert: %v %v", po.Database, po.Table))
 	default:
 		panic(fmt.Sprintf("usp %v", po.Typ))
 	}
@@ -2751,11 +1467,37 @@ func (s *Stats) String() string {
 	return sb.String()
 }
 
+func convertStats(tstats *storage.TableStats) *Stats {
+	ret := &Stats{
+		RowCount: float64(tstats.GetStats(0).Count()),
+	}
+	for _, cstats := range tstats.GetStats2() {
+		ret.ColStats = append(ret.ColStats, convertStats2(cstats))
+	}
+	return ret
+}
+
+func convertStats2(cstats *storage.ColumnStats) *BaseStats {
+	return &BaseStats{
+		hasNull:       cstats.HasNull(),
+		hasNoNull:     cstats.HasNoNull(),
+		distinctCount: cstats.DistinctCount(),
+	}
+}
+
+func convertStats3(bstats *storage.BaseStats) *BaseStats {
+	return &BaseStats{
+		hasNull:       bstats.HasNull(),
+		hasNoNull:     bstats.HasNoNull(),
+		distinctCount: bstats.DistinctCount(),
+	}
+}
+
 type CatalogTable struct {
 	Db         string
 	Table      string
 	Columns    []string
-	Types      []LType
+	Types      []common.LType
 	PK         []int
 	Column2Idx map[string]int
 	Stats      *Stats

@@ -56,3 +56,16 @@ func TestTpchSqls(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 8, len(stmts))
 }
+
+func TestSchema(t *testing.T) {
+	schs := []string{
+		"create schema s1",
+		"create schema if not exists s1",
+	}
+
+	for _, sch := range schs {
+		stmts, err := Parse(sch)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(stmts))
+	}
+}

@@ -16,6 +16,10 @@ package plan
 
 import (
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type CrossStage int
@@ -30,29 +34,29 @@ type CrossProduct struct {
 	_crossStage  CrossStage
 	_dataCollect *ColumnDataCollection
 	_crossExec   *CrossProductExec
-	_input       *Chunk
+	_input       *chunk.Chunk
 }
 
-func NewCrossProduct(types []LType) *CrossProduct {
+func NewCrossProduct(types []common.LType) *CrossProduct {
 	ret := &CrossProduct{}
 	ret._dataCollect = NewColumnDataCollection(types)
 	ret._crossExec = NewCrossProductExec(ret._dataCollect)
 	return ret
 }
 
-func (cross *CrossProduct) Sink(input *Chunk) {
+func (cross *CrossProduct) Sink(input *chunk.Chunk) {
 	cross._dataCollect.Append(input)
 }
 
-func (cross *CrossProduct) Execute(input, output *Chunk) (OperatorResult, error) {
+func (cross *CrossProduct) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
 	return cross._crossExec.Execute(input, output)
 }
 
 type CrossProductExec struct {
 	_rhs             *ColumnDataCollection
 	_scanState       *ColumnDataScanState
-	_scanChunk       *Chunk //constant chunk (scanning chunk is the input chunk)
-	_positionInChunk int    //position in the scanning chunk different from constant chunk
+	_scanChunk       *chunk.Chunk //constant chunk (scanning chunk is the input chunk)
+	_positionInChunk int          //position in the scanning chunk different from constant chunk
 	_init            bool
 	_finish          bool
 	_scanInputChunk  bool
@@ -63,7 +67,7 @@ type CrossProductExec struct {
 func NewCrossProductExec(rhs *ColumnDataCollection) *CrossProductExec {
 	ret := &CrossProductExec{
 		_rhs:       rhs,
-		_scanChunk: &Chunk{},
+		_scanChunk: &chunk.Chunk{},
 		_scanState: &ColumnDataScanState{},
 	}
 	ret._rhs.initScanChunk(ret._scanChunk)
@@ -76,19 +80,19 @@ func (cross *CrossProductExec) Reset() {
 	cross._scanInputChunk = false
 	cross._rhs.initScan(cross._scanState)
 	cross._positionInChunk = 0
-	cross._scanChunk.reset()
+	cross._scanChunk.Reset()
 }
 
-func (cross *CrossProductExec) NextValue(input, output *Chunk) bool {
+func (cross *CrossProductExec) NextValue(input, output *chunk.Chunk) bool {
 	if !cross._init {
 		cross.Reset()
 	}
 	cross._positionInChunk++
 	chunkSize := 0
 	if cross._scanInputChunk {
-		chunkSize = input.card()
+		chunkSize = input.Card()
 	} else {
-		chunkSize = cross._scanChunk.card()
+		chunkSize = cross._scanChunk.Card()
 	}
 	if cross._positionInChunk < chunkSize {
 		return true
@@ -96,14 +100,14 @@ func (cross *CrossProductExec) NextValue(input, output *Chunk) bool {
 	//pick next chunk from the collection
 	cross._rhs.Scan(cross._scanState, cross._scanChunk)
 	cross._positionInChunk = 0
-	if cross._scanChunk.card() == 0 {
+	if cross._scanChunk.Card() == 0 {
 		return false
 	}
 	cross._scanInputChunk = true
 	return true
 }
 
-func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, error) {
+func (cross *CrossProductExec) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
 	if cross._rhs.Count() == 0 {
 		// no RHS, empty result
 		return Done, nil
@@ -129,10 +133,10 @@ func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, er
 	//	return InvalidOpResult, err
 	//}
 
-	var constChunk *Chunk
+	var constChunk *chunk.Chunk
 	//scanning chunk. refer a single value
-	var scanChunk *Chunk
-	for i := 0; i < output.columnCount(); i++ {
+	var scanChunk *chunk.Chunk
+	for i := 0; i < output.ColumnCount(); i++ {
 		if cross._scanInputChunk {
 			constChunk = cross._scanChunk
 		} else {
@@ -150,33 +154,33 @@ func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, er
 		colIdx := int64(bind.column())
 		if cross._scanInputChunk {
 			if tblIdx == -2 {
-				output._data[i].reference(constChunk._data[colIdx])
+				output.Data[i].Reference(constChunk.Data[colIdx])
 			} else if tblIdx == -1 {
-				referenceInPhyFormatConst(
-					output._data[i],
-					scanChunk._data[colIdx],
+				chunk.ReferenceInPhyFormatConst(
+					output.Data[i],
+					scanChunk.Data[colIdx],
 					cross._positionInChunk,
-					scanChunk.card(),
+					scanChunk.Card(),
 				)
 			} else {
 				panic("usp")
 			}
 		} else {
 			if tblIdx == -1 {
-				output._data[i].reference(constChunk._data[colIdx])
+				output.Data[i].Reference(constChunk.Data[colIdx])
 			} else if tblIdx == -2 {
-				referenceInPhyFormatConst(
-					output._data[i],
-					scanChunk._data[colIdx],
+				chunk.ReferenceInPhyFormatConst(
+					output.Data[i],
+					scanChunk.Data[colIdx],
 					cross._positionInChunk,
-					scanChunk.card(),
+					scanChunk.Card(),
 				)
 			} else {
 				panic("usp")
 			}
 		}
 	}
-	output.setCard(constChunk.card())
+	output.SetCard(constChunk.Card())
 
 	//var constChunk *Chunk
 	//if cross._scanInputChunk {
@@ -196,7 +200,7 @@ func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, er
 
 	////refer constant vector
 	//for i := 0; i < colCnt; i++ {
-	//	output._data[colOffset+i].reference(constChunk._data[i])
+	//	output.Data[colOffset+i].reference(constChunk.Data[i])
 	//}
 
 	//scanning chunk. refer a single value
@@ -215,8 +219,8 @@ func (cross *CrossProductExec) Execute(input, output *Chunk) (OperatorResult, er
 	//
 	//for i := 0; i < colCnt; i++ {
 	//	referenceInPhyFormatConst(
-	//		output._data[colOffset+i],
-	//		scanChunk._data[i],
+	//		output.Data[colOffset+i],
+	//		scanChunk.Data[i],
 	//		cross._positionInChunk,
 	//		scanChunk.card(),
 	//	)
@@ -232,40 +236,40 @@ type ColumnDataScanState struct {
 }
 
 type ColumnDataMetaData struct {
-	_dst    *Chunk
+	_dst    *chunk.Chunk
 	_vecIdx int
 }
 
 type ColumnDataCollection struct {
-	_types  []LType
+	_types  []common.LType
 	_count  int
-	_chunks []*Chunk
+	_chunks []*chunk.Chunk
 }
 
-func NewColumnDataCollection(typs []LType) *ColumnDataCollection {
+func NewColumnDataCollection(typs []common.LType) *ColumnDataCollection {
 	return &ColumnDataCollection{
 		_types: typs,
 	}
 }
 
-func (cdc *ColumnDataCollection) Append(input *Chunk) {
-	vecData := make([]UnifiedFormat, len(cdc._types))
+func (cdc *ColumnDataCollection) Append(input *chunk.Chunk) {
+	vecData := make([]chunk.UnifiedFormat, len(cdc._types))
 	for i := 0; i < len(cdc._types); i++ {
-		input._data[i].toUnifiedFormat(input.card(), &vecData[i])
+		input.Data[i].ToUnifiedFormat(input.Card(), &vecData[i])
 	}
 
-	remaining := input.card()
+	remaining := input.Card()
 	for remaining > 0 {
 		if len(cdc._chunks) == 0 {
-			newChunk := &Chunk{}
-			newChunk.init(cdc._types, defaultVectorSize)
+			newChunk := &chunk.Chunk{}
+			newChunk.Init(cdc._types, util.DefaultVectorSize)
 			cdc._chunks = append(cdc._chunks, newChunk)
 		}
-		chunkData := back(cdc._chunks)
-		appendAmount := min(remaining, defaultVectorSize-chunkData.card())
+		chunkData := util.Back(cdc._chunks)
+		appendAmount := min(remaining, util.DefaultVectorSize-chunkData.Card())
 		if appendAmount > 0 {
 			//enough space
-			offset := input.card() - remaining
+			offset := input.Card() - remaining
 			//copy
 			for i := 0; i < len(cdc._types); i++ {
 				metaData := ColumnDataMetaData{
@@ -275,26 +279,26 @@ func (cdc *ColumnDataCollection) Append(input *Chunk) {
 				ColumnDataCopySwitch(
 					&metaData,
 					&vecData[i],
-					input._data[i],
+					input.Data[i],
 					offset,
 					appendAmount,
 				)
 			}
-			chunkData._count += appendAmount
+			chunkData.Count += appendAmount
 		}
 		remaining -= appendAmount
 		if remaining > 0 {
-			newChunk := &Chunk{}
-			newChunk.init(cdc._types, defaultVectorSize)
+			newChunk := &chunk.Chunk{}
+			newChunk.Init(cdc._types, util.DefaultVectorSize)
 			cdc._chunks = append(cdc._chunks, newChunk)
 		}
 	}
-	cdc._count += input.card()
+	cdc._count += input.Card()
 
 }
 
-func (cdc *ColumnDataCollection) initScanChunk(chunk *Chunk) {
-	chunk.init(cdc._types, defaultVectorSize)
+func (cdc *ColumnDataCollection) initScanChunk(chunk *chunk.Chunk) {
+	chunk.Init(cdc._types, util.DefaultVectorSize)
 }
 
 func (cdc *ColumnDataCollection) initScan(state *ColumnDataScanState) {
@@ -317,8 +321,8 @@ func (cdc *ColumnDataCollection) initScan2(
 
 func (cdc *ColumnDataCollection) Scan(
 	state *ColumnDataScanState,
-	output *Chunk) bool {
-	output.reset()
+	output *chunk.Chunk) bool {
+	output.Reset()
 
 	var chunkIdx int
 	var rowIdx int
@@ -333,37 +337,37 @@ func (cdc *ColumnDataCollection) Scan(
 		vecIdx := state.columnIds[i]
 		cdc.ReadVector(
 			state,
-			srcChunk._data[vecIdx],
-			output._data[vecIdx],
-			srcChunk.card(),
+			srcChunk.Data[vecIdx],
+			output.Data[vecIdx],
+			srcChunk.Card(),
 		)
 	}
-	output.setCard(srcChunk.card())
+	output.SetCard(srcChunk.Card())
 	return true
 }
 
 func (cdc *ColumnDataCollection) ReadVector(
 	state *ColumnDataScanState,
-	srcVec *Vector,
-	dstVec *Vector,
+	srcVec *chunk.Vector,
+	dstVec *chunk.Vector,
 	count int,
 ) int {
-	dstVecType := dstVec.typ()
-	dstInterType := dstVecType.getInternalType()
-	dstTypeSize := dstInterType.size()
+	dstVecType := dstVec.Typ()
+	dstInterType := dstVecType.GetInternalType()
+	dstTypeSize := dstInterType.Size()
 	if count == 0 {
 		return 0
 	}
-	srcPtr := bytesSliceToPointer(srcVec._data)
-	dstPtr := bytesSliceToPointer(dstVec._data)
-	dstBitmap := getMaskInPhyFormatFlat(dstVec)
-	pointerCopy(dstPtr, srcPtr, dstTypeSize*count)
-	dstBitmap.copyFrom(srcVec._mask, count)
+	srcPtr := util.BytesSliceToPointer(srcVec.Data)
+	dstPtr := util.BytesSliceToPointer(dstVec.Data)
+	dstBitmap := chunk.GetMaskInPhyFormatFlat(dstVec)
+	util.PointerCopy(dstPtr, srcPtr, dstTypeSize*count)
+	dstBitmap.CopyFrom(srcVec.Mask, count)
 
-	if dstInterType == VARCHAR {
-		Copy(dstVec,
+	if dstInterType == common.VARCHAR {
+		chunk.Copy(dstVec,
 			dstVec,
-			incrSelectVectorInPhyFormatFlat(),
+			chunk.IncrSelectVectorInPhyFormatFlat(),
 			count,
 			0,
 			0,
@@ -384,7 +388,7 @@ func (cdc *ColumnDataCollection) NextScanIndex(
 		return false
 	}
 
-	state.nextRowIdx += cdc._chunks[state.chunkIdx].card()
+	state.nextRowIdx += cdc._chunks[state.chunkIdx].Card()
 	*chunkIdx = state.chunkIdx
 	state.chunkIdx++
 	return true
@@ -406,12 +410,28 @@ func (copy *int32ValueCopy) Assign(
 	metaData *ColumnDataMetaData,
 	dst, src unsafe.Pointer,
 	dstIdx, srcIdx int) {
-	dPtr := pointerAdd(dst, dstIdx*int32Size)
-	sPtr := pointerAdd(src, srcIdx*int32Size)
+	dPtr := util.PointerAdd(dst, dstIdx*common.Int32Size)
+	sPtr := util.PointerAdd(src, srcIdx*common.Int32Size)
 	copy.Operation((*int32)(dPtr), (*int32)(sPtr))
 }
 
 func (copy *int32ValueCopy) Operation(dst, src *int32) {
+	*dst = *src
+}
+
+type int64ValueCopy struct {
+}
+
+func (copy *int64ValueCopy) Assign(
+	metaData *ColumnDataMetaData,
+	dst, src unsafe.Pointer,
+	dstIdx, srcIdx int) {
+	dPtr := util.PointerAdd(dst, dstIdx*common.Int64Size)
+	sPtr := util.PointerAdd(src, srcIdx*common.Int64Size)
+	copy.Operation((*int64)(dPtr), (*int64)(sPtr))
+}
+
+func (copy *int64ValueCopy) Operation(dst, src *int64) {
 	*dst = *src
 }
 
@@ -422,8 +442,8 @@ func (copy *float32ValueCopy) Assign(
 	metaData *ColumnDataMetaData,
 	dst, src unsafe.Pointer,
 	dstIdx, srcIdx int) {
-	dPtr := pointerAdd(dst, dstIdx*float32Size)
-	sPtr := pointerAdd(src, srcIdx*float32Size)
+	dPtr := util.PointerAdd(dst, dstIdx*common.Float32Size)
+	sPtr := util.PointerAdd(src, srcIdx*common.Float32Size)
 	copy.Operation((*float32)(dPtr), (*float32)(sPtr))
 }
 
@@ -438,12 +458,12 @@ func (copy *decimalValueCopy) Assign(
 	metaData *ColumnDataMetaData,
 	dst, src unsafe.Pointer,
 	dstIdx, srcIdx int) {
-	dPtr := pointerAdd(dst, dstIdx*decimalSize)
-	sPtr := pointerAdd(src, srcIdx*decimalSize)
-	copy.Operation((*Decimal)(dPtr), (*Decimal)(sPtr))
+	dPtr := util.PointerAdd(dst, dstIdx*common.DecimalSize)
+	sPtr := util.PointerAdd(src, srcIdx*common.DecimalSize)
+	copy.Operation((*common.Decimal)(dPtr), (*common.Decimal)(sPtr))
 }
 
-func (copy *decimalValueCopy) Operation(dst, src *Decimal) {
+func (copy *decimalValueCopy) Operation(dst, src *common.Decimal) {
 	*dst = *src
 }
 
@@ -454,12 +474,12 @@ func (copy *dateValueCopy) Assign(
 	metaData *ColumnDataMetaData,
 	dst, src unsafe.Pointer,
 	dstIdx, srcIdx int) {
-	dPtr := pointerAdd(dst, dstIdx*dateSize)
-	sPtr := pointerAdd(src, srcIdx*dateSize)
-	copy.Operation((*Date)(dPtr), (*Date)(sPtr))
+	dPtr := util.PointerAdd(dst, dstIdx*common.DateSize)
+	sPtr := util.PointerAdd(src, srcIdx*common.DateSize)
+	copy.Operation((*common.Date)(dPtr), (*common.Date)(sPtr))
 }
 
-func (copy *dateValueCopy) Operation(dst, src *Date) {
+func (copy *dateValueCopy) Operation(dst, src *common.Date) {
 	*dst = *src
 }
 
@@ -470,12 +490,12 @@ func (copy *hugeintValueCopy) Assign(
 	metaData *ColumnDataMetaData,
 	dst, src unsafe.Pointer,
 	dstIdx, srcIdx int) {
-	dPtr := pointerAdd(dst, dstIdx*int128Size)
-	sPtr := pointerAdd(src, srcIdx*int128Size)
-	copy.Operation((*Hugeint)(dPtr), (*Hugeint)(sPtr))
+	dPtr := util.PointerAdd(dst, dstIdx*common.Int128Size)
+	sPtr := util.PointerAdd(src, srcIdx*common.Int128Size)
+	copy.Operation((*common.Hugeint)(dPtr), (*common.Hugeint)(sPtr))
 }
 
-func (copy *hugeintValueCopy) Operation(dst, src *Hugeint) {
+func (copy *hugeintValueCopy) Operation(dst, src *common.Hugeint) {
 	*dst = *src
 }
 
@@ -486,31 +506,31 @@ func (copy *varcharValueCopy) Assign(
 	metaData *ColumnDataMetaData,
 	dst, src unsafe.Pointer,
 	dstIdx, srcIdx int) {
-	dPtr := pointerAdd(dst, dstIdx*varcharSize)
-	sPtr := pointerAdd(src, srcIdx*varcharSize)
-	copy.Operation((*String)(dPtr), (*String)(sPtr))
+	dPtr := util.PointerAdd(dst, dstIdx*common.VarcharSize)
+	sPtr := util.PointerAdd(src, srcIdx*common.VarcharSize)
+	copy.Operation((*common.String)(dPtr), (*common.String)(sPtr))
 }
 
-func (copy *varcharValueCopy) Operation(dst, src *String) {
-	if src.len() == 0 {
-		dst._len = 0
-		dst._data = nil
+func (copy *varcharValueCopy) Operation(dst, src *common.String) {
+	if src.Length() == 0 {
+		dst.Len = 0
+		dst.Data = nil
 		return
 	}
-	dst._data = cMalloc(src.len())
-	pointerCopy(dst.data(), src.data(), src.len())
-	dst._len = src.len()
+	dst.Data = util.CMalloc(src.Length())
+	util.PointerCopy(dst.DataPtr(), src.DataPtr(), src.Length())
+	dst.Len = src.Length()
 }
 
 func ColumnDataCopySwitch(
 	metaData *ColumnDataMetaData,
-	srcData *UnifiedFormat,
-	src *Vector,
+	srcData *chunk.UnifiedFormat,
+	src *chunk.Vector,
 	offset int,
 	count int,
 ) {
-	switch src.typ().getInternalType() {
-	case INT32:
+	switch src.Typ().GetInternalType() {
+	case common.INT32:
 		TemplatedColumnDataCopy[int32](
 			metaData,
 			srcData,
@@ -519,7 +539,16 @@ func ColumnDataCopySwitch(
 			count,
 			&int32ValueCopy{},
 		)
-	case FLOAT:
+	case common.INT64:
+		TemplatedColumnDataCopy[int64](
+			metaData,
+			srcData,
+			src,
+			offset,
+			count,
+			&int64ValueCopy{},
+		)
+	case common.FLOAT:
 		TemplatedColumnDataCopy[float32](
 			metaData,
 			srcData,
@@ -528,8 +557,8 @@ func ColumnDataCopySwitch(
 			count,
 			&float32ValueCopy{},
 		)
-	case DECIMAL:
-		TemplatedColumnDataCopy[Decimal](
+	case common.DECIMAL:
+		TemplatedColumnDataCopy[common.Decimal](
 			metaData,
 			srcData,
 			src,
@@ -537,8 +566,8 @@ func ColumnDataCopySwitch(
 			count,
 			&decimalValueCopy{},
 		)
-	case VARCHAR:
-		TemplatedColumnDataCopy[String](
+	case common.VARCHAR:
+		TemplatedColumnDataCopy[common.String](
 			metaData,
 			srcData,
 			src,
@@ -546,8 +575,8 @@ func ColumnDataCopySwitch(
 			count,
 			&varcharValueCopy{},
 		)
-	case DATE:
-		TemplatedColumnDataCopy[Date](
+	case common.DATE:
+		TemplatedColumnDataCopy[common.Date](
 			metaData,
 			srcData,
 			src,
@@ -555,8 +584,8 @@ func ColumnDataCopySwitch(
 			count,
 			&dateValueCopy{},
 		)
-	case INT128:
-		TemplatedColumnDataCopy[Hugeint](
+	case common.INT128:
+		TemplatedColumnDataCopy[common.Hugeint](
 			metaData,
 			srcData,
 			src,
@@ -571,30 +600,30 @@ func ColumnDataCopySwitch(
 
 func TemplatedColumnDataCopy[T any](
 	metaData *ColumnDataMetaData,
-	srcData *UnifiedFormat,
-	src *Vector,
+	srcData *chunk.UnifiedFormat,
+	src *chunk.Vector,
 	offset int,
 	count int,
 	cp BaseValueCopy[T],
 ) {
 	remaining := count
 	for remaining > 0 {
-		vec := metaData._dst._data[metaData._vecIdx]
-		appendCount := min(defaultVectorSize-metaData._dst.card(), remaining)
-		if metaData._dst.card() == 0 {
-			vec._mask.setAllValid(defaultVectorSize)
+		vec := metaData._dst.Data[metaData._vecIdx]
+		appendCount := min(util.DefaultVectorSize-metaData._dst.Card(), remaining)
+		if metaData._dst.Card() == 0 {
+			vec.Mask.SetAllValid(util.DefaultVectorSize)
 		}
 		for i := 0; i < appendCount; i++ {
-			srcIdx := srcData._sel.getIndex(offset + i)
-			if srcData._mask.rowIsValid(uint64(srcIdx)) {
+			srcIdx := srcData.Sel.GetIndex(offset + i)
+			if srcData.Mask.RowIsValid(uint64(srcIdx)) {
 				cp.Assign(metaData,
-					bytesSliceToPointer(vec._data),
-					bytesSliceToPointer(srcData._data),
-					metaData._dst.card()+i,
+					util.BytesSliceToPointer(vec.Data),
+					util.BytesSliceToPointer(srcData.Data),
+					metaData._dst.Card()+i,
 					srcIdx,
 				)
 			} else {
-				vec._mask.setInvalid(uint64(metaData._dst.card() + i))
+				vec.Mask.SetInvalid(uint64(metaData._dst.Card() + i))
 			}
 		}
 		offset += appendCount

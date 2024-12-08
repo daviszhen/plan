@@ -36,7 +36,10 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 	"go.uber.org/zap"
 
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/parser"
+	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -112,7 +115,7 @@ func Run(cfg *util.Config) error {
 	} else {
 		id := cfg.Tpch1g.Query.QueryId
 		if id <= 0 || id > tpch1g22 {
-			return fmt.Errorf("invalid query id:%d", id)
+			return fmt.Errorf("invalid query Id:%d", id)
 		}
 		re := runResult{
 			id: int(id),
@@ -143,6 +146,47 @@ func Run(cfg *util.Config) error {
 	return nil
 }
 
+func RunDDL(cfg *util.Config) error {
+	var err error
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	start := time.Now()
+	defer func() {
+		fmt.Printf("Run took %s\n", time.Since(start))
+	}()
+
+	var ddlStmts []*pg_query.RawStmt
+
+	pathLen := len(cfg.Tpch1g.DDL.Path)
+	ddlLen := len(cfg.Tpch1g.DDL.DDL)
+	if pathLen != 0 && ddlLen != 0 ||
+		pathLen == 0 && ddlLen == 0 {
+		return fmt.Errorf("both ddl path and ddl or neither of them")
+	} else if pathLen != 0 {
+		ddlStmts, err = genDDLStmts(cfg, true)
+		if err != nil {
+			return err
+		}
+	} else {
+		// ddlLen != 0
+		ddlStmts, err = genDDLStmts(cfg, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, ddl := range ddlStmts {
+		err = runDDl(cfg, ddl)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func InitRunner(cfg *util.Config, query string) (*Runner, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -162,7 +206,7 @@ func InitRunner(cfg *util.Config, query string) (*Runner, error) {
 
 	//gen plan
 	var root *PhysicalOperator
-	root, err = genPhyPlan(stmts[0].GetStmt().GetSelectStmt())
+	root, err = genPhyPlan(nil, stmts[0].GetStmt().GetSelectStmt())
 	if err != nil {
 		return nil, err
 	}
@@ -197,14 +241,46 @@ func genStmts(cfg *util.Config, id int) ([]*pg_query.RawStmt, error) {
 	return stmts, nil
 }
 
+func genDDLStmts(cfg *util.Config, usePath bool) ([]*pg_query.RawStmt, error) {
+	var sql string
+	if usePath {
+		sqlPath := cfg.Tpch1g.DDL.Path
+		sqlBytes, err := os.ReadFile(sqlPath)
+		if err != nil {
+			return nil, err
+		}
+		sql = string(sqlBytes)
+	} else {
+		sql = cfg.Tpch1g.DDL.DDL
+	}
+	stmts, err := parser.Parse(sql)
+	if err != nil {
+		return nil, err
+	}
+	return stmts, nil
+}
+
 func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 	defer func() {
 		if rErr := recover(); rErr != nil {
 			err = errors.Join(err, util.ConvertPanicError(rErr))
 		}
 	}()
+	txn, err := storage.GTxnMgr.NewTxn("runDDL")
+	if err != nil {
+		return err
+	}
+	storage.BeginQuery(txn)
+	defer func() {
+		if err != nil {
+			storage.GTxnMgr.Rollback(txn)
+		} else {
+			err = storage.GTxnMgr.Commit(txn)
+		}
+	}()
+
 	var root *PhysicalOperator
-	root, err = genPhyPlan(ast)
+	root, err = genPhyPlan(txn, ast)
 	if err != nil {
 		return err
 	}
@@ -237,11 +313,53 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 		}
 	}
 
-	return execOps(cfg, nil, resFile, []*PhysicalOperator{root})
+	return execOps(cfg, txn, nil, resFile, []*PhysicalOperator{root})
 }
 
-func genPhyPlan(ast *pg_query.SelectStmt) (*PhysicalOperator, error) {
-	builder := NewBuilder()
+func runDDl(cfg *util.Config, ddl *pg_query.RawStmt) error {
+	var root *PhysicalOperator
+	var err error
+	txn, err := storage.GTxnMgr.NewTxn("runDDL")
+	if err != nil {
+		return err
+	}
+	storage.BeginQuery(txn)
+	defer func() {
+		if err != nil {
+			storage.GTxnMgr.Rollback(txn)
+		} else {
+			err = storage.GTxnMgr.Commit(txn)
+		}
+	}()
+
+	root, err = genDDLPhyPlan(txn, ddl)
+	if err != nil {
+		return err
+	}
+	if root == nil {
+		return fmt.Errorf("nil plan")
+	}
+	return execOps(cfg, txn, nil, nil, []*PhysicalOperator{root})
+}
+
+func genDDLPhyPlan(txn *storage.Txn, ddl *pg_query.RawStmt) (*PhysicalOperator, error) {
+	builder := NewBuilder(txn)
+	lp, err := builder.buildDDL(txn, ddl, builder.rootCtx, 0)
+	if err != nil {
+		return nil, err
+	}
+	if lp == nil {
+		return nil, errors.New("nil plan")
+	}
+	pp, err := builder.CreatePhyPlan(lp)
+	if err != nil {
+		return nil, err
+	}
+	return pp, nil
+}
+
+func genPhyPlan(txn *storage.Txn, ast *pg_query.SelectStmt) (*PhysicalOperator, error) {
+	builder := NewBuilder(txn)
 	err := builder.buildSelect(ast, builder.rootCtx, 0)
 	if err != nil {
 		return nil, err
@@ -275,7 +393,8 @@ func genPhyPlan(ast *pg_query.SelectStmt) (*PhysicalOperator, error) {
 
 func execOps(
 	conf *util.Config,
-	serial Serialize,
+	txn *storage.Txn,
+	serial util.Serialize,
 	resFile *os.File,
 	ops []*PhysicalOperator) error {
 	var err error
@@ -287,6 +406,7 @@ func execOps(
 
 		run := &Runner{
 			op:    op,
+			txn:   txn,
 			state: &OperatorState{},
 			cfg:   conf,
 		}
@@ -300,8 +420,8 @@ func execOps(
 			if rowCnt >= conf.Debug.MaxOutputRowCount && conf.Debug.MaxOutputRowCount != -1 {
 				break
 			}
-			output := &Chunk{}
-			output.setCap(defaultVectorSize)
+			output := &chunk.Chunk{}
+			output.SetCap(util.DefaultVectorSize)
 			result, err := run.Execute(nil, output, run.state)
 			if err != nil {
 				return err
@@ -309,26 +429,26 @@ func execOps(
 			if result == Done {
 				break
 			}
-			if output.card() > 0 {
-				assertFunc(output.card() != 0)
+			if output.Card() > 0 {
+				util.AssertFunc(output.Card() != 0)
 
 				if serial != nil {
-					err = output.serialize(serial)
+					err = output.Serialize(serial)
 					if err != nil {
 						return err
 					}
 				}
 
 				if resFile != nil {
-					err = output.saveToFile(resFile)
+					err = output.SaveToFile(resFile)
 					if err != nil {
 						return err
 					}
 				}
 
-				rowCnt += output.card()
+				rowCnt += output.Card()
 				if conf.Debug.PrintResult {
-					output.print()
+					output.Print()
 				}
 			}
 		}
@@ -367,16 +487,16 @@ func wantId(root *PhysicalOperator, id int) bool {
 type OperatorState struct {
 	//order
 	orderKeyExec *ExprExec
-	keyTypes     []LType
-	payloadTypes []LType
+	keyTypes     []common.LType
+	payloadTypes []common.LType
 
-	projTypes  []LType
+	projTypes  []common.LType
 	projExec   *ExprExec
 	outputExec *ExprExec
 
 	//filter projExec used in aggr, filter, scan
 	filterExec *ExprExec
-	filterSel  *SelectVector
+	filterSel  *chunk.SelectVector
 
 	//for aggregate
 	referChildren         bool
@@ -386,6 +506,12 @@ type OperatorState struct {
 	haScanState           *HashAggrScanState
 	groupbyWithParamsExec *ExprExec
 	groupbyExec           *ExprExec
+
+	//for scan values list
+	colScanState *ColumnDataScanState
+
+	//for table scan
+	tableScanState *storage.TableScanState
 
 	showRaw bool
 }
@@ -417,16 +543,17 @@ var _ OperatorExec = &Runner{}
 
 type OperatorExec interface {
 	Init() error
-	Execute(input, output *Chunk, state *OperatorState) (OperatorResult, error)
+	Execute(input, output *chunk.Chunk, state *OperatorState) (OperatorResult, error)
 	Close() error
 }
 
 type Runner struct {
 	cfg   *util.Config
+	txn   *storage.Txn
 	op    *PhysicalOperator
 	state *OperatorState
 	//for stub
-	deserial   Deserialize
+	deserial   util.Deserialize
 	maxRowCnt  int
 	rowReadCnt int
 
@@ -450,15 +577,21 @@ type Runner struct {
 	dataFile      *os.File
 	reader        *csv.Reader
 	colIndice     []int
-	readedColTyps []LType
+	readedColTyps []common.LType
 	tablePath     string
 	//for test cross product
 	maxRows int
 
 	//common
-	outputTypes  []LType
+	outputTypes  []common.LType
 	outputIndice []int
 	children     []*Runner
+
+	//for insert
+	insertChunk *chunk.Chunk
+
+	//for table scan
+	tabEnt *storage.CatalogEntry
 }
 
 func (run *Runner) Columns() wire.Columns {
@@ -467,7 +600,7 @@ func (run *Runner) Columns() wire.Columns {
 		col := wire.Column{
 			//Name:  output.Name,
 			Oid:   oid.T_varchar, //FIXME:
-			Width: int16(output.DataTyp.width),
+			Width: int16(output.DataTyp.Width),
 		}
 		cols = append(cols, col)
 	}
@@ -482,8 +615,8 @@ func (run *Runner) Run(
 	}
 
 	for {
-		output := &Chunk{}
-		output.setCap(defaultVectorSize)
+		output := &chunk.Chunk{}
+		output.SetCap(util.DefaultVectorSize)
 		result, err := run.Execute(nil, output, run.state)
 		if err != nil {
 			return err
@@ -491,9 +624,9 @@ func (run *Runner) Run(
 		if result == Done {
 			break
 		}
-		if output.card() > 0 {
-			assertFunc(output.card() != 0)
-			err = output.saveToWriter(writer)
+		if output.Card() > 0 {
+			util.AssertFunc(output.Card() != 0)
+			err = output.SaveToWriter(writer)
 			if err != nil {
 				return err
 			}
@@ -508,6 +641,7 @@ func (run *Runner) initChildren() error {
 	for _, child := range run.op.Children {
 		childRun := &Runner{
 			op:    child,
+			txn:   run.txn,
 			state: &OperatorState{},
 			cfg:   run.cfg,
 		}
@@ -550,13 +684,19 @@ func (run *Runner) Init() error {
 		return run.limitInit()
 	case POT_Stub:
 		return run.stubInit()
+	case POT_CreateSchema:
+		return run.createSchemaInit()
+	case POT_CreateTable:
+		return run.createTableInit()
+	case POT_Insert:
+		return run.insertInit()
 	default:
 		panic("usp")
 	}
 }
 
-func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (OperatorResult, error) {
-	output.init(run.outputTypes, defaultVectorSize)
+func (run *Runner) Execute(input, output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	output.Init(run.outputTypes, util.DefaultVectorSize)
 	switch run.op.Typ {
 	case POT_Scan:
 		return run.scanExec(output, state)
@@ -574,13 +714,19 @@ func (run *Runner) Execute(input, output *Chunk, state *OperatorState) (Operator
 		return run.limitExec(output, state)
 	case POT_Stub:
 		return run.stubExec(output, state)
+	case POT_CreateSchema:
+		return run.createSchemaExec(output, state)
+	case POT_CreateTable:
+		return run.createTableExec(output, state)
+	case POT_Insert:
+		return run.insertExec(output, state)
 	default:
 		panic("usp")
 	}
 }
 
-func (run *Runner) execChild(child *Runner, output *Chunk, state *OperatorState) (OperatorResult, error) {
-	for output.card() == 0 {
+func (run *Runner) execChild(child *Runner, output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	for output.Card() == 0 {
 		res, err := child.Execute(nil, output, child.state)
 		if err != nil {
 			return InvalidOpResult, err
@@ -621,13 +767,171 @@ func (run *Runner) Close() error {
 		return run.limitClose()
 	case POT_Stub:
 		return run.stubClose()
+	case POT_CreateSchema:
+		return run.createSchemaClose()
+	case POT_CreateTable:
+		return run.createTableClose()
+	case POT_Insert:
+		return run.insertClose()
 	default:
 		panic("usp")
 	}
 }
 
+func (run *Runner) insertInit() error {
+	run.insertChunk = &chunk.Chunk{}
+	run.insertChunk.Init(run.op.InsertTypes, storage.STANDARD_VECTOR_SIZE)
+	return nil
+}
+
+func (run *Runner) insertResolveDefaults(
+	table *storage.CatalogEntry,
+	data *chunk.Chunk,
+	columnIndexMap []int,
+	result *chunk.Chunk,
+) {
+	data.Flatten()
+
+	result.Reset()
+	result.SetCard(data.Card())
+
+	if len(columnIndexMap) != 0 {
+		//columns specified
+		for colIdx := range table.GetColumns() {
+			mappedIdx := columnIndexMap[colIdx]
+			if mappedIdx == -1 {
+				panic("usp default value")
+			} else {
+				util.AssertFunc(mappedIdx < data.ColumnCount())
+				util.AssertFunc(result.Data[colIdx].Typ().Id ==
+					data.Data[mappedIdx].Typ().Id)
+				result.Data[colIdx].Reference(data.Data[mappedIdx])
+			}
+		}
+	} else {
+		//no columns specified
+		for i := 0; i < result.ColumnCount(); i++ {
+			util.AssertFunc(result.Data[i].Typ().Id ==
+				data.Data[i].Typ().Id)
+			result.Data[i].Reference(data.Data[i])
+		}
+	}
+}
+
+func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	var res OperatorResult
+	var err error
+
+	lAState := &storage.LocalAppendState{}
+	table := run.op.TableEnt.GetStorage()
+	table.InitLocalAppend(run.txn, lAState)
+
+	cnt := 0
+	for {
+		childChunk := &chunk.Chunk{}
+		res, err = run.execChild(run.children[0], childChunk, state)
+		if err != nil {
+			return 0, err
+		}
+		if res == InvalidOpResult {
+			return InvalidOpResult, nil
+		}
+		if res == Done {
+			break
+		}
+		if childChunk.Card() == 0 {
+			continue
+		}
+
+		//fmt.Println("child raw chunk")
+		//childChunk.Print()
+
+		cnt += childChunk.Card()
+
+		run.insertResolveDefaults(
+			run.op.TableEnt,
+			childChunk,
+			run.op.ColumnIndexMap,
+			run.insertChunk)
+
+		err = table.LocalAppend(
+			run.txn,
+			lAState,
+			run.insertChunk,
+			false)
+		if err != nil {
+			return InvalidOpResult, err
+		}
+	}
+	table.FinalizeLocalAppend(run.txn, lAState)
+	return Done, nil
+}
+
+func (run *Runner) insertClose() error {
+	return nil
+}
+
+func (run *Runner) createTableInit() error {
+	return nil
+}
+
+func (run *Runner) createTableExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	//step 1 : check schema
+	schema := run.op.Database
+	if len(schema) == 0 {
+		schema = "public"
+	}
+	table := run.op.Table
+	ifNotExists := run.op.IfNotExists
+	//////////////////////////////////////
+	tabEnt := storage.GCatalog.GetEntry(run.txn, storage.CatalogTypeTable, schema, table)
+	if tabEnt != nil {
+		if ifNotExists {
+			return Done, nil
+		} else {
+			return InvalidOpResult, fmt.Errorf("table %s already exits", table)
+		}
+	}
+	info := storage.NewDataTableInfo3(schema, table, run.op.ColDefs, run.op.Constraints)
+	_, err := storage.GCatalog.CreateTable(run.txn, info)
+	if err != nil {
+		return 0, err
+	}
+	return Done, nil
+}
+
+func (run *Runner) createTableClose() error {
+	return nil
+}
+
+func (run *Runner) createSchemaInit() error {
+	return nil
+}
+
+func (run *Runner) createSchemaExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	name := run.op.Database
+	ifNotExists := run.op.IfNotExists
+	schEnt := storage.GCatalog.GetSchema(run.txn, name)
+	if schEnt != nil {
+		if ifNotExists {
+			return Done, nil
+		} else {
+			return InvalidOpResult, fmt.Errorf("schema %s already exists", name)
+		}
+	}
+	_, err := storage.GCatalog.CreateSchema(run.txn, name)
+	if err != nil {
+		return 0, err
+	}
+	return Done, nil
+}
+
+func (run *Runner) createSchemaClose() error {
+	return nil
+}
+
 func (run *Runner) stubInit() error {
-	deserial, err := NewFileDeserialize(run.op.Table)
+	deserial, err := util.NewFileDeserialize(run.op.Table)
 	if err != nil {
 		return err
 	}
@@ -636,18 +940,18 @@ func (run *Runner) stubInit() error {
 	return nil
 }
 
-func (run *Runner) stubExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) stubExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	if run.maxRowCnt != 0 && run.rowReadCnt >= run.maxRowCnt {
 		return Done, nil
 	}
-	err := output.deserialize(run.deserial)
+	err := output.Deserialize(run.deserial)
 	if err != nil {
 		return InvalidOpResult, err
 	}
-	if output.card() == 0 {
+	if output.Card() == 0 {
 		return Done, nil
 	}
-	run.rowReadCnt += output.card()
+	run.rowReadCnt += output.Card()
 	return haveMoreOutput, nil
 }
 
@@ -657,7 +961,7 @@ func (run *Runner) stubClose() error {
 
 func (run *Runner) limitInit() error {
 	//collect children output types
-	childTypes := make([]LType, 0)
+	childTypes := make([]common.LType, 0)
 	for _, outputExpr := range run.op.Children[0].Outputs {
 		childTypes = append(childTypes, outputExpr.DataTyp)
 	}
@@ -670,13 +974,13 @@ func (run *Runner) limitInit() error {
 	return nil
 }
 
-func (run *Runner) limitExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
 	if run.limit._state == LIMIT_INIT {
 		cnt := 0
 		for {
-			childChunk := &Chunk{}
+			childChunk := &chunk.Chunk{}
 			res, err = run.execChild(run.children[0], childChunk, state)
 			if err != nil {
 				return 0, err
@@ -687,7 +991,7 @@ func (run *Runner) limitExec(output *Chunk, state *OperatorState) (OperatorResul
 			if res == Done {
 				break
 			}
-			if childChunk.card() == 0 {
+			if childChunk.Card() == 0 {
 				continue
 			}
 
@@ -705,27 +1009,27 @@ func (run *Runner) limitExec(output *Chunk, state *OperatorState) (OperatorResul
 	if run.limit._state == LIMIT_SCAN {
 		//get data from collection
 		for {
-			read := &Chunk{}
-			read.init(run.limit._childTypes, defaultVectorSize)
+			read := &chunk.Chunk{}
+			read.Init(run.limit._childTypes, util.DefaultVectorSize)
 			getRet := run.limit.GetData(read)
 			if getRet == SrcResDone {
 				break
 			}
 
 			//evaluate output
-			err = run.state.outputExec.executeExprs([]*Chunk{read, nil, nil}, output)
+			err = run.state.outputExec.executeExprs([]*chunk.Chunk{read, nil, nil}, output)
 			if err != nil {
 				return InvalidOpResult, err
 			}
 
-			if output.card() > 0 {
+			if output.Card() > 0 {
 				return haveMoreOutput, nil
 			}
 		}
 
 	}
 
-	if output.card() == 0 {
+	if output.Card() == 0 {
 		return Done, nil
 	}
 	return haveMoreOutput, nil
@@ -738,7 +1042,7 @@ func (run *Runner) limitClose() error {
 
 func (run *Runner) orderInit() error {
 	//TODO: asc or desc
-	keyTypes := make([]LType, 0)
+	keyTypes := make([]common.LType, 0)
 	realOrderByExprs := make([]*Expr, 0)
 	for _, by := range run.op.OrderBys {
 		child := by.Children[0]
@@ -746,7 +1050,7 @@ func (run *Runner) orderInit() error {
 		realOrderByExprs = append(realOrderByExprs, child)
 	}
 
-	payLoadTypes := make([]LType, 0)
+	payLoadTypes := make([]common.LType, 0)
 	for _, output := range run.op.Outputs {
 		payLoadTypes = append(payLoadTypes,
 			output.DataTyp)
@@ -767,13 +1071,13 @@ func (run *Runner) orderInit() error {
 	return nil
 }
 
-func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) orderExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
 	if run.localSort._sortState == SS_INIT {
 		cnt := 0
 		for {
-			childChunk := &Chunk{}
+			childChunk := &chunk.Chunk{}
 			res, err = run.execChild(run.children[0], childChunk, state)
 			if err != nil {
 				return 0, err
@@ -784,17 +1088,17 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 			if res == Done {
 				break
 			}
-			if childChunk.card() == 0 {
+			if childChunk.Card() == 0 {
 				continue
 			}
 
 			//childChunk.print()
 
 			//evaluate order by expr
-			key := &Chunk{}
-			key.init(run.state.keyTypes, defaultVectorSize)
+			key := &chunk.Chunk{}
+			key.Init(run.state.keyTypes, util.DefaultVectorSize)
 			err = run.state.orderKeyExec.executeExprs(
-				[]*Chunk{childChunk, nil, nil},
+				[]*chunk.Chunk{childChunk, nil, nil},
 				key,
 			)
 			if err != nil {
@@ -804,20 +1108,20 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 			//key.print()
 
 			//evaluate payload expr
-			payload := &Chunk{}
-			payload.init(run.state.payloadTypes, defaultVectorSize)
+			payload := &chunk.Chunk{}
+			payload.Init(run.state.payloadTypes, util.DefaultVectorSize)
 
 			err = run.state.outputExec.executeExprs(
-				[]*Chunk{childChunk, nil, nil},
+				[]*chunk.Chunk{childChunk, nil, nil},
 				payload,
 			)
 			if err != nil {
 				return 0, err
 			}
 
-			assertFunc(key.card() != 0 && payload.card() != 0)
-			cnt += key.card()
-			assertFunc(key.card() == payload.card())
+			util.AssertFunc(key.Card() != 0 && payload.Card() != 0)
+			cnt += key.Card()
+			util.AssertFunc(key.Card() == payload.Card())
 
 			//key.print()
 
@@ -852,7 +1156,7 @@ func (run *Runner) orderExec(output *Chunk, state *OperatorState) (OperatorResul
 		run.localSort._scanner.Scan(output)
 	}
 
-	if output.card() == 0 {
+	if output.Card() == 0 {
 		return Done, nil
 	}
 	return haveMoreOutput, nil
@@ -872,7 +1176,7 @@ func (run *Runner) filterInit() error {
 	}
 	run.state = &OperatorState{
 		filterExec: filterExec,
-		filterSel:  NewSelectVector(defaultVectorSize),
+		filterSel:  chunk.NewSelectVector(util.DefaultVectorSize),
 	}
 	return nil
 }
@@ -887,8 +1191,8 @@ func initFilterExec(filters []*Expr) (*ExprExec, error) {
 		andFilter = filters[0]
 		for i, filter := range filters {
 			if i > 0 {
-				if andFilter.DataTyp.id != LTID_BOOLEAN ||
-					filter.DataTyp.id != LTID_BOOLEAN {
+				if andFilter.DataTyp.Id != common.LTID_BOOLEAN ||
+					filter.DataTyp.Id != common.LTID_BOOLEAN {
 					return nil, fmt.Errorf("need boolean expr")
 				}
 				binder := FunctionBinder{}
@@ -907,7 +1211,7 @@ func initFilterExec(filters []*Expr) (*ExprExec, error) {
 	return NewExprExec(andFilter), nil
 }
 
-func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool) error {
+func (run *Runner) runFilterExec(input *chunk.Chunk, output *chunk.Chunk, filterOnLocal bool) error {
 	//filter
 	var err error
 	var count int
@@ -915,23 +1219,23 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	//	//fmt.Println("filter read child 4", input.card())
 	//}
 	if filterOnLocal {
-		count, err = run.state.filterExec.executeSelect([]*Chunk{nil, nil, input}, run.state.filterSel)
+		count, err = run.state.filterExec.executeSelect([]*chunk.Chunk{nil, nil, input}, run.state.filterSel)
 		if err != nil {
 			return err
 		}
 	} else {
-		count, err = run.state.filterExec.executeSelect([]*Chunk{input, nil, nil}, run.state.filterSel)
+		count, err = run.state.filterExec.executeSelect([]*chunk.Chunk{input, nil, nil}, run.state.filterSel)
 		if err != nil {
 			return err
 		}
 	}
 
-	if count == input.card() {
+	if count == input.Card() {
 		//reference
-		output.referenceIndice(input, run.outputIndice)
+		output.ReferenceIndice(input, run.outputIndice)
 	} else {
 		//slice
-		output.sliceIndice(input, run.state.filterSel, count, 0, run.outputIndice)
+		output.SliceIndice(input, run.state.filterSel, count, 0, run.outputIndice)
 	}
 	//if !filterOnLocal {
 	//	//fmt.Println("filter read child 5", output.card())
@@ -939,8 +1243,8 @@ func (run *Runner) runFilterExec(input *Chunk, output *Chunk, filterOnLocal bool
 	return nil
 }
 
-func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
-	childChunk := &Chunk{}
+func (run *Runner) filterExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	childChunk := &chunk.Chunk{}
 	var res OperatorResult
 	var err error
 	if len(run.children) != 0 {
@@ -956,7 +1260,7 @@ func (run *Runner) filterExec(output *Chunk, state *OperatorState) (OperatorResu
 			if res == Done {
 				return res, nil
 			}
-			if childChunk.card() > 0 {
+			if childChunk.Card() > 0 {
 				//fmt.Println("filter read child 2", childChunk.card())
 				break
 			}
@@ -992,7 +1296,7 @@ func (run *Runner) aggrInit() error {
 			//group by 1
 			constExpr := &Expr{
 				Typ:     ET_IConst,
-				DataTyp: integer(),
+				DataTyp: common.IntegerType(),
 				Ivalue:  1,
 			}
 			run.op.GroupBys = append(run.op.GroupBys, constExpr)
@@ -1033,7 +1337,7 @@ func (run *Runner) aggrInit() error {
 		run.state.groupbyWithParamsExec = NewExprExec(groupExprs...)
 		run.state.groupbyExec = NewExprExec(run.hAggr._groupedAggrData._groups...)
 		run.state.filterExec = NewExprExec(run.op.Filters...)
-		run.state.filterSel = NewSelectVector(defaultVectorSize)
+		run.state.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
 		run.state.outputExec = NewExprExec(run.op.Outputs...)
 
 		//check output exprs have any colref refers the children node
@@ -1052,13 +1356,13 @@ func (run *Runner) aggrInit() error {
 	return nil
 }
 
-func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
 	if run.hAggr._has == HAS_INIT {
 		cnt := 0
 		for {
-			childChunk := &Chunk{}
+			childChunk := &chunk.Chunk{}
 			res, err = run.execChild(run.children[0], childChunk, state)
 			if err != nil {
 				return 0, err
@@ -1069,7 +1373,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			if res == Done {
 				break
 			}
-			if childChunk.card() == 0 {
+			if childChunk.Card() == 0 {
 				continue
 			}
 			//if run.op.Children[0].Typ == POT_Filter {
@@ -1079,15 +1383,15 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//childChunk.print()
 			//}
 
-			cnt += childChunk.card()
+			cnt += childChunk.Card()
 
-			typs := make([]LType, 0)
+			typs := make([]common.LType, 0)
 			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
 			typs = append(typs, run.hAggr._groupedAggrData._payloadTypes...)
 			typs = append(typs, run.hAggr._groupedAggrData._childrenOutputTypes...)
-			groupChunk := &Chunk{}
-			groupChunk.init(typs, defaultVectorSize)
-			err = run.state.groupbyWithParamsExec.executeExprs([]*Chunk{childChunk, nil, nil}, groupChunk)
+			groupChunk := &chunk.Chunk{}
+			groupChunk.Init(typs, util.DefaultVectorSize)
+			err = run.state.groupbyWithParamsExec.executeExprs([]*chunk.Chunk{childChunk, nil, nil}, groupChunk)
 			if err != nil {
 				return InvalidOpResult, err
 			}
@@ -1119,14 +1423,14 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				run.state.ungroupAggrDone = true
 			}
 
-			groupAddAggrTypes := make([]LType, 0)
+			groupAddAggrTypes := make([]common.LType, 0)
 			groupAddAggrTypes = append(groupAddAggrTypes, run.hAggr._groupedAggrData._groupTypes...)
 			groupAddAggrTypes = append(groupAddAggrTypes, run.hAggr._groupedAggrData._aggrReturnTypes...)
-			groupAndAggrChunk := &Chunk{}
-			groupAndAggrChunk.init(groupAddAggrTypes, defaultVectorSize)
-			assertFunc(len(run.hAggr._groupedAggrData._groupingFuncs) == 0)
-			childChunk := &Chunk{}
-			childChunk.init(run.hAggr._groupedAggrData._childrenOutputTypes, defaultVectorSize)
+			groupAndAggrChunk := &chunk.Chunk{}
+			groupAndAggrChunk.Init(groupAddAggrTypes, util.DefaultVectorSize)
+			util.AssertFunc(len(run.hAggr._groupedAggrData._groupingFuncs) == 0)
+			childChunk := &chunk.Chunk{}
+			childChunk.Init(run.hAggr._groupedAggrData._childrenOutputTypes, util.DefaultVectorSize)
 			res = run.hAggr.GetData(run.state.haScanState, groupAndAggrChunk, childChunk)
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil
@@ -1135,7 +1439,7 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 				break
 			}
 
-			x := childChunk.card()
+			x := childChunk.Card()
 
 			//3.get group by + aggr states for the group
 
@@ -1146,95 +1450,95 @@ func (run *Runner) aggrExec(output *Chunk, state *OperatorState) (OperatorResult
 			//groupAndAggrChunk.print()
 
 			//aggrStatesChunk.print()
-			filterInputTypes := make([]LType, 0)
+			filterInputTypes := make([]common.LType, 0)
 			filterInputTypes = append(filterInputTypes, run.hAggr._groupedAggrData._aggrReturnTypes...)
-			filterInputChunk := &Chunk{}
-			filterInputChunk.init(filterInputTypes, defaultVectorSize)
+			filterInputChunk := &chunk.Chunk{}
+			filterInputChunk.Init(filterInputTypes, util.DefaultVectorSize)
 			for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
-				filterInputChunk._data[i].reference(groupAndAggrChunk._data[run.hAggr._groupedAggrData.GroupCount()+i])
+				filterInputChunk.Data[i].Reference(groupAndAggrChunk.Data[run.hAggr._groupedAggrData.GroupCount()+i])
 			}
-			filterInputChunk.setCard(groupAndAggrChunk.card())
+			filterInputChunk.SetCard(groupAndAggrChunk.Card())
 			var count int
-			count, err = state.filterExec.executeSelect([]*Chunk{childChunk, nil, filterInputChunk}, state.filterSel)
+			count, err = state.filterExec.executeSelect([]*chunk.Chunk{childChunk, nil, filterInputChunk}, state.filterSel)
 			if err != nil {
 				return InvalidOpResult, err
 			}
 
 			if count == 0 {
-				run.state.haScanState._filteredCnt1 += childChunk.card() - count
+				run.state.haScanState._filteredCnt1 += childChunk.Card() - count
 				continue
 			}
 
-			var childChunk2 *Chunk
-			var aggrStatesChunk2 *Chunk
+			var childChunk2 *chunk.Chunk
+			var aggrStatesChunk2 *chunk.Chunk
 			var filtered int
-			if count == childChunk.card() {
+			if count == childChunk.Card() {
 				childChunk2 = childChunk
 				aggrStatesChunk2 = groupAndAggrChunk
 
-				assertFunc(childChunk.card() == childChunk2.card())
-				assertFunc(groupAndAggrChunk.card() == aggrStatesChunk2.card())
-				assertFunc(childChunk2.card() == aggrStatesChunk2.card())
+				util.AssertFunc(childChunk.Card() == childChunk2.Card())
+				util.AssertFunc(groupAndAggrChunk.Card() == aggrStatesChunk2.Card())
+				util.AssertFunc(childChunk2.Card() == aggrStatesChunk2.Card())
 			} else {
-				filtered = childChunk.card() - count
+				filtered = childChunk.Card() - count
 				run.state.haScanState._filteredCnt2 += filtered
 
 				childChunkIndice := make([]int, 0)
-				for i := 0; i < childChunk.columnCount(); i++ {
+				for i := 0; i < childChunk.ColumnCount(); i++ {
 					childChunkIndice = append(childChunkIndice, i)
 				}
 				aggrStatesChunkIndice := make([]int, 0)
-				for i := 0; i < groupAndAggrChunk.columnCount(); i++ {
+				for i := 0; i < groupAndAggrChunk.ColumnCount(); i++ {
 					aggrStatesChunkIndice = append(aggrStatesChunkIndice, i)
 				}
-				childChunk2 = &Chunk{}
-				childChunk2.init(run.children[0].outputTypes, defaultVectorSize)
-				aggrStatesChunk2 = &Chunk{}
-				aggrStatesChunk2.init(groupAddAggrTypes, defaultVectorSize)
+				childChunk2 = &chunk.Chunk{}
+				childChunk2.Init(run.children[0].outputTypes, util.DefaultVectorSize)
+				aggrStatesChunk2 = &chunk.Chunk{}
+				aggrStatesChunk2.Init(groupAddAggrTypes, util.DefaultVectorSize)
 
 				//slice
-				childChunk2.sliceIndice(childChunk, state.filterSel, count, 0, childChunkIndice)
-				aggrStatesChunk2.sliceIndice(groupAndAggrChunk, state.filterSel, count, 0, aggrStatesChunkIndice)
+				childChunk2.SliceIndice(childChunk, state.filterSel, count, 0, childChunkIndice)
+				aggrStatesChunk2.SliceIndice(groupAndAggrChunk, state.filterSel, count, 0, aggrStatesChunkIndice)
 
-				assertFunc(count == childChunk2.card())
-				assertFunc(count == aggrStatesChunk2.card())
-				assertFunc(childChunk2.card() == aggrStatesChunk2.card())
+				util.AssertFunc(count == childChunk2.Card())
+				util.AssertFunc(count == aggrStatesChunk2.Card())
+				util.AssertFunc(childChunk2.Card() == aggrStatesChunk2.Card())
 			}
 
-			var aggrStatesChunk3 *Chunk
+			var aggrStatesChunk3 *chunk.Chunk
 			if run.state.ungroupAggr {
 				//remove const groupby expr
-				aggrStatesTyps := make([]LType, 0)
+				aggrStatesTyps := make([]common.LType, 0)
 				aggrStatesTyps = append(aggrStatesTyps, run.hAggr._groupedAggrData._aggrReturnTypes...)
-				aggrStatesChunk3 = &Chunk{}
-				aggrStatesChunk3.init(aggrStatesTyps, defaultVectorSize)
+				aggrStatesChunk3 = &chunk.Chunk{}
+				aggrStatesChunk3.Init(aggrStatesTyps, util.DefaultVectorSize)
 
 				for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
-					aggrStatesChunk3._data[i].reference(aggrStatesChunk2._data[run.hAggr._groupedAggrData.GroupCount()+i])
+					aggrStatesChunk3.Data[i].Reference(aggrStatesChunk2.Data[run.hAggr._groupedAggrData.GroupCount()+i])
 				}
-				aggrStatesChunk3.setCard(aggrStatesChunk2.card())
+				aggrStatesChunk3.SetCard(aggrStatesChunk2.Card())
 			} else {
 				aggrStatesChunk3 = aggrStatesChunk2
 			}
 
 			//5. eval the output
-			err = run.state.outputExec.executeExprs([]*Chunk{childChunk2, nil, aggrStatesChunk3}, output)
+			err = run.state.outputExec.executeExprs([]*chunk.Chunk{childChunk2, nil, aggrStatesChunk3}, output)
 			if err != nil {
 				return InvalidOpResult, err
 			}
 			if filtered == 0 {
-				assertFunc(filtered == 0)
-				assertFunc(output.card() == childChunk2.card())
-				assertFunc(x >= childChunk2.card())
+				util.AssertFunc(filtered == 0)
+				util.AssertFunc(output.Card() == childChunk2.Card())
+				util.AssertFunc(x >= childChunk2.Card())
 			}
-			assertFunc(output.card()+filtered == childChunk.card())
-			assertFunc(x == childChunk.card())
-			assertFunc(output.card() == childChunk2.card())
+			util.AssertFunc(output.Card()+filtered == childChunk.Card())
+			util.AssertFunc(x == childChunk.Card())
+			util.AssertFunc(output.Card() == childChunk2.Card())
 
-			run.state.haScanState._outputCnt += output.card()
-			run.state.haScanState._childCnt2 += childChunk.card()
+			run.state.haScanState._outputCnt += output.Card()
+			run.state.haScanState._childCnt2 += childChunk.Card()
 			run.state.haScanState._childCnt3 += x
-			if output.card() > 0 {
+			if output.Card() > 0 {
 
 				//output.print()
 				return haveMoreOutput, nil
@@ -1270,7 +1574,7 @@ func (run *Runner) joinInit() error {
 	if len(run.op.OnConds) != 0 {
 		run.hjoin = NewHashJoin(run.op, run.op.OnConds)
 	} else {
-		types := make([]LType, len(run.op.Children[1].Outputs))
+		types := make([]common.LType, len(run.op.Children[1].Outputs))
 		for i, e := range run.op.Children[1].Outputs {
 			types[i] = e.DataTyp
 		}
@@ -1279,7 +1583,7 @@ func (run *Runner) joinInit() error {
 		for i, output := range run.op.Outputs {
 			set := make(ColumnBindSet)
 			collectColRefs(output, set)
-			assertFunc(!set.empty() && len(set) == 1)
+			util.AssertFunc(!set.empty() && len(set) == 1)
 			for bind := range set {
 				outputPosMap[i] = bind
 			}
@@ -1292,7 +1596,7 @@ func (run *Runner) joinInit() error {
 	return nil
 }
 
-func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) joinExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	if run.cross == nil {
 		return run.hashJoinExec(output, state)
 	} else {
@@ -1300,7 +1604,7 @@ func (run *Runner) joinExec(output *Chunk, state *OperatorState) (OperatorResult
 	}
 }
 
-func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) hashJoinExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	//1. Build Hash Table on the right child
 	res, err := run.joinBuildHashTable(state)
 	if err != nil {
@@ -1318,10 +1622,10 @@ func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorRe
 
 		//continue unfinished can
 		if run.hjoin._scan != nil {
-			nextChunk := Chunk{}
-			nextChunk.init(run.hjoin._scanNextTyps, defaultVectorSize)
+			nextChunk := chunk.Chunk{}
+			nextChunk.Init(run.hjoin._scanNextTyps, util.DefaultVectorSize)
 			run.hjoin._scan.Next(run.hjoin._joinKeys, run.hjoin._scan._leftChunk, &nextChunk)
-			if nextChunk.card() > 0 {
+			if nextChunk.Card() > 0 {
 				err = run.evalJoinOutput(&nextChunk, output)
 				if err != nil {
 					return 0, err
@@ -1332,7 +1636,7 @@ func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorRe
 		}
 
 		//probe
-		leftChunk := &Chunk{}
+		leftChunk := &chunk.Chunk{}
 		res, err = run.execChild(run.children[0], leftChunk, state)
 		if err != nil {
 			return 0, err
@@ -1347,17 +1651,17 @@ func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorRe
 		//fmt.Println("left chunk", leftChunk.card())
 		//leftChunk.print()
 
-		run.hjoin._joinKeys.reset()
-		err = run.hjoin._probExec.executeExprs([]*Chunk{leftChunk, nil, nil}, run.hjoin._joinKeys)
+		run.hjoin._joinKeys.Reset()
+		err = run.hjoin._probExec.executeExprs([]*chunk.Chunk{leftChunk, nil, nil}, run.hjoin._joinKeys)
 		if err != nil {
 			return 0, err
 		}
 		run.hjoin._scan = run.hjoin._ht.Probe(run.hjoin._joinKeys)
 		run.hjoin._scan._leftChunk = leftChunk
-		nextChunk := Chunk{}
-		nextChunk.init(run.hjoin._scanNextTyps, defaultVectorSize)
+		nextChunk := chunk.Chunk{}
+		nextChunk.Init(run.hjoin._scanNextTyps, util.DefaultVectorSize)
 		run.hjoin._scan.Next(run.hjoin._joinKeys, run.hjoin._scan._leftChunk, &nextChunk)
-		if nextChunk.card() > 0 {
+		if nextChunk.Card() > 0 {
 			err = run.evalJoinOutput(&nextChunk, output)
 			if err != nil {
 				return 0, err
@@ -1371,7 +1675,7 @@ func (run *Runner) hashJoinExec(output *Chunk, state *OperatorState) (OperatorRe
 	return 0, nil
 }
 
-func (run *Runner) crossProductExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) crossProductExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	//1. Build Hash Table on the right child
 	res, err := run.crossBuild(state)
 	if err != nil {
@@ -1393,7 +1697,7 @@ func (run *Runner) crossProductExec(output *Chunk, state *OperatorState) (Operat
 		for {
 			if run.cross._input == nil || nextInput {
 				nextInput = false
-				run.cross._input = &Chunk{}
+				run.cross._input = &chunk.Chunk{}
 				res, err = run.execChild(run.children[0], run.cross._input, state)
 				if err != nil {
 					return 0, err
@@ -1436,7 +1740,7 @@ func (run *Runner) crossBuild(state *OperatorState) (OperatorResult, error) {
 		run.cross._crossStage = CROSS_BUILD
 		cnt := 0
 		for {
-			rightChunk := &Chunk{}
+			rightChunk := &chunk.Chunk{}
 			res, err = run.execChild(run.children[1], rightChunk, state)
 			if err != nil {
 				return 0, err
@@ -1448,11 +1752,11 @@ func (run *Runner) crossBuild(state *OperatorState) (OperatorResult, error) {
 				break
 			}
 
-			if rightChunk.card() == 0 {
+			if rightChunk.Card() == 0 {
 				continue
 			}
 
-			cnt += rightChunk.card()
+			cnt += rightChunk.Card()
 
 			//rightChunk.print()
 			run.cross.Sink(rightChunk)
@@ -1464,26 +1768,26 @@ func (run *Runner) crossBuild(state *OperatorState) (OperatorResult, error) {
 	return Done, nil
 }
 
-func (run *Runner) evalJoinOutput(nextChunk, output *Chunk) (err error) {
-	leftChunk := Chunk{}
+func (run *Runner) evalJoinOutput(nextChunk, output *chunk.Chunk) (err error) {
+	leftChunk := chunk.Chunk{}
 	leftTyps := run.hjoin._scanNextTyps[:len(run.hjoin._leftIndice)]
-	leftChunk.init(leftTyps, defaultVectorSize)
-	leftChunk.referenceIndice(nextChunk, run.hjoin._leftIndice)
+	leftChunk.Init(leftTyps, util.DefaultVectorSize)
+	leftChunk.ReferenceIndice(nextChunk, run.hjoin._leftIndice)
 
-	rightChunk := Chunk{}
-	rightChunk.init(run.hjoin._buildTypes, defaultVectorSize)
-	rightChunk.referenceIndice(nextChunk, run.hjoin._rightIndice)
+	rightChunk := chunk.Chunk{}
+	rightChunk.Init(run.hjoin._buildTypes, util.DefaultVectorSize)
+	rightChunk.ReferenceIndice(nextChunk, run.hjoin._rightIndice)
 
-	var thisChunk *Chunk
+	var thisChunk *chunk.Chunk
 	if run.op.JoinTyp == LOT_JoinTypeMARK || run.op.JoinTyp == LOT_JoinTypeAntiMARK {
-		thisChunk = &Chunk{}
-		markTyp := []LType{back(run.hjoin._scanNextTyps)}
-		thisChunk.init(markTyp, defaultVectorSize)
-		thisChunk.referenceIndice(nextChunk, []int{run.hjoin._markIndex})
+		thisChunk = &chunk.Chunk{}
+		markTyp := []common.LType{util.Back(run.hjoin._scanNextTyps)}
+		thisChunk.Init(markTyp, util.DefaultVectorSize)
+		thisChunk.ReferenceIndice(nextChunk, []int{run.hjoin._markIndex})
 	}
 
 	err = run.state.outputExec.executeExprs(
-		[]*Chunk{
+		[]*chunk.Chunk{
 			&leftChunk,
 			&rightChunk,
 			thisChunk,
@@ -1500,7 +1804,7 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 		run.hjoin._hjs = HJS_BUILD
 		cnt := 0
 		for {
-			rightChunk := &Chunk{}
+			rightChunk := &chunk.Chunk{}
 			res, err = run.execChild(run.children[1], rightChunk, state)
 			if err != nil {
 				return 0, err
@@ -1536,7 +1840,7 @@ func (run *Runner) joinClose() error {
 }
 
 func (run *Runner) projInit() error {
-	projTypes := make([]LType, 0)
+	projTypes := make([]common.LType, 0)
 	for _, proj := range run.op.Projects {
 		projTypes = append(projTypes, proj.DataTyp)
 	}
@@ -1548,8 +1852,8 @@ func (run *Runner) projInit() error {
 	return nil
 }
 
-func (run *Runner) projExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
-	childChunk := &Chunk{}
+func (run *Runner) projExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	childChunk := &chunk.Chunk{}
 	var res OperatorResult
 	var err error
 	if len(run.children) != 0 {
@@ -1563,14 +1867,14 @@ func (run *Runner) projExec(output *Chunk, state *OperatorState) (OperatorResult
 	}
 
 	//project list
-	projChunk := &Chunk{}
-	projChunk.init(run.state.projTypes, defaultVectorSize)
-	err = run.state.projExec.executeExprs([]*Chunk{childChunk, nil, nil}, projChunk)
+	projChunk := &chunk.Chunk{}
+	projChunk.Init(run.state.projTypes, util.DefaultVectorSize)
+	err = run.state.projExec.executeExprs([]*chunk.Chunk{childChunk, nil, nil}, projChunk)
 	if err != nil {
 		return 0, err
 	}
 
-	err = run.state.outputExec.executeExprs([]*Chunk{childChunk, nil, projChunk}, output)
+	err = run.state.outputExec.executeExprs([]*chunk.Chunk{childChunk, nil, projChunk}, output)
 	if err != nil {
 		return 0, err
 	}
@@ -1583,48 +1887,118 @@ func (run *Runner) projClose() error {
 }
 
 func (run *Runner) scanInit() error {
-	//read schema
-	cat, err := tpchCatalog().Table(run.op.Database, run.op.Table)
-	if err != nil {
-		return err
-	}
+	var err error
+	switch run.op.ScanTyp {
+	case ScanTypeTable:
 
-	run.colIndice = make([]int, 0)
-	for _, col := range run.op.Columns {
-		if idx, has := cat.Column2Idx[col]; has {
-			run.colIndice = append(run.colIndice, idx)
-			run.readedColTyps = append(run.readedColTyps, cat.Types[idx])
-		} else {
-			return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
+		{
+			tabEnt := storage.GCatalog.GetEntry(run.txn, storage.CatalogTypeTable, run.op.Database, run.op.Table)
+			if tabEnt == nil {
+				return fmt.Errorf("no table %s in schema %s", run.op.Database, run.op.Table)
+			}
+			run.tabEnt = tabEnt
+			col2Idx := tabEnt.GetColumn2Idx()
+			typs := tabEnt.GetTypes()
+			run.colIndice = make([]int, 0)
+			for _, col := range run.op.Columns {
+				if idx, has := col2Idx[col]; has {
+					run.colIndice = append(run.colIndice, idx)
+					run.readedColTyps = append(run.readedColTyps, typs[idx])
+				} else {
+					return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
+				}
+			}
 		}
-	}
+		{
+			//read schema
+			//cat, err := tpchCatalog().Table(run.op.Database, run.op.Table)
+			//if err != nil {
+			//	return err
+			//}
+			//run.colIndice = make([]int, 0)
+			//for _, col := range run.op.Columns {
+			//	if idx, has := cat.Column2Idx[col]; has {
+			//		run.colIndice = append(run.colIndice, idx)
+			//		run.readedColTyps = append(run.readedColTyps, cat.Types[idx])
+			//	} else {
+			//		return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
+			//	}
+			//}
+			//
+			////open data file
+			//switch run.cfg.Tpch1g.Data.Format {
+			//case "parquet":
+			//	run.pqFile, err = pqLocal.NewLocalFileReader(run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".parquet")
+			//	if err != nil {
+			//		return err
+			//	}
+			//
+			//	run.pqReader, err = pqReader.NewParquetColumnReader(run.pqFile, 1)
+			//	if err != nil {
+			//		return err
+			//	}
+			//case "csv":
+			//	run.tablePath = run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".tbl"
+			//	run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
+			//	if err != nil {
+			//		return err
+			//	}
+			//
+			//	//init csv reader
+			//	run.reader = csv.NewReader(run.dataFile)
+			//	run.reader.Comma = '|'
+			//default:
+			//	panic("usp format")
+			//}
+		}
 
-	//open data file
-	switch run.cfg.Tpch1g.Data.Format {
-	case "parquet":
-		run.pqFile, err = pqLocal.NewLocalFileReader(run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".parquet")
-		if err != nil {
-			return err
+	case ScanTypeValuesList:
+		run.colIndice = make([]int, 0)
+		for _, col := range run.op.Columns {
+			if idx, has := run.op.ColName2Idx[col]; has {
+				run.colIndice = append(run.colIndice, idx)
+				run.readedColTyps = append(run.readedColTyps, run.op.Types[idx])
+			} else {
+				return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
+			}
 		}
+		run.readedColTyps = run.op.Types
+	case ScanTypeCopyFrom:
+		run.colIndice = run.op.ScanInfo.ColumnIds
+		run.readedColTyps = run.op.ScanInfo.ReturnedTypes
+		//open data file
+		switch run.op.ScanInfo.Format {
+		case "parquet":
+			run.pqFile, err = pqLocal.NewLocalFileReader(run.op.ScanInfo.FilePath)
+			if err != nil {
+				return err
+			}
 
-		run.pqReader, err = pqReader.NewParquetColumnReader(run.pqFile, 1)
-		if err != nil {
-			return err
-		}
-	case "csv":
-		run.tablePath = run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".tbl"
-		run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
-		if err != nil {
-			return err
-		}
+			run.pqReader, err = pqReader.NewParquetColumnReader(run.pqFile, 1)
+			if err != nil {
+				return err
+			}
+		case "csv":
+			run.tablePath = run.op.ScanInfo.FilePath
+			run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
+			if err != nil {
+				return err
+			}
 
-		//init csv reader
-		run.reader = csv.NewReader(run.dataFile)
-		run.reader.Comma = '|'
+			comma := ','
+			if commaOpt := getFormatFun("delimiter", run.op.ScanInfo.Opts); commaOpt != nil {
+				comma = int32(commaOpt.Opt[0])
+			}
+
+			//init csv reader
+			run.reader = csv.NewReader(run.dataFile)
+			run.reader.Comma = comma
+		default:
+			panic("usp format")
+		}
 	default:
-		panic("usp format")
+		panic("usp")
 	}
-
 	var filterExec *ExprExec
 	filterExec, err = initFilterExec(run.op.Filters)
 	if err != nil {
@@ -1633,17 +2007,17 @@ func (run *Runner) scanInit() error {
 
 	run.state = &OperatorState{
 		filterExec: filterExec,
-		filterSel:  NewSelectVector(defaultVectorSize),
+		filterSel:  chunk.NewSelectVector(util.DefaultVectorSize),
 		showRaw:    run.cfg.Debug.ShowRaw,
 	}
 
 	return nil
 }
 
-func (run *Runner) scanExec(output *Chunk, state *OperatorState) (OperatorResult, error) {
+func (run *Runner) scanExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 
-	for output.card() == 0 {
-		res, err := run.scanRows(output, state, defaultVectorSize)
+	for output.Card() == 0 {
+		res, err := run.scanRows(output, state, util.DefaultVectorSize)
 		if err != nil {
 			return InvalidOpResult, err
 		}
@@ -1654,7 +2028,7 @@ func (run *Runner) scanExec(output *Chunk, state *OperatorState) (OperatorResult
 	return haveMoreOutput, nil
 }
 
-func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bool, error) {
+func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt int) (bool, error) {
 	if maxCnt == 0 {
 		return false, nil
 	}
@@ -1664,31 +2038,74 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 		}
 	}
 
-	readed := &Chunk{}
-	readed.init(run.readedColTyps, maxCnt)
+	readed := &chunk.Chunk{}
+	readed.Init(run.readedColTyps, maxCnt)
 	var err error
-	//read table
-	switch run.cfg.Tpch1g.Data.Format {
-	case "parquet":
-		err = run.readParquetTable(readed, state, maxCnt)
+
+	switch run.op.ScanTyp {
+	case ScanTypeTable:
+		{
+			if run.state.tableScanState == nil {
+				run.state.tableScanState = storage.NewTableScanState()
+				colIds := make([]storage.IdxType, 0)
+				for _, colId := range run.colIndice {
+					colIds = append(colIds, storage.IdxType(colId))
+				}
+				run.tabEnt.GetStorage().InitScan(
+					run.txn,
+					run.state.tableScanState,
+					colIds)
+			}
+			run.tabEnt.GetStorage().Scan(run.txn, readed, run.state.tableScanState)
+		}
+		{
+			//read table
+			//switch run.cfg.Tpch1g.Data.Format {
+			//case "parquet":
+			//	err = run.readParquetTable(readed, state, maxCnt)
+			//	if err != nil {
+			//		return false, err
+			//	}
+			//case "csv":
+			//	err = run.readCsvTable(readed, state, maxCnt)
+			//	if err != nil {
+			//		return false, err
+			//	}
+			//default:
+			//	panic("usp format")
+			//}
+		}
+	case ScanTypeValuesList:
+		err = run.readValues(readed, state, maxCnt)
 		if err != nil {
 			return false, err
 		}
-	case "csv":
-		err = run.readCsvTable(readed, state, maxCnt)
-		if err != nil {
-			return false, err
+	case ScanTypeCopyFrom:
+		//read table
+		switch run.op.ScanInfo.Format {
+		case "parquet":
+			err = run.readParquetTable(readed, state, maxCnt)
+			if err != nil {
+				return false, err
+			}
+		case "csv":
+			err = run.readCsvTable(readed, state, maxCnt)
+			if err != nil {
+				return false, err
+			}
+		default:
+			panic("usp format")
 		}
 	default:
-		panic("usp format")
+		panic("usp")
 	}
 
-	if readed.card() == 0 {
+	if readed.Card() == 0 {
 		return true, nil
 	}
 
 	if run.cfg.Debug.EnableMaxScanRows {
-		run.maxRows += readed.card()
+		run.maxRows += readed.Card()
 	}
 
 	err = run.runFilterExec(readed, output, true)
@@ -1699,18 +2116,43 @@ func (run *Runner) scanRows(output *Chunk, state *OperatorState, maxCnt int) (bo
 }
 
 func (run *Runner) scanClose() error {
-	switch run.cfg.Tpch1g.Data.Format {
-	case "csv":
-		run.reader = nil
-		return run.dataFile.Close()
-	case "parquet":
-		run.pqReader.ReadStop()
-		return run.pqFile.Close()
+	switch run.op.ScanTyp {
+	case ScanTypeTable:
+		{
+
+		}
+		{
+			//switch run.cfg.Tpch1g.Data.Format {
+			//case "csv":
+			//	run.reader = nil
+			//	return run.dataFile.Close()
+			//case "parquet":
+			//	run.pqReader.ReadStop()
+			//	return run.pqFile.Close()
+			//default:
+			//	panic("usp format")
+			//}
+		}
+
+	case ScanTypeValuesList:
+		return nil
+	case ScanTypeCopyFrom:
+		switch run.op.ScanInfo.Format {
+		case "csv":
+			run.reader = nil
+			return run.dataFile.Close()
+		case "parquet":
+			run.pqReader.ReadStop()
+			return run.pqFile.Close()
+		default:
+			panic("usp format")
+		}
 	default:
-		panic("usp format")
+		panic("usp")
 	}
+	return nil
 }
-func (run *Runner) readParquetTable(output *Chunk, state *OperatorState, maxCnt int) error {
+func (run *Runner) readParquetTable(output *chunk.Chunk, state *OperatorState, maxCnt int) error {
 	rowCont := -1
 	var err error
 	var values []interface{}
@@ -1732,14 +2174,14 @@ func (run *Runner) readParquetTable(output *Chunk, state *OperatorState, maxCnt 
 			return fmt.Errorf("column %d has different count of values %d with previous columns %d", idx, len(values), rowCont)
 		}
 
-		vec := output._data[j]
+		vec := output.Data[j]
 		for i := 0; i < len(values); i++ {
 			//[row i, col j]
-			val, err := parquetColToValue(values[i], vec.typ())
+			val, err := parquetColToValue(values[i], vec.Typ())
 			if err != nil {
 				return err
 			}
-			vec.setValue(i, val)
+			vec.SetValue(i, val)
 			if state.showRaw {
 				fmt.Print(values[i], " ")
 			}
@@ -1748,12 +2190,11 @@ func (run *Runner) readParquetTable(output *Chunk, state *OperatorState, maxCnt 
 			fmt.Println()
 		}
 	}
-	output.setCard(rowCont)
-
+	output.SetCard(rowCont)
 	return nil
 }
 
-func (run *Runner) readCsvTable(output *Chunk, state *OperatorState, maxCnt int) error {
+func (run *Runner) readCsvTable(output *chunk.Chunk, state *OperatorState, maxCnt int) error {
 	rowCont := 0
 	for i := 0; i < maxCnt; i++ {
 		//read line
@@ -1772,12 +2213,12 @@ func (run *Runner) readCsvTable(output *Chunk, state *OperatorState, maxCnt int)
 			}
 			field := line[idx]
 			//[row i, col j] = field
-			vec := output._data[j]
-			val, err := fieldToValue(field, vec.typ())
+			vec := output.Data[j]
+			val, err := fieldToValue(field, vec.Typ())
 			if err != nil {
 				return err
 			}
-			vec.setValue(i, val)
+			vec.SetValue(i, val)
 			if state.showRaw {
 				fmt.Print(field, " ")
 			}
@@ -1787,79 +2228,106 @@ func (run *Runner) readCsvTable(output *Chunk, state *OperatorState, maxCnt int)
 		}
 		rowCont++
 	}
-	output.setCard(rowCont)
+	output.SetCard(rowCont)
 
 	return nil
 }
 
-func fieldToValue(field string, lTyp LType) (*Value, error) {
-	var err error
-	val := &Value{
-		_typ: lTyp,
+func (run *Runner) readValues(output *chunk.Chunk, state *OperatorState, maxCnt int) error {
+	if run.op.collection.Count() == 0 {
+		output.SetCap(0)
+		return nil
 	}
-	switch lTyp.id {
-	case LTID_DATE:
+
+	if run.state.colScanState == nil {
+		run.state.colScanState = &ColumnDataScanState{}
+		run.op.collection.initScan(run.state.colScanState)
+	}
+
+	run.op.collection.Scan(run.state.colScanState, output)
+	if state.showRaw {
+		output.Print()
+	}
+	return nil
+}
+
+func fieldToValue(field string, lTyp common.LType) (*chunk.Value, error) {
+	var err error
+	val := &chunk.Value{
+		Typ: lTyp,
+	}
+	switch lTyp.Id {
+	case common.LTID_DATE:
 		d, err := time.Parse(time.DateOnly, field)
 		if err != nil {
 			return nil, err
 		}
-		val._i64 = int64(d.Year())
-		val._i64_1 = int64(d.Month())
-		val._i64_2 = int64(d.Day())
-	case LTID_INTEGER:
-		val._i64, err = strconv.ParseInt(field, 10, 64)
+		val.I64 = int64(d.Year())
+		val.I64_1 = int64(d.Month())
+		val.I64_2 = int64(d.Day())
+	case common.LTID_INTEGER:
+		val.I64, err = strconv.ParseInt(field, 10, 64)
 		if err != nil {
 			return nil, err
 		}
-	case LTID_VARCHAR:
-		val._str = field
+	case common.LTID_VARCHAR:
+		val.Str = field
 	default:
 		panic("usp")
 	}
 	return val, nil
 }
 
-func parquetColToValue(field any, lTyp LType) (*Value, error) {
-	val := &Value{
-		_typ: lTyp,
+func parquetColToValue(field any, lTyp common.LType) (*chunk.Value, error) {
+	val := &chunk.Value{
+		Typ: lTyp,
 	}
-	switch lTyp.id {
-	case LTID_DATE:
+	switch lTyp.Id {
+	case common.LTID_DATE:
 		if _, ok := field.(int32); !ok {
 			panic("usp")
 		}
 
 		d := time.Date(1970, 1, int(1+field.(int32)), 0, 0, 0, 0, time.UTC)
-		val._i64 = int64(d.Year())
-		val._i64_1 = int64(d.Month())
-		val._i64_2 = int64(d.Day())
-	case LTID_INTEGER:
+		val.I64 = int64(d.Year())
+		val.I64_1 = int64(d.Month())
+		val.I64_2 = int64(d.Day())
+	case common.LTID_INTEGER:
 		switch fVal := field.(type) {
 		case int32:
-			val._i64 = int64(fVal)
+			val.I64 = int64(fVal)
 		case int64:
-			val._i64 = fVal
+			val.I64 = fVal
 		default:
 			panic("usp")
 		}
-	case LTID_VARCHAR:
+	case common.LTID_BIGINT:
+		switch fVal := field.(type) {
+		case int32:
+			val.I64 = int64(fVal)
+		case int64:
+			val.I64 = fVal
+		default:
+			panic("usp")
+		}
+	case common.LTID_VARCHAR:
 		if _, ok := field.(string); !ok {
 			panic("usp")
 		}
 
-		val._str = field.(string)
-	case LTID_DECIMAL:
+		val.Str = field.(string)
+	case common.LTID_DECIMAL:
 		p10 := int64(1)
-		for i := 0; i < lTyp.scale; i++ {
+		for i := 0; i < lTyp.Scale; i++ {
 			p10 *= 10
 		}
 		switch v := field.(type) {
 		case int32:
-			val._i64 = int64(v) / p10
-			val._i64_1 = int64(v) % p10
+			val.I64 = int64(v) / p10
+			val.I64_1 = int64(v) % p10
 		case int64:
-			val._i64 = v / p10
-			val._i64_1 = int64(v) % p10
+			val.I64 = v / p10
+			val.I64_1 = int64(v) % p10
 		default:
 			panic("usp")
 		}

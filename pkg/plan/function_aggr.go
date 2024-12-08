@@ -14,19 +14,23 @@
 
 package plan
 
+import (
+	"github.com/daviszhen/plan/pkg/common"
+)
+
 type SumFunc struct {
 }
 
 func (SumFunc) Register(funcList FunctionList) {
 	set := NewFunctionSet("sum", AggregateFuncType)
 
-	sumInt := GetSumAggr(integer().getInternalType())
+	sumInt := GetSumAggr(common.IntegerType().GetInternalType())
 	sumInt._name = "sum"
 
 	sumDec := &FunctionV2{
 		_name:    "sum",
-		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
-		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
+		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
 		_funcTyp: AggregateFuncType,
 		_bind:    BindDecimalSum,
 	}
@@ -38,10 +42,10 @@ func (SumFunc) Register(funcList FunctionList) {
 
 func BindDecimalSum(fun *FunctionV2, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
-	*fun = *GetSumAggr(decTyp.getInternalType())
+	*fun = *GetSumAggr(decTyp.GetInternalType())
 	fun._name = "sum"
 	fun._args[0] = decTyp
-	fun._retType = decimal(DecimalMaxWidth, decTyp.scale)
+	fun._retType = common.DecimalType(common.DecimalMaxWidth, decTyp.Scale)
 	return nil
 }
 
@@ -51,13 +55,13 @@ type AvgFunc struct {
 func (AvgFunc) Register(funcList FunctionList) {
 	set := NewFunctionSet("avg", AggregateFuncType)
 
-	avgInt := GetAvgAggr(double().getInternalType(), integer().getInternalType())
+	avgInt := GetAvgAggr(common.DoubleType().GetInternalType(), common.IntegerType().GetInternalType())
 	avgInt._name = "avg"
 
 	avgDec := &FunctionV2{
 		_name:    "avg",
-		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
-		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
+		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
 		_funcTyp: AggregateFuncType,
 		_bind:    BindDecimalAvg,
 	}
@@ -69,10 +73,10 @@ func (AvgFunc) Register(funcList FunctionList) {
 
 func BindDecimalAvg(fun *FunctionV2, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
-	*fun = *GetAvgAggr(decTyp.getInternalType(), decTyp.getInternalType())
+	*fun = *GetAvgAggr(decTyp.GetInternalType(), decTyp.GetInternalType())
 	fun._name = "avg"
 	fun._args[0] = decTyp
-	fun._retType = decimal(DecimalMaxWidth, decTyp.scale)
+	fun._retType = common.DecimalType(common.DecimalMaxWidth, decTyp.Scale)
 	return nil
 }
 
@@ -83,23 +87,23 @@ func (CountFunc) Register(funcList FunctionList) {
 	set := NewFunctionSet("count", AggregateFuncType)
 
 	countInt := GetCountAggr(
-		integer().getInternalType(),
-		integer().getInternalType())
+		common.IntegerType().GetInternalType(),
+		common.IntegerType().GetInternalType())
 	countInt._name = "count"
 
-	//countDec := GetCountAggr(
-	//	integer().getInternalType(),
-	//	decimal(DecimalMaxWidthInt64, 0).getInternalType(),
-	//)
-	//countDec._name = "count"
+	countInt64 := GetCountAggr(
+		common.BigintType().GetInternalType(),
+		common.BigintType().GetInternalType(),
+	)
+	countInt64._name = "count"
 
 	countVarchar := GetCountAggr(
-		integer().getInternalType(),
-		varchar().getInternalType())
+		common.IntegerType().GetInternalType(),
+		common.VarcharType().GetInternalType())
 	countVarchar._name = "count"
 
 	set.Add(countInt)
-	//set.Add(countDec)
+	set.Add(countInt64)
 	set.Add(countVarchar)
 
 	funcList.Add("count", set)
@@ -113,8 +117,8 @@ func (MaxFunc) Register(funcList FunctionList) {
 
 	maxDec := &FunctionV2{
 		_name:    "max",
-		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
-		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
+		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
 		_funcTyp: AggregateFuncType,
 		_bind:    BindDecimalMinMax,
 	}
@@ -127,9 +131,9 @@ func BindDecimalMinMax(fun *FunctionV2, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
 	name := fun._name
 	if name == "max" {
-		*fun = *GetMaxAggr(decTyp.getInternalType(), decTyp.getInternalType())
+		*fun = *GetMaxAggr(decTyp.GetInternalType(), decTyp.GetInternalType())
 	} else if name == "min" {
-		*fun = *GetMinAggr(decTyp.getInternalType(), decTyp.getInternalType())
+		*fun = *GetMinAggr(decTyp.GetInternalType(), decTyp.GetInternalType())
 	}
 	fun._name = name
 	fun._args[0] = decTyp
@@ -145,8 +149,8 @@ func (MinFunc) Register(funcList FunctionList) {
 
 	minDec := &FunctionV2{
 		_name:    "min",
-		_args:    []LType{decimal(DecimalMaxWidthInt64, 0)},
-		_retType: decimal(DecimalMaxWidthInt64, 0),
+		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
+		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
 		_funcTyp: AggregateFuncType,
 		_bind:    BindDecimalMinMax,
 	}

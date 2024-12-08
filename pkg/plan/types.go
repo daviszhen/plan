@@ -32,14 +32,5 @@ const (
 	IWC_ORDER
 	IWC_LIMIT
 	IWC_JOINON
+	IWC_VALUES //for insert ... values
 )
-
-type Serialize interface {
-	WriteData(buffer []byte, len int) error
-	Close() error
-}
-
-type Deserialize interface {
-	ReadData(buffer []byte, len int) error
-	Close() error
-}

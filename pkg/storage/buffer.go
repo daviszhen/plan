@@ -16,6 +16,7 @@ package storage
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -73,14 +74,14 @@ type BufferManager struct {
 	_tempDir      string
 	_tempLock     sync.Mutex
 	_tempId       atomic.Uint64
-	_tempBlockMgr *BlockManager
+	_tempBlockMgr BlockMgr
 	_bufferAlloc  *Allocator
 }
 
 var GBufferMgr *BufferManager
 
 func init() {
-	GBufferMgr = NewBufferManager(".")
+
 }
 
 func NewBufferManager(tmp string) *BufferManager {
@@ -89,6 +90,7 @@ func NewBufferManager(tmp string) *BufferManager {
 		_bufferAlloc: NewAllocator(),
 	}
 	ret._tempId.Store(uint64(MAX_BLOCK))
+	ret._tempBlockMgr = NewMemoryBlockMgr(ret)
 
 	return ret
 }
@@ -123,7 +125,17 @@ func (mgr *BufferManager) RegisterMemory(
 	buffer := mgr.ConstructManagedBuffer(sz, nil, MANAGED_BUFFER)
 	mgr._tempId.Add(1)
 	id := mgr._tempId.Load()
-	return NewBlockHandle2(nil, BlockID(id), buffer, canDestroy)
+	return NewBlockHandle2(mgr._tempBlockMgr, BlockID(id), buffer, canDestroy)
+}
+
+func (mgr *BufferManager) RegisterSmallMemory(
+	sz uint64,
+) *BlockHandle {
+	util.AssertFunc(sz < BLOCK_SIZE)
+	buffer := mgr.ConstructManagedBuffer(sz, nil, TINY_BUFFER)
+	mgr._tempId.Add(1)
+	id := mgr._tempId.Load()
+	return NewBlockHandle2(mgr._tempBlockMgr, BlockID(id), buffer, false)
 }
 
 func (mgr *BufferManager) Allocate(
@@ -212,6 +224,22 @@ func NewFileBuffer(
 	return ret
 }
 
+func NewFileBuffer2(
+	src *FileBuffer,
+	bufferType FileBufferType,
+) *FileBuffer {
+	ret := &FileBuffer{
+		_bufferAlloc:    src._bufferAlloc,
+		_typ:            bufferType,
+		_buffer:         src._buffer,
+		_size:           src._size,
+		_internalBuffer: src._internalBuffer,
+		_internalSize:   src._internalSize,
+	}
+	src.Init()
+	return ret
+}
+
 func (fbuf *FileBuffer) Init() {
 	fbuf._buffer = nil
 	fbuf._internalBuffer = nil
@@ -220,6 +248,9 @@ func (fbuf *FileBuffer) Init() {
 }
 
 func (fbuf *FileBuffer) Close() {
+	if fbuf == nil {
+		return
+	}
 	if fbuf._internalBuffer != nil {
 		fbuf._bufferAlloc.FreeData(fbuf._internalBuffer, fbuf._internalSize)
 	}
@@ -259,9 +290,35 @@ func (fbuf *FileBuffer) AllocSize() uint64 {
 	return fbuf._internalSize
 }
 
+func (fbuf *FileBuffer) Clear() {
+	if fbuf._internalBuffer != nil {
+		util.Memset(fbuf._internalBuffer, 0, int(fbuf._internalSize))
+	}
+}
+
+func (fbuf *FileBuffer) Write(handle *os.File, loc uint64) error {
+	src := util.PointerToSlice[byte](
+		fbuf._internalBuffer,
+		int(fbuf._internalSize))
+	_, err := handle.WriteAt(src, int64(loc))
+	return err
+}
+
+func (fbuf *FileBuffer) Read(handle *os.File, loc uint64) error {
+	dst := util.PointerToSlice[byte](
+		fbuf._internalBuffer,
+		int(fbuf._internalSize))
+	_, err := handle.ReadAt(dst, int64(loc))
+	return err
+}
+
 type BufferHandle struct {
 	_handle *BlockHandle
 	_node   *FileBuffer
+}
+
+func (handle *BufferHandle) FileBuffer() *FileBuffer {
+	return handle._node
 }
 
 func (handle *BufferHandle) Ptr() unsafe.Pointer {
@@ -273,7 +330,7 @@ func (handle *BufferHandle) Close() {
 		return
 	}
 	if handle._handle._blockMgr != nil {
-		handle._handle._blockMgr._bufferMgr.Unpin(handle._handle)
+		handle._handle._blockMgr.Unpin(handle._handle)
 	}
 	handle._handle = nil
 	handle._node = nil

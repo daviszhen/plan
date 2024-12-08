@@ -15,6 +15,7 @@
 package storage
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -31,7 +32,16 @@ func NewBlock(alloc *Allocator, id BlockID) *Block {
 		FileBuffer: NewFileBuffer(alloc, BLOCK, BLOCK_SIZE),
 		id:         id,
 	}
+	util.AssertFunc(ret.AllocSize()&(SECTOR_SIZE-1) == 0)
+	return ret
+}
 
+func NewBlock2(src *FileBuffer, id BlockID) *Block {
+	ret := &Block{
+		FileBuffer: NewFileBuffer2(src, BLOCK),
+		id:         id,
+	}
+	util.AssertFunc(ret.AllocSize()&(SECTOR_SIZE-1) == 0)
 	return ret
 }
 
@@ -44,7 +54,7 @@ const (
 
 type BlockHandle struct {
 	sync.Mutex
-	_blockMgr   *BlockManager
+	_blockMgr   BlockMgr
 	_state      atomic.Value
 	_readers    atomic.Int32
 	_blockId    BlockID
@@ -52,7 +62,7 @@ type BlockHandle struct {
 	_canDestroy bool
 }
 
-func NewBlockHandle(blockMgr *BlockManager, blockId BlockID) *BlockHandle {
+func NewBlockHandle(blockMgr BlockMgr, blockId BlockID) *BlockHandle {
 	ret := &BlockHandle{
 		_blockMgr: blockMgr,
 		_blockId:  blockId,
@@ -61,7 +71,7 @@ func NewBlockHandle(blockMgr *BlockManager, blockId BlockID) *BlockHandle {
 	return ret
 }
 func NewBlockHandle2(
-	blockMgr *BlockManager,
+	blockMgr BlockMgr,
 	blockId BlockID,
 	buffer *FileBuffer,
 	canDestroy bool,
@@ -92,7 +102,9 @@ func (handle *BlockHandle) Load(inhandle *BlockHandle, reusableBuffer *FileBuffe
 
 	if handle._blockId < MAX_BLOCK {
 		block := AllocateBlock(handle._blockMgr, reusableBuffer, handle._blockId)
-		handle._blockMgr.Read(block)
+		if err := handle._blockMgr.Read(block); err != nil {
+			panic(err)
+		}
 		handle._buffer = block.FileBuffer
 	} else {
 		if handle._canDestroy {
@@ -109,7 +121,7 @@ func (handle *BlockHandle) Load(inhandle *BlockHandle, reusableBuffer *FileBuffe
 }
 
 func AllocateBlock(
-	blockMgr *BlockManager,
+	blockMgr BlockMgr,
 	reusableBuffer *FileBuffer,
 	id BlockID) *Block {
 	if reusableBuffer != nil {
@@ -159,34 +171,169 @@ func (handle *BlockHandle) ResizeBuffer(sz uint64, delta int64) {
 	handle._buffer.Resize(sz)
 }
 
-type BlockManager struct {
-	_bufferMgr *BufferManager
-	//_blocks    map[BlockID]BlockHandle
+type DatabaseHeader struct {
+	_iteration  uint64
+	_metaBlock  BlockID
+	_freeList   BlockID
+	_blockCount uint64
 }
 
-func (mgr *BlockManager) ConvertBlock(id BlockID, srcBuffer *FileBuffer) *Block {
-	return &Block{
-		FileBuffer: srcBuffer,
-		id:         id,
+func (header *DatabaseHeader) Serialize(serial util.Serialize) error {
+	err := util.Write[uint64](header._iteration, serial)
+	if err != nil {
+		return err
 	}
-}
-
-func (mgr *BlockManager) CreateBlock(id BlockID, srcBuffer *FileBuffer) *Block {
-	if srcBuffer != nil {
-		return mgr.ConvertBlock(id, srcBuffer)
-	} else {
-		return NewBlock(mgr._bufferMgr._bufferAlloc, id)
+	err = util.Write[BlockID](header._metaBlock, serial)
+	if err != nil {
+		return err
 	}
-}
-
-func (mgr *BlockManager) Read(block *Block) {
-	//TODO:
-}
-
-func (mgr *BlockManager) RegisterBlock(id BlockID, isMetaBlock bool) *BlockHandle {
+	err = util.Write[BlockID](header._freeList, serial)
+	if err != nil {
+		return err
+	}
+	err = util.Write[uint64](header._blockCount, serial)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (mgr *BlockManager) UnregisterBlock(id BlockID, canDestroy bool) {
+func (header *DatabaseHeader) Deserialize(deserial *BufferedDeserializer) error {
+	err := util.Read[uint64](&header._iteration, deserial)
+	if err != nil {
+		return err
+	}
+	err = util.Read[BlockID](&header._metaBlock, deserial)
+	if err != nil {
+		return err
+	}
+	err = util.Read[BlockID](&header._freeList, deserial)
+	if err != nil {
+		return err
+	}
+	err = util.Read[uint64](&header._blockCount, deserial)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
+const (
+	MAGIC_BYTE_SIZE   uint64 = 4
+	MAGIC_BYTE_OFFSET uint64 = BLOCK_HEADER_SIZE
+	FLAG_COUNT        uint64 = 4
+	magic                    = "plan"
+	VERSION_NUMBER    uint64 = 1
+)
+
+type MainHeader struct {
+	_magicByte     [MAGIC_BYTE_SIZE]byte
+	_versionNumber uint64
+	_flags         [FLAG_COUNT]uint64
+}
+
+func NewMainHeader() *MainHeader {
+	header := &MainHeader{
+		_versionNumber: VERSION_NUMBER,
+	}
+	copy(header._magicByte[:], magic)
+	return header
+}
+
+func (header *MainHeader) Serialize(serial util.Serialize) error {
+	err := serial.WriteData(header._magicByte[:], int(MAGIC_BYTE_SIZE))
+	if err != nil {
+		return err
+	}
+	err = util.Write[uint64](header._versionNumber, serial)
+	if err != nil {
+		return err
+	}
+	//writer
+	writer := NewFieldWriter(serial)
+	for i := uint64(0); i < FLAG_COUNT; i++ {
+		err = WriteField[uint64](header._flags[i], writer)
+		if err != nil {
+			return err
+		}
+	}
+	err = writer.Finalize()
+	return err
+}
+
+func (header *MainHeader) Deserialize(deserial util.Deserialize) error {
+	err := util.Read[uint64](&header._versionNumber, deserial)
+	if err != nil {
+		return err
+	}
+	//field reader
+	reader, err := NewFieldReader(deserial)
+	if err != nil {
+		return err
+	}
+	for i := uint64(0); i < FLAG_COUNT; i++ {
+		err = ReadRequired[uint64](&header._flags[i], reader)
+		if err != nil {
+			return err
+		}
+	}
+	reader.Finalize()
+	return nil
+}
+
+func SerializeMainHeader(header *MainHeader, buffer *FileBuffer) error {
+	var err error
+	dst := util.PointerToSlice[byte](
+		buffer._buffer,
+		int(FILE_HEADER_SIZE))
+	serial := NewBufferedSerialize(dst[:0])
+	defer serial.Close()
+	err = header.Serialize(serial)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+func DeserializeMainHeader(buffer *FileBuffer) (MainHeader, error) {
+	src := util.PointerToSlice[byte](
+		buffer._buffer,
+		int(FILE_HEADER_SIZE))
+	deserial := NewBufferedDeserializer(src)
+	ret := MainHeader{}
+	err := ret.Deserialize(deserial)
+	return ret, err
+}
+
+func SerializeDatabaseHeader(header *DatabaseHeader, buffer *FileBuffer) error {
+	var err error
+	dst := util.PointerToSlice[byte](
+		buffer._buffer,
+		int(FILE_HEADER_SIZE))
+	serial := NewBufferedSerialize(dst[:0])
+	defer serial.Close()
+	err = header.Serialize(serial)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+func DeserializeDatabaseHeader(buffer *FileBuffer) (DatabaseHeader, error) {
+	src := util.PointerToSlice[byte](
+		buffer._buffer,
+		int(FILE_HEADER_SIZE))
+	deserial := NewBufferedDeserializer(src)
+	ret := DatabaseHeader{}
+	err := ret.Deserialize(deserial)
+	return ret, err
+}
+
+type BlockPointer struct {
+	_blockId BlockID
+	_offset  uint32
+}
+
+func (ptr BlockPointer) String() string {
+	return fmt.Sprintf("bptr:%d %d,", ptr._blockId, ptr._offset)
 }

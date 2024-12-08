@@ -17,7 +17,10 @@ package plan
 import (
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type HashJoinStage int
@@ -34,25 +37,25 @@ type HashJoin struct {
 	_conds []*Expr
 
 	//types of the keys. the type of left part in the join on condition expr.
-	_keyTypes []LType
+	_keyTypes []common.LType
 
 	//types of right children of join.
-	_buildTypes []LType
+	_buildTypes []common.LType
 
 	_ht *JoinHashTable
 
 	//for hash join
 	_buildExec *ExprExec
 
-	_joinKeys *Chunk
+	_joinKeys *chunk.Chunk
 
-	_buildChunk *Chunk
+	_buildChunk *chunk.Chunk
 
 	_hjs      HashJoinStage
 	_scan     *Scan
 	_probExec *ExprExec
 	//types of the output Chunk in Scan.Next
-	_scanNextTyps []LType
+	_scanNextTyps []common.LType
 
 	//colIdx of the left(right) Children in the output Chunk in Scan.Next
 	_leftIndice  []int
@@ -84,12 +87,12 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 	}
 
 	if op.JoinTyp == LOT_JoinTypeMARK || op.JoinTyp == LOT_JoinTypeAntiMARK {
-		hj._scanNextTyps = append(hj._scanNextTyps, boolean())
+		hj._scanNextTyps = append(hj._scanNextTyps, common.BooleanType())
 		hj._markIndex = len(hj._scanNextTyps) - 1
 	}
 	//
-	hj._buildChunk = &Chunk{}
-	hj._buildChunk.init(hj._buildTypes, defaultVectorSize)
+	hj._buildChunk = &chunk.Chunk{}
+	hj._buildChunk.Init(hj._buildTypes, util.DefaultVectorSize)
 
 	//
 	hj._buildExec = &ExprExec{}
@@ -99,8 +102,8 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		hj._buildExec.addExpr(cond.Children[1])
 	}
 
-	hj._joinKeys = &Chunk{}
-	hj._joinKeys.init(hj._keyTypes, defaultVectorSize)
+	hj._joinKeys = &chunk.Chunk{}
+	hj._joinKeys.Init(hj._keyTypes, util.DefaultVectorSize)
 
 	hj._ht = NewJoinHashTable(conds, hj._buildTypes, op.JoinTyp)
 
@@ -111,11 +114,11 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 	return hj
 }
 
-func (hj *HashJoin) Build(input *Chunk) error {
+func (hj *HashJoin) Build(input *chunk.Chunk) error {
 	var err error
 	//evaluate the right part
-	hj._joinKeys.reset()
-	err = hj._buildExec.executeExprs([]*Chunk{nil, input, nil},
+	hj._joinKeys.Reset()
+	err = hj._buildExec.executeExprs([]*chunk.Chunk{nil, input, nil},
 		hj._joinKeys)
 	if err != nil {
 		return err
@@ -125,40 +128,40 @@ func (hj *HashJoin) Build(input *Chunk) error {
 	if len(hj._buildTypes) != 0 {
 		hj._ht.Build(hj._joinKeys, input)
 	} else {
-		hj._buildChunk.setCard(input.card())
+		hj._buildChunk.SetCard(input.Card())
 		hj._ht.Build(hj._joinKeys, hj._buildChunk)
 	}
 	return nil
 }
 
 type Scan struct {
-	_keyData    []*UnifiedFormat
-	_pointers   *Vector
+	_keyData    []*chunk.UnifiedFormat
+	_pointers   *chunk.Vector
 	_count      int
-	_selVec     *SelectVector
+	_selVec     *chunk.SelectVector
 	_foundMatch []bool
 	_ht         *JoinHashTable
 	_finished   bool
-	_leftChunk  *Chunk
+	_leftChunk  *chunk.Chunk
 }
 
 func NewScan(ht *JoinHashTable) *Scan {
 	return &Scan{
-		_pointers: NewFlatVector(pointerType(), defaultVectorSize),
-		_selVec:   NewSelectVector(defaultVectorSize),
+		_pointers: chunk.NewFlatVector(common.PointerType(), util.DefaultVectorSize),
+		_selVec:   chunk.NewSelectVector(util.DefaultVectorSize),
 		_ht:       ht,
 	}
 }
 
-func (scan *Scan) initSelVec(curSel *SelectVector) {
+func (scan *Scan) initSelVec(curSel *chunk.SelectVector) {
 	nonEmptyCnt := 0
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
 	cnt := scan._count
 	for i := 0; i < cnt; i++ {
-		idx := curSel.getIndex(i)
+		idx := curSel.GetIndex(i)
 		if ptrs[idx] != nil {
 			{
-				scan._selVec.setIndex(nonEmptyCnt, idx)
+				scan._selVec.SetIndex(nonEmptyCnt, idx)
 				nonEmptyCnt++
 			}
 		}
@@ -167,7 +170,7 @@ func (scan *Scan) initSelVec(curSel *SelectVector) {
 
 }
 
-func (scan *Scan) Next(keys, left, result *Chunk) {
+func (scan *Scan) Next(keys, left, result *chunk.Chunk) {
 	if scan._finished {
 		return
 	}
@@ -187,136 +190,136 @@ func (scan *Scan) Next(keys, left, result *Chunk) {
 	}
 }
 
-func (scan *Scan) NextLeftJoin(keys, left, result *Chunk) {
+func (scan *Scan) NextLeftJoin(keys, left, result *chunk.Chunk) {
 	scan.NextInnerJoin(keys, left, result)
-	if result.card() == 0 {
+	if result.Card() == 0 {
 		remainingCount := 0
-		sel := NewSelectVector(defaultVectorSize)
-		for i := 0; i < left.card(); i++ {
+		sel := chunk.NewSelectVector(util.DefaultVectorSize)
+		for i := 0; i < left.Card(); i++ {
 			if !scan._foundMatch[i] {
-				sel.setIndex(remainingCount, i)
+				sel.SetIndex(remainingCount, i)
 				remainingCount++
 			}
 		}
 		if remainingCount > 0 {
-			result.slice(left, sel, remainingCount, 0)
-			for i := left.columnCount(); i < result.columnCount(); i++ {
-				vec := result._data[i]
-				vec.setPhyFormat(PF_CONST)
-				setNullInPhyFormatConst(vec, true)
+			result.Slice(left, sel, remainingCount, 0)
+			for i := left.ColumnCount(); i < result.ColumnCount(); i++ {
+				vec := result.Data[i]
+				vec.SetPhyFormat(chunk.PF_CONST)
+				chunk.SetNullInPhyFormatConst(vec, true)
 			}
 		}
 		scan._finished = true
 	}
 }
 
-func (scan *Scan) NextAntiJoin(keys, left, result *Chunk) {
+func (scan *Scan) NextAntiJoin(keys, left, result *chunk.Chunk) {
 	scan.ScanKeyMatches(keys)
 	scan.NextSemiOrAntiJoin(keys, left, result, false)
 	scan._finished = true
 }
 
-func (scan *Scan) NextSemiJoin(keys, left, result *Chunk) {
+func (scan *Scan) NextSemiJoin(keys, left, result *chunk.Chunk) {
 	scan.ScanKeyMatches(keys)
 	scan.NextSemiOrAntiJoin(keys, left, result, true)
 	scan._finished = true
 }
 
-func (scan *Scan) NextSemiOrAntiJoin(keys, left, result *Chunk, Match bool) {
-	assertFunc(left.columnCount() == result.columnCount())
-	assertFunc(keys.card() == left.card())
+func (scan *Scan) NextSemiOrAntiJoin(keys, left, result *chunk.Chunk, Match bool) {
+	util.AssertFunc(left.ColumnCount() == result.ColumnCount())
+	util.AssertFunc(keys.Card() == left.Card())
 
-	sel := NewSelectVector(defaultVectorSize)
+	sel := chunk.NewSelectVector(util.DefaultVectorSize)
 	resultCount := 0
-	for i := 0; i < keys.card(); i++ {
+	for i := 0; i < keys.Card(); i++ {
 		if scan._foundMatch[i] == Match {
-			sel.setIndex(resultCount, i)
+			sel.SetIndex(resultCount, i)
 			resultCount++
 		}
 	}
 
 	if resultCount > 0 {
-		result.slice(left, sel, resultCount, 0)
+		result.Slice(left, sel, resultCount, 0)
 	} else {
-		assertFunc(result.card() == 0)
+		util.AssertFunc(result.Card() == 0)
 	}
 }
 
-func (scan *Scan) NextMarkJoin(keys, left, result *Chunk) {
+func (scan *Scan) NextMarkJoin(keys, left, result *chunk.Chunk) {
 	//assertFunc(result.columnCount() ==
 	//	left.columnCount()+1)
-	assertFunc(back(result._data).typ().id == LTID_BOOLEAN)
-	assertFunc(scan._ht.count() > 0)
+	util.AssertFunc(util.Back(result.Data).Typ().Id == common.LTID_BOOLEAN)
+	util.AssertFunc(scan._ht.count() > 0)
 	scan.ScanKeyMatches(keys)
 	scan.constructMarkJoinResult(keys, left, result)
 	scan._finished = true
 }
 
-func (scan *Scan) constructMarkJoinResult(keys, left, result *Chunk) {
-	result.setCard(left.card())
-	for i := 0; i < left.columnCount(); i++ {
-		result._data[i].reference(left._data[i])
+func (scan *Scan) constructMarkJoinResult(keys, left, result *chunk.Chunk) {
+	result.SetCard(left.Card())
+	for i := 0; i < left.ColumnCount(); i++ {
+		result.Data[i].Reference(left.Data[i])
 	}
 
-	markVec := back(result._data)
-	markVec.setPhyFormat(PF_FLAT)
-	markSlice := getSliceInPhyFormatFlat[bool](markVec)
-	markMask := getMaskInPhyFormatFlat(markVec)
+	markVec := util.Back(result.Data)
+	markVec.SetPhyFormat(chunk.PF_FLAT)
+	markSlice := chunk.GetSliceInPhyFormatFlat[bool](markVec)
+	markMask := chunk.GetMaskInPhyFormatFlat(markVec)
 
-	for colIdx := 0; colIdx < keys.columnCount(); colIdx++ {
-		var vdata UnifiedFormat
-		keys._data[colIdx].toUnifiedFormat(keys.card(), &vdata)
-		if !vdata._mask.AllValid() {
-			for i := 0; i < keys.card(); i++ {
-				idx := vdata._sel.getIndex(i)
-				markMask.set(
+	for colIdx := 0; colIdx < keys.ColumnCount(); colIdx++ {
+		var vdata chunk.UnifiedFormat
+		keys.Data[colIdx].ToUnifiedFormat(keys.Card(), &vdata)
+		if !vdata.Mask.AllValid() {
+			for i := 0; i < keys.Card(); i++ {
+				idx := vdata.Sel.GetIndex(i)
+				markMask.Set(
 					uint64(i),
-					vdata._mask.rowIsValidUnsafe(uint64(idx)))
+					vdata.Mask.RowIsValidUnsafe(uint64(idx)))
 			}
 		}
 	}
 
 	if scan._foundMatch != nil {
-		for i := 0; i < left.card(); i++ {
+		for i := 0; i < left.Card(); i++ {
 			markSlice[i] = scan._foundMatch[i]
 		}
 	} else {
-		for i := 0; i < left.card(); i++ {
+		for i := 0; i < left.Card(); i++ {
 			markSlice[i] = false
 		}
 	}
 }
 
-func (scan *Scan) ScanKeyMatches(keys *Chunk) {
-	matchSel := NewSelectVector(defaultVectorSize)
-	noMatchSel := NewSelectVector(defaultVectorSize)
+func (scan *Scan) ScanKeyMatches(keys *chunk.Chunk) {
+	matchSel := chunk.NewSelectVector(util.DefaultVectorSize)
+	noMatchSel := chunk.NewSelectVector(util.DefaultVectorSize)
 	for scan._count > 0 {
 		matchCount := scan.resolvePredicates(keys, matchSel, noMatchSel)
 		noMatchCount := scan._count - matchCount
 
 		for i := 0; i < matchCount; i++ {
-			scan._foundMatch[matchSel.getIndex(i)] = true
+			scan._foundMatch[matchSel.GetIndex(i)] = true
 		}
 
 		scan.advancePointers(noMatchSel, noMatchCount)
 	}
 }
 
-func (scan *Scan) NextInnerJoin(keys, left, result *Chunk) {
-	assertFunc(result.columnCount() ==
-		left.columnCount()+len(scan._ht._buildTypes))
+func (scan *Scan) NextInnerJoin(keys, left, result *chunk.Chunk) {
+	util.AssertFunc(result.ColumnCount() ==
+		left.ColumnCount()+len(scan._ht._buildTypes))
 	if scan._count == 0 {
 		return
 	}
-	resVec := NewSelectVector(defaultVectorSize)
+	resVec := chunk.NewSelectVector(util.DefaultVectorSize)
 	resCnt := scan.InnerJoin(keys, resVec)
 	if resCnt > 0 {
 		//left part result
-		result.slice(left, resVec, resCnt, 0)
+		result.Slice(left, resVec, resCnt, 0)
 		//right part result
 		for i := 0; i < len(scan._ht._buildTypes); i++ {
-			vec := result._data[left.columnCount()+i]
-			assertFunc(vec.typ() == scan._ht._buildTypes[i])
+			vec := result.Data[left.ColumnCount()+i]
+			util.AssertFunc(vec.Typ() == scan._ht._buildTypes[i])
 			scan.gatherResult2(
 				vec,
 				resVec,
@@ -328,9 +331,9 @@ func (scan *Scan) NextInnerJoin(keys, left, result *Chunk) {
 }
 
 func (scan *Scan) gatherResult(
-	result *Vector,
-	resVec *SelectVector,
-	selVec *SelectVector,
+	result *chunk.Vector,
+	resVec *chunk.SelectVector,
+	selVec *chunk.SelectVector,
 	cnt int,
 	colNo int,
 ) {
@@ -346,16 +349,16 @@ func (scan *Scan) gatherResult(
 }
 
 func (scan *Scan) gatherResult2(
-	result *Vector,
-	selVec *SelectVector,
+	result *chunk.Vector,
+	selVec *chunk.SelectVector,
 	cnt int,
 	colIdx int,
 ) {
-	resVec := incrSelectVectorInPhyFormatFlat()
+	resVec := chunk.IncrSelectVectorInPhyFormatFlat()
 	scan.gatherResult(result, resVec, selVec, cnt, colIdx)
 }
 
-func (scan *Scan) InnerJoin(keys *Chunk, resVec *SelectVector) int {
+func (scan *Scan) InnerJoin(keys *chunk.Chunk, resVec *chunk.SelectVector) int {
 	for {
 		resCnt := scan.resolvePredicates(
 			keys,
@@ -364,7 +367,7 @@ func (scan *Scan) InnerJoin(keys *Chunk, resVec *SelectVector) int {
 		)
 		if len(scan._foundMatch) != 0 {
 			for i := 0; i < resCnt; i++ {
-				idx := resVec.getIndex(i)
+				idx := resVec.GetIndex(i)
 				scan._foundMatch[idx] = true
 			}
 		}
@@ -383,16 +386,16 @@ func (scan *Scan) advancePointers2() {
 	scan.advancePointers(scan._selVec, scan._count)
 }
 
-func (scan *Scan) advancePointers(sel *SelectVector, cnt int) {
+func (scan *Scan) advancePointers(sel *chunk.SelectVector, cnt int) {
 	newCnt := 0
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](scan._pointers)
 
 	for i := 0; i < cnt; i++ {
-		idx := sel.getIndex(i)
-		temp := pointerAdd(ptrs[idx], scan._ht._pointerOffset)
-		ptrs[idx] = load[unsafe.Pointer](temp)
+		idx := sel.GetIndex(i)
+		temp := util.PointerAdd(ptrs[idx], scan._ht._pointerOffset)
+		ptrs[idx] = util.Load[unsafe.Pointer](temp)
 		if ptrs[idx] != nil {
-			scan._selVec.setIndex(newCnt, idx)
+			scan._selVec.SetIndex(newCnt, idx)
 			newCnt++
 		}
 	}
@@ -401,12 +404,12 @@ func (scan *Scan) advancePointers(sel *SelectVector, cnt int) {
 }
 
 func (scan *Scan) resolvePredicates(
-	keys *Chunk,
-	matchSel *SelectVector,
-	noMatchSel *SelectVector,
+	keys *chunk.Chunk,
+	matchSel *chunk.SelectVector,
+	noMatchSel *chunk.SelectVector,
 ) int {
 	for i := 0; i < scan._count; i++ {
-		matchSel.setIndex(i, scan._selVec.getIndex(i))
+		matchSel.SetIndex(i, scan._selVec.GetIndex(i))
 	}
 	noMatchCount := 0
 	return Match(
@@ -426,11 +429,11 @@ type JoinHashTable struct {
 	_conds []*Expr
 
 	//types of keys in equality comparison
-	_equalTypes []LType
+	_equalTypes []common.LType
 
-	_keyTypes []LType
+	_keyTypes []common.LType
 
-	_buildTypes []LType
+	_buildTypes []common.LType
 
 	_predTypes []ET_SubTyp
 
@@ -460,27 +463,27 @@ type JoinHashTable struct {
 }
 
 func NewJoinHashTable(conds []*Expr,
-	buildTypes []LType,
+	buildTypes []common.LType,
 	joinTyp LOT_JoinType) *JoinHashTable {
 	ht := &JoinHashTable{
 		_conds:      copyExprs(conds...),
-		_buildTypes: copyLTypes(buildTypes...),
+		_buildTypes: common.CopyLTypes(buildTypes...),
 		_joinType:   joinTyp,
 	}
 	for _, cond := range conds {
 		typ := cond.Children[0].DataTyp
 		if cond.SubTyp == ET_Equal || cond.SubTyp == ET_In {
-			assertFunc(len(ht._equalTypes) == len(ht._keyTypes))
+			util.AssertFunc(len(ht._equalTypes) == len(ht._keyTypes))
 			ht._equalTypes = append(ht._equalTypes, typ)
 		}
 		ht._predTypes = append(ht._predTypes, cond.SubTyp)
 		ht._keyTypes = append(ht._keyTypes, typ)
 	}
-	assertFunc(len(ht._equalTypes) != 0)
-	layoutTypes := make([]LType, 0)
+	util.AssertFunc(len(ht._equalTypes) != 0)
+	layoutTypes := make([]common.LType, 0)
 	layoutTypes = append(layoutTypes, ht._keyTypes...)
 	layoutTypes = append(layoutTypes, ht._buildTypes...)
-	layoutTypes = append(layoutTypes, hashType())
+	layoutTypes = append(layoutTypes, common.HashType())
 	// init layout
 	ht._layout = NewTupleDataLayout(layoutTypes, nil, nil, true, true)
 	offsets := ht._layout.offsets()
@@ -496,22 +499,22 @@ func NewJoinHashTable(conds []*Expr,
 	return ht
 }
 
-func (jht *JoinHashTable) Build(keys *Chunk, payload *Chunk) {
-	assertFunc(!jht._finalized)
-	assertFunc(keys.card() == payload.card())
-	if keys.card() == 0 {
+func (jht *JoinHashTable) Build(keys *chunk.Chunk, payload *chunk.Chunk) {
+	util.AssertFunc(!jht._finalized)
+	util.AssertFunc(keys.Card() == payload.Card())
+	if keys.Card() == 0 {
 		return
 	}
-	var keyData []*UnifiedFormat
-	var curSel *SelectVector
-	sel := NewSelectVector(defaultVectorSize)
+	var keyData []*chunk.UnifiedFormat
+	var curSel *chunk.SelectVector
+	sel := chunk.NewSelectVector(util.DefaultVectorSize)
 	addedCnt := jht.prepareKeys(keys,
 		&keyData,
 		&curSel,
 		sel,
 		true,
 	)
-	if addedCnt < keys.card() {
+	if addedCnt < keys.Card() {
 		jht._hasNull = true
 	}
 	if addedCnt == 0 {
@@ -519,25 +522,25 @@ func (jht *JoinHashTable) Build(keys *Chunk, payload *Chunk) {
 	}
 
 	//hash keys
-	hashValues := NewVector(hashType(), defaultVectorSize)
+	hashValues := chunk.NewVector2(common.HashType(), util.DefaultVectorSize)
 	jht.hash(keys, curSel, addedCnt, hashValues)
 
 	//append data collection
-	sourceChunk := &Chunk{}
-	sourceChunk.init(jht._layout.types(), defaultVectorSize)
-	for i := 0; i < keys.columnCount(); i++ {
-		sourceChunk._data[i].reference(keys._data[i])
+	sourceChunk := &chunk.Chunk{}
+	sourceChunk.Init(jht._layout.types(), util.DefaultVectorSize)
+	for i := 0; i < keys.ColumnCount(); i++ {
+		sourceChunk.Data[i].Reference(keys.Data[i])
 	}
-	colOffset := keys.columnCount()
-	assertFunc(len(jht._buildTypes) == payload.columnCount())
-	for i := 0; i < payload.columnCount(); i++ {
-		sourceChunk._data[colOffset+i].reference(payload._data[i])
+	colOffset := keys.ColumnCount()
+	util.AssertFunc(len(jht._buildTypes) == payload.ColumnCount())
+	for i := 0; i < payload.ColumnCount(); i++ {
+		sourceChunk.Data[colOffset+i].Reference(payload.Data[i])
 	}
-	colOffset += payload.columnCount()
-	sourceChunk._data[colOffset].reference(hashValues)
-	sourceChunk.setCard(keys.card())
-	if addedCnt < keys.card() {
-		sourceChunk.sliceItself(curSel, addedCnt)
+	colOffset += payload.ColumnCount()
+	sourceChunk.Data[colOffset].Reference(hashValues)
+	sourceChunk.SetCard(keys.Card())
+	if addedCnt < keys.Card() {
+		sourceChunk.SliceItself(curSel, addedCnt)
 	}
 
 	jht._chunkState = NewTupleDataChunkState(jht._layout.columnCount(), 0)
@@ -546,37 +549,37 @@ func (jht *JoinHashTable) Build(keys *Chunk, payload *Chunk) {
 		jht._pinState,
 		jht._chunkState,
 		sourceChunk,
-		incrSelectVectorInPhyFormatFlat(),
-		sourceChunk.card())
+		chunk.IncrSelectVectorInPhyFormatFlat(),
+		sourceChunk.Card())
 }
 
 func (jht *JoinHashTable) hash(
-	keys *Chunk,
-	sel *SelectVector,
+	keys *chunk.Chunk,
+	sel *chunk.SelectVector,
 	count int,
-	hashes *Vector,
+	hashes *chunk.Vector,
 ) {
-	HashTypeSwitch(keys._data[0], hashes, sel, count, sel != nil)
+	chunk.HashTypeSwitch(keys.Data[0], hashes, sel, count, sel != nil)
 	//combine hash
 	for i := 1; i < len(jht._equalTypes); i++ {
-		CombineHashTypeSwitch(hashes, keys._data[i], sel, count, sel != nil)
+		chunk.CombineHashTypeSwitch(hashes, keys.Data[i], sel, count, sel != nil)
 	}
 }
 
 func (jht *JoinHashTable) prepareKeys(
-	keys *Chunk,
-	keyData *[]*UnifiedFormat,
-	curSel **SelectVector,
-	sel *SelectVector,
+	keys *chunk.Chunk,
+	keyData *[]*chunk.UnifiedFormat,
+	curSel **chunk.SelectVector,
+	sel *chunk.SelectVector,
 	buildSide bool) int {
 	*keyData = keys.ToUnifiedFormat()
 
 	//which keys are NULL
-	*curSel = incrSelectVectorInPhyFormatFlat()
+	*curSel = chunk.IncrSelectVectorInPhyFormatFlat()
 
-	addedCount := keys.card()
-	for i := 0; i < keys.columnCount(); i++ {
-		if (*keyData)[i]._mask.AllValid() {
+	addedCount := keys.Card()
+	for i := 0; i < keys.ColumnCount(); i++ {
+		if (*keyData)[i].Mask.AllValid() {
 			continue
 		}
 		addedCount = filterNullValues(
@@ -591,17 +594,17 @@ func (jht *JoinHashTable) prepareKeys(
 }
 
 func filterNullValues(
-	vdata *UnifiedFormat,
-	sel *SelectVector,
+	vdata *chunk.UnifiedFormat,
+	sel *chunk.SelectVector,
 	count int,
-	result *SelectVector) int {
+	result *chunk.SelectVector) int {
 
 	res := 0
 	for i := 0; i < count; i++ {
-		idx := sel.getIndex(i)
-		keyIdx := vdata._sel.getIndex(idx)
-		if vdata._mask.rowIsValid(uint64(keyIdx)) {
-			result.setIndex(res, idx)
+		idx := sel.GetIndex(i)
+		keyIdx := vdata.Sel.GetIndex(idx)
+		if vdata.Mask.RowIsValid(uint64(keyIdx)) {
+			result.SetIndex(res, idx)
 			res++
 		}
 	}
@@ -609,20 +612,20 @@ func filterNullValues(
 }
 
 func pointerTableCap(cnt int) int {
-	return max(int(nextPowerOfTwo(uint64(cnt*2))), 1024)
+	return max(int(util.NextPowerOfTwo(uint64(cnt*2))), 1024)
 }
 
 func (jht *JoinHashTable) InitPointerTable() {
 	pCap := pointerTableCap(jht._dataCollection.Count())
-	assertFunc(isPowerOfTwo(uint64(pCap)))
+	util.AssertFunc(util.IsPowerOfTwo(uint64(pCap)))
 	jht._hashMap = make([]unsafe.Pointer, pCap)
 	jht._bitmask = pCap - 1
 }
 
 func (jht *JoinHashTable) Finalize() {
 	jht.InitPointerTable()
-	hashes := NewFlatVector(hashType(), defaultVectorSize)
-	hashSlice := getSliceInPhyFormatFlat[uint64](hashes)
+	hashes := chunk.NewFlatVector(common.HashType(), util.DefaultVectorSize)
+	hashSlice := chunk.GetSliceInPhyFormatFlat[uint64](hashes)
 	iter := NewTupleDataChunkIterator2(
 		jht._dataCollection,
 		PIN_PRRP_KEEP_PINNED,
@@ -630,14 +633,14 @@ func (jht *JoinHashTable) Finalize() {
 	)
 	for {
 		//reset hashes
-		for j := 0; j < defaultVectorSize; j++ {
+		for j := 0; j < util.DefaultVectorSize; j++ {
 			hashSlice[j] = uint64(0)
 		}
 		rowLocs := iter.GetRowLocations()
 		count := iter.GetCurrentChunkCount()
 		for i := 0; i < count; i++ {
-			hashSlice[i] = load[uint64](
-				pointerAdd(rowLocs[i],
+			hashSlice[i] = util.Load[uint64](
+				util.PointerAdd(rowLocs[i],
 					jht._pointerOffset))
 		}
 		jht.InsertHashes(hashes, count, rowLocs)
@@ -670,12 +673,12 @@ func (jht *JoinHashTable) Finalize() {
 //	}
 //}
 
-func (jht *JoinHashTable) InsertHashes(hashes *Vector, cnt int, keyLocs []unsafe.Pointer) {
+func (jht *JoinHashTable) InsertHashes(hashes *chunk.Vector, cnt int, keyLocs []unsafe.Pointer) {
 	jht.ApplyBitmask(hashes, cnt)
-	hashes.flatten(cnt)
-	assertFunc(hashes.phyFormat().isFlat())
+	hashes.Flatten(cnt)
+	util.AssertFunc(hashes.PhyFormat().IsFlat())
 	pointers := jht._hashMap
-	indices := getSliceInPhyFormatFlat[uint64](hashes)
+	indices := chunk.GetSliceInPhyFormatFlat[uint64](hashes)
 	InsertHashesLoop(pointers, indices, cnt, keyLocs, jht._pointerOffset)
 }
 
@@ -690,24 +693,24 @@ func InsertHashesLoop(
 		idx := indices[i]
 		//save prev into the pointer in tuple
 
-		store[unsafe.Pointer](pointers[idx], pointerAdd(keyLocs[i], pointerOffset))
+		util.Store[unsafe.Pointer](pointers[idx], util.PointerAdd(keyLocs[i], pointerOffset))
 		//pointer to current tuple
 		pointers[idx] = keyLocs[i]
 		base := keyLocs[i]
-		cur := load[unsafe.Pointer](pointerAdd(keyLocs[i], pointerOffset))
+		cur := util.Load[unsafe.Pointer](util.PointerAdd(keyLocs[i], pointerOffset))
 		if base == cur {
 			panic("insert loop in bucket")
 		}
 	}
 }
 
-func (jht *JoinHashTable) ApplyBitmask(hashes *Vector, cnt int) {
-	if hashes.phyFormat().isConst() {
-		indices := getSliceInPhyFormatConst[uint64](hashes)
+func (jht *JoinHashTable) ApplyBitmask(hashes *chunk.Vector, cnt int) {
+	if hashes.PhyFormat().IsConst() {
+		indices := chunk.GetSliceInPhyFormatConst[uint64](hashes)
 		indices[0] &= uint64(jht._bitmask)
 	} else {
-		hashes.flatten(cnt)
-		indices := getSliceInPhyFormatFlat[uint64](hashes)
+		hashes.Flatten(cnt)
+		indices := chunk.GetSliceInPhyFormatFlat[uint64](hashes)
 		for i := 0; i < cnt; i++ {
 			indices[i] &= uint64(jht._bitmask)
 		}
@@ -715,19 +718,19 @@ func (jht *JoinHashTable) ApplyBitmask(hashes *Vector, cnt int) {
 }
 
 func (jht *JoinHashTable) ApplyBitmask2(
-	hashes *Vector,
-	sel *SelectVector,
+	hashes *chunk.Vector,
+	sel *chunk.SelectVector,
 	cnt int,
-	pointers *Vector,
+	pointers *chunk.Vector,
 ) {
-	var data UnifiedFormat
-	hashes.toUnifiedFormat(cnt, &data)
-	hashSlice := getSliceInPhyFormatUnifiedFormat[uint64](&data)
-	resSlice := getSliceInPhyFormatFlat[unsafe.Pointer](pointers)
+	var data chunk.UnifiedFormat
+	hashes.ToUnifiedFormat(cnt, &data)
+	hashSlice := chunk.GetSliceInPhyFormatUnifiedFormat[uint64](&data)
+	resSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](pointers)
 	mainHt := jht._hashMap
 	for i := 0; i < cnt; i++ {
-		rIdx := sel.getIndex(i)
-		hIdx := data._sel.getIndex(rIdx)
+		rIdx := sel.GetIndex(i)
+		hIdx := data.Sel.GetIndex(rIdx)
 		hVal := hashSlice[hIdx]
 		bucket := mainHt[(hVal & uint64(jht._bitmask))]
 		resSlice[rIdx] = bucket
@@ -735,13 +738,13 @@ func (jht *JoinHashTable) ApplyBitmask2(
 
 }
 
-func (jht *JoinHashTable) Probe(keys *Chunk) *Scan {
-	var curSel *SelectVector
+func (jht *JoinHashTable) Probe(keys *chunk.Chunk) *Scan {
+	var curSel *chunk.SelectVector
 	newScan := jht.initScan(keys, &curSel)
 	if newScan._count == 0 {
 		return newScan
 	}
-	hashes := NewFlatVector(hashType(), defaultVectorSize)
+	hashes := chunk.NewFlatVector(common.HashType(), util.DefaultVectorSize)
 	jht.hash(keys, curSel, newScan._count, hashes)
 
 	jht.ApplyBitmask2(hashes, curSel, newScan._count, newScan._pointers)
@@ -749,12 +752,12 @@ func (jht *JoinHashTable) Probe(keys *Chunk) *Scan {
 	return newScan
 }
 
-func (jht *JoinHashTable) initScan(keys *Chunk, curSel **SelectVector) *Scan {
-	assertFunc(jht.count() > 0)
-	assertFunc(jht._finalized)
+func (jht *JoinHashTable) initScan(keys *chunk.Chunk, curSel **chunk.SelectVector) *Scan {
+	util.AssertFunc(jht.count() > 0)
+	util.AssertFunc(jht._finalized)
 	newScan := NewScan(jht)
 	if jht._joinType != LOT_JoinTypeInner {
-		newScan._foundMatch = make([]bool, defaultVectorSize)
+		newScan._foundMatch = make([]bool, util.DefaultVectorSize)
 	}
 
 	newScan._count = jht.prepareKeys(
@@ -799,19 +802,19 @@ offsets: start of data columns and aggr fields
 */
 type TupleDataLayout struct {
 	//types of the data columns
-	_types               []LType
-	_childrenOutputTypes []LType
+	_types               []common.LType
+	_childrenOutputTypes []common.LType
 
-	//width of bitmap header
+	//Width of bitmap header
 	_bitmapWidth int
 
-	//width of data part
+	//Width of data part
 	_dataWidth int
 
-	//width of agg state part
+	//Width of agg state part
 	_aggWidth int
 
-	//width of entire row
+	//Width of entire row
 	_rowWidth int
 
 	//offsets to the columns and agg data in each row
@@ -826,43 +829,43 @@ type TupleDataLayout struct {
 	_aggregates []*AggrObject
 }
 
-func NewTupleDataLayout(types []LType, aggrObjs []*AggrObject, childrenOutputTypes []LType, align bool, needHeapOffset bool) *TupleDataLayout {
+func NewTupleDataLayout(types []common.LType, aggrObjs []*AggrObject, childrenOutputTypes []common.LType, align bool, needHeapOffset bool) *TupleDataLayout {
 	layout := &TupleDataLayout{
-		_types:               copyLTypes(types...),
-		_childrenOutputTypes: copyLTypes(childrenOutputTypes...),
+		_types:               common.CopyLTypes(types...),
+		_childrenOutputTypes: common.CopyLTypes(childrenOutputTypes...),
 	}
 
 	alignWidth := func() {
 		if align {
-			layout._rowWidth = alignValue(layout._rowWidth)
+			layout._rowWidth = util.AlignValue8(layout._rowWidth)
 		}
 	}
 
-	layout._bitmapWidth = entryCount(len(layout._types) + len(layout._childrenOutputTypes))
+	layout._bitmapWidth = util.EntryCount(len(layout._types) + len(layout._childrenOutputTypes))
 	layout._rowWidth = layout._bitmapWidth
 	alignWidth()
 
 	//all columns + children output columns are constant size
 	for _, lType := range append(layout._types, layout._childrenOutputTypes...) {
 		layout._allConst = layout._allConst &&
-			lType.getInternalType().isConstant()
+			lType.GetInternalType().IsConstant()
 	}
 
 	if needHeapOffset && !layout._allConst {
 		layout._heapSizeOffset = layout._rowWidth
-		layout._rowWidth += int64Size
+		layout._rowWidth += common.Int64Size
 		alignWidth()
 	}
 
 	//data columns + children output columns
 	for _, lType := range append(layout._types, layout._childrenOutputTypes...) {
 		layout._offsets = append(layout._offsets, layout._rowWidth)
-		if lType.getInternalType().isConstant() ||
-			lType.getInternalType().isVarchar() {
-			layout._rowWidth += lType.getInternalType().size()
+		if lType.GetInternalType().IsConstant() ||
+			lType.GetInternalType().IsVarchar() {
+			layout._rowWidth += lType.GetInternalType().Size()
 		} else {
 			//for variable length types, pointer to the actual data
-			layout._rowWidth += int64Size
+			layout._rowWidth += common.Int64Size
 		}
 		alignWidth()
 	}
@@ -889,11 +892,11 @@ func (layout *TupleDataLayout) childrenOutputCount() int {
 	return len(layout._childrenOutputTypes)
 }
 
-func (layout *TupleDataLayout) types() []LType {
-	return copyLTypes(layout._types...)
+func (layout *TupleDataLayout) types() []common.LType {
+	return common.CopyLTypes(layout._types...)
 }
 
-// total width of each row
+// total Width of each row
 func (layout *TupleDataLayout) rowWidth() int {
 	return layout._rowWidth
 }
@@ -903,7 +906,7 @@ func (layout *TupleDataLayout) dataOffset() int {
 	return layout._bitmapWidth
 }
 
-// total width of the data
+// total Width of the data
 func (layout *TupleDataLayout) dataWidth() int {
 	return layout._dataWidth
 }
@@ -918,7 +921,7 @@ func (layout *TupleDataLayout) aggrIdx() int {
 }
 
 func (layout *TupleDataLayout) offsets() []int {
-	return copyTo[int](layout._offsets)
+	return util.CopyTo[int](layout._offsets)
 }
 
 func (layout *TupleDataLayout) allConst() bool {
@@ -934,13 +937,13 @@ func (layout *TupleDataLayout) copy() *TupleDataLayout {
 		return nil
 	}
 	res := &TupleDataLayout{}
-	res._types = copyLTypes(layout._types...)
-	res._childrenOutputTypes = copyLTypes(layout._childrenOutputTypes...)
+	res._types = common.CopyLTypes(layout._types...)
+	res._childrenOutputTypes = common.CopyLTypes(layout._childrenOutputTypes...)
 	res._bitmapWidth = layout._bitmapWidth
 	res._dataWidth = layout._dataWidth
 	res._aggWidth = layout._aggWidth
 	res._rowWidth = layout._rowWidth
-	res._offsets = copyTo[int](layout._offsets)
+	res._offsets = util.CopyTo[int](layout._offsets)
 	res._allConst = layout._allConst
 	res._heapSizeOffset = layout._heapSizeOffset
 	return res
@@ -970,8 +973,8 @@ func (tuple *TupleDataCollection) Count() int {
 func (tuple *TupleDataCollection) Append(
 	pinState *TupleDataPinState,
 	chunkState *TupleDataChunkState,
-	chunk *Chunk,
-	appendSel *SelectVector,
+	chunk *chunk.Chunk,
+	appendSel *chunk.SelectVector,
 	appendCount int,
 ) {
 	//to unified format
@@ -982,12 +985,12 @@ func (tuple *TupleDataCollection) Append(
 func (tuple *TupleDataCollection) AppendUnified(
 	pinState *TupleDataPinState,
 	chunkState *TupleDataChunkState,
-	chunk *Chunk,
-	childrenOutput *Chunk,
-	appendSel *SelectVector,
+	chunk *chunk.Chunk,
+	childrenOutput *chunk.Chunk,
+	appendSel *chunk.SelectVector,
 	cnt int) {
 	if cnt == -1 {
-		cnt = chunk.card()
+		cnt = chunk.Card()
 	}
 	if cnt == 0 {
 		return
@@ -1031,44 +1034,44 @@ func (tuple *TupleDataCollection) checkDupAll() {
 
 func (tuple *TupleDataCollection) scatter(
 	state *TupleDataChunkState,
-	chunk *Chunk,
-	appendSel *SelectVector,
+	data *chunk.Chunk,
+	appendSel *chunk.SelectVector,
 	cnt int,
 	isChildrenOutput bool,
 ) {
-	rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._rowLocations)
+	rowLocations := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](state._rowLocations)
 	//set bitmap
 	if !isChildrenOutput {
 		bitsCnt := tuple._layout.columnCount() + tuple._layout.childrenOutputCount()
-		maskBytes := sizeInBytes(bitsCnt)
+		maskBytes := util.SizeInBytes(bitsCnt)
 		for i := 0; i < cnt; i++ {
-			memset(rowLocations[i], 0xFF, maskBytes)
+			util.Memset(rowLocations[i], 0xFF, maskBytes)
 		}
 	}
 
 	if !tuple._layout.allConst() {
 		heapSizeOffset := tuple._layout.heapSizeOffset()
-		heapSizes := getSliceInPhyFormatFlat[uint64](state._heapSizes)
+		heapSizes := chunk.GetSliceInPhyFormatFlat[uint64](state._heapSizes)
 		for i := 0; i < cnt; i++ {
-			store[uint64](heapSizes[i], pointerAdd(rowLocations[i], heapSizeOffset))
+			util.Store[uint64](heapSizes[i], util.PointerAdd(rowLocations[i], heapSizeOffset))
 		}
 	}
 	if isChildrenOutput {
 		for i, colIdx := range state._childrenOutputIds {
-			tuple.scatterVector(state, chunk._data[i], colIdx, appendSel, cnt)
+			tuple.scatterVector(state, data.Data[i], colIdx, appendSel, cnt)
 		}
 	} else {
 		for i, coldIdx := range state._columnIds {
-			tuple.scatterVector(state, chunk._data[i], coldIdx, appendSel, cnt)
+			tuple.scatterVector(state, data.Data[i], coldIdx, appendSel, cnt)
 		}
 	}
 }
 
 func (tuple *TupleDataCollection) scatterVector(
 	state *TupleDataChunkState,
-	src *Vector,
+	src *chunk.Vector,
 	colIdx int,
-	appendSel *SelectVector,
+	appendSel *chunk.SelectVector,
 	cnt int) {
 	TupleDataTemplatedScatterSwitch(
 		src,
@@ -1082,78 +1085,78 @@ func (tuple *TupleDataCollection) scatterVector(
 }
 
 // convert chunk into state.data unified format
-func toUnifiedFormat(state *TupleDataChunkState, chunk *Chunk) {
+func toUnifiedFormat(state *TupleDataChunkState, chunk *chunk.Chunk) {
 	for i, colId := range state._columnIds {
-		chunk._data[i].toUnifiedFormat(chunk.card(), &state._data[colId])
+		chunk.Data[i].ToUnifiedFormat(chunk.Card(), &state._data[colId])
 	}
 }
 
-func toUnifiedFormatForChildrenOutput(state *TupleDataChunkState, chunk *Chunk) {
+func toUnifiedFormatForChildrenOutput(state *TupleDataChunkState, chunk *chunk.Chunk) {
 	for i, colIdx := range state._childrenOutputIds {
-		chunk._data[i].toUnifiedFormat(chunk.card(), &state._data[colIdx])
+		chunk.Data[i].ToUnifiedFormat(chunk.Card(), &state._data[colIdx])
 	}
 }
 
 // result refers to chunk state.data unified format
-func getVectorData(state *TupleDataChunkState, result []*UnifiedFormat) {
+func getVectorData(state *TupleDataChunkState, result []*chunk.UnifiedFormat) {
 	vectorData := state._data
 	for i := 0; i < len(result); i++ {
 		target := result[i]
-		target._sel = vectorData[i]._sel
-		target._data = vectorData[i]._data
-		target._mask = vectorData[i]._mask
-		target._pTypSize = vectorData[i]._pTypSize
+		target.Sel = vectorData[i].Sel
+		target.Data = vectorData[i].Data
+		target.Mask = vectorData[i].Mask
+		target.PTypSize = vectorData[i].PTypSize
 	}
 }
 
 // evaluate the heap size of columns
 func (tuple *TupleDataCollection) computeHeapSizes(
 	state *TupleDataChunkState,
-	chunk *Chunk,
-	childrenOutput *Chunk,
-	appendSel *SelectVector,
+	data *chunk.Chunk,
+	childrenOutput *chunk.Chunk,
+	appendSel *chunk.SelectVector,
 	cnt int) {
 
 	//heapSizes records the heap size of every row
-	heapSizesSlice := getSliceInPhyFormatFlat[uint64](state._heapSizes)
-	fill[uint64](heapSizesSlice, size(heapSizesSlice), 0)
+	heapSizesSlice := chunk.GetSliceInPhyFormatFlat[uint64](state._heapSizes)
+	util.Fill[uint64](heapSizesSlice, util.Size(heapSizesSlice), 0)
 
-	for i := 0; i < chunk.columnCount(); i++ {
-		tuple.evaluateHeapSizes(state._heapSizes, chunk._data[i], &state._data[i], appendSel, cnt)
+	for i := 0; i < data.ColumnCount(); i++ {
+		tuple.evaluateHeapSizes(state._heapSizes, data.Data[i], &state._data[i], appendSel, cnt)
 	}
 
-	for i := 0; i < childrenOutput.columnCount(); i++ {
+	for i := 0; i < childrenOutput.ColumnCount(); i++ {
 		colIdx := state._childrenOutputIds[i]
-		tuple.evaluateHeapSizes(state._heapSizes, childrenOutput._data[i], &state._data[colIdx], appendSel, cnt)
+		tuple.evaluateHeapSizes(state._heapSizes, childrenOutput.Data[i], &state._data[colIdx], appendSel, cnt)
 	}
 }
 
 func (tuple *TupleDataCollection) evaluateHeapSizes(
-	sizes *Vector,
-	src *Vector,
-	srcUni *UnifiedFormat,
-	appendSel *SelectVector,
+	sizes *chunk.Vector,
+	src *chunk.Vector,
+	srcUni *chunk.UnifiedFormat,
+	appendSel *chunk.SelectVector,
 	cnt int) {
 	//only care varchar type
-	pTyp := src.typ().getInternalType()
+	pTyp := src.Typ().GetInternalType()
 	switch pTyp {
-	case VARCHAR:
+	case common.VARCHAR:
 	default:
 		return
 	}
-	heapSizeSlice := getSliceInPhyFormatFlat[uint64](sizes)
-	srcSel := srcUni._sel
-	srcMask := srcUni._mask
+	heapSizeSlice := chunk.GetSliceInPhyFormatFlat[uint64](sizes)
+	srcSel := srcUni.Sel
+	srcMask := srcUni.Mask
 
 	switch pTyp {
-	case VARCHAR:
-		srcSlice := getSliceInPhyFormatUnifiedFormat[String](srcUni)
+	case common.VARCHAR:
+		srcSlice := chunk.GetSliceInPhyFormatUnifiedFormat[common.String](srcUni)
 		for i := 0; i < cnt; i++ {
-			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
-			if srcMask.rowIsValid(uint64(srcIdx)) {
-				heapSizeSlice[i] += uint64(srcSlice[srcIdx].len())
+			srcIdx := srcSel.GetIndex(appendSel.GetIndex(i))
+			if srcMask.RowIsValid(uint64(srcIdx)) {
+				heapSizeSlice[i] += uint64(srcSlice[srcIdx].Length())
 			} else {
-				heapSizeSlice[i] += uint64(String{}.nullLen())
+				heapSizeSlice[i] += uint64(common.String{}.NullLen())
 			}
 		}
 
@@ -1164,12 +1167,12 @@ func (tuple *TupleDataCollection) evaluateHeapSizes(
 
 func (tuple *TupleDataCollection) gather(
 	layout *TupleDataLayout,
-	rowLocs *Vector,
-	scanSel *SelectVector,
+	rowLocs *chunk.Vector,
+	scanSel *chunk.SelectVector,
 	scanCnt int,
 	colId int,
-	result *Vector,
-	targetSel *SelectVector) {
+	result *chunk.Vector,
+	targetSel *chunk.SelectVector) {
 	TupleDataTemplatedGatherSwitch(
 		layout,
 		rowLocs,
@@ -1183,12 +1186,12 @@ func (tuple *TupleDataCollection) gather(
 
 func (tuple *TupleDataCollection) Gather(
 	layout *TupleDataLayout,
-	rowLocs *Vector,
-	scanSel *SelectVector,
+	rowLocs *chunk.Vector,
+	scanSel *chunk.SelectVector,
 	scanCnt int,
 	colIds []int,
-	result *Chunk,
-	targetSel *SelectVector,
+	result *chunk.Chunk,
+	targetSel *chunk.SelectVector,
 ) {
 	for i := 0; i < len(colIds); i++ {
 		tuple.gather(
@@ -1197,23 +1200,23 @@ func (tuple *TupleDataCollection) Gather(
 			scanSel,
 			scanCnt,
 			colIds[i],
-			result._data[i],
+			result.Data[i],
 			targetSel)
 	}
 }
 
 func TupleDataTemplatedScatterSwitch(
-	src *Vector,
-	srcFormat *UnifiedFormat,
-	appendSel *SelectVector,
+	src *chunk.Vector,
+	srcFormat *chunk.UnifiedFormat,
+	appendSel *chunk.SelectVector,
 	cnt int,
 	layout *TupleDataLayout,
-	rowLocations *Vector,
-	heapLocations *Vector,
+	rowLocations *chunk.Vector,
+	heapLocations *chunk.Vector,
 	colIdx int) {
-	pTyp := src.typ().getInternalType()
+	pTyp := src.Typ().GetInternalType()
 	switch pTyp {
-	case INT32:
+	case common.INT32:
 		TupleDataTemplatedScatter[int32](
 			srcFormat,
 			appendSel,
@@ -1222,9 +1225,20 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			int32ScatterOp{},
+			chunk.Int32ScatterOp{},
 		)
-	case UINT64:
+	case common.INT64:
+		TupleDataTemplatedScatter[int64](
+			srcFormat,
+			appendSel,
+			cnt,
+			layout,
+			rowLocations,
+			heapLocations,
+			colIdx,
+			chunk.Int64ScatterOp{},
+		)
+	case common.UINT64:
 		TupleDataTemplatedScatter[uint64](
 			srcFormat,
 			appendSel,
@@ -1233,10 +1247,10 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			uint64ScatterOp{},
+			chunk.Uint64ScatterOp{},
 		)
-	case VARCHAR:
-		TupleDataTemplatedScatter[String](
+	case common.VARCHAR:
+		TupleDataTemplatedScatter[common.String](
 			srcFormat,
 			appendSel,
 			cnt,
@@ -1244,9 +1258,9 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			stringScatterOp{},
+			chunk.StringScatterOp{},
 		)
-	case INT8:
+	case common.INT8:
 		TupleDataTemplatedScatter[int8](
 			srcFormat,
 			appendSel,
@@ -1255,10 +1269,10 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			int8ScatterOp{},
+			chunk.Int8ScatterOp{},
 		)
-	case DECIMAL:
-		TupleDataTemplatedScatter[Decimal](
+	case common.DECIMAL:
+		TupleDataTemplatedScatter[common.Decimal](
 			srcFormat,
 			appendSel,
 			cnt,
@@ -1266,10 +1280,10 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			decimalScatterOp{},
+			chunk.DecimalScatterOp{},
 		)
-	case DATE:
-		TupleDataTemplatedScatter[Date](
+	case common.DATE:
+		TupleDataTemplatedScatter[common.Date](
 			srcFormat,
 			appendSel,
 			cnt,
@@ -1277,9 +1291,9 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			dateScatterOp{},
+			chunk.DateScatterOp{},
 		)
-	case DOUBLE:
+	case common.DOUBLE:
 		TupleDataTemplatedScatter[float64](
 			srcFormat,
 			appendSel,
@@ -1288,10 +1302,10 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			float64ScatterOp{},
+			chunk.Float64ScatterOp{},
 		)
-	case INT128:
-		TupleDataTemplatedScatter[Hugeint](
+	case common.INT128:
+		TupleDataTemplatedScatter[common.Hugeint](
 			srcFormat,
 			appendSel,
 			cnt,
@@ -1299,7 +1313,7 @@ func TupleDataTemplatedScatterSwitch(
 			rowLocations,
 			heapLocations,
 			colIdx,
-			hugeintScatterOp{},
+			chunk.HugeintScatterOp{},
 		)
 	default:
 		panic("usp ")
@@ -1307,59 +1321,59 @@ func TupleDataTemplatedScatterSwitch(
 }
 
 func TupleDataTemplatedScatter[T any](
-	srcFormat *UnifiedFormat,
-	appendSel *SelectVector,
+	srcFormat *chunk.UnifiedFormat,
+	appendSel *chunk.SelectVector,
 	cnt int,
 	layout *TupleDataLayout,
-	rowLocations *Vector,
-	heapLocations *Vector,
+	rowLocations *chunk.Vector,
+	heapLocations *chunk.Vector,
 	colIdx int,
-	nVal ScatterOp[T],
+	nVal chunk.ScatterOp[T],
 ) {
-	srcSel := srcFormat._sel
-	srcSlice := getSliceInPhyFormatUnifiedFormat[T](srcFormat)
-	srcMask := srcFormat._mask
+	srcSel := srcFormat.Sel
+	srcSlice := chunk.GetSliceInPhyFormatUnifiedFormat[T](srcFormat)
+	srcMask := srcFormat.Mask
 
-	targetLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
-	targetHeapLocs := getSliceInPhyFormatFlat[unsafe.Pointer](heapLocations)
+	targetLocs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rowLocations)
+	targetHeapLocs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](heapLocations)
 	offsetInRow := layout.offsets()[colIdx]
 	if srcMask.AllValid() {
 		for i := 0; i < cnt; i++ {
-			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
+			srcIdx := srcSel.GetIndex(appendSel.GetIndex(i))
 			TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
 		}
 	} else {
 		for i := 0; i < cnt; i++ {
-			srcIdx := srcSel.getIndex(appendSel.getIndex(i))
-			if srcMask.rowIsValid(uint64(srcIdx)) {
+			srcIdx := srcSel.GetIndex(appendSel.GetIndex(i))
+			if srcMask.RowIsValid(uint64(srcIdx)) {
 				TupleDataValueStore[T](srcSlice[srcIdx], targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
 			} else {
-				TupleDataValueStore[T](nVal.nullValue(), targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
-				bSlice := pointerToSlice[uint8](targetLocs[i], layout._rowWidth)
-				tempMask := Bitmap{_bits: bSlice}
-				tempMask.setInvalidUnsafe(uint64(colIdx))
+				TupleDataValueStore[T](nVal.NullValue(), targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
+				bSlice := util.PointerToSlice[uint8](targetLocs[i], layout._rowWidth)
+				tempMask := util.Bitmap{Bits: bSlice}
+				tempMask.SetInvalidUnsafe(uint64(colIdx))
 			}
 		}
 	}
 
 }
 
-func TupleDataValueStore[T any](src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer, nVal ScatterOp[T]) {
-	nVal.store(src, rowLoc, offsetInRow, heapLoc)
+func TupleDataValueStore[T any](src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer, nVal chunk.ScatterOp[T]) {
+	nVal.Store(src, rowLoc, offsetInRow, heapLoc)
 }
 
 func TupleDataTemplatedGatherSwitch(
 	layout *TupleDataLayout,
-	rowLocs *Vector,
+	rowLocs *chunk.Vector,
 	colIdx int,
-	scanSel *SelectVector,
+	scanSel *chunk.SelectVector,
 	scanCnt int,
-	target *Vector,
-	targetSel *SelectVector,
+	target *chunk.Vector,
+	targetSel *chunk.SelectVector,
 ) {
-	pTyp := target.typ().getInternalType()
+	pTyp := target.Typ().GetInternalType()
 	switch pTyp {
-	case INT32:
+	case common.INT32:
 		TupleDataTemplatedGather[int32](
 			layout,
 			rowLocs,
@@ -1369,8 +1383,8 @@ func TupleDataTemplatedGatherSwitch(
 			target,
 			targetSel,
 		)
-	case VARCHAR:
-		TupleDataTemplatedGather[String](
+	case common.INT64:
+		TupleDataTemplatedGather[int64](
 			layout,
 			rowLocs,
 			colIdx,
@@ -1379,8 +1393,8 @@ func TupleDataTemplatedGatherSwitch(
 			target,
 			targetSel,
 		)
-	case DECIMAL:
-		TupleDataTemplatedGather[Decimal](
+	case common.VARCHAR:
+		TupleDataTemplatedGather[common.String](
 			layout,
 			rowLocs,
 			colIdx,
@@ -1389,8 +1403,8 @@ func TupleDataTemplatedGatherSwitch(
 			target,
 			targetSel,
 		)
-	case DATE:
-		TupleDataTemplatedGather[Date](
+	case common.DECIMAL:
+		TupleDataTemplatedGather[common.Decimal](
 			layout,
 			rowLocs,
 			colIdx,
@@ -1399,8 +1413,18 @@ func TupleDataTemplatedGatherSwitch(
 			target,
 			targetSel,
 		)
-	case INT128:
-		TupleDataTemplatedGather[Hugeint](
+	case common.DATE:
+		TupleDataTemplatedGather[common.Date](
+			layout,
+			rowLocs,
+			colIdx,
+			scanSel,
+			scanCnt,
+			target,
+			targetSel,
+		)
+	case common.INT128:
+		TupleDataTemplatedGather[common.Hugeint](
 			layout,
 			rowLocs,
 			colIdx,
@@ -1416,30 +1440,30 @@ func TupleDataTemplatedGatherSwitch(
 
 func TupleDataTemplatedGather[T any](
 	layout *TupleDataLayout,
-	rowLocs *Vector,
+	rowLocs *chunk.Vector,
 	colIdx int,
-	scanSel *SelectVector,
+	scanSel *chunk.SelectVector,
 	scanCnt int,
-	target *Vector,
-	targetSel *SelectVector,
+	target *chunk.Vector,
+	targetSel *chunk.SelectVector,
 ) {
-	srcLocs := getSliceInPhyFormatFlat[unsafe.Pointer](rowLocs)
-	targetData := getSliceInPhyFormatFlat[T](target)
-	targetBitmap := getMaskInPhyFormatFlat(target)
-	entryIdx, idxInEntry := getEntryIndex(uint64(colIdx))
+	srcLocs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rowLocs)
+	targetData := chunk.GetSliceInPhyFormatFlat[T](target)
+	targetBitmap := chunk.GetMaskInPhyFormatFlat(target)
+	entryIdx, idxInEntry := util.GetEntryIndex(uint64(colIdx))
 	offsetInRow := layout.offsets()[colIdx]
 	for i := 0; i < scanCnt; i++ {
-		base := srcLocs[scanSel.getIndex(i)]
-		srcRow := pointerToSlice[byte](base, layout._rowWidth)
-		targetIdx := targetSel.getIndex(i)
-		rowMask := Bitmap{_bits: srcRow}
-		if rowIsValidInEntry(
-			rowMask.getEntry(entryIdx),
+		base := srcLocs[scanSel.GetIndex(i)]
+		srcRow := util.PointerToSlice[byte](base, layout._rowWidth)
+		targetIdx := targetSel.GetIndex(i)
+		rowMask := util.Bitmap{Bits: srcRow}
+		if util.RowIsValidInEntry(
+			rowMask.GetEntry(entryIdx),
 			idxInEntry) {
-			targetData[targetIdx] = load[T](pointerAdd(base, offsetInRow))
+			targetData[targetIdx] = util.Load[T](util.PointerAdd(base, offsetInRow))
 
 		} else {
-			targetBitmap.setInvalid(uint64(targetIdx))
+			targetBitmap.SetInvalid(uint64(targetIdx))
 		}
 	}
 }
@@ -1464,16 +1488,16 @@ func (tuple *TupleDataCollection) NextScanIndex(
 	state *TupleDataScanState,
 	segIdx *int,
 	chunkIdx *int) bool {
-	if state._segmentIdx >= size(tuple._segments) {
+	if state._segmentIdx >= util.Size(tuple._segments) {
 		//no data
 		return false
 	}
 
 	for state._chunkIdx >=
-		size(tuple._segments[state._segmentIdx]._chunks) {
+		util.Size(tuple._segments[state._segmentIdx]._chunks) {
 		state._segmentIdx++
 		state._chunkIdx = 0
-		if state._segmentIdx >= size(tuple._segments) {
+		if state._segmentIdx >= util.Size(tuple._segments) {
 			//no data
 			return false
 		}
@@ -1490,9 +1514,9 @@ func (tuple *TupleDataCollection) ScanAtIndex(
 	chunkState *TupleDataChunkState,
 	colIdxs []int,
 	segIndx, chunkIndx int,
-	result *Chunk) {
+	result *chunk.Chunk) {
 	seg := tuple._segments[segIndx]
-	chunk := seg._chunks[chunkIndx]
+	data := seg._chunks[chunkIndx]
 	seg._allocator.InitChunkState(
 		seg,
 		pinState,
@@ -1500,20 +1524,20 @@ func (tuple *TupleDataCollection) ScanAtIndex(
 		chunkIndx,
 		false,
 	)
-	result.reset()
+	result.Reset()
 	tuple.Gather(
 		tuple._layout,
 		chunkState._rowLocations,
-		incrSelectVectorInPhyFormatFlat(),
-		int(chunk._count),
+		chunk.IncrSelectVectorInPhyFormatFlat(),
+		int(data._count),
 		colIdxs,
 		result,
-		incrSelectVectorInPhyFormatFlat(),
+		chunk.IncrSelectVectorInPhyFormatFlat(),
 	)
-	result.setCard(int(chunk._count))
+	result.SetCard(int(data._count))
 }
 
-func (tuple *TupleDataCollection) Scan(state *TupleDataScanState, result *Chunk) bool {
+func (tuple *TupleDataCollection) Scan(state *TupleDataScanState, result *chunk.Chunk) bool {
 	oldSegIdx := state._segmentIdx
 	var segIdx, chunkIdx int
 	if !tuple.NextScanIndex(state, &segIdx, &chunkIdx) {
@@ -1545,7 +1569,7 @@ func (tuple *TupleDataCollection) Build(
 	appendOffset uint64,
 	appendCount uint64,
 ) {
-	seg := back(tuple._segments)
+	seg := util.Back(tuple._segments)
 	seg._allocator.Build(seg, pinState, chunkState, appendOffset, appendCount)
 	tuple._count += appendCount
 }
@@ -1559,13 +1583,13 @@ func (tuple *TupleDataCollection) InitAppend(pinState *TupleDataPinState, prop T
 }
 
 func (tuple *TupleDataCollection) FinalizePinState(pinState *TupleDataPinState) {
-	assertFunc(len(tuple._segments) == 1)
+	util.AssertFunc(len(tuple._segments) == 1)
 	chunk := NewTupleDataChunk()
-	tuple._alloc.ReleaseOrStoreHandles(pinState, back(tuple._segments), chunk, true)
+	tuple._alloc.ReleaseOrStoreHandles(pinState, util.Back(tuple._segments), chunk, true)
 }
 
 func (tuple *TupleDataCollection) FinalizePinState2(pinState *TupleDataPinState, seg *TupleDataSegment) {
-	assertFunc(len(tuple._segments) == 1)
+	util.AssertFunc(len(tuple._segments) == 1)
 	chunk := NewTupleDataChunk()
 	tuple._alloc.ReleaseOrStoreHandles(pinState, seg, chunk, true)
 }

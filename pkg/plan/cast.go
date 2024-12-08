@@ -22,6 +22,10 @@ import (
 	"time"
 
 	dec "github.com/govalues/decimal"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func tryCastInt32ToInt32(input *int32, result *int32, _ bool) bool {
@@ -29,9 +33,14 @@ func tryCastInt32ToInt32(input *int32, result *int32, _ bool) bool {
 	return true
 }
 
-func tryCastInt32ToHugeint(input *int32, result *Hugeint, _ bool) bool {
-	result._upper = 0
-	result._lower = uint64(*input)
+func tryCastInt32ToInt64(input *int32, result *int64, _ bool) bool {
+	*result = int64(*input)
+	return true
+}
+
+func tryCastInt32ToHugeint(input *int32, result *common.Hugeint, _ bool) bool {
+	result.Upper = 0
+	result.Lower = uint64(*input)
 	return true
 }
 
@@ -45,50 +54,50 @@ func tryCastInt32ToFloat64(input *int32, result *float64, _ bool) bool {
 	return true
 }
 
-func tryCastInt32ToDecimal(input *int32, result *Decimal, tScale int, _ bool) bool {
+func tryCastInt32ToDecimal(input *int32, result *common.Decimal, tScale int, _ bool) bool {
 	nDec, err := dec.NewFromInt64(int64(*input), 0, tScale)
 	if err != nil {
 		panic(err)
 	}
 
-	*result = Decimal{
+	*result = common.Decimal{
 		Decimal: nDec,
 	}
 	return true
 }
 
-func tryCastDecimalToFloat32(input *Decimal, result *float32, _ bool) bool {
+func tryCastDecimalToFloat32(input *common.Decimal, result *float32, _ bool) bool {
 	v, ok := input.Float64()
-	assertFunc(ok)
+	util.AssertFunc(ok)
 	*result = float32(v)
 	return true
 }
 
-func tryCastBigintToInt32(input *Hugeint, result *int32, _ bool) bool {
-	val := int32(input._lower)
-	if uint64(val) != input._lower {
+func tryCastBigintToInt32(input *common.Hugeint, result *int32, _ bool) bool {
+	val := int32(input.Lower)
+	if uint64(val) != input.Lower {
 		fmt.Println(input)
 	}
 	*result = val
 	return true
 }
 
-func tryCastBigintToFloat32(input *Hugeint, result *float32, _ bool) bool {
-	switch input._upper {
+func tryCastBigintToFloat32(input *common.Hugeint, result *float32, _ bool) bool {
+	switch input.Upper {
 	case -1:
-		*result = -float32(math.MaxUint64-input._lower) - 1
+		*result = -float32(math.MaxUint64-input.Lower) - 1
 	default:
-		*result = float32(input._lower) +
-			float32(input._upper)*float32(math.MaxUint64)
+		*result = float32(input.Lower) +
+			float32(input.Upper)*float32(math.MaxUint64)
 	}
 	return true
 }
 
-func tryCastBigintToDecimal(input *Hugeint, result *Decimal, _ bool) bool {
+func tryCastBigintToDecimal(input *common.Hugeint, result *common.Decimal, _ bool) bool {
 	panic("usp")
 }
 
-func tryCastDecimalToDecimal(input *Decimal, result *Decimal, srcScale, dstScale int, _ bool) bool {
+func tryCastDecimalToDecimal(input *common.Decimal, result *common.Decimal, srcScale, dstScale int, _ bool) bool {
 	//if numCast.srcScale == numCast.dstScale {
 	//	*result = *input
 	//} else if numCast.srcScale > numCast.dstScale {
@@ -124,21 +133,30 @@ func tryCastFloat32ToFloat64(input *float32, result *float64, _ bool) bool {
 	return true
 }
 
-func tryCastVarcharToDate(input *String, result *Date, _ bool) bool {
+func tryCastFloat32ToDecimal(input *float32, result *common.Decimal, _ bool) bool {
+	res, err := dec.NewFromFloat64(float64(*input))
+	if err != nil {
+		panic(err)
+	}
+	result.Decimal = res
+	return true
+}
+
+func tryCastVarcharToDate(input *common.String, result *common.Date, _ bool) bool {
 	ti, err := time.Parse(time.DateOnly, input.String())
 	if err != nil {
 		panic(err)
 	}
 	y, m, d := ti.Date()
-	*result = Date{
-		_year:  int32(y),
-		_month: int32(m),
-		_day:   int32(d),
+	*result = common.Date{
+		Year:  int32(y),
+		Month: int32(m),
+		Day:   int32(d),
 	}
 	return true
 }
 
-func tryCastVarcharToInterval(input *String, result *Interval, _ bool) bool {
+func tryCastVarcharToInterval(input *common.String, result *common.Interval, _ bool) bool {
 	is := input.String()
 	seps := strings.Split(is, " ")
 	if len(seps) != 2 {
@@ -146,27 +164,27 @@ func tryCastVarcharToInterval(input *String, result *Interval, _ bool) bool {
 	}
 	switch strings.ToLower(seps[1]) {
 	case "year":
-		result._unit = "year"
+		result.Unit = "year"
 		parseInt, err := strconv.ParseInt(seps[0], 10, 64)
 		if err != nil {
 			panic(fmt.Sprintf("invalid interval string %v", is))
 		}
-		result._year = int32(parseInt)
+		result.Year = int32(parseInt)
 	case "month":
-		result._unit = "month"
+		result.Unit = "month"
 		parseInt, err := strconv.ParseInt(seps[0], 10, 64)
 		if err != nil {
 			panic(fmt.Sprintf("invalid interval string %v", is))
 		}
-		result._months = int32(parseInt)
+		result.Months = int32(parseInt)
 
 	case "day":
-		result._unit = "day"
+		result.Unit = "day"
 		parseInt, err := strconv.ParseInt(seps[0], 10, 64)
 		if err != nil {
 			panic(fmt.Sprintf("invalid interval string %v", is))
 		}
-		result._days = int32(parseInt)
+		result.Days = int32(parseInt)
 	default:
 		panic(fmt.Sprintf("invalid interval unit %v", is))
 	}
@@ -174,16 +192,16 @@ func tryCastVarcharToInterval(input *String, result *Interval, _ bool) bool {
 }
 
 func castExec(
-	source, result *Vector,
+	source, result *chunk.Vector,
 	count int,
 ) {
 	panic("usp")
 }
 
-func AddCastToType(expr *Expr, dstTyp LType, tryCast bool) (*Expr, error) {
+func AddCastToType(expr *Expr, dstTyp common.LType, tryCast bool) (*Expr, error) {
 	var err error
 	var retExpr *Expr
-	if expr.DataTyp.equal(dstTyp) {
+	if expr.DataTyp.Equal(dstTyp) {
 		return expr, nil
 	}
 
@@ -208,7 +226,7 @@ func AddCastToType(expr *Expr, dstTyp LType, tryCast bool) (*Expr, error) {
 		BindInfo:   nil,
 		FunImpl: &FunctionV2{
 			_name:          ET_Cast.String(),
-			_args:          []LType{expr.DataTyp, dstTyp},
+			_args:          []common.LType{expr.DataTyp, dstTyp},
 			_retType:       dstTyp,
 			_funcTyp:       ScalarFuncType,
 			_boundCastInfo: castInfo,
@@ -231,7 +249,7 @@ func (cast NumericTryCast[T, R]) operation(input *T, result *R, strict bool) boo
 	return cast.op(input, result, strict)
 }
 
-type BindCastFuncType func(input *BindCastInput, src, dst LType) *BoundCastInfo
+type BindCastFuncType func(input *BindCastInput, src, dst common.LType) *BoundCastInfo
 
 type BindCastFunc struct {
 	_fun  BindCastFuncType
@@ -242,8 +260,8 @@ type CastFunctionSet struct {
 	_bindFuncs []*BindCastFunc
 }
 
-func NoCast(src *Vector, res *Vector, count int, params *CastParams) bool {
-	res.reference(src)
+func NoCast(src *chunk.Vector, res *chunk.Vector, count int, params *CastParams) bool {
+	res.Reference(src)
 	return true
 }
 
@@ -253,8 +271,8 @@ var (
 	}
 )
 
-func (castSet *CastFunctionSet) GetCastFunc(src, dst LType) *BoundCastInfo {
-	if src.equal(dst) {
+func (castSet *CastFunctionSet) GetCastFunc(src, dst common.LType) *BoundCastInfo {
+	if src.Equal(dst) {
 		return defNoCast
 	}
 
@@ -280,6 +298,6 @@ func NewCastFunctionSet() *CastFunctionSet {
 	return ret
 }
 
-func (castSet *CastFunctionSet) ImplicitCastCost(src, dst LType) int64 {
-	return implicitCast(src, dst)
+func (castSet *CastFunctionSet) ImplicitCastCost(src, dst common.LType) int64 {
+	return common.ImplicitCast(src, dst)
 }

@@ -16,6 +16,10 @@ package plan
 
 import (
 	"math"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type LimitState int
@@ -29,7 +33,7 @@ type Limit struct {
 	_state         LimitState
 	_limit         uint64
 	_offset        uint64
-	_childTypes    []LType
+	_childTypes    []common.LType
 	_data          *ColumnDataCollection
 	_currentOffset uint64
 	_reader        *LimitReader
@@ -40,7 +44,7 @@ type LimitReader struct {
 	_scanState     *ColumnDataScanState
 }
 
-func (limit *Limit) Sink(chunk *Chunk) SinkResult {
+func (limit *Limit) Sink(chunk *chunk.Chunk) SinkResult {
 	var maxElement uint64
 	if !limit.ComputeOffset(chunk, &maxElement) {
 		return SinkResDone
@@ -48,12 +52,12 @@ func (limit *Limit) Sink(chunk *Chunk) SinkResult {
 
 	maxCard := maxElement - limit._currentOffset
 	//drop rest part
-	if maxCard < uint64(chunk.card()) {
-		chunk.setCard(int(maxCard))
+	if maxCard < uint64(chunk.Card()) {
+		chunk.SetCard(int(maxCard))
 	}
 
 	limit._data.Append(chunk)
-	limit._currentOffset += uint64(chunk.card())
+	limit._currentOffset += uint64(chunk.Card())
 	if limit._currentOffset == maxElement {
 		return SinkResDone
 	}
@@ -61,7 +65,7 @@ func (limit *Limit) Sink(chunk *Chunk) SinkResult {
 }
 
 func (limit *Limit) ComputeOffset(
-	chunk *Chunk,
+	chunk *chunk.Chunk,
 	maxElement *uint64) bool {
 	if limit._limit != math.MaxUint64 {
 		*maxElement = limit._limit + limit._offset
@@ -74,7 +78,7 @@ func (limit *Limit) ComputeOffset(
 	panic("usp")
 }
 
-func (limit *Limit) GetData(read *Chunk) SourceResult {
+func (limit *Limit) GetData(read *chunk.Chunk) SourceResult {
 	if limit._reader == nil {
 		limit._reader = &LimitReader{
 			_currentOffset: 0,
@@ -86,7 +90,7 @@ func (limit *Limit) GetData(read *Chunk) SourceResult {
 		limit._limit+limit._offset {
 
 		limit._data.Scan(limit._reader._scanState, read)
-		if read.card() == 0 {
+		if read.Card() == 0 {
 			return SrcResDone
 		}
 
@@ -94,7 +98,7 @@ func (limit *Limit) GetData(read *Chunk) SourceResult {
 			break
 		}
 	}
-	if read.card() > 0 {
+	if read.Card() > 0 {
 		return SrcResHaveMoreOutput
 	} else {
 		return SrcResDone
@@ -102,7 +106,7 @@ func (limit *Limit) GetData(read *Chunk) SourceResult {
 }
 
 func (limit *Limit) HandleOffset(
-	input *Chunk,
+	input *chunk.Chunk,
 	currentOffset *uint64,
 ) bool {
 	maxElement := uint64(0)
@@ -112,37 +116,37 @@ func (limit *Limit) HandleOffset(
 		maxElement = limit._limit + limit._offset
 	}
 
-	inputSize := input.card()
+	inputSize := input.Card()
 	if *currentOffset < limit._offset {
-		if *currentOffset+uint64(input.card()) >
+		if *currentOffset+uint64(input.Card()) >
 			limit._offset {
 			startPosition := limit._offset - *currentOffset
 			chunkCount := min(limit._limit,
-				uint64(input.card())-startPosition)
-			sel := NewSelectVector(defaultVectorSize)
+				uint64(input.Card())-startPosition)
+			sel := chunk.NewSelectVector(util.DefaultVectorSize)
 			for i := 0; i < int(chunkCount); i++ {
-				sel.setIndex(i, int(startPosition)+i)
+				sel.SetIndex(i, int(startPosition)+i)
 			}
-			input.slice(input, sel, int(chunkCount), 0)
+			input.Slice(input, sel, int(chunkCount), 0)
 		} else {
-			*currentOffset += uint64(input.card())
+			*currentOffset += uint64(input.Card())
 			return false
 		}
 	} else {
 		chunkCount := 0
-		if *currentOffset+uint64(input.card()) >= maxElement {
+		if *currentOffset+uint64(input.Card()) >= maxElement {
 			chunkCount = int(maxElement - *currentOffset)
 		} else {
-			chunkCount = input.card()
+			chunkCount = input.Card()
 		}
-		input.reference(input)
-		input.setCard(chunkCount)
+		input.Reference(input)
+		input.SetCard(chunkCount)
 	}
 	*currentOffset += uint64(inputSize)
 	return true
 }
 
-func NewLimit(typs []LType, limitExpr, offsetExpr *Expr) *Limit {
+func NewLimit(typs []common.LType, limitExpr, offsetExpr *Expr) *Limit {
 	ret := &Limit{
 		_childTypes: typs,
 	}

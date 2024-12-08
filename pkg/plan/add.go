@@ -16,6 +16,8 @@ package plan
 
 import (
 	"math"
+
+	"github.com/daviszhen/plan/pkg/common"
 )
 
 func addInt8(left, right, result *int8) {
@@ -50,7 +52,7 @@ func addUint64(left, right, result *uint64) {
 	*result = *left + *right
 }
 
-func GetScalarIntegerAddFunction(ptyp PhyType, checkOverflow bool) ScalarFunc {
+func GetScalarIntegerAddFunction(ptyp common.PhyType, checkOverflow bool) ScalarFunc {
 	if checkOverflow {
 		return GetScalarIntegerAddFunctionWithOverflowCheck(ptyp)
 	} else {
@@ -58,26 +60,26 @@ func GetScalarIntegerAddFunction(ptyp PhyType, checkOverflow bool) ScalarFunc {
 	}
 }
 
-func GetScalarIntegerAddFunctionWithoutOverflowCheck(ptyp PhyType) ScalarFunc {
+func GetScalarIntegerAddFunctionWithoutOverflowCheck(ptyp common.PhyType) ScalarFunc {
 	switch ptyp {
-	case INT8:
+	case common.INT8:
 		return BinaryFunction[int8, int8, int8](addInt8)
-	case INT16:
+	case common.INT16:
 		return BinaryFunction[int16, int16, int16](addInt16)
-	case INT32:
+	case common.INT32:
 		return BinaryFunction[int32, int32, int32](addInt32)
-	case INT64:
+	case common.INT64:
 		return BinaryFunction[int64, int64, int64](addInt64)
-	case UINT8:
+	case common.UINT8:
 		return BinaryFunction[uint8, uint8, uint8](addUint8)
-	case UINT16:
+	case common.UINT16:
 		return BinaryFunction[uint16, uint16, uint16](addUint16)
-	case UINT32:
+	case common.UINT32:
 		return BinaryFunction[uint32, uint32, uint32](addUint32)
-	case UINT64:
+	case common.UINT64:
 		return BinaryFunction[uint64, uint64, uint64](addUint64)
-	case DECIMAL:
-		return BinaryFunction[Decimal, Decimal, Decimal](binDecimalDecimalAddOp)
+	case common.DECIMAL:
+		return BinaryFunction[common.Decimal, common.Decimal, common.Decimal](binDecimalDecimalAddOp)
 	default:
 		panic("usp")
 	}
@@ -168,36 +170,36 @@ func addUint64CheckOf(left, right, result *uint64) {
 	*result = *left + *right
 }
 
-func GetScalarIntegerAddFunctionWithOverflowCheck(ptyp PhyType) ScalarFunc {
+func GetScalarIntegerAddFunctionWithOverflowCheck(ptyp common.PhyType) ScalarFunc {
 	switch ptyp {
-	case INT8:
+	case common.INT8:
 		return BinaryFunction[int8, int8, int8](addInt8CheckOf)
-	case INT16:
+	case common.INT16:
 		return BinaryFunction[int16, int16, int16](addInt16CheckOf)
-	case INT32:
+	case common.INT32:
 		return BinaryFunction[int32, int32, int32](addInt32CheckOf)
-	case INT64:
+	case common.INT64:
 		return BinaryFunction[int64, int64, int64](addInt64CheckOf)
-	case UINT8:
+	case common.UINT8:
 		return BinaryFunction[uint8, uint8, uint8](addUint8CheckOf)
-	case UINT16:
+	case common.UINT16:
 		return BinaryFunction[uint16, uint16, uint16](addUint16CheckOf)
-	case UINT32:
+	case common.UINT32:
 		return BinaryFunction[uint32, uint32, uint32](addUint32CheckOf)
-	case UINT64:
+	case common.UINT64:
 		return BinaryFunction[uint64, uint64, uint64](addUint64CheckOf)
-	case DECIMAL:
-		return BinaryFunction[Decimal, Decimal, Decimal](binDecimalDecimalAddOp)
+	case common.DECIMAL:
+		return BinaryFunction[common.Decimal, common.Decimal, common.Decimal](binDecimalDecimalAddOp)
 	default:
 		panic("not implement")
 	}
 }
 
-func addHugeint(left, right, result *Hugeint) {
+func addHugeint(left, right, result *common.Hugeint) {
 	panic("usp")
 }
 
-func subHugeint(left *Hugeint, right *Hugeint, result *Hugeint) {
+func subHugeint(left *common.Hugeint, right *common.Hugeint, result *common.Hugeint) {
 	panic("usp")
 }
 
@@ -209,7 +211,7 @@ func addFloat64(left, right, result *float64) {
 	*result = *left + *right
 }
 
-func GetScalarBinaryAddFunction(ptyp PhyType, checkOverflow bool) ScalarFunc {
+func GetScalarBinaryAddFunction(ptyp common.PhyType, checkOverflow bool) ScalarFunc {
 	if checkOverflow {
 		return GetScalarBinaryAddFunctionWithOverflowCheck(ptyp)
 	} else {
@@ -217,26 +219,26 @@ func GetScalarBinaryAddFunction(ptyp PhyType, checkOverflow bool) ScalarFunc {
 	}
 }
 
-func GetScalarBinaryAddFunctionWithoutOverflowCheck(ptyp PhyType) ScalarFunc {
+func GetScalarBinaryAddFunctionWithoutOverflowCheck(ptyp common.PhyType) ScalarFunc {
 	switch ptyp {
-	case INT128:
-		return BinaryFunction[Hugeint, Hugeint, Hugeint](addHugeint)
-	case FLOAT:
+	case common.INT128:
+		return BinaryFunction[common.Hugeint, common.Hugeint, common.Hugeint](addHugeint)
+	case common.FLOAT:
 		return BinaryFunction[float32, float32, float32](addFloat32)
-	case DOUBLE:
+	case common.DOUBLE:
 		return BinaryFunction[float64, float64, float64](addFloat64)
 	default:
 		return GetScalarIntegerAddFunction(ptyp, false)
 	}
 }
 
-func GetScalarBinaryAddFunctionWithOverflowCheck(ptyp PhyType) ScalarFunc {
+func GetScalarBinaryAddFunctionWithOverflowCheck(ptyp common.PhyType) ScalarFunc {
 	switch ptyp {
-	case INT128:
-		return BinaryFunction[Hugeint, Hugeint, Hugeint](addHugeint)
-	case FLOAT:
+	case common.INT128:
+		return BinaryFunction[common.Hugeint, common.Hugeint, common.Hugeint](addHugeint)
+	case common.FLOAT:
 		return BinaryFunction[float32, float32, float32](addFloat32)
-	case DOUBLE:
+	case common.DOUBLE:
 		return BinaryFunction[float64, float64, float64](addFloat64)
 	default:
 		return GetScalarIntegerAddFunction(ptyp, true)

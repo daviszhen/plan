@@ -14,24 +14,29 @@
 
 package plan
 
+import (
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/util"
+)
+
 type UnaryData struct {
 	_tryCastData *VectorTryCastData
 }
 
 type VectorTryCastData struct {
-	_result       *Vector
+	_result       *chunk.Vector
 	_errorMsg     *string
 	_strict       bool
 	_allConverted bool
 }
 
 func TryCastLoop[T any, R any](
-	src, res *Vector,
+	src, res *chunk.Vector,
 	count int,
 	params *CastParams,
 	op CastOp[T, R],
 ) bool {
-	tryCastOp := func(input *T, result *R, mask *Bitmap, idx int, data *UnaryData) {
+	tryCastOp := func(input *T, result *R, mask *util.Bitmap, idx int, data *UnaryData) {
 		VectorTryCastOperator(input, result, mask, idx, data, op)
 	}
 	return TemplatedTryCastLoop[T, R](
@@ -43,7 +48,7 @@ func TryCastLoop[T any, R any](
 }
 
 func TemplatedTryCastLoop[T any, R any](
-	src, res *Vector,
+	src, res *chunk.Vector,
 	count int,
 	params *CastParams,
 	op UnaryOp2[T, R],

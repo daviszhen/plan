@@ -17,9 +17,15 @@ package plan
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 	"github.com/xlab/treeprint"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/storage"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type BindingType int
@@ -54,7 +60,7 @@ type Binding struct {
 	database string
 	alias    string
 	index    uint64
-	typs     []LType
+	typs     []common.LType
 	names    []string
 	nameMap  map[string]int
 }
@@ -155,8 +161,8 @@ func (bc *BindContext) RemoveContext(obList []*Binding) {
 			}
 		}
 		if found > -1 {
-			swap(bc.bindingsList, found, len(bc.bindingsList)-1)
-			bc.bindingsList = pop(bc.bindingsList)
+			util.Swap(bc.bindingsList, found, len(bc.bindingsList)-1)
+			bc.bindingsList = util.Pop(bc.bindingsList)
 		}
 
 		delete(bc.bindings, ob.alias)
@@ -249,17 +255,23 @@ type Builder struct {
 	limitCount   *Expr
 	limitOffset  *Expr
 
+	//for insert
+	expectedTypes []common.LType
+	expectedNames []string
+
 	names       []string //output column names
 	columnCount int      // count of the select exprs (after expanding star)
 	phyId       int
+	txn         *storage.Txn
 }
 
-func NewBuilder() *Builder {
+func NewBuilder(txn *storage.Txn) *Builder {
 	return &Builder{
 		tag:        new(int),
 		rootCtx:    NewBindContext(nil),
 		aliasMap:   make(map[string]int),
 		projectMap: make(map[string]int),
+		txn:        txn,
 	}
 }
 
@@ -425,15 +437,50 @@ func (b *Builder) buildSelect(sel *pg_query.SelectStmt, ctx *BindContext, depth 
 		}
 	}
 
-	//from
-	b.fromExpr, err = b.buildTables(sel.FromClause, ctx, depth)
-	if err != nil {
-		return err
+	if len(sel.FromClause) != 0 {
+		//from
+		b.fromExpr, err = b.buildTables(sel.FromClause, ctx, depth)
+		if err != nil {
+			return err
+		}
+	} else if len(sel.ValuesLists) != 0 {
+		b.fromExpr, err = b.buildValuesLists(sel.ValuesLists, ctx, depth)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("usp table ref")
 	}
 
 	//expand star
 	newSelectExprs := make([]*pg_query.ResTarget, 0)
-	for _, expr := range sel.TargetList {
+
+	targetList := sel.TargetList
+	if len(targetList) == 0 {
+		//mock star
+		star := &pg_query.ResTarget{
+			Val: &pg_query.Node{
+				Node: &pg_query.Node_ColumnRef{
+					ColumnRef: &pg_query.ColumnRef{
+						Fields: []*pg_query.Node{
+							{
+								Node: &pg_query.Node_AStar{
+									AStar: &pg_query.A_Star{},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		targetList = append(targetList, &pg_query.Node{
+			Node: &pg_query.Node_ResTarget{
+				ResTarget: star,
+			},
+		})
+	}
+
+	for _, expr := range targetList {
 		ret, err := b.expandStar(expr.GetResTarget())
 		if err != nil {
 			return err
@@ -563,8 +610,9 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 
 	switch rangeNode := table.GetNode().(type) {
 	case *pg_query.Node_RangeVar:
-		db := "tpch"
+
 		tableAst := rangeNode.RangeVar
+		db := tableAst.GetSchemaname()
 		tableName := tableAst.Relname
 		cte := b.findCte(tableName, tableName == b.alias, ctx)
 		if cte != nil {
@@ -602,27 +650,31 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 			}
 		}
 		{
-			tpchDB := tpchCatalog()
-			cta, err := tpchDB.Table(db, tableName)
-			if err != nil {
-				return nil, err
+			if db == "" {
+				db = "public"
+			}
+			tabEnt := storage.GCatalog.GetEntry(b.txn, storage.CatalogTypeTable, db, tableName)
+			if tabEnt == nil {
+				return nil, fmt.Errorf("no table %s in schema %s", tableName, db)
 			}
 			alias := tableName
 			if tableAst.Alias != nil {
 				alias = tableAst.Alias.Aliasname
 			}
+			typs := tabEnt.GetTypes()
+			cols := tabEnt.GetColumnNames()
 			bind := &Binding{
 				typ:     BT_TABLE,
 				alias:   alias,
 				index:   uint64(b.GetTag()),
-				typs:    copyTo(cta.Types),
-				names:   copyTo(cta.Columns),
+				typs:    util.CopyTo(typs),
+				names:   util.CopyTo(cols),
 				nameMap: make(map[string]int),
 			}
 			for idx, name := range bind.names {
 				bind.nameMap[name] = idx
 			}
-			err = ctx.AddBinding(alias, bind)
+			err := ctx.AddBinding(alias, bind)
 			if err != nil {
 				return nil, err
 			}
@@ -634,13 +686,50 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 				Table:     tableName,
 				Alias:     alias,
 				BelongCtx: ctx,
+				TabEnt:    tabEnt,
 			}, err
 		}
+		//{
+		//	db = "tpch"
+		//	tpchDB := tpchCatalog()
+		//	cta, err := tpchDB.Table(db, tableName)
+		//	if err != nil {
+		//		return nil, err
+		//	}
+		//	alias := tableName
+		//	if tableAst.Alias != nil {
+		//		alias = tableAst.Alias.Aliasname
+		//	}
+		//	bind := &Binding{
+		//		typ:     BT_TABLE,
+		//		alias:   alias,
+		//		index:   uint64(b.GetTag()),
+		//		typs:    util.CopyTo(cta.Types),
+		//		names:   util.CopyTo(cta.Columns),
+		//		nameMap: make(map[string]int),
+		//	}
+		//	for idx, name := range bind.names {
+		//		bind.nameMap[name] = idx
+		//	}
+		//	err = ctx.AddBinding(alias, bind)
+		//	if err != nil {
+		//		return nil, err
+		//	}
+		//
+		//	return &Expr{
+		//		Typ:       ET_TABLE,
+		//		Index:     bind.index,
+		//		Database:  db,
+		//		Table:     tableName,
+		//		Alias:     alias,
+		//		BelongCtx: ctx,
+		//	}, err
+		//}
 	case *pg_query.Node_JoinExpr:
 		return b.buildJoinTable(rangeNode.JoinExpr, ctx, depth)
 	case *pg_query.Node_RangeSubselect:
 		subqueryAst := rangeNode.RangeSubselect
-		subBuilder := NewBuilder()
+		subBuilder := NewBuilder(b.txn)
 		subBuilder.tag = b.tag
 		subBuilder.rootCtx.parent = ctx
 		if len(subqueryAst.Alias.Aliasname) == 0 {
@@ -655,7 +744,7 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 		if len(subBuilder.projectExprs) == 0 {
 			panic("subquery must have project list")
 		}
-		subTypes := make([]LType, 0)
+		subTypes := make([]common.LType, 0)
 		subNames := make([]string, 0)
 		for i, expr := range subBuilder.projectExprs {
 			subTypes = append(subTypes, expr.DataTyp)
@@ -898,19 +987,38 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 	var left, right *LogicalOperator
 	switch expr.Typ {
 	case ET_TABLE:
-		catalogOfTable, err := tpchCatalog().Table(expr.Database, expr.Table)
-		if err != nil {
-			return nil, err
+		{
+			tabEnt := storage.GCatalog.GetEntry(b.txn, storage.CatalogTypeTable, expr.Database, expr.Table)
+			if tabEnt == nil {
+				return nil, fmt.Errorf("no table %s in schema %s", expr.Database, expr.Table)
+			}
+			stats := convertStats(tabEnt.GetStats())
+			return &LogicalOperator{
+				Typ:       LOT_Scan,
+				Index:     expr.Index,
+				Database:  expr.Database,
+				Table:     expr.Table,
+				Alias:     expr.Alias,
+				BelongCtx: expr.BelongCtx,
+				Stats:     stats,
+				TableEnt:  tabEnt,
+			}, err
 		}
-		return &LogicalOperator{
-			Typ:       LOT_Scan,
-			Index:     expr.Index,
-			Database:  expr.Database,
-			Table:     expr.Table,
-			Alias:     expr.Alias,
-			BelongCtx: expr.BelongCtx,
-			Stats:     catalogOfTable.Stats.Copy(),
-		}, err
+		//{
+		//	catalogOfTable, err := tpchCatalog().Table(expr.Database, expr.Table)
+		//	if err != nil {
+		//		return nil, err
+		//	}
+		//	return &LogicalOperator{
+		//		Typ:       LOT_Scan,
+		//		Index:     expr.Index,
+		//		Database:  expr.Database,
+		//		Table:     expr.Table,
+		//		Alias:     expr.Alias,
+		//		BelongCtx: expr.BelongCtx,
+		//		Stats:     catalogOfTable.Stats.Copy(),
+		//	}, err
+		//}
 	case ET_Join:
 		left, err = b.createFrom(expr.Children[0], root)
 		if err != nil {
@@ -946,6 +1054,23 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			return nil, err
 		}
 		return root, err
+	case ET_ValuesList:
+		//is values list
+		return &LogicalOperator{
+			Typ:         LOT_Scan,
+			Index:       expr.Index,
+			Database:    expr.Database,
+			Table:       expr.Table,
+			Alias:       expr.Alias,
+			BelongCtx:   expr.BelongCtx,
+			Stats:       &Stats{},
+			TableIndex:  int(expr.Index),
+			ScanTyp:     ScanTypeValuesList,
+			Types:       expr.Types,
+			Names:       expr.Names,
+			Values:      expr.Values,
+			ColName2Idx: expr.ColName2Idx,
+		}, err
 	default:
 		panic("usp")
 	}
@@ -1042,7 +1167,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 
 				bExpr := &Expr{
 					Typ:     ET_BConst,
-					DataTyp: boolean(),
+					DataTyp: common.BooleanType(),
 					Bvalue:  true,
 				}
 
@@ -1099,7 +1224,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 
 				bExpr := &Expr{
 					Typ:     ET_BConst,
-					DataTyp: boolean(),
+					DataTyp: common.BooleanType(),
 					Bvalue:  true,
 				}
 
@@ -1197,7 +1322,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			left := mCond
 			right := &Expr{
 				Typ:     ET_BConst,
-				DataTyp: boolean(),
+				DataTyp: common.BooleanType(),
 				Bvalue:  exists,
 			}
 			fbinder := FunctionBinder{}
@@ -1803,7 +1928,7 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	} else {
 		els = &Expr{
 			Typ:     ET_NConst,
-			DataTyp: null(),
+			DataTyp: common.Null(),
 		}
 	}
 
@@ -1812,19 +1937,19 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	//decide result types
 	//max type of the THEN expr
 	for i := 0; i < len(when); i += 2 {
-		retTyp = MaxLType(retTyp, when[i+1].DataTyp)
+		retTyp = common.MaxLType(retTyp, when[i+1].DataTyp)
 	}
 
 	//case THEN to
 	for i := 0; i < len(when); i += 2 {
-		when[i+1], err = AddCastToType(when[i+1], retTyp, retTyp.id == LTID_ENUM)
+		when[i+1], err = AddCastToType(when[i+1], retTyp, retTyp.Id == common.LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	//cast ELSE to
-	els, err = AddCastToType(els, retTyp, retTyp.id == LTID_ENUM)
+	els, err = AddCastToType(els, retTyp, retTyp.Id == common.LTID_ENUM)
 	if err != nil {
 		return nil, err
 	}
@@ -1832,15 +1957,15 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	params := []*Expr{els}
 	params = append(params, when...)
 
-	decideDataType := func(e *Expr) LType {
+	decideDataType := func(e *Expr) common.LType {
 		if e == nil {
-			return null()
+			return common.Null()
 		} else {
 			return e.DataTyp
 		}
 	}
 
-	paramsTypes := []LType{
+	paramsTypes := []common.LType{
 		decideDataType(els),
 	}
 
@@ -1870,31 +1995,31 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 		return nil, err
 	}
 
-	assertFunc(listExpr.Typ == ET_List)
+	util.AssertFunc(listExpr.Typ == ET_List)
 
-	argsTypes := make([]LType, 0)
+	argsTypes := make([]common.LType, 0)
 	children := listExpr.Children
 	for _, child := range listExpr.Children {
 		argsTypes = append(argsTypes, child.DataTyp)
 	}
 
 	maxType := in.DataTyp
-	anyVarchar := in.DataTyp.id == LTID_VARCHAR
-	anyEnum := in.DataTyp.id == LTID_ENUM
+	anyVarchar := in.DataTyp.Id == common.LTID_VARCHAR
+	anyEnum := in.DataTyp.Id == common.LTID_ENUM
 	for i := 0; i < len(argsTypes); i++ {
-		maxType = MaxLType(maxType, argsTypes[i])
-		if argsTypes[i].id == LTID_VARCHAR {
+		maxType = common.MaxLType(maxType, argsTypes[i])
+		if argsTypes[i].Id == common.LTID_VARCHAR {
 			anyVarchar = true
 		}
-		if argsTypes[i].id == LTID_ENUM {
+		if argsTypes[i].Id == common.LTID_ENUM {
 			anyEnum = true
 		}
 	}
 	if anyVarchar && anyEnum {
-		maxType = varchar()
+		maxType = common.VarcharType()
 	}
 
-	paramTypes := make([]LType, 0)
+	paramTypes := make([]common.LType, 0)
 	params := make([]*Expr, 0)
 
 	castIn, err := AddCastToType(in, maxType, false)
@@ -1928,7 +2053,7 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 			continue
 		}
 		equalParams := []*Expr{params[0], param}
-		equalTypes := []LType{paramTypes[0], paramTypes[i]}
+		equalTypes := []common.LType{paramTypes[0], paramTypes[i]}
 		ret0, err := b.bindFunc(et.String(), et, expr.String(), equalParams, equalTypes, false)
 		if err != nil {
 			return nil, err
@@ -2014,6 +2139,23 @@ func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error
 		if err != nil {
 			return nil, err
 		}
+	case LOT_CreateSchema:
+		proot, err = b.createPhyCreateSchema(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_CreateTable:
+		proot, err = b.createPhyCreateTable(root, children)
+		if err != nil {
+			return nil, err
+		}
+	case LOT_Insert:
+		proot, err = b.createPhyInsert(root, children)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		panic("usp")
 	}
 	if proot != nil {
 		proot.estimatedCard = root.estimatedCard
@@ -2037,16 +2179,52 @@ func (b *Builder) createPhyFilter(root *LogicalOperator, children []*PhysicalOpe
 }
 
 func (b *Builder) createPhyScan(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
-	return &PhysicalOperator{
-		Typ:      POT_Scan,
-		Index:    root.Index,
-		Database: root.Database,
-		Table:    root.Table,
-		Alias:    root.Alias,
-		Outputs:  root.Outputs,
-		Columns:  root.Columns,
-		Filters:  root.Filters,
-		Children: children}, nil
+	ret := &PhysicalOperator{
+		Typ:         POT_Scan,
+		Index:       root.Index,
+		Database:    root.Database,
+		Table:       root.Table,
+		Alias:       root.Alias,
+		Outputs:     root.Outputs,
+		Columns:     root.Columns,
+		Filters:     root.Filters,
+		ScanTyp:     root.ScanTyp,
+		Types:       root.Types,
+		ColName2Idx: root.ColName2Idx,
+		Children:    children}
+
+	switch root.ScanTyp {
+	case ScanTypeValuesList:
+		{
+			var valuesExec *ExprExec
+			var err error
+
+			collection := NewColumnDataCollection(root.Types)
+			data := &chunk.Chunk{}
+			data.Init(root.Types, storage.STANDARD_VECTOR_SIZE)
+
+			tmp := &chunk.Chunk{}
+			tmp.SetCard(1)
+
+			for i := 0; i < len(root.Values); i++ {
+				valuesExec = NewExprExec(root.Values[i]...)
+				err = valuesExec.executeExprs(
+					[]*chunk.Chunk{tmp, nil, nil},
+					data)
+				if err != nil {
+					return nil, err
+				}
+				collection.Append(data)
+				data.Reset()
+			}
+			ret.collection = collection
+		}
+	case ScanTypeTable:
+	case ScanTypeCopyFrom:
+		ret.ScanInfo = root.ScanInfo
+	}
+
+	return ret, nil
 }
 
 func (b *Builder) createPhyJoin(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
@@ -2086,4 +2264,626 @@ func (b *Builder) createPhyLimit(root *LogicalOperator, children []*PhysicalOper
 		Limit:    root.Limit,
 		Offset:   root.Offset,
 		Children: children}, nil
+}
+
+func (b *Builder) createPhyCreateSchema(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:         POT_CreateSchema,
+		Database:    root.Database,
+		IfNotExists: root.IfNotExists,
+		Children:    children}, nil
+}
+
+func (b *Builder) createPhyCreateTable(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:         POT_CreateTable,
+		Database:    root.Database,
+		Table:       root.Table,
+		IfNotExists: root.IfNotExists,
+		ColDefs:     root.ColDefs,
+		Constraints: root.Constraints,
+		Children:    children,
+	}, nil
+}
+
+func (b *Builder) buildDDL(txn *storage.Txn, ddl *pg_query.RawStmt, ctx *BindContext, depth int) (*LogicalOperator, error) {
+	switch impl := ddl.GetStmt().GetNode().(type) {
+	case *pg_query.Node_CreateSchemaStmt:
+		return b.buildCreateSchema(
+			txn,
+			impl.CreateSchemaStmt,
+			ctx,
+			depth)
+	case *pg_query.Node_CreateStmt:
+		return b.buildCreateTable(
+			txn,
+			impl.CreateStmt,
+			ctx,
+			depth)
+	case *pg_query.Node_InsertStmt:
+		return b.buildInsert(txn, impl.InsertStmt, ctx, depth)
+	case *pg_query.Node_CopyStmt:
+		return b.buildCopy(txn, impl.CopyStmt, ctx, depth)
+	case *pg_query.Node_SelectStmt:
+		err := b.buildSelect(impl.SelectStmt, b.rootCtx, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		lp, err := b.CreatePlan(b.rootCtx, nil)
+		if err != nil {
+			return nil, err
+		}
+		if lp == nil {
+			return nil, errors.New("nil plan")
+		}
+		checkExprIsValid(lp)
+		lp, err = b.Optimize(b.rootCtx, lp)
+		if err != nil {
+			return nil, err
+		}
+		if lp == nil {
+			return nil, errors.New("nil plan")
+		}
+		checkExprIsValid(lp)
+		return lp, nil
+	default:
+		panic("usp")
+	}
+	return nil, nil
+}
+
+func (b *Builder) buildCreateSchema(
+	txn *storage.Txn,
+	stmt *pg_query.CreateSchemaStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+	name := stmt.Schemaname
+	return &LogicalOperator{
+		Typ:         LOT_CreateSchema,
+		Database:    name,
+		IfNotExists: stmt.IfNotExists,
+	}, nil
+}
+
+func (b *Builder) buildCreateTable(
+	txn *storage.Txn,
+	stmt *pg_query.CreateStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+
+	schema := stmt.GetRelation().GetSchemaname()
+	name := stmt.GetRelation().GetRelname()
+
+	ret := &LogicalOperator{
+		Typ:         LOT_CreateTable,
+		Database:    schema,
+		Table:       name,
+		IfNotExists: stmt.GetIfNotExists(),
+	}
+
+	colDefs := make([]*storage.ColumnDefinition, 0)
+	tableCons := make([]*storage.Constraint, 0)
+	for colIdx, node := range stmt.GetTableElts() {
+		switch nodeImpl := node.GetNode().(type) {
+		case *pg_query.Node_ColumnDef:
+			colDef := nodeImpl.ColumnDef
+			colDefExpr := &storage.ColumnDefinition{}
+
+			//column name
+			colDefExpr.Name = colDef.Colname
+			//column type
+			typName := ""
+			switch len(colDef.TypeName.Names) {
+			case 2:
+				typName = colDef.TypeName.Names[1].GetString_().GetSval()
+			case 1:
+				typName = colDef.TypeName.Names[0].GetString_().GetSval()
+			default:
+				panic("usp")
+			}
+			switch strings.ToLower(typName) {
+			case "int4":
+				colDefExpr.Type = common.IntegerType()
+			case "int8":
+				colDefExpr.Type = common.BigintType()
+			case "varchar":
+				colDefExpr.Type = common.VarcharType()
+			case "numeric":
+				typMods := colDef.TypeName.GetTypmods()
+				width := typMods[0].GetAConst().GetIval().GetIval()
+				pres := typMods[1].GetAConst().GetIval().GetIval()
+				colDefExpr.Type = common.DecimalType(int(width), int(pres))
+			case "date":
+				colDefExpr.Type = common.DateType()
+			default:
+				panic("")
+			}
+
+			//column constraint
+			colCons := make([]*storage.Constraint, 0)
+			for _, cons := range colDef.Constraints {
+				consImpl := cons.GetConstraint()
+				if consImpl != nil {
+					switch consImpl.Contype {
+					case pg_query.ConstrType_CONSTR_NOTNULL:
+						colCons = append(colCons, storage.NewNotNullConstraint(colIdx))
+					case pg_query.ConstrType_CONSTR_UNIQUE:
+						colCons = append(colCons, storage.NewUniqueIndexConstraint(colIdx, false))
+					case pg_query.ConstrType_CONSTR_PRIMARY:
+						colCons = append(colCons, storage.NewUniqueIndexConstraint(colIdx, true))
+					default:
+						panic("")
+					}
+				}
+			}
+			colDefExpr.Constraints = colCons
+			colDefs = append(colDefs, colDefExpr)
+		case *pg_query.Node_Constraint: //table constraint
+			cons := nodeImpl.Constraint
+			pkNames := make([]string, 0)
+			switch cons.GetContype() {
+			case pg_query.ConstrType_CONSTR_PRIMARY:
+				for _, key := range cons.GetKeys() {
+					kname := key.GetString_().GetSval()
+					pkNames = append(pkNames, kname)
+				}
+			default:
+				panic("usp")
+			}
+			tableCons = append(tableCons, storage.NewUniqueIndexConstraint2(pkNames, true))
+		default:
+			panic("usp")
+		}
+	}
+	ret.ColDefs = colDefs
+	ret.Constraints = tableCons
+
+	return ret, nil
+}
+
+func (b *Builder) buildInsert(
+	txn *storage.Txn,
+	stmt *pg_query.InsertStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+	schema := stmt.GetRelation().GetSchemaname()
+	if schema == "" {
+		schema = "public"
+	}
+	name := stmt.GetRelation().GetRelname()
+
+	return b.buildInsertInternal(
+		txn,
+		schema,
+		name,
+		stmt.Cols,
+		stmt.GetSelectStmt().GetSelectStmt(),
+		ctx, depth,
+	)
+}
+
+func (b *Builder) buildInsertInternal(
+	txn *storage.Txn,
+	schema string,
+	name string,
+	Cols []*pg_query.Node,
+	subSelect *pg_query.SelectStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+	//step 0: get table
+	tabEnt := storage.GCatalog.GetEntry(
+		txn,
+		storage.CatalogTypeTable,
+		schema,
+		name,
+	)
+	if tabEnt == nil {
+		return nil, fmt.Errorf("no table %s in schema '%s'",
+			name, schema)
+	}
+	insert := &LogicalOperator{
+		Typ:        LOT_Insert,
+		Database:   schema,
+		Table:      name,
+		TableEnt:   tabEnt,
+		TableIndex: b.GetTag(),
+	}
+
+	//step 1: process columns
+	//column seq no -> column idx in table
+	namedColumnMap := make([]int, 0)
+	if len(Cols) != 0 {
+		getNameFun := func(col *pg_query.Node) string {
+			resTar := col.GetResTarget()
+			if resTar != nil {
+				return resTar.GetName()
+			}
+			str := col.GetString_()
+			if str != nil {
+				return str.GetSval()
+			}
+			panic("usp")
+		}
+		//insert into specified columns
+		//column name in stmt -> column seq no in stmt
+		columnNameMap := make(map[string]int)
+		for i, col := range Cols {
+			colName := strings.ToLower(getNameFun(col))
+			if _, has := columnNameMap[colName]; has {
+				return nil, fmt.Errorf("duplicate column name %s in INSERT", colName)
+			}
+			columnNameMap[colName] = i
+			colIdx := tabEnt.GetColumnIndex(colName)
+			if colIdx == -1 {
+				return nil, fmt.Errorf("invalid column %s", colIdx)
+			}
+			colDef := tabEnt.GetColumn(colIdx)
+			insert.ExpectedTypes = append(insert.ExpectedTypes, colDef.Type)
+			namedColumnMap = append(namedColumnMap, colIdx)
+		}
+		//
+		for _, colDef := range tabEnt.GetColumns() {
+			if seqNo, has := columnNameMap[colDef.Name]; !has {
+				insert.ColumnIndexMap = append(insert.ColumnIndexMap, -1)
+			} else {
+				insert.ColumnIndexMap = append(insert.ColumnIndexMap, seqNo)
+			}
+		}
+	} else {
+		//no specified columns
+		for i, colDef := range tabEnt.GetColumns() {
+			namedColumnMap = append(namedColumnMap, i)
+			insert.ExpectedTypes = append(insert.ExpectedTypes,
+				colDef.Type)
+		}
+	}
+
+	//step 2 : process default values
+	//TODO:
+
+	if subSelect == nil {
+		return insert, nil
+	}
+
+	//step 3: process select stmt
+	subBuilder := NewBuilder(b.txn)
+	subBuilder.tag = b.tag
+	subBuilder.rootCtx.parent = ctx
+
+	expectedColumns := 0
+	if len(Cols) == 0 {
+		expectedColumns = len(tabEnt.GetColumns())
+	} else {
+		expectedColumns = len(Cols)
+	}
+
+	//value list
+	if len(subSelect.ValuesLists) != 0 {
+		expectedTypes := make([]common.LType, expectedColumns)
+		expectedNames := make([]string, expectedColumns)
+
+		resultColumns := len(subSelect.ValuesLists[0].GetList().GetItems())
+		if expectedColumns != resultColumns {
+			return nil, fmt.Errorf("table %s has %d columns but %d values were supplied",
+				name,
+				expectedColumns,
+				resultColumns,
+			)
+		}
+
+		//value list
+		for colIdx := 0; colIdx < expectedColumns; colIdx++ {
+			tableColIdx := namedColumnMap[colIdx]
+			colDef := tabEnt.GetColumn(tableColIdx)
+			expectedTypes[colIdx] = colDef.Type
+			expectedNames[colIdx] = colDef.Name
+
+			//TODO: process default value
+		}
+		subBuilder.expectedTypes = expectedTypes
+		subBuilder.expectedNames = expectedNames
+	}
+
+	err := subBuilder.buildSelect(
+		subSelect,
+		subBuilder.rootCtx, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(subBuilder.projectExprs) == 0 {
+		panic("select in Insert must have project list")
+	}
+
+	if expectedColumns != len(subBuilder.projectExprs) {
+		return nil, fmt.Errorf("table %s has %d columns but %d values were supplied",
+			name,
+			expectedColumns,
+			len(subBuilder.projectExprs),
+		)
+	}
+
+	//build plan
+	lp, err := subBuilder.CreatePlan(subBuilder.rootCtx, nil)
+	if err != nil {
+		return nil, err
+	}
+	if lp == nil {
+		return nil, errors.New("sub select in insert has nil plan")
+	}
+
+	//cast types
+	lp, err = b.CastLogicalOperatorToTypes(insert.ExpectedTypes, lp)
+	if err != nil {
+		return nil, err
+	}
+
+	checkExprIsValid(lp)
+	lp, err = subBuilder.Optimize(subBuilder.rootCtx, lp)
+	if err != nil {
+		return nil, err
+	}
+	if lp == nil {
+		return nil, errors.New("nil plan")
+	}
+	checkExprIsValid(lp)
+
+	insert.Children = append(insert.Children, lp)
+
+	return insert, nil
+}
+
+func (b *Builder) buildValuesLists(
+	lists []*pg_query.Node,
+	ctx *BindContext,
+	depth int) (*Expr, error) {
+	var err error
+	resultTypes := b.expectedTypes
+	resultNames := b.expectedNames
+	resultValues := make([][]*Expr, 0)
+	var retExpr *Expr
+	for _, exprList := range lists {
+		items := exprList.GetList().GetItems()
+		if len(resultNames) == 0 {
+			for i := 0; i < len(exprList.GetList().GetItems()); i++ {
+				resultNames = append(resultNames, fmt.Sprintf("col%d", i))
+			}
+		}
+		list := make([]*Expr, 0)
+		for valIdx, value := range items {
+			retExpr, err = b.bindExpr(ctx, IWC_VALUES, value, depth)
+			if err != nil {
+				return nil, err
+			}
+			retExpr, err = AddCastToType(retExpr, resultTypes[valIdx], false)
+			if err != nil {
+				return nil, err
+			}
+			list = append(list, retExpr)
+		}
+		resultValues = append(resultValues, list)
+	}
+
+	if len(resultTypes) == 0 && len(lists) != 0 {
+		panic("usp")
+	}
+
+	alias := "valueslist"
+	bind := &Binding{
+		typ:     BT_TABLE,
+		alias:   alias,
+		index:   uint64(b.GetTag()),
+		typs:    util.CopyTo(resultTypes),
+		names:   util.CopyTo(resultNames),
+		nameMap: make(map[string]int),
+	}
+	for idx, name := range bind.names {
+		bind.nameMap[name] = idx
+	}
+	err = ctx.AddBinding(alias, bind)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Expr{
+		Typ:         ET_ValuesList,
+		Index:       bind.index,
+		Database:    "",
+		Table:       alias,
+		Alias:       alias,
+		BelongCtx:   ctx,
+		Types:       resultTypes,
+		Names:       resultNames,
+		Values:      resultValues,
+		ColName2Idx: bind.nameMap,
+	}, err
+}
+
+func (b *Builder) CastLogicalOperatorToTypes(
+	targetTyps []common.LType,
+	root *LogicalOperator) (*LogicalOperator, error) {
+	//srcTyps := make([]common.LType)
+	//for i, output := range lp.Outputs {
+	//
+	//}
+	var err error
+	if root.Typ == LOT_Project {
+		util.AssertFunc(len(root.Projects) == len(targetTyps))
+		for i, proj := range root.Projects {
+			if proj.DataTyp.Id != targetTyps[i].Id {
+				//add cast
+				root.Projects[i], err = AddCastToType(
+					proj,
+					targetTyps[i],
+					false)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		return root, nil
+	} else {
+		//add cast project
+		panic("usp")
+	}
+	return root, nil
+}
+
+func (b *Builder) createPhyInsert(
+	root *LogicalOperator,
+	children []*PhysicalOperator) (*PhysicalOperator, error) {
+	//list := storage.NewDependList()
+	//list.AddDepend(root.TableEnt)
+
+	ret := &PhysicalOperator{
+		Typ:            POT_Insert,
+		TableEnt:       root.TableEnt,
+		ColumnIndexMap: root.ColumnIndexMap,
+		InsertTypes:    root.TableEnt.GetTypes(),
+		Children:       children,
+	}
+	return ret, nil
+}
+
+func (b *Builder) buildCopy(
+	txn *storage.Txn,
+	stmt *pg_query.CopyStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+	if stmt.IsFrom {
+		return b.buildCopyFrom(txn, stmt, ctx, depth)
+	} else {
+		return b.buildCopyTo(txn, stmt, ctx, depth)
+	}
+}
+
+func (b *Builder) buildCopyFrom(
+	txn *storage.Txn,
+	stmt *pg_query.CopyStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+	schema := stmt.GetRelation().GetSchemaname()
+	if schema == "" {
+		schema = "public"
+	}
+	name := stmt.GetRelation().GetRelname()
+	insert, err := b.buildInsertInternal(
+		txn,
+		schema,
+		name,
+		stmt.GetAttlist(),
+		nil,
+		ctx,
+		depth,
+	)
+	if err != nil {
+		return nil, err
+	}
+	tabEnt := storage.GCatalog.GetEntry(txn, storage.CatalogTypeTable, schema, name)
+	if tabEnt == nil {
+		return nil, fmt.Errorf("no table %s in schema %s", name, schema)
+	}
+	var expectedNames []string
+	if len(insert.ColumnIndexMap) != 0 {
+		expectedNames = make([]string, len(insert.ExpectedTypes))
+		for i, colDef := range tabEnt.GetColumns() {
+			if insert.ColumnIndexMap[i] != -1 {
+				expectedNames[insert.ColumnIndexMap[i]] = colDef.Name
+			}
+		}
+	} else {
+		for _, colDef := range tabEnt.GetColumns() {
+			expectedNames = append(expectedNames, colDef.Name)
+		}
+	}
+
+	getOpts := func() []*ScanOption {
+		opts := make([]*ScanOption, 0)
+		for _, node := range stmt.GetOptions() {
+			opt := &ScanOption{}
+			opt.Kind = node.GetDefElem().GetDefname()
+			opt.Opt = node.GetDefElem().GetArg().GetString_().GetSval()
+			opts = append(opts, opt)
+		}
+		return opts
+	}
+
+	opts := getOpts()
+
+	formatOpt := getFormatFun("format", opts)
+	if formatOpt == nil {
+		return nil, fmt.Errorf("no format option in copy from")
+	}
+
+	scanInfo := &ScanInfo{
+		ReturnedTypes: insert.ExpectedTypes,
+		Names:         expectedNames,
+		FilePath:      stmt.GetFilename(),
+		Opts:          opts,
+		Format:        formatOpt.Opt,
+	}
+
+	for i := 0; i < len(insert.ExpectedTypes); i++ {
+		scanInfo.ColumnIds = append(scanInfo.ColumnIds, i)
+	}
+
+	name2IdxMap := make(map[string]int)
+	for i, colName := range expectedNames {
+		name2IdxMap[colName] = i
+	}
+
+	scanOp := &LogicalOperator{
+		Typ:         LOT_Scan,
+		Index:       uint64(b.GetTag()),
+		ScanTyp:     ScanTypeCopyFrom,
+		ScanInfo:    scanInfo,
+		ColName2Idx: name2IdxMap,
+	}
+
+	projOp := &LogicalOperator{
+		Typ:      LOT_Project,
+		Children: []*LogicalOperator{scanOp},
+	}
+
+	for i := 0; i < len(scanInfo.Names); i++ {
+		expr := &Expr{
+			Typ:     ET_Column,
+			DataTyp: scanInfo.ReturnedTypes[i],
+			Name:    scanInfo.Names[i],
+			Alias:   scanInfo.Names[i],
+			ColRef:  ColumnBind{scanOp.Index, uint64(i)},
+		}
+		projOp.Projects = append(projOp.Projects, expr)
+	}
+
+	tempBuilder := NewBuilder(b.txn)
+	projOp, err = tempBuilder.Optimize(tempBuilder.rootCtx, projOp)
+	if err != nil {
+		return nil, err
+	}
+	if projOp == nil {
+		return nil, errors.New("nil plan")
+	}
+	checkExprIsValid(projOp)
+
+	insert.Children = append(insert.Children, projOp)
+	return insert, nil
+}
+
+func getFormatFun(kind string, opts []*ScanOption) *ScanOption {
+	for _, opt := range opts {
+		if opt.Kind == kind {
+			return opt
+		}
+	}
+	return nil
+}
+
+func (b *Builder) buildCopyTo(
+	txn *storage.Txn,
+	stmt *pg_query.CopyStmt,
+	ctx *BindContext,
+	depth int) (*LogicalOperator, error) {
+	return nil, fmt.Errorf("usp copy to")
 }
