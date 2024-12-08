@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type ColumnBindCountMap map[ColumnBind]int
@@ -338,7 +340,7 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		}
 		//remove unused columns
 		for i := len(removed) - 1; i >= 0; i-- {
-			root.Projects = erase(root.Projects, removed[i])
+			root.Projects = util.Erase(root.Projects, removed[i])
 		}
 		cp.colRefs.replaceAll(cmap)
 		if len(root.Projects) == 0 {
@@ -374,7 +376,7 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		}
 		//remove unused columns
 		for i := len(removed) - 1; i >= 0; i-- {
-			root.Aggs = erase(root.Aggs, removed[i])
+			root.Aggs = util.Erase(root.Aggs, removed[i])
 		}
 		cp.colRefs.replaceAll(cmap)
 		if len(root.Aggs) == 0 {

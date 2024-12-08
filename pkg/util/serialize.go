@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plan
+package util
 
 import (
 	"os"
@@ -21,50 +21,18 @@ import (
 
 func Write[T any](value T, serial Serialize) error {
 	cnt := int(unsafe.Sizeof(value))
-	buf := pointerToSlice[byte](unsafe.Pointer(&value), cnt)
+	buf := PointerToSlice[byte](unsafe.Pointer(&value), cnt)
 	return serial.WriteData(buf, cnt)
-}
-
-func WriteString(val String, serial Serialize) error {
-	err := Write[uint32](uint32(val.len()), serial)
-	if err != nil {
-		return err
-	}
-
-	if val.len() > 0 {
-		err = serial.WriteData(val.dataSlice(), val.len())
-		if err != nil {
-			return err
-		}
-	}
-	return err
 }
 
 func Read[T any](value *T, deserial Deserialize) error {
 	cnt := int(unsafe.Sizeof(*value))
-	buf := pointerToSlice[byte](unsafe.Pointer(value), cnt)
+	buf := PointerToSlice[byte](unsafe.Pointer(value), cnt)
 	err := deserial.ReadData(buf, cnt)
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-func ReadString(val *String, deserial Deserialize) error {
-	var len uint32
-	err := Read[uint32](&len, deserial)
-	if err != nil {
-		return err
-	}
-	if len > 0 {
-		val._data = cMalloc(int(len))
-		val._len = int(len)
-		err = deserial.ReadData(val.dataSlice(), val.len())
-		if err != nil {
-			return err
-		}
-	}
-	return err
 }
 
 var _ Serialize = new(FileSerialize)

@@ -19,24 +19,25 @@ import (
 	"testing"
 )
 
-func makeInt32Chunks(cnt int) []*Chunk {
-	ret := make([]*Chunk, 0)
-	for i := 0; i < 3; i++ {
-		data := &Chunk{}
-		ltyps := make([]LType, cnt)
-		for j := 0; j < cnt; j++ {
-			ltyps[j] = integer()
-		}
-		data.init(ltyps, defaultVectorSize)
-		for j := 0; j < cnt; j++ {
-			data._data[j] = newInt32FlatVectorEven(false, defaultVectorSize)
-		}
-		data.setCard(defaultVectorSize)
-		ret = append(ret, data)
-	}
-
-	return ret
-}
+//
+//func makeInt32Chunks(cnt int) []*Chunk {
+//	ret := make([]*Chunk, 0)
+//	for i := 0; i < 3; i++ {
+//		data := &Chunk{}
+//		ltyps := make([]common.LType, cnt)
+//		for j := 0; j < cnt; j++ {
+//			ltyps[j] = common.IntegerType()
+//		}
+//		data.init(ltyps, util.DefaultVectorSize)
+//		for j := 0; j < cnt; j++ {
+//			data.Data[j] = chunk.newInt32FlatVectorEven(false, util.DefaultVectorSize)
+//		}
+//		data.setCard(util.DefaultVectorSize)
+//		ret = append(ret, data)
+//	}
+//
+//	return ret
+//}
 
 //func Test_testExecute1(t *testing.T) {
 //	pplan := runTest2(t, tpchQ20())
@@ -45,9 +46,9 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		if expr == nil {
 //			return false
 //		}
-//		//if expr.Typ == ET_Func && expr.SubTyp == ET_Equal && expr.Children[0].DataTyp.LTyp.id == LTID_INTEGER {
+//		//if expr.Typ == ET_Func && expr.SubTyp == ET_Equal && expr.Children[0].DataTyp.LTyp.Id == LTID_INTEGER {
 //		if expr.Typ == ET_Func && len(expr.Children) != 0 &&
-//			(expr.Children[0].DataTyp.LTyp.id == LTID_INTEGER || expr.Children[0].DataTyp.LTyp.id == LTID_FLOAT) {
+//			(expr.Children[0].DataTyp.LTyp.Id == LTID_INTEGER || expr.Children[0].DataTyp.LTyp.Id == LTID_FLOAT) {
 //			return true
 //		}
 //		return false
@@ -68,18 +69,18 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		assert.True(t, result.phyFormat() == PF_FLAT)
 //		resSlice := getSliceInPhyFormatFlat[bool](result)
 //		for i := 0; i < defaultVectorSize; i++ {
-//			assert.True(t, result._mask.rowIsValid(uint64(i)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(i)))
 //			assert.True(t, resSlice[i])
 //		}
 //
 //		//not equal
-//		data[0]._data[0] = newInt32ConstVector(-1, false)
+//		data[0].Data[0] = newInt32ConstVector(-1, false)
 //		err = eExec.executeExprI(data, 0, result)
 //		assert.NoError(t, err)
 //		assert.True(t, result.phyFormat() == PF_FLAT)
 //		resSlice = getSliceInPhyFormatFlat[bool](result)
 //		for i := 0; i < defaultVectorSize; i++ {
-//			assert.True(t, result._mask.rowIsValid(uint64(i)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(i)))
 //			assert.False(t, resSlice[i])
 //		}
 //	}
@@ -100,18 +101,18 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		assert.True(t, result.phyFormat() == PF_FLAT)
 //		resSlice := getSliceInPhyFormatFlat[bool](result)
 //		for i := 0; i < defaultVectorSize; i++ {
-//			assert.True(t, result._mask.rowIsValid(uint64(i)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(i)))
 //			assert.True(t, resSlice[i])
 //		}
 //
 //		//not equal
-//		data[1]._data[0] = newInt32ConstVector(-1, false)
+//		data[1].Data[0] = newInt32ConstVector(-1, false)
 //		err = eExec.executeExprI(data, 1, result)
 //		assert.NoError(t, err)
 //		assert.True(t, result.phyFormat() == PF_FLAT)
 //		resSlice = getSliceInPhyFormatFlat[bool](result)
 //		for i := 0; i < defaultVectorSize; i++ {
-//			assert.True(t, result._mask.rowIsValid(uint64(i)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(i)))
 //			assert.False(t, resSlice[i])
 //		}
 //	}
@@ -130,9 +131,9 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //
 //		///////////// const vector
 //		//[-1 2]
-//		data[0]._data[2] = newInt32ConstVector(2, false)
+//		data[0].Data[2] = newInt32ConstVector(2, false)
 //		//[16 0]
-//		data[2]._data[0] = newInt32ConstVector(16, false)
+//		data[2].Data[0] = newInt32ConstVector(16, false)
 //		result := NewFlatVector(boolean(), defaultVectorSize)
 //		err := eExec.executeExprI(data, 2, result)
 //		assert.NoError(t, err)
@@ -141,14 +142,14 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		assert.True(t, result.phyFormat() == PF_CONST)
 //		resSlice := getSliceInPhyFormatFlat[bool](result)
 //		{
-//			assert.True(t, result._mask.rowIsValid(uint64(0)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(0)))
 //			assert.False(t, resSlice[0])
 //		}
 //
 //		//[-1 2]
-//		data[0]._data[2] = newInt32ConstVector(8, false)
+//		data[0].Data[2] = newInt32ConstVector(8, false)
 //		//[16 0]
-//		data[2]._data[0] = newInt32ConstVector(6, false)
+//		data[2].Data[0] = newInt32ConstVector(6, false)
 //		result = NewFlatVector(boolean(), defaultVectorSize)
 //		err = eExec.executeExprI(data, 2, result)
 //		assert.NoError(t, err)
@@ -157,13 +158,13 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		assert.True(t, result.phyFormat() == PF_CONST)
 //		resSlice = getSliceInPhyFormatFlat[bool](result)
 //		{
-//			assert.True(t, result._mask.rowIsValid(uint64(0)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(0)))
 //			assert.True(t, resSlice[0])
 //		}
 //
 //		///////////// flat vector
 //		//[-1 2]
-//		data[0]._data[2] = newInt32FlatVectorImpl(
+//		data[0].Data[2] = newInt32FlatVectorImpl(
 //			false,
 //			defaultVectorSize,
 //			func(i int) int32 {
@@ -171,7 +172,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //			},
 //			nil)
 //		//[16 0]
-//		data[2]._data[0] = newInt32FlatVectorImpl(
+//		data[2].Data[0] = newInt32FlatVectorImpl(
 //			false,
 //			defaultVectorSize,
 //			func(i int) int32 {
@@ -186,12 +187,12 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		assert.True(t, result.phyFormat() == PF_FLAT)
 //		resSlice = getSliceInPhyFormatFlat[bool](result)
 //		for i := 0; i < defaultVectorSize; i++ {
-//			assert.True(t, result._mask.rowIsValid(uint64(0)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(0)))
 //			assert.False(t, resSlice[0])
 //		}
 //
 //		//[-1 2]
-//		data[0]._data[2] = newInt32FlatVectorImpl(
+//		data[0].Data[2] = newInt32FlatVectorImpl(
 //			false,
 //			defaultVectorSize,
 //			func(i int) int32 {
@@ -199,7 +200,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //			},
 //			nil)
 //		//[16 0]
-//		data[2]._data[0] = newInt32FlatVectorImpl(
+//		data[2].Data[0] = newInt32FlatVectorImpl(
 //			false,
 //			defaultVectorSize,
 //			func(i int) int32 {
@@ -214,7 +215,7 @@ func makeInt32Chunks(cnt int) []*Chunk {
 //		assert.True(t, result.phyFormat() == PF_FLAT)
 //		resSlice = getSliceInPhyFormatFlat[bool](result)
 //		for i := 0; i < defaultVectorSize; i++ {
-//			assert.True(t, result._mask.rowIsValid(uint64(0)))
+//			assert.True(t, result.Mask.rowIsValid(uint64(0)))
 //			assert.True(t, resSlice[0])
 //		}
 //	}

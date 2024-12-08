@@ -18,6 +18,8 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
@@ -74,11 +76,11 @@ func (alloc *TupleDataAllocator) Build(
 ) {
 
 	//prepare space
-	if !empty(segment._chunks) {
+	if !util.Empty(segment._chunks) {
 		alloc.ReleaseOrStoreHandles(
 			pinState,
 			segment,
-			back(segment._chunks),
+			util.Back(segment._chunks),
 			true,
 		)
 	}
@@ -88,16 +90,16 @@ func (alloc *TupleDataAllocator) Build(
 	chunkPartIndices := make([]util.Pair[uint64, uint64], 0)
 	for offset != appendCount {
 		//no chunks or last chunk is full
-		if empty(segment._chunks) ||
-			back(segment._chunks)._count == defaultVectorSize {
+		if util.Empty(segment._chunks) ||
+			util.Back(segment._chunks)._count == util.DefaultVectorSize {
 			segment._chunks = append(segment._chunks, NewTupleDataChunk())
 		}
 
-		chunk := back(segment._chunks)
+		chunk := util.Back(segment._chunks)
 		//count of rows can be recorded
 		next := min(
 			appendCount-offset,
-			defaultVectorSize-chunk._count,
+			util.DefaultVectorSize-chunk._count,
 		)
 
 		//allocate space for these rows
@@ -114,7 +116,7 @@ func (alloc *TupleDataAllocator) Build(
 				First:  uint64(len(segment._chunks) - 1),
 				Second: uint64(len(chunk._parts) - 1),
 			})
-		chunkPart := back(chunk._parts)
+		chunkPart := util.Back(chunk._parts)
 		next = uint64(chunkPart._count)
 		segment._count += next
 		offset += next
@@ -153,9 +155,9 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 	initHeapSizes bool,
 	parts []*TupleDataChunkPart,
 ) {
-	rowLocSlice := getSliceInPhyFormatFlat[unsafe.Pointer](chunkState._rowLocations)
-	heapSizesSlice := getSliceInPhyFormatFlat[uint64](chunkState._heapSizes)
-	heapLocSlice := getSliceInPhyFormatFlat[unsafe.Pointer](chunkState._heapLocations)
+	rowLocSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](chunkState._rowLocations)
+	heapSizesSlice := chunk.GetSliceInPhyFormatFlat[uint64](chunkState._heapSizes)
+	heapLocSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](chunkState._heapLocations)
 
 	rowWidth := alloc._layout.rowWidth()
 	for _, part := range parts {
@@ -165,7 +167,7 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 		baseRowPtr := alloc.GetRowPointer(pinState, part)
 		for i := uint32(0); i < next; i++ {
 			rowLocSlice[offset+uint64(i)] =
-				pointerAdd(baseRowPtr, int(i)*rowWidth)
+				util.PointerAdd(baseRowPtr, int(i)*rowWidth)
 		}
 
 		if alloc._layout.allConst() {
@@ -191,13 +193,13 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 
 		if initHeapPointers {
 			//evaluate base ptr for every row saved in heap
-			heapLocSlice[offset] = pointerAdd(
+			heapLocSlice[offset] = util.PointerAdd(
 				part._baseHeapPtr,
 				int(part._heapBlockOffset),
 			)
 			for i := uint32(1); i < next; i++ {
 				idx := offset + uint64(i)
-				heapLocSlice[idx] = pointerAdd(
+				heapLocSlice[idx] = util.PointerAdd(
 					heapLocSlice[idx-1],
 					int(heapSizesSlice[idx-1]),
 				)
@@ -206,7 +208,7 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 
 		offset += uint64(next)
 	}
-	assertFunc(offset <= defaultVectorSize)
+	util.AssertFunc(offset <= util.DefaultVectorSize)
 }
 
 // BuildChunkPart allocate space for rows
@@ -221,15 +223,15 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 
 	//ensure enough space
 	//no block or last block is full
-	if empty(alloc._rowBlocks) ||
-		back(alloc._rowBlocks).RemainingCapacity() <
+	if util.Empty(alloc._rowBlocks) ||
+		util.Back(alloc._rowBlocks).RemainingCapacity() <
 			uint64(alloc._layout.rowWidth()) {
 		alloc._rowBlocks = append(alloc._rowBlocks,
 			NewTupleDataBlock(alloc._bufferMgr, storage.BLOCK_SIZE))
 	}
 	//the idx of the block that rows saved into
 	result._rowBlockIdx = uint32(len(alloc._rowBlocks) - 1)
-	rowBlock := back(alloc._rowBlocks)
+	rowBlock := util.Back(alloc._rowBlocks)
 	//the offset in the block that rows saved into
 	result._rowBlockOffset = uint32(rowBlock._size)
 	//the count of rows that the block can save
@@ -240,7 +242,7 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 	//handle variable length columns
 	if !alloc._layout.allConst() {
 		//heap size has been evaluated
-		heapSizesSlice := getSliceInPhyFormatFlat[uint64](chunkState._heapSizes)
+		heapSizesSlice := chunk.GetSliceInPhyFormatFlat[uint64](chunkState._heapSizes)
 		tHeapSize := uint64(0)
 		//evaluate the total heap size for saved rows
 		for i := uint32(0); i < result._count; i++ {
@@ -256,8 +258,8 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 		} else {
 			//ensure enough space
 			//no heap block or last heap block is full
-			if empty(alloc._heapBlocks) ||
-				back(alloc._heapBlocks).RemainingCapacity() < heapSizesSlice[appendOffset] {
+			if util.Empty(alloc._heapBlocks) ||
+				util.Back(alloc._heapBlocks).RemainingCapacity() < heapSizesSlice[appendOffset] {
 				sz := max(storage.BLOCK_SIZE, heapSizesSlice[appendOffset])
 				alloc._heapBlocks = append(alloc._heapBlocks,
 					NewTupleDataBlock(alloc._bufferMgr, sz),
@@ -266,7 +268,7 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 
 			//heap block idx
 			result._heapBlockIdx = uint32(len(alloc._heapBlocks) - 1)
-			heapBlock := back(alloc._heapBlocks)
+			heapBlock := util.Back(alloc._heapBlocks)
 			//offset in the heap block
 			result._heapBlockOffset = uint32(heapBlock._size)
 
@@ -295,7 +297,7 @@ func (alloc *TupleDataAllocator) BuildChunkPart(
 		}
 	}
 
-	assertFunc(result._count != 0 && result._count <= defaultVectorSize)
+	util.AssertFunc(result._count != 0 && result._count <= util.DefaultVectorSize)
 	//total size added with occupied row bytes
 	rowBlock._size += uint64(result._count * uint32(alloc._layout.rowWidth()))
 	return result
@@ -305,7 +307,7 @@ func (alloc *TupleDataAllocator) GetRowPointer(
 	pinState *TupleDataPinState,
 	part *TupleDataChunkPart) unsafe.Pointer {
 	ptr := alloc.PinRowBlock(pinState, part).Ptr()
-	return pointerAdd(ptr, int(part._rowBlockOffset))
+	return util.PointerAdd(ptr, int(part._rowBlockOffset))
 }
 
 // PinRowBlock let the TupleDataPinState refers to the saved block saved
@@ -315,11 +317,11 @@ func (alloc *TupleDataAllocator) PinRowBlock(
 	part *TupleDataChunkPart) *storage.BufferHandle {
 	idx := part._rowBlockIdx
 	if handle, ok := pinState._rowHandles[idx]; !ok {
-		assertFunc(idx < uint32(len(alloc._rowBlocks)))
+		util.AssertFunc(idx < uint32(len(alloc._rowBlocks)))
 		rowBlock := alloc._rowBlocks[idx]
-		assertFunc(rowBlock._handle != nil)
-		assertFunc(uint64(part._rowBlockOffset) < rowBlock._size)
-		assertFunc(uint64(part._rowBlockOffset+part._count*uint32(alloc._layout.rowWidth())) <= rowBlock._size)
+		util.AssertFunc(rowBlock._handle != nil)
+		util.AssertFunc(uint64(part._rowBlockOffset) < rowBlock._size)
+		util.AssertFunc(uint64(part._rowBlockOffset+part._count*uint32(alloc._layout.rowWidth())) <= rowBlock._size)
 		handle = alloc._bufferMgr.Pin(rowBlock._handle)
 		pinState._rowHandles[idx] = handle
 		return handle
@@ -341,11 +343,11 @@ func (alloc *TupleDataAllocator) PinHeapBlock(
 	part *TupleDataChunkPart) *storage.BufferHandle {
 	idx := part._heapBlockIdx
 	if handle, ok := pinState._heapHandles[idx]; !ok {
-		assertFunc(idx < uint32(len(alloc._heapBlocks)))
+		util.AssertFunc(idx < uint32(len(alloc._heapBlocks)))
 		heapBlock := alloc._heapBlocks[idx]
-		assertFunc(heapBlock._handle != nil)
-		assertFunc(uint64(part._heapBlockOffset) < heapBlock._size)
-		assertFunc(uint64(part._heapBlockOffset+part._totalHeapSize) <= heapBlock._size)
+		util.AssertFunc(heapBlock._handle != nil)
+		util.AssertFunc(uint64(part._heapBlockOffset) < heapBlock._size)
+		util.AssertFunc(uint64(part._heapBlockOffset+part._totalHeapSize) <= heapBlock._size)
 
 		handle = alloc._bufferMgr.Pin(heapBlock._handle)
 		pinState._heapHandles[idx] = handle
@@ -436,7 +438,7 @@ func (alloc *TupleDataAllocator) InitChunkState(
 	chunkIdx int,
 	initHeap bool,
 ) {
-	assertFunc(chunkIdx < size(seg._chunks))
+	util.AssertFunc(chunkIdx < util.Size(seg._chunks))
 	chunk := seg._chunks[chunkIdx]
 
 	alloc.ReleaseOrStoreHandles(
@@ -483,7 +485,7 @@ func (segment *TupleDataSegment) Unpin() {
 }
 
 func (segment *TupleDataSegment) ChunkCount() int {
-	return size(segment._chunks)
+	return util.Size(segment._chunks)
 }
 
 func NewTupleDataSegment(alloc *TupleDataAllocator) *TupleDataSegment {
@@ -532,20 +534,20 @@ type TupleDataChunkPart struct {
 }
 
 type TupleDataChunkState struct {
-	_data              []UnifiedFormat
-	_rowLocations      *Vector
-	_heapLocations     *Vector
-	_heapSizes         *Vector
+	_data              []chunk.UnifiedFormat
+	_rowLocations      *chunk.Vector
+	_heapLocations     *chunk.Vector
+	_heapSizes         *chunk.Vector
 	_columnIds         []int
 	_childrenOutputIds []int
 }
 
 func NewTupleDataChunkState(cnt, childrenOutputCnt int) *TupleDataChunkState {
 	ret := &TupleDataChunkState{
-		_data:          make([]UnifiedFormat, cnt+childrenOutputCnt),
-		_rowLocations:  NewVector(pointerType(), defaultVectorSize),
-		_heapLocations: NewVector(pointerType(), defaultVectorSize),
-		_heapSizes:     NewVector(ubigintType(), defaultVectorSize),
+		_data:          make([]chunk.UnifiedFormat, cnt+childrenOutputCnt),
+		_rowLocations:  chunk.NewVector2(common.PointerType(), util.DefaultVectorSize),
+		_heapLocations: chunk.NewVector2(common.PointerType(), util.DefaultVectorSize),
+		_heapSizes:     chunk.NewVector2(common.UbigintType(), util.DefaultVectorSize),
 	}
 	for i := 0; i < cnt; i++ {
 		ret._columnIds = append(ret._columnIds, i)
@@ -606,11 +608,11 @@ func NewTupleDataChunkIterator(
 	layout := collection._layout
 	ret._state._chunkState = *NewTupleDataChunkState(layout.columnCount(), layout.childrenOutputCount())
 
-	assertFunc(from < to)
-	assertFunc(from <= collection.ChunkCount())
+	util.AssertFunc(from < to)
+	util.AssertFunc(from <= collection.ChunkCount())
 
 	idx := 0
-	for segIdx := 0; segIdx < size(collection._segments); segIdx++ {
+	for segIdx := 0; segIdx < util.Size(collection._segments); segIdx++ {
 		seg := collection._segments[segIdx]
 		if from >= idx && from <= idx+seg.ChunkCount() {
 			//start
@@ -669,7 +671,7 @@ func (iter *TupleDataChunkIterator) Done() bool {
 }
 
 func (iter *TupleDataChunkIterator) Next() bool {
-	assertFunc(!iter.Done())
+	util.AssertFunc(!iter.Done())
 
 	oldSegIdx := iter._curSegIdx
 	//check end of collection
@@ -705,5 +707,5 @@ func (iter *TupleDataChunkIterator) GetChunkState() *TupleDataChunkState {
 }
 
 func (iter *TupleDataChunkIterator) GetRowLocations() []unsafe.Pointer {
-	return getSliceInPhyFormatFlat[unsafe.Pointer](iter._state._chunkState._rowLocations)
+	return chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](iter._state._chunkState._rowLocations)
 }

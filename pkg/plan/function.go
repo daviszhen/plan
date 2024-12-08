@@ -18,6 +18,10 @@ import (
 	"fmt"
 	"math"
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 var aggNames = map[string]int{
@@ -59,8 +63,8 @@ const (
 
 type FunctionV2 struct {
 	_name         string
-	_args         []LType
-	_retType      LType
+	_args         []common.LType
+	_retType      common.LType
 	_funcTyp      FuncType
 	_sideEffects  FuncSideEffects
 	_nullHandling FuncNullHandling
@@ -82,7 +86,7 @@ type FunctionV2 struct {
 func (fun *FunctionV2) Copy() *FunctionV2 {
 	ret := &FunctionV2{
 		_name:         fun._name,
-		_args:         copyTo(fun._args),
+		_args:         util.CopyTo(fun._args),
 		_retType:      fun._retType,
 		_funcTyp:      fun._funcTyp,
 		_sideEffects:  fun._sideEffects,
@@ -101,16 +105,16 @@ func (fun *FunctionV2) Copy() *FunctionV2 {
 	return ret
 }
 
-type ScalarFunc func(*Chunk, *ExprState, *Vector)
+type ScalarFunc func(*chunk.Chunk, *ExprState, *chunk.Vector)
 
 type aggrStateSize func() int
 type aggrInit func(pointer unsafe.Pointer)
-type aggrUpdate func([]*Vector, *AggrInputData, int, *Vector, int)
-type aggrCombine func(*Vector, *Vector, *AggrInputData, int)
-type aggrFinalize func(*Vector, *AggrInputData, *Vector, int, int)
+type aggrUpdate func([]*chunk.Vector, *AggrInputData, int, *chunk.Vector, int)
+type aggrCombine func(*chunk.Vector, *chunk.Vector, *AggrInputData, int)
+type aggrFinalize func(*chunk.Vector, *AggrInputData, *chunk.Vector, int, int)
 
 // type aggrFunction func(*AggrFunc, []*Expr)
-type aggrSimpleUpdate func([]*Vector, *AggrInputData, int, unsafe.Pointer, int)
+type aggrSimpleUpdate func([]*chunk.Vector, *AggrInputData, int, unsafe.Pointer, int)
 
 //type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
 
@@ -124,7 +128,7 @@ const (
 type FunctionData struct {
 	_funDataTyp    string
 	_checkOverflow bool
-	_boundTyp      LTypeId
+	_boundTyp      common.LTypeId
 }
 
 func (fdata FunctionData) copy() *FunctionData {
@@ -150,12 +154,12 @@ func (set *FunctionSet) Add(fun *FunctionV2) {
 }
 
 func (set *FunctionSet) GetFunc(offset int) *FunctionV2 {
-	assertFunc(offset < len(set._functions))
+	util.AssertFunc(offset < len(set._functions))
 	//!!!note copy instead of referring directly
 	return set._functions[offset].Copy()
 }
 
-func (set *FunctionSet) GetFuncByArgs(args []LType) *FunctionV2 {
+func (set *FunctionSet) GetFuncByArgs(args []common.LType) *FunctionV2 {
 	idx := gFuncBinder.BindFunc(set._name, set, args)
 	if idx == -1 {
 		panic(fmt.Sprintf("function %s impl not found", set._name))
@@ -214,7 +218,7 @@ func (binder *FunctionBinder) CastToFuncArgs(fun *FunctionV2, args []*Expr) {
 	var err error
 	for i := 0; i < len(args); i++ {
 		targetType := fun._args[i]
-		if args[i].DataTyp.id == LTID_LAMBDA {
+		if args[i].DataTyp.Id == common.LTID_LAMBDA {
 			continue
 		}
 		castRes := RequireCast(args[i].DataTyp, targetType)
@@ -277,11 +281,11 @@ const (
 	DIFFERENT_TYPES LTypeCmpResult = 2
 )
 
-func RequireCast(src, dst LType) LTypeCmpResult {
-	if dst.id == LTID_ANY {
+func RequireCast(src, dst common.LType) LTypeCmpResult {
+	if dst.Id == common.LTID_ANY {
 		return TARGET_IS_ANY
 	}
-	if src.id == dst.id {
+	if src.Id == dst.Id {
 		return IDENTICAL_TYPE
 	}
 	return DIFFERENT_TYPES
@@ -292,7 +296,7 @@ func (binder *FunctionBinder) BindFunc2(
 	set *FunctionSet,
 	args []*Expr,
 ) int {
-	args2 := make([]LType, 0)
+	args2 := make([]common.LType, 0)
 	for _, arg := range args {
 		args2 = append(args2, arg.DataTyp)
 	}
@@ -302,7 +306,7 @@ func (binder *FunctionBinder) BindFunc2(
 func (binder *FunctionBinder) BindFunc(
 	name string,
 	set *FunctionSet,
-	args []LType,
+	args []common.LType,
 ) int {
 	return binder.BindFuncByArgs(name, set, args)
 }
@@ -310,7 +314,7 @@ func (binder *FunctionBinder) BindFunc(
 func (binder *FunctionBinder) BindFuncByArgs(
 	name string,
 	set *FunctionSet,
-	args []LType,
+	args []common.LType,
 ) int {
 	funs := binder.BindFuncByArgs2(name, set, args)
 	if len(funs) == 0 {
@@ -325,7 +329,7 @@ func (binder *FunctionBinder) BindFuncByArgs(
 func (binder *FunctionBinder) BindFuncByArgs2(
 	name string,
 	set *FunctionSet,
-	args []LType,
+	args []common.LType,
 ) []int {
 	bestFunc := -1
 	lowestCost := int64(math.MaxInt64)
@@ -355,7 +359,7 @@ func (binder *FunctionBinder) BindFuncByArgs2(
 
 func (binder *FunctionBinder) BindFuncCost(
 	fun *FunctionV2,
-	args []LType,
+	args []common.LType,
 ) int64 {
 	if len(fun._args) != len(args) {
 		return -1

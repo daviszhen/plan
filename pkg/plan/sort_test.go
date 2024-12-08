@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func Test_comp(t *testing.T) {
@@ -83,10 +85,10 @@ func Test_comp(t *testing.T) {
 		enc.EncodeData(aPtr, &test.aVal)
 		bPtr := unsafe.Pointer(&test.b[0])
 		enc.EncodeData(bPtr, &test.bVal)
-		require.True(t, pointerLess(aPtr, unsafe.Pointer(uintptr(math.MaxUint64))))
-		require.True(t, pointerSub(bPtr, unsafe.Pointer(uintptr(math.MaxUint64))) < 0)
-		require.True(t, pointerLess(bPtr, unsafe.Pointer(uintptr(math.MaxUint64))))
-		require.True(t, pointerSub(bPtr, unsafe.Pointer(uintptr(math.MaxUint64))) < 0)
+		require.True(t, util.PointerLess(aPtr, unsafe.Pointer(uintptr(math.MaxUint64))))
+		require.True(t, util.PointerSub(bPtr, unsafe.Pointer(uintptr(math.MaxUint64))) < 0)
+		require.True(t, util.PointerLess(bPtr, unsafe.Pointer(uintptr(math.MaxUint64))))
+		require.True(t, util.PointerSub(bPtr, unsafe.Pointer(uintptr(math.MaxUint64))) < 0)
 		ret := comp(
 			unsafe.Pointer(&test.a[0]),
 			unsafe.Pointer(&test.b[0]),
@@ -146,7 +148,7 @@ func Test_insertSort1(t *testing.T) {
 		end := begin.plusCopy(n)
 		//print
 		for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
-			fmt.Printf("0x%p %d \n", iter.ptr(), load[int](iter.ptr()))
+			fmt.Printf("0x%p %d \n", iter.ptr(), util.Load[int](iter.ptr()))
 		}
 		fmt.Println()
 		constants := NewPDQConstants(
@@ -208,7 +210,7 @@ func Test_insertSort2(t *testing.T) {
 		end := begin.plusCopy(n)
 		//print
 		for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
-			fmt.Printf("0x%p %d \n", iter.ptr(), load[int32](iter.ptr()))
+			fmt.Printf("0x%p %d \n", iter.ptr(), util.Load[int32](iter.ptr()))
 		}
 		fmt.Println()
 		constants := NewPDQConstants(
@@ -270,7 +272,7 @@ func Test_insertSort3(t *testing.T) {
 		end := begin.plusCopy(n - 1)
 		//print
 		for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
-			fmt.Printf("0x%p %d \n", iter.ptr(), load[int](iter.ptr()))
+			fmt.Printf("0x%p %d \n", iter.ptr(), util.Load[int](iter.ptr()))
 		}
 		fmt.Println()
 		constants := NewPDQConstants(
@@ -333,7 +335,7 @@ func Test_insertSort4(t *testing.T) {
 		end := begin.plusCopy(n - 1)
 		//print
 		for iter := begin.plusCopy(0); pdqIterNotEqaul(&iter, &end); iter.plus(1) {
-			fmt.Printf("0x%p %d \n", iter.ptr(), load[int](iter.ptr()))
+			fmt.Printf("0x%p %d \n", iter.ptr(), util.Load[int](iter.ptr()))
 		}
 		fmt.Println()
 		constants := NewPDQConstants(
@@ -430,7 +432,7 @@ func Test_prepareLocalsort(t *testing.T) {
 		},
 	)
 	fname := "./test/project_out"
-	serial, err := NewFileSerialize(fname)
+	serial, err := util.NewFileSerialize(fname)
 	assert.NoError(t, err, fname)
 	assert.NotNil(t, serial)
 	defer serial.Close()
@@ -446,7 +448,7 @@ func Test_localsort(t *testing.T) {
 		},
 	)
 
-	assertFunc(len(ops) == 1)
+	util.AssertFunc(len(ops) == 1)
 
 	//replace child by stub
 	stubOp := &PhysicalOperator{

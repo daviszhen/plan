@@ -20,6 +20,9 @@ import (
 
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 	"github.com/xlab/treeprint"
+
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type BindingType int
@@ -54,7 +57,7 @@ type Binding struct {
 	database string
 	alias    string
 	index    uint64
-	typs     []LType
+	typs     []common.LType
 	names    []string
 	nameMap  map[string]int
 }
@@ -155,8 +158,8 @@ func (bc *BindContext) RemoveContext(obList []*Binding) {
 			}
 		}
 		if found > -1 {
-			swap(bc.bindingsList, found, len(bc.bindingsList)-1)
-			bc.bindingsList = pop(bc.bindingsList)
+			util.Swap(bc.bindingsList, found, len(bc.bindingsList)-1)
+			bc.bindingsList = util.Pop(bc.bindingsList)
 		}
 
 		delete(bc.bindings, ob.alias)
@@ -615,8 +618,8 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 				typ:     BT_TABLE,
 				alias:   alias,
 				index:   uint64(b.GetTag()),
-				typs:    copyTo(cta.Types),
-				names:   copyTo(cta.Columns),
+				typs:    util.CopyTo(cta.Types),
+				names:   util.CopyTo(cta.Columns),
 				nameMap: make(map[string]int),
 			}
 			for idx, name := range bind.names {
@@ -655,7 +658,7 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 		if len(subBuilder.projectExprs) == 0 {
 			panic("subquery must have project list")
 		}
-		subTypes := make([]LType, 0)
+		subTypes := make([]common.LType, 0)
 		subNames := make([]string, 0)
 		for i, expr := range subBuilder.projectExprs {
 			subTypes = append(subTypes, expr.DataTyp)
@@ -1042,7 +1045,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 
 				bExpr := &Expr{
 					Typ:     ET_BConst,
-					DataTyp: boolean(),
+					DataTyp: common.BooleanType(),
 					Bvalue:  true,
 				}
 
@@ -1099,7 +1102,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 
 				bExpr := &Expr{
 					Typ:     ET_BConst,
-					DataTyp: boolean(),
+					DataTyp: common.BooleanType(),
 					Bvalue:  true,
 				}
 
@@ -1197,7 +1200,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			left := mCond
 			right := &Expr{
 				Typ:     ET_BConst,
-				DataTyp: boolean(),
+				DataTyp: common.BooleanType(),
 				Bvalue:  exists,
 			}
 			fbinder := FunctionBinder{}
@@ -1803,7 +1806,7 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	} else {
 		els = &Expr{
 			Typ:     ET_NConst,
-			DataTyp: null(),
+			DataTyp: common.Null(),
 		}
 	}
 
@@ -1812,19 +1815,19 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	//decide result types
 	//max type of the THEN expr
 	for i := 0; i < len(when); i += 2 {
-		retTyp = MaxLType(retTyp, when[i+1].DataTyp)
+		retTyp = common.MaxLType(retTyp, when[i+1].DataTyp)
 	}
 
 	//case THEN to
 	for i := 0; i < len(when); i += 2 {
-		when[i+1], err = AddCastToType(when[i+1], retTyp, retTyp.id == LTID_ENUM)
+		when[i+1], err = AddCastToType(when[i+1], retTyp, retTyp.Id == common.LTID_ENUM)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	//cast ELSE to
-	els, err = AddCastToType(els, retTyp, retTyp.id == LTID_ENUM)
+	els, err = AddCastToType(els, retTyp, retTyp.Id == common.LTID_ENUM)
 	if err != nil {
 		return nil, err
 	}
@@ -1832,15 +1835,15 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	params := []*Expr{els}
 	params = append(params, when...)
 
-	decideDataType := func(e *Expr) LType {
+	decideDataType := func(e *Expr) common.LType {
 		if e == nil {
-			return null()
+			return common.Null()
 		} else {
 			return e.DataTyp
 		}
 	}
 
-	paramsTypes := []LType{
+	paramsTypes := []common.LType{
 		decideDataType(els),
 	}
 
@@ -1870,31 +1873,31 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 		return nil, err
 	}
 
-	assertFunc(listExpr.Typ == ET_List)
+	util.AssertFunc(listExpr.Typ == ET_List)
 
-	argsTypes := make([]LType, 0)
+	argsTypes := make([]common.LType, 0)
 	children := listExpr.Children
 	for _, child := range listExpr.Children {
 		argsTypes = append(argsTypes, child.DataTyp)
 	}
 
 	maxType := in.DataTyp
-	anyVarchar := in.DataTyp.id == LTID_VARCHAR
-	anyEnum := in.DataTyp.id == LTID_ENUM
+	anyVarchar := in.DataTyp.Id == common.LTID_VARCHAR
+	anyEnum := in.DataTyp.Id == common.LTID_ENUM
 	for i := 0; i < len(argsTypes); i++ {
-		maxType = MaxLType(maxType, argsTypes[i])
-		if argsTypes[i].id == LTID_VARCHAR {
+		maxType = common.MaxLType(maxType, argsTypes[i])
+		if argsTypes[i].Id == common.LTID_VARCHAR {
 			anyVarchar = true
 		}
-		if argsTypes[i].id == LTID_ENUM {
+		if argsTypes[i].Id == common.LTID_ENUM {
 			anyEnum = true
 		}
 	}
 	if anyVarchar && anyEnum {
-		maxType = varchar()
+		maxType = common.VarcharType()
 	}
 
-	paramTypes := make([]LType, 0)
+	paramTypes := make([]common.LType, 0)
 	params := make([]*Expr, 0)
 
 	castIn, err := AddCastToType(in, maxType, false)
@@ -1928,7 +1931,7 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 			continue
 		}
 		equalParams := []*Expr{params[0], param}
-		equalTypes := []LType{paramTypes[0], paramTypes[i]}
+		equalTypes := []common.LType{paramTypes[0], paramTypes[i]}
 		ret0, err := b.bindFunc(et.String(), et, expr.String(), equalParams, equalTypes, false)
 		if err != nil {
 			return nil, err

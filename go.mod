@@ -8,6 +8,7 @@ require (
 	github.com/huandu/go-clone v1.7.2
 	github.com/jeroenrinzema/psql-wire v0.12.1
 	github.com/lib/pq v1.10.9
+	github.com/liyue201/gostl v1.2.0
 	github.com/pganalyze/pg_query_go/v5 v5.1.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0

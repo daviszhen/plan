@@ -14,6 +14,10 @@
 
 package plan
 
+import (
+	"github.com/daviszhen/plan/pkg/util"
+)
+
 // (a and b1) or (a and b2) or (a and b3) => a and (b1 or b2 or b3)
 func distributeExpr(expr *Expr) *Expr {
 	if expr == nil {
@@ -42,7 +46,7 @@ func distributeExpr(expr *Expr) *Expr {
 		elems := splitExprByAnd(orExpr)
 		var retElems []*Expr
 		for _, cand := range candidates {
-			retElems = removeIf[*Expr](elems, func(t *Expr) bool {
+			retElems = util.RemoveIf(elems, func(t *Expr) bool {
 				return t == nil || cand.equal(t)
 			})
 		}

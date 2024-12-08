@@ -15,18 +15,19 @@
 package util
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
-	"unsafe"
 )
 
 func AlignValue[T ~uint64](value, align T) T {
 	return (value + (align - 1)) & ^(align - 1)
 }
 
-func PointerAdd(base unsafe.Pointer, offset int) unsafe.Pointer {
-	return unsafe.Add(base, offset)
+func AlignValue8(value int) int {
+	return (value + 7) & (^7)
 }
 
 func AssertFunc(b bool) {
@@ -62,3 +63,62 @@ func Callers(depth int) *Stack {
 	var st Stack = pcs[0:n]
 	return &st
 }
+
+func NextPowerOfTwo(v uint64) uint64 {
+	v--
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v |= v >> 32
+	v++
+	return v
+}
+
+func IsPowerOfTwo(v uint64) bool {
+	return (v & (v - 1)) == 0
+}
+
+func GreaterFloat[T ~float32 | ~float64](lhs, rhs T) bool {
+	lIsNan := math.IsNaN(float64(lhs))
+	rIsNan := math.IsNaN(float64(rhs))
+	if rIsNan {
+		return false
+	}
+	if lIsNan {
+		return true
+	}
+	return lhs > rhs
+}
+
+func ToJson(root any, path string) error {
+	data, err := json.Marshal(root)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(data)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type Serialize interface {
+	WriteData(buffer []byte, len int) error
+	Close() error
+}
+
+type Deserialize interface {
+	ReadData(buffer []byte, len int) error
+	Close() error
+}
+
+const (
+	DefaultVectorSize = 2048
+)

@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type RelationAttributes struct {
@@ -264,7 +266,7 @@ func (est *CardinalityEstimator) InitTotalDomains() {
 		}
 	}
 	for i := len(removed) - 1; i >= 0; i-- {
-		est.relationsToTDoms = erase(est.relationsToTDoms, removed[i])
+		est.relationsToTDoms = util.Erase(est.relationsToTDoms, removed[i])
 	}
 }
 
@@ -472,7 +474,7 @@ func (est *CardinalityEstimator) EstimateCardWithSet(newset *JoinRelationSet) fl
 				}
 			}
 			for j := len(empties) - 1; j >= 0; j-- {
-				subgraphs = erase(subgraphs, empties[j])
+				subgraphs = util.Erase(subgraphs, empties[j])
 			}
 			if len(subgraphs) == 1 && subgraphs[0].relations.size() == newset.count() {
 				done = true

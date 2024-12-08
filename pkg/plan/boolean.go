@@ -14,6 +14,12 @@
 
 package plan
 
+import (
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
+)
+
 type BooleanOp interface {
 	opWithoutNull(bool, bool) bool
 	opWithNull(bool, bool, bool, bool) (bool, bool)
@@ -95,8 +101,8 @@ func (e equalOp[T]) operation(left, right *T) bool {
 type equalStrOp struct {
 }
 
-func (e equalStrOp) operation(left, right *String) bool {
-	return left.equal(right)
+func (e equalStrOp) operation(left, right *common.String) bool {
+	return left.Equal(right)
 }
 
 // Date
@@ -105,23 +111,23 @@ func (e equalStrOp) operation(left, right *String) bool {
 type equalDateOp struct {
 }
 
-func (e equalDateOp) operation(left, right *Date) bool {
-	return left.equal(right)
+func (e equalDateOp) operation(left, right *common.Date) bool {
+	return left.Equal(right)
 }
 
 // Decimal
 type equalDecimalOp struct {
 }
 
-func (e equalDecimalOp) operation(left, right *Decimal) bool {
-	return left.equal(right)
+func (e equalDecimalOp) operation(left, right *common.Decimal) bool {
+	return left.Equal(right)
 }
 
 type equalHugeintOp struct {
 }
 
-func (e equalHugeintOp) operation(left, right *Hugeint) bool {
-	return left.equal(right)
+func (e equalHugeintOp) operation(left, right *common.Hugeint) bool {
+	return left.Equal(right)
 }
 
 // <>
@@ -140,8 +146,8 @@ func (e notEqualOp[T]) operation(left, right *T) bool {
 type notEqualStrOp struct {
 }
 
-func (e notEqualStrOp) operation(left, right *String) bool {
-	return !left.equal(right)
+func (e notEqualStrOp) operation(left, right *common.String) bool {
+	return !left.Equal(right)
 }
 
 // in
@@ -158,8 +164,8 @@ func (e inOp[T]) operation(left, right *T) bool {
 //lint:ignore U1000
 type inStrOp struct{}
 
-func (e inStrOp) operation(left, right *String) bool {
-	return left.equal(right)
+func (e inStrOp) operation(left, right *common.String) bool {
+	return left.Equal(right)
 }
 
 // <
@@ -180,8 +186,8 @@ func (e lessInt32Op) operation(left, right *int32) bool {
 type lessDateOp struct {
 }
 
-func (e lessDateOp) operation(left, right *Date) bool {
-	return left.less(right)
+func (e lessDateOp) operation(left, right *common.Date) bool {
+	return left.Less(right)
 }
 
 // float64
@@ -191,7 +197,7 @@ type lessFloat64Op struct {
 }
 
 func (e lessFloat64Op) operation(left, right *float64) bool {
-	return greaterFloat[float64](*right, *left)
+	return util.GreaterFloat[float64](*right, *left)
 }
 
 // <=
@@ -222,8 +228,8 @@ func (e lessEqualFloat32Op) operation(left, right *float32) bool {
 type lessEqualDateOp struct {
 }
 
-func (e lessEqualDateOp) operation(left, right *Date) bool {
-	return left.less(right) || left.equal(right)
+func (e lessEqualDateOp) operation(left, right *common.Date) bool {
+	return left.Less(right) || left.Equal(right)
 }
 
 //>
@@ -251,20 +257,20 @@ func (e greatInt32Op) operation(left, right *int32) bool {
 type greatHugeintOp struct {
 }
 
-func (e greatHugeintOp) operation(left, right *Hugeint) bool {
-	upperBigger := left._upper > right._upper
-	upperEqual := left._upper == right._upper
-	lowerBigger := left._lower > right._lower
+func (e greatHugeintOp) operation(left, right *common.Hugeint) bool {
+	upperBigger := left.Upper > right.Upper
+	upperEqual := left.Upper == right.Upper
+	lowerBigger := left.Lower > right.Lower
 	return upperBigger || upperEqual && lowerBigger
 }
 
 type lessHugeintOp struct {
 }
 
-func (e lessHugeintOp) operation(left, right *Hugeint) bool {
-	upperSmaller := left._upper < right._upper
-	upperEqual := left._upper == right._upper
-	lowerSmaller := left._lower < right._lower
+func (e lessHugeintOp) operation(left, right *common.Hugeint) bool {
+	upperSmaller := left.Upper < right.Upper
+	upperEqual := left.Upper == right.Upper
+	lowerSmaller := left.Lower < right.Lower
 	return upperSmaller || upperEqual && lowerSmaller
 }
 
@@ -274,7 +280,7 @@ func (e lessHugeintOp) operation(left, right *Hugeint) bool {
 type greatDecimalOp struct {
 }
 
-func (e greatDecimalOp) operation(left, right *Decimal) bool {
+func (e greatDecimalOp) operation(left, right *common.Decimal) bool {
 	res, err := left.Decimal.Sub(right.Decimal)
 	if err != nil {
 		panic(err)
@@ -288,8 +294,8 @@ func (e greatDecimalOp) operation(left, right *Decimal) bool {
 type greatDateOp struct {
 }
 
-func (e greatDateOp) operation(left, right *Date) bool {
-	return right.less(left)
+func (e greatDateOp) operation(left, right *common.Date) bool {
+	return right.Less(left)
 }
 
 // >=
@@ -310,8 +316,8 @@ func (e greatEqualInt32Op) operation(left, right *int32) bool {
 type greatEqualDateOp struct {
 }
 
-func (e greatEqualDateOp) operation(left, right *Date) bool {
-	return right.less(left) || right.equal(left)
+func (e greatEqualDateOp) operation(left, right *common.Date) bool {
+	return right.Less(left) || right.Equal(left)
 }
 
 //lint:ignore U1000
@@ -372,7 +378,7 @@ func wildcardMatch(pattern, target string) bool {
 	return p >= plen
 }
 
-func (e likeOp) operation(left, right *String) bool {
+func (e likeOp) operation(left, right *common.String) bool {
 	return wildcardMatch(right.String(), left.String())
 }
 
@@ -382,114 +388,114 @@ func (e likeOp) operation(left, right *String) bool {
 type notLikeOp struct {
 }
 
-func (e notLikeOp) operation(left, right *String) bool {
+func (e notLikeOp) operation(left, right *common.String) bool {
 	return !wildcardMatch(right.String(), left.String())
 }
 
-func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, subTyp ET_SubTyp) int {
+func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector, subTyp ET_SubTyp) int {
 	switch subTyp {
 	case ET_Equal:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
-		case VARCHAR:
-			return selectBinary[String](left, right, sel, count, trueSel, falseSel, equalStrOp{})
-		case BOOL:
+		case common.VARCHAR:
+			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, equalStrOp{})
+		case common.BOOL:
 			return selectBinary[bool](left, right, sel, count, trueSel, falseSel, equalOp[bool]{})
-		case UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+		case common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_NotEqual, ET_NotIn:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, notEqualOp[int32]{})
-		case VARCHAR:
-			return selectBinary[String](left, right, sel, count, trueSel, falseSel, notEqualStrOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+		case common.VARCHAR:
+			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, notEqualStrOp{})
+		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_In:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, inOp[int32]{})
-		case VARCHAR:
-			return selectBinary[String](left, right, sel, count, trueSel, falseSel, inStrOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, DOUBLE, INTERVAL, LIST, STRUCT, INT128, UNKNOWN, BIT, INVALID:
+		case common.VARCHAR:
+			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, inStrOp{})
+		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_Greater:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatInt32Op{})
-		case INT128:
-			return selectBinary[Hugeint](left, right, sel, count, trueSel, falseSel, greatHugeintOp{})
-		case DATE:
-			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, greatDateOp{})
-		case FLOAT:
+		case common.INT128:
+			return selectBinary[common.Hugeint](left, right, sel, count, trueSel, falseSel, greatHugeintOp{})
+		case common.DATE:
+			return selectBinary[common.Date](left, right, sel, count, trueSel, falseSel, greatDateOp{})
+		case common.FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, greatFloat32Op{})
-		case DECIMAL:
-			return selectBinary[Decimal](left, right, sel, count, trueSel, falseSel, greatDecimalOp{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, UNKNOWN, BIT, INVALID:
+		case common.DECIMAL:
+			return selectBinary[common.Decimal](left, right, sel, count, trueSel, falseSel, greatDecimalOp{})
+		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_GreaterEqual:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatEqualInt32Op{})
-		case DATE:
-			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, greatEqualDateOp{})
-		case FLOAT:
+		case common.DATE:
+			return selectBinary[common.Date](left, right, sel, count, trueSel, falseSel, greatEqualDateOp{})
+		case common.FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, greatEqualFloat32Op{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_Less:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessInt32Op{})
-		case DATE:
-			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessDateOp{})
-		case DOUBLE:
+		case common.DATE:
+			return selectBinary[common.Date](left, right, sel, count, trueSel, falseSel, lessDateOp{})
+		case common.DOUBLE:
 			return selectBinary[float64](left, right, sel, count, trueSel, falseSel, lessFloat64Op{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, FLOAT, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_LessEqual:
-		switch left.typ().getInternalType() {
-		case INT32:
+		switch left.Typ().GetInternalType() {
+		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessEqualInt32Op{})
-		case DATE:
-			return selectBinary[Date](left, right, sel, count, trueSel, falseSel, lessEqualDateOp{})
-		case FLOAT:
+		case common.DATE:
+			return selectBinary[common.Date](left, right, sel, count, trueSel, falseSel, lessEqualDateOp{})
+		case common.FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, lessEqualFloat32Op{})
-		case BOOL, UINT8, INT8, UINT16, INT16, UINT32, UINT64, INT64, DOUBLE, INTERVAL, LIST, STRUCT, VARCHAR, INT128, UNKNOWN, BIT, INVALID:
+		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
 			panic("usp")
 		default:
 			panic("usp")
 		}
 	case ET_Like:
-		switch left.typ().getInternalType() {
-		case VARCHAR:
-			return selectBinary[String](left, right, sel, count, trueSel, falseSel, likeOp{})
+		switch left.Typ().GetInternalType() {
+		case common.VARCHAR:
+			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, likeOp{})
 		default:
 			panic("usp")
 		}
 	case ET_NotLike:
-		switch left.typ().getInternalType() {
-		case VARCHAR:
-			return selectBinary[String](left, right, sel, count, trueSel, falseSel, notLikeOp{})
+		switch left.Typ().GetInternalType() {
+		case common.VARCHAR:
+			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, notLikeOp{})
 		default:
 			panic("usp")
 		}
@@ -499,45 +505,45 @@ func selectOperation(left, right *Vector, sel *SelectVector, count int, trueSel,
 
 }
 
-func selectBinary[T any](left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, cmpOp CompareOp[T]) int {
+func selectBinary[T any](left, right *chunk.Vector, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector, cmpOp CompareOp[T]) int {
 	if sel == nil {
-		sel = incrSelectVectorInPhyFormatFlat()
+		sel = chunk.IncrSelectVectorInPhyFormatFlat()
 	}
-	if left.phyFormat().isConst() && right.phyFormat().isConst() {
+	if left.PhyFormat().IsConst() && right.PhyFormat().IsConst() {
 		return selectConst[T](left, right, sel, count, trueSel, falseSel, cmpOp)
-	} else if left.phyFormat().isConst() && right.phyFormat().isFlat() {
+	} else if left.PhyFormat().IsConst() && right.PhyFormat().IsFlat() {
 		return selectFlat[T](left, right, sel, count, trueSel, falseSel, cmpOp, true, false)
-	} else if left.phyFormat().isFlat() && right.phyFormat().isConst() {
+	} else if left.PhyFormat().IsFlat() && right.PhyFormat().IsConst() {
 		return selectFlat[T](left, right, sel, count, trueSel, falseSel, cmpOp, false, true)
-	} else if left.phyFormat().isFlat() && right.phyFormat().isFlat() {
+	} else if left.PhyFormat().IsFlat() && right.PhyFormat().IsFlat() {
 		return selectFlat[T](left, right, sel, count, trueSel, falseSel, cmpOp, false, false)
 	} else {
 		return selectGeneric[T](left, right, sel, count, trueSel, falseSel, cmpOp)
 	}
 }
 
-func selectGeneric[T any](left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, cmpOp CompareOp[T]) int {
-	var ldata, rdata UnifiedFormat
-	left.toUnifiedFormat(count, &ldata)
-	right.toUnifiedFormat(count, &rdata)
-	lslice := getSliceInPhyFormatUnifiedFormat[T](&ldata)
-	rslice := getSliceInPhyFormatUnifiedFormat[T](&rdata)
+func selectGeneric[T any](left, right *chunk.Vector, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector, cmpOp CompareOp[T]) int {
+	var ldata, rdata chunk.UnifiedFormat
+	left.ToUnifiedFormat(count, &ldata)
+	right.ToUnifiedFormat(count, &rdata)
+	lslice := chunk.GetSliceInPhyFormatUnifiedFormat[T](&ldata)
+	rslice := chunk.GetSliceInPhyFormatUnifiedFormat[T](&rdata)
 	return selectGenericLoopSwitch[T](lslice, rslice,
-		ldata._sel, rdata._sel,
+		ldata.Sel, rdata.Sel,
 		sel,
 		count,
-		ldata._mask, rdata._mask,
+		ldata.Mask, rdata.Mask,
 		trueSel, falseSel,
 		cmpOp)
 }
 
 func selectGenericLoopSwitch[T any](
 	ldata, rdata []T,
-	lsel, rsel *SelectVector,
-	resSel *SelectVector,
+	lsel, rsel *chunk.SelectVector,
+	resSel *chunk.SelectVector,
 	count int,
-	lmask, rmask *Bitmap,
-	trueSel, falseSel *SelectVector,
+	lmask, rmask *util.Bitmap,
+	trueSel, falseSel *chunk.SelectVector,
 	cmpOp CompareOp[T]) int {
 	if !lmask.AllValid() || !rmask.AllValid() {
 		return selectGenericLoopSelSwitch[T](
@@ -560,11 +566,11 @@ func selectGenericLoopSwitch[T any](
 
 func selectGenericLoopSelSwitch[T any](
 	ldata, rdata []T,
-	lsel, rsel *SelectVector,
-	resSel *SelectVector,
+	lsel, rsel *chunk.SelectVector,
+	resSel *chunk.SelectVector,
 	count int,
-	lmask, rmask *Bitmap,
-	trueSel, falseSel *SelectVector,
+	lmask, rmask *util.Bitmap,
+	trueSel, falseSel *chunk.SelectVector,
 	cmpOp CompareOp[T],
 	noNull bool,
 ) int {
@@ -609,29 +615,29 @@ func selectGenericLoopSelSwitch[T any](
 
 func selectGenericLoop[T any](
 	ldata, rdata []T,
-	lsel, rsel *SelectVector,
-	resSel *SelectVector,
+	lsel, rsel *chunk.SelectVector,
+	resSel *chunk.SelectVector,
 	count int,
-	lmask, rmask *Bitmap,
-	trueSel, falseSel *SelectVector,
+	lmask, rmask *util.Bitmap,
+	trueSel, falseSel *chunk.SelectVector,
 	cmpOp CompareOp[T],
 	noNull bool,
 	hasTrueSel, hasFalseSel bool,
 ) int {
 	trueCount, falseCount := 0, 0
 	for i := 0; i < count; i++ {
-		resIdx := resSel.getIndex(i)
-		lidx := lsel.getIndex(i)
-		ridx := rsel.getIndex(i)
-		if (noNull || lmask.rowIsValid(uint64(lidx)) && rmask.rowIsValid(uint64(ridx))) &&
+		resIdx := resSel.GetIndex(i)
+		lidx := lsel.GetIndex(i)
+		ridx := rsel.GetIndex(i)
+		if (noNull || lmask.RowIsValid(uint64(lidx)) && rmask.RowIsValid(uint64(ridx))) &&
 			cmpOp.operation(&ldata[lidx], &rdata[ridx]) {
 			if hasTrueSel {
-				trueSel.setIndex(trueCount, resIdx)
+				trueSel.SetIndex(trueCount, resIdx)
 				trueCount++
 			}
 		} else {
 			if hasFalseSel {
-				falseSel.setIndex(falseCount, resIdx)
+				falseSel.SetIndex(falseCount, resIdx)
 				falseCount++
 			}
 		}
@@ -643,48 +649,48 @@ func selectGenericLoop[T any](
 	}
 }
 
-func selectConst[T any](left, right *Vector, sel *SelectVector, count int, trueSel, falseSel *SelectVector, cmpOp CompareOp[T]) int {
-	ldata := getSliceInPhyFormatConst[T](left)
-	rdata := getSliceInPhyFormatConst[T](right)
-	if isNullInPhyFormatConst(left) ||
-		isNullInPhyFormatConst(right) ||
+func selectConst[T any](left, right *chunk.Vector, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector, cmpOp CompareOp[T]) int {
+	ldata := chunk.GetSliceInPhyFormatConst[T](left)
+	rdata := chunk.GetSliceInPhyFormatConst[T](right)
+	if chunk.IsNullInPhyFormatConst(left) ||
+		chunk.IsNullInPhyFormatConst(right) ||
 		!cmpOp.operation(&ldata[0], &rdata[0]) {
 		if falseSel != nil {
 			for i := 0; i < count; i++ {
-				falseSel.setIndex(i, sel.getIndex(i))
+				falseSel.SetIndex(i, sel.GetIndex(i))
 			}
 		}
 		return 0
 	} else {
 		if trueSel != nil {
 			for i := 0; i < count; i++ {
-				trueSel.setIndex(i, sel.getIndex(i))
+				trueSel.SetIndex(i, sel.GetIndex(i))
 			}
 		}
 		return count
 	}
 }
 
-func selectFlat[T any](left, right *Vector,
-	sel *SelectVector,
+func selectFlat[T any](left, right *chunk.Vector,
+	sel *chunk.SelectVector,
 	count int,
-	trueSel, falseSel *SelectVector,
+	trueSel, falseSel *chunk.SelectVector,
 	cmpOp CompareOp[T],
 	leftConst, rightConst bool) int {
-	ldata := getSliceInPhyFormatFlat[T](left)
-	rdata := getSliceInPhyFormatFlat[T](right)
-	if leftConst && isNullInPhyFormatConst(left) {
+	ldata := chunk.GetSliceInPhyFormatFlat[T](left)
+	rdata := chunk.GetSliceInPhyFormatFlat[T](right)
+	if leftConst && chunk.IsNullInPhyFormatConst(left) {
 		if falseSel != nil {
 			for i := 0; i < count; i++ {
-				falseSel.setIndex(i, sel.getIndex(i))
+				falseSel.SetIndex(i, sel.GetIndex(i))
 			}
 		}
 		return 0
 	}
-	if rightConst && isNullInPhyFormatConst(right) {
+	if rightConst && chunk.IsNullInPhyFormatConst(right) {
 		if falseSel != nil {
 			for i := 0; i < count; i++ {
-				falseSel.setIndex(i, sel.getIndex(i))
+				falseSel.SetIndex(i, sel.GetIndex(i))
 			}
 		}
 		return 0
@@ -696,7 +702,7 @@ func selectFlat[T any](left, right *Vector,
 			rdata,
 			sel,
 			count,
-			getMaskInPhyFormatFlat(right),
+			chunk.GetMaskInPhyFormatFlat(right),
 			trueSel,
 			falseSel,
 			cmpOp,
@@ -708,16 +714,16 @@ func selectFlat[T any](left, right *Vector,
 			rdata,
 			sel,
 			count,
-			getMaskInPhyFormatFlat(left),
+			chunk.GetMaskInPhyFormatFlat(left),
 			trueSel,
 			falseSel,
 			cmpOp,
 			leftConst,
 			rightConst)
 	} else {
-		merge := getMaskInPhyFormatFlat(left)
-		rMask := getMaskInPhyFormatFlat(right)
-		merge.combine(rMask, count)
+		merge := chunk.GetMaskInPhyFormatFlat(left)
+		rMask := chunk.GetMaskInPhyFormatFlat(right)
+		merge.Combine(rMask, count)
 		return selectFlatLoopSwitch[T](
 			ldata,
 			rdata,
@@ -734,10 +740,10 @@ func selectFlat[T any](left, right *Vector,
 
 func selectFlatLoopSwitch[T any](
 	ldata, rdata []T,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	count int,
-	mask *Bitmap,
-	trueSel, falseSel *SelectVector,
+	mask *util.Bitmap,
+	trueSel, falseSel *chunk.SelectVector,
 	cmpOp CompareOp[T],
 	leftConst, rightConst bool) int {
 	if trueSel != nil && falseSel != nil {
@@ -775,24 +781,24 @@ func selectFlatLoopSwitch[T any](
 
 func selectFlatLoop[T any](
 	ldata, rdata []T,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	count int,
-	mask *Bitmap,
-	trueSel, falseSel *SelectVector,
+	mask *util.Bitmap,
+	trueSel, falseSel *chunk.SelectVector,
 	cmpOp CompareOp[T],
 	leftConst, rightConst bool,
 	hasTrueSel, hasFalseSel bool,
 ) int {
 	trueCount, falseCount := 0, 0
 	baseIdx := 0
-	entryCount := entryCount(count)
+	entryCount := util.EntryCount(count)
 	for eidx := 0; eidx < entryCount; eidx++ {
-		entry := mask.getEntry(uint64(eidx))
+		entry := mask.GetEntry(uint64(eidx))
 		next := min(baseIdx+8, count)
-		if AllValidInEntry(entry) {
+		if util.AllValidInEntry(entry) {
 			//all valid: perform operation
 			for ; baseIdx < next; baseIdx++ {
-				resIdx := sel.getIndex(baseIdx)
+				resIdx := sel.GetIndex(baseIdx)
 				lidx := baseIdx
 				if leftConst {
 					lidx = 0
@@ -803,24 +809,24 @@ func selectFlatLoop[T any](
 				}
 				res := cmpOp.operation(&ldata[lidx], &rdata[ridx])
 				if hasTrueSel {
-					trueSel.setIndex(trueCount, resIdx)
+					trueSel.SetIndex(trueCount, resIdx)
 					if res {
 						trueCount++
 					}
 				}
 				if hasFalseSel {
-					falseSel.setIndex(falseCount, resIdx)
+					falseSel.SetIndex(falseCount, resIdx)
 					if !res {
 						falseCount++
 					}
 				}
 			}
-		} else if NoneValidInEntry(entry) {
+		} else if util.NoneValidInEntry(entry) {
 			//skip all
 			if hasFalseSel {
 				for ; baseIdx < next; baseIdx++ {
-					resIdx := sel.getIndex(baseIdx)
-					falseSel.setIndex(falseCount, resIdx)
+					resIdx := sel.GetIndex(baseIdx)
+					falseSel.SetIndex(falseCount, resIdx)
 					falseCount++
 				}
 			}
@@ -830,7 +836,7 @@ func selectFlatLoop[T any](
 			//partially
 			start := baseIdx
 			for ; baseIdx < next; baseIdx++ {
-				resIdx := sel.getIndex(baseIdx)
+				resIdx := sel.GetIndex(baseIdx)
 				lidx := baseIdx
 				if leftConst {
 					lidx = 0
@@ -839,16 +845,16 @@ func selectFlatLoop[T any](
 				if rightConst {
 					ridx = 0
 				}
-				res := rowIsValidInEntry(entry, uint64(baseIdx-start)) &&
+				res := util.RowIsValidInEntry(entry, uint64(baseIdx-start)) &&
 					cmpOp.operation(&ldata[lidx], &rdata[ridx])
 				if hasTrueSel {
-					trueSel.setIndex(trueCount, resIdx)
+					trueSel.SetIndex(trueCount, resIdx)
 					if res {
 						trueCount++
 					}
 				}
 				if hasFalseSel {
-					falseSel.setIndex(falseCount, resIdx)
+					falseSel.SetIndex(falseCount, resIdx)
 					if !res {
 						falseCount++
 					}
