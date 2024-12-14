@@ -164,6 +164,12 @@ type BlockManager struct {
 	//_blocks    map[BlockID]BlockHandle
 }
 
+func NewBlockManager(bufferMgr *BufferManager) *BlockManager {
+	return &BlockManager{
+		_bufferMgr: bufferMgr,
+	}
+}
+
 func (mgr *BlockManager) ConvertBlock(id BlockID, srcBuffer *FileBuffer) *Block {
 	return &Block{
 		FileBuffer: srcBuffer,

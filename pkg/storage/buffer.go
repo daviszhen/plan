@@ -89,6 +89,7 @@ func NewBufferManager(tmp string) *BufferManager {
 		_bufferAlloc: NewAllocator(),
 	}
 	ret._tempId.Store(uint64(MAX_BLOCK))
+	ret._tempBlockMgr = NewBlockManager(ret)
 
 	return ret
 }
@@ -123,7 +124,17 @@ func (mgr *BufferManager) RegisterMemory(
 	buffer := mgr.ConstructManagedBuffer(sz, nil, MANAGED_BUFFER)
 	mgr._tempId.Add(1)
 	id := mgr._tempId.Load()
-	return NewBlockHandle2(nil, BlockID(id), buffer, canDestroy)
+	return NewBlockHandle2(mgr._tempBlockMgr, BlockID(id), buffer, canDestroy)
+}
+
+func (mgr *BufferManager) RegisterSmallMemory(
+	sz uint64,
+) *BlockHandle {
+	util.AssertFunc(sz < BLOCK_SIZE)
+	buffer := mgr.ConstructManagedBuffer(sz, nil, TINY_BUFFER)
+	mgr._tempId.Add(1)
+	id := mgr._tempId.Load()
+	return NewBlockHandle2(mgr._tempBlockMgr, BlockID(id), buffer, false)
 }
 
 func (mgr *BufferManager) Allocate(

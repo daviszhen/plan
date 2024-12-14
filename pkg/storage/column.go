@@ -9,7 +9,15 @@ import (
 	"github.com/daviszhen/plan/pkg/common"
 )
 
+type ColumnDataType int
+
+const (
+	ColumnDataTypeStandard ColumnDataType = 0
+	ColumnDataTypeValidity
+)
+
 type ColumnData struct {
+	_cdType      ColumnDataType
 	_start       IdxType
 	_count       IdxType
 	_blockMgr    *BlockManager
@@ -21,6 +29,39 @@ type ColumnData struct {
 	_updateLock  sync.Mutex
 	_updates     *UpdateSegment
 	_version     IdxType
+	_validity    *ColumnData
+}
+
+func NewColumnData(
+	mgr *BlockManager,
+	info *DataTableInfo,
+	colIdx int,
+	start IdxType,
+	typ common.LType,
+	parent *ColumnData,
+) *ColumnData {
+	ret := &ColumnData{
+		_cdType:      ColumnDataTypeStandard,
+		_blockMgr:    mgr,
+		_info:        info,
+		_columnIndex: IdxType(colIdx),
+		_start:       start,
+		_typ:         typ,
+		_version:     0,
+		_parent:      parent,
+		_data:        NewColumnSegmentTree(),
+	}
+	ret._validity = &ColumnData{
+		_cdType:      ColumnDataTypeValidity,
+		_blockMgr:    mgr,
+		_info:        info,
+		_columnIndex: 0,
+		_start:       start,
+		_typ:         common.MakeLType(common.LTID_VALIDITY),
+		_parent:      ret,
+		_data:        NewColumnSegmentTree(),
+	}
+	return ret
 }
 
 func (column *ColumnData) InitAppend(state *ColumnAppendState) {
@@ -32,6 +73,11 @@ func (column *ColumnData) InitAppend(state *ColumnAppendState) {
 	segment := column._data.GetLastSegment()
 	state._current = segment
 	state._current.InitAppend(state)
+	if column._cdType == ColumnDataTypeStandard {
+		childAppend := &ColumnAppendState{}
+		column._validity.InitAppend(childAppend)
+		state._childAppends = append(state._childAppends, childAppend)
+	}
 }
 
 func (column *ColumnData) AppendSegment(start IdxType) {
@@ -56,16 +102,60 @@ func (column *ColumnData) AppendData(
 	state *ColumnAppendState,
 	vdata *chunk.UnifiedFormat,
 	cnt IdxType) {
-	//FIXME:
+	offset := IdxType(0)
+	column._count += cnt
+	for {
+		copied := state._current.Append(state, vdata, offset, cnt)
+		if copied == cnt {
+			break
+		}
+		fun := func() {
+			release := column._data.Lock()
+			defer release()
+			column.AppendSegment(state._current._start +
+				IdxType(state._current._count.Load()))
+			state._current = column._data.GetLastSegment()
+			state._current.InitAppend(state)
+		}
+		fun()
+		offset += copied
+		cnt -= copied
+	}
+	if column._cdType == ColumnDataTypeStandard {
+		column._validity.AppendData(state._childAppends[0], vdata, cnt)
+	}
 }
 
-func NewColumnData(mgr *BlockManager, info *DataTableInfo, i int, start IdxType, lt common.LType) *ColumnData {
-	return nil
+func (column *ColumnData) SetStart(newStart IdxType) {
+	column._start = newStart
+	offset := IdxType(0)
+	for iter := column._data._nodes.Begin(); iter.IsValid(); iter.Next() {
+		iter.Value()._node._start = column._start + offset
+		offset += IdxType(iter.Value()._node._count.Load())
+	}
+	column._data.Reinitialize()
 }
 
 type ColumnSegmentTree struct {
 	_lock  sync.Mutex
-	_nodes treeset.Set[SegmentNode[ColumnSegment]]
+	_nodes *treeset.Set[SegmentNode[ColumnSegment]]
+}
+
+func NewColumnSegmentTree() *ColumnSegmentTree {
+	cmp := func(a, b SegmentNode[ColumnSegment]) int {
+		ret := a._rowStart - b._rowStart
+		if ret < 0 {
+			return -1
+		}
+		if ret > 0 {
+			return 1
+		}
+		return 0
+	}
+	ret := &ColumnSegmentTree{
+		_nodes: treeset.New[SegmentNode[ColumnSegment]](cmp),
+	}
+	return ret
 }
 
 func (tree *ColumnSegmentTree) Lock() func() {
@@ -96,6 +186,18 @@ func (tree *ColumnSegmentTree) GetLastSegment() *ColumnSegment {
 	return tree._nodes.Last().Value()._node
 }
 
+func (tree *ColumnSegmentTree) Reinitialize() {
+	if tree._nodes.Size() == 0 {
+		return
+	}
+	offset := tree._nodes.Begin().Value()._node._start
+	for iter := tree._nodes.Begin(); iter.IsValid(); iter.Next() {
+		node := iter.Value()
+		node._rowStart = offset
+		offset += IdxType(node._node._count.Load())
+	}
+}
+
 type UpdateSegment struct {
 }
 
@@ -110,15 +212,11 @@ type ColumnSegment struct {
 	_segmentSize IdxType
 }
 
-func (segment *ColumnSegment) InitAppend(state *ColumnAppendState) {
-	state._appendState = segment._function._initAppend(segment)
-}
-
 func NewColumnSegment(typ common.LType, start IdxType, size IdxType) *ColumnSegment {
 	fun := GetUncompressedCompressFunction(typ.GetInternalType())
 	var block *BlockHandle
 	if size < IdxType(BLOCK_SIZE) {
-		block = GBufferMgr.RegisterMemory(uint64(size), false)
+		block = GBufferMgr.RegisterSmallMemory(uint64(size))
 	} else {
 		GBufferMgr.Allocate(uint64(size), false, &block)
 	}
@@ -136,7 +234,27 @@ func NewColumnSegment(typ common.LType, start IdxType, size IdxType) *ColumnSegm
 	}
 }
 
+func (segment *ColumnSegment) InitAppend(state *ColumnAppendState) {
+	state._appendState = segment._function._initAppend(segment)
+}
+
+func (segment *ColumnSegment) Append(
+	state *ColumnAppendState,
+	appendData *chunk.UnifiedFormat,
+	offset IdxType,
+	cnt IdxType,
+) IdxType {
+	return segment._function._append(
+		state._appendState,
+		segment,
+		appendData,
+		offset,
+		cnt,
+	)
+}
+
 type ColumnAppendState struct {
-	_current     *ColumnSegment
-	_appendState *CompressAppendState
+	_current      *ColumnSegment
+	_childAppends []*ColumnAppendState
+	_appendState  *CompressAppendState
 }

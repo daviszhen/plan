@@ -24,8 +24,17 @@ type TxnMgr struct {
 	_activeTxns            []*Txn
 	_recentlyCommittedTxns []*Txn
 	_oldTxns               []*Txn
-	_threadIsChecking      bool
+	_threadIsCheckpointing bool
 	_lock                  sync.Mutex
+}
+
+func NewTxnMgr() *TxnMgr {
+	return &TxnMgr{
+		_curStartTs:        2,
+		_curTxnId:          TxnIdStart,
+		_lowestActiveId:    TxnIdStart,
+		_lowestActiveStart: MaxTxnId,
+	}
 }
 
 func (txnMgr *TxnMgr) NewTxn() (*Txn, error) {
@@ -48,8 +57,9 @@ func (txnMgr *TxnMgr) NewTxn() (*Txn, error) {
 		_id:         txnId,
 		_commitId:   0,
 		_undoBuffer: UndoBuffer{},
-		_storage:    &LocalStorage{},
+		_storage:    nil,
 	}
+	txn._storage = NewLocalStorage(txn)
 	txnMgr._activeTxns = append(txnMgr._activeTxns, txn)
 	return txn, nil
 }
@@ -168,7 +178,11 @@ func (txn *Txn) PushAppend(
 	rowStart IdxType,
 	rowCount IdxType,
 ) {
-
+	ptr := txn._undoBuffer.CreateEntry(INSERT_TUPLE, IdxType(appendInfoSize))
+	infos := util.PointerToSlice[AppendInfo](ptr, int(appendInfoSize))
+	infos[0]._table = table
+	infos[0]._startRow = rowStart
+	infos[0]._count = rowCount
 }
 
 func (txn *Txn) CreateUpdateInfo(
@@ -193,6 +207,7 @@ type ChunkInfo struct {
 	_deleteId       atomic.Uint64
 	_sameInsertedId atomic.Bool
 	_inserted       [STANDARD_VECTOR_SIZE]atomic.Uint64
+	_deleted        [STANDARD_VECTOR_SIZE]atomic.Uint64
 }
 
 func (info *ChunkInfo) Append(start IdxType, end IdxType, commitId TxnType) {
@@ -204,6 +219,35 @@ func (info *ChunkInfo) Append(start IdxType, end IdxType, commitId TxnType) {
 	}
 	for i := start; i < end; i++ {
 		info._inserted[i].Store(uint64(commitId))
+	}
+}
+
+func (info *ChunkInfo) CommitAppend(
+	commitId TxnType,
+	start IdxType, end IdxType) {
+	switch info._type {
+	case CONSTANT_INFO:
+		util.AssertFunc(start == 0 && end == STANDARD_VECTOR_SIZE)
+		info._insertId.Store(uint64(commitId))
+	case VECTOR_INFO:
+		if info._sameInsertedId.Load() {
+			info._insertId.Store(uint64(commitId))
+		}
+		for i := start; i < end; i++ {
+			info._inserted[i].Store(uint64(commitId))
+		}
+	case EMPTY_INFO:
+	}
+}
+
+func (info *ChunkInfo) CommitDelete(
+	commitId TxnType,
+	rows []RowType,
+	count IdxType) {
+	if info._type == VECTOR_INFO {
+		for i := IdxType(0); i < count; i++ {
+			info._deleted[rows[i]].Store(uint64(commitId))
+		}
 	}
 }
 
@@ -279,9 +323,6 @@ func (undo *UndoBuffer) Close() {
 	undo._logs = nil
 }
 
-type UpdateInfo struct {
-}
-
 type CommitState struct {
 	_log      *WriteAheadLog
 	_commitId TxnType
@@ -291,6 +332,26 @@ func (commit *CommitState) CommitEntry(
 	typ UndoFlags,
 	data unsafe.Pointer,
 ) error {
+	switch typ {
+	case INSERT_TUPLE:
+		infos := util.PointerToSlice[AppendInfo](data, int(appendInfoSize))
+		info := infos[0]
+		info._table.CommitAppend(
+			commit._commitId,
+			info._startRow,
+			info._count)
+	case DELETE_TUPLE:
+		infos := util.PointerToSlice[DeleteInfo](data, int(deleteInfoSize))
+		info := infos[0]
+		info._vinfo.CommitDelete(
+			commit._commitId,
+			info._rows[:],
+			info._count)
+	case UPDATE_TUPLE:
+		infos := util.PointerToSlice[UpdateInfo](data, int(updateInfoSize))
+		info := &infos[0]
+		info._versionNumber.Store(uint64(commit._commitId))
+	}
 	return nil
 }
 
@@ -312,4 +373,37 @@ func (cleanup *CleanupState) CleanupEntry(
 	data unsafe.Pointer,
 ) {
 
+}
+
+var (
+	appendInfoSize = unsafe.Sizeof(AppendInfo{})
+	deleteInfoSize = unsafe.Sizeof(DeleteInfo{})
+	updateInfoSize = unsafe.Sizeof(UpdateInfo{})
+)
+
+type AppendInfo struct {
+	_table    *DataTable
+	_startRow IdxType
+	_count    IdxType
+}
+
+type DeleteInfo struct {
+	_table   *DataTable
+	_vinfo   *ChunkInfo
+	_count   IdxType
+	_baseRow IdxType
+	_rows    [1]RowType
+}
+
+type UpdateInfo struct {
+	_segment       *UpdateSegment
+	_columnIndex   IdxType
+	_versionNumber atomic.Uint64
+	_vectorIndex   IdxType
+	_N             int
+	_max           int
+	_tuples        []int
+	_tupleData     unsafe.Pointer
+	_prev          *UpdateInfo
+	_next          *UpdateInfo
 }
