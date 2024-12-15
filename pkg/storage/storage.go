@@ -43,6 +43,13 @@ func (storage *LocalTableStorage) Rollback() {
 
 }
 
+func (storage *LocalTableStorage) InitScan(state *CollectionScanState) {
+	if storage._rowGroups._totalRows.Load() == 0 {
+		return
+	}
+	storage._rowGroups.InitScan(state, state.GetColumnIds())
+}
+
 type LocalStorage struct {
 	_txn              *Txn
 	_tableStorageLock sync.Mutex
@@ -118,6 +125,16 @@ func (storage *LocalStorage) getOrCreateStorage(table *DataTable) *LocalTableSto
 	return get
 }
 
+func (storage *LocalStorage) getStorage(table *DataTable) *LocalTableStorage {
+	storage._tableStorageLock.Lock()
+	defer storage._tableStorageLock.Unlock()
+	get, err := storage._tableStorage.Get(table)
+	if err != nil {
+		return nil
+	}
+	return get
+}
+
 func (storage *LocalStorage) Flush(
 	table *DataTable,
 	ltStorage *LocalTableStorage) {
@@ -137,6 +154,18 @@ func (storage *LocalStorage) Flush(
 		ltStorage.Rollback()
 	}
 	storage._txn.PushAppend(table, IdxType(appendState._rowStart), appendCount)
+}
+
+func (storage *LocalStorage) InitScan(table *DataTable, state *CollectionScanState) {
+	lstorage := storage.getStorage(table)
+	if lstorage == nil {
+		return
+	}
+	lstorage.InitScan(state)
+}
+
+func (storage *LocalStorage) Scan(state *CollectionScanState, ids []IdxType, result *chunk.Chunk) {
+	state.Scan(storage._txn, result)
 }
 
 type TableAppendState struct {

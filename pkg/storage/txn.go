@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -201,13 +202,36 @@ const (
 )
 
 type ChunkInfo struct {
-	_type           ChunkInfoType
-	_start          IdxType
-	_insertId       atomic.Uint64
-	_deleteId       atomic.Uint64
+	_type  ChunkInfoType
+	_start IdxType
+	//constant info
+	_insertId atomic.Uint64
+	_deleteId atomic.Uint64
+	//vector info
 	_sameInsertedId atomic.Bool
 	_inserted       [STANDARD_VECTOR_SIZE]atomic.Uint64
 	_deleted        [STANDARD_VECTOR_SIZE]atomic.Uint64
+	_anyDeleted     atomic.Bool
+}
+
+func NewConstantInfo(start IdxType) *ChunkInfo {
+	ret := &ChunkInfo{
+		_type: CONSTANT_INFO,
+	}
+	ret._deleteId.Store(uint64(NotDeletedId))
+	return ret
+}
+
+func NewVectorInfo(start IdxType) *ChunkInfo {
+	ret := &ChunkInfo{
+		_type:  VECTOR_INFO,
+		_start: start,
+	}
+	ret._sameInsertedId.Store(true)
+	for i := 0; i < STANDARD_VECTOR_SIZE; i++ {
+		ret._deleted[i].Store(uint64(NotDeletedId))
+	}
+	return ret
 }
 
 func (info *ChunkInfo) Append(start IdxType, end IdxType, commitId TxnType) {
@@ -249,6 +273,121 @@ func (info *ChunkInfo) CommitDelete(
 			info._deleted[rows[i]].Store(uint64(commitId))
 		}
 	}
+}
+
+func (info *ChunkInfo) GetSelVector(
+	txn *Txn,
+	sel *chunk.SelectVector,
+	maxCount IdxType) IdxType {
+	switch info._type {
+	case CONSTANT_INFO:
+		return info.TemplatedGetSelVectorWithConstant(
+			txn._startTime,
+			txn._id,
+			sel,
+			maxCount,
+			TxnVersionOp{})
+	case VECTOR_INFO:
+		return info.TemplatedGetSelVectorWithVector(
+			txn._startTime,
+			txn._id,
+			sel,
+			maxCount,
+			TxnVersionOp{})
+	default:
+		panic("unexpected info type")
+	}
+}
+
+func (info *ChunkInfo) TemplatedGetSelVectorWithConstant(
+	startTime TxnType,
+	txnId TxnType,
+	sel *chunk.SelectVector,
+	maxCount IdxType,
+	op VersionOp,
+) IdxType {
+	if op.UseInsertedVersion(startTime, txnId, TxnType(info._insertId.Load())) &&
+		op.UseDeletedVersion(startTime, txnId, TxnType(info._deleteId.Load())) {
+		return maxCount
+	}
+	return 0
+}
+
+func (info *ChunkInfo) TemplatedGetSelVectorWithVector(
+	startTime TxnType,
+	txnId TxnType,
+	sel *chunk.SelectVector,
+	maxCount IdxType,
+	op VersionOp,
+) IdxType {
+	count := IdxType(0)
+	if info._sameInsertedId.Load() && !info._anyDeleted.Load() {
+		if op.UseInsertedVersion(startTime, txnId, TxnType(info._insertId.Load())) {
+			return maxCount
+		} else {
+			return 0
+		}
+	} else if info._sameInsertedId.Load() {
+		if !op.UseInsertedVersion(startTime, txnId, TxnType(info._insertId.Load())) {
+			return 0
+		}
+		for i := IdxType(0); i < maxCount; i++ {
+			if op.UseDeletedVersion(startTime, txnId, TxnType(info._deleted[i].Load())) {
+				sel.SetIndex(int(count), int(i))
+				count++
+			}
+		}
+	} else if !info._anyDeleted.Load() {
+		for i := IdxType(0); i < maxCount; i++ {
+			if op.UseInsertedVersion(startTime, txnId, TxnType(info._inserted[i].Load())) {
+				sel.SetIndex(int(count), int(i))
+				count++
+			}
+		}
+	} else {
+		for i := IdxType(0); i < maxCount; i++ {
+			if op.UseInsertedVersion(startTime, txnId, TxnType(info._inserted[i].Load())) &&
+				op.UseDeletedVersion(startTime, txnId, TxnType(info._deleted[i].Load())) {
+				sel.SetIndex(int(count), int(i))
+				count++
+			}
+		}
+	}
+	return count
+}
+
+type VersionOp interface {
+	UseInsertedVersion(startTime, txnId, id TxnType) bool
+	UseDeletedVersion(startTime, txnId, id TxnType) bool
+}
+
+var _ VersionOp = &TxnVersionOp{}
+var _ VersionOp = &CommittedVersionOp{}
+
+type TxnVersionOp struct {
+}
+
+func (op TxnVersionOp) UseInsertedVersion(
+	startTime, txnId, id TxnType) bool {
+	return id < startTime || id == txnId
+}
+
+func (op TxnVersionOp) UseDeletedVersion(
+	startTime, txnId, id TxnType) bool {
+	return !op.UseInsertedVersion(startTime, txnId, id)
+}
+
+type CommittedVersionOp struct {
+}
+
+func (op CommittedVersionOp) UseInsertedVersion(
+	startTime, txnId, id TxnType) bool {
+	return true
+}
+
+func (op CommittedVersionOp) UseDeletedVersion(
+	minStartTime, minTxnId, id TxnType) bool {
+	return id >= minStartTime && id < TxnIdStart || id >= minTxnId
 }
 
 type UndoFlags uint32

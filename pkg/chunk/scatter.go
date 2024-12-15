@@ -18,6 +18,21 @@ type ScatterOp[T any] interface {
 	Store(src T, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer)
 }
 
+type BoolScatterOp struct {
+}
+
+func (scatter BoolScatterOp) NullValue() bool {
+	return false
+}
+
+func (scatter BoolScatterOp) RandValue() bool {
+	return false
+}
+
+func (scatter BoolScatterOp) Store(src bool, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
+	util.Store[bool](src, util.PointerAdd(rowLoc, offsetInRow))
+}
+
 type Int8ScatterOp struct {
 }
 

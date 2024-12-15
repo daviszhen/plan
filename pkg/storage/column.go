@@ -7,13 +7,14 @@ import (
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type ColumnDataType int
 
 const (
 	ColumnDataTypeStandard ColumnDataType = 0
-	ColumnDataTypeValidity
+	ColumnDataTypeValidity ColumnDataType = 1
 )
 
 type ColumnData struct {
@@ -136,25 +137,89 @@ func (column *ColumnData) SetStart(newStart IdxType) {
 	column._data.Reinitialize()
 }
 
+func (column *ColumnData) InitScan(state *ColumnScanState) {
+	state._current = column._data.GetRootSegment()
+	state._segmentTree = column._data
+	state._rowIdx = 0
+	if state._current != nil {
+		state._rowIdx = state._current._start
+	}
+	state._internalIdx = state._rowIdx
+	state._initialized = false
+	state._version = column._version
+	state._scanState = nil
+	state._lastOffset = 0
+}
+
+func (column *ColumnData) Skip(
+	state *ColumnScanState,
+	count IdxType) {
+	state.Next(count)
+}
+
+func (column *ColumnData) Scan(
+	txn *Txn,
+	vecIdx IdxType,
+	state *ColumnScanState,
+	result *chunk.Vector) IdxType {
+	return column.ScanVector(
+		txn,
+		vecIdx,
+		state,
+		result,
+		false,
+		true)
+}
+
+func (column *ColumnData) ScanVector(
+	txn *Txn,
+	vecIdx IdxType,
+	state *ColumnScanState,
+	result *chunk.Vector,
+	scanCommitted bool,
+	allowUpdates bool,
+) IdxType {
+	scanCount := column.ScanVector2(state, result, STANDARD_VECTOR_SIZE)
+	column._updateLock.Lock()
+	defer column._updateLock.Unlock()
+	if column._updates != nil {
+		result.Flatten(int(scanCount))
+		if scanCommitted {
+			panic("usp")
+		} else {
+			panic("usp")
+		}
+	}
+	return scanCount
+}
+
+func (column *ColumnData) ScanVector2(
+	state *ColumnScanState,
+	result *chunk.Vector,
+	remaining IdxType,
+) IdxType {
+	state._previousStates = nil
+	if state._version != column._version {
+		column.InitScanWithOffset(state, state._rowIdx)
+		state._current.InitScan(state)
+		state._initialized = true
+	}
+	return -1
+}
+
+func (column *ColumnData) InitScanWithOffset(
+	state *ColumnScanState,
+	rowIdx IdxType) {
+	state._current = column._data.GetSegment(rowIdx)
+}
+
 type ColumnSegmentTree struct {
 	_lock  sync.Mutex
-	_nodes *treeset.Set[SegmentNode[ColumnSegment]]
+	_nodes []SegmentNode[ColumnSegment]
 }
 
 func NewColumnSegmentTree() *ColumnSegmentTree {
-	cmp := func(a, b SegmentNode[ColumnSegment]) int {
-		ret := a._rowStart - b._rowStart
-		if ret < 0 {
-			return -1
-		}
-		if ret > 0 {
-			return 1
-		}
-		return 0
-	}
-	ret := &ColumnSegmentTree{
-		_nodes: treeset.New[SegmentNode[ColumnSegment]](cmp),
-	}
+	ret := &ColumnSegmentTree{}
 	return ret
 }
 
@@ -166,7 +231,7 @@ func (tree *ColumnSegmentTree) Lock() func() {
 }
 
 func (tree *ColumnSegmentTree) IsEmpty() bool {
-	return tree._nodes.Size() == 0
+	return len(tree._nodes) == 0
 }
 
 func (tree *ColumnSegmentTree) AppendSegment(seg *ColumnSegment) {
@@ -196,6 +261,45 @@ func (tree *ColumnSegmentTree) Reinitialize() {
 		node._rowStart = offset
 		offset += IdxType(node._node._count.Load())
 	}
+}
+
+func (tree *ColumnSegmentTree) GetRootSegment() *ColumnSegment {
+	return tree._nodes.First().Value()._node
+}
+
+func (tree *ColumnSegmentTree) GetNextSegment(current *ColumnSegment) *ColumnSegment {
+	return tree.GetSegmentByIndex(current._index + 1)
+}
+
+func (tree *ColumnSegmentTree) GetSegmentByIndex(idx IdxType) *ColumnSegment {
+	util.AssertFunc(idx >= 0)
+	temp := SegmentNode[ColumnSegment]{
+		_rowStart: idx,
+	}
+	iter := tree._nodes.Find(temp)
+	if iter.IsValid() {
+		return iter.Value()._node
+	} else {
+		return nil
+	}
+}
+
+func (tree *ColumnSegmentTree) GetSegment(rowNumber IdxType) *ColumnSegment {
+	idx := tree.GetSegmentIdx(rowNumber)
+	iter := tree._nodes.Find(SegmentNode[ColumnSegment]{
+		_rowStart: idx,
+	})
+	return iter.Value()._node
+}
+
+func (tree *ColumnSegmentTree) GetSegmentIdx(rowNumber IdxType) IdxType {
+	for iter := tree._nodes.Begin(); iter.IsValid(); iter.Next() {
+		node := iter.Value()
+		if node._rowStart <= rowNumber && rowNumber < node._rowStart+IdxType(node._node._count.Load()) {
+			return node._rowStart
+		}
+	}
+	panic("usp")
 }
 
 type UpdateSegment struct {
@@ -251,6 +355,10 @@ func (segment *ColumnSegment) Append(
 		offset,
 		cnt,
 	)
+}
+
+func (segment *ColumnSegment) InitScan(state *ColumnScanState) {
+
 }
 
 type ColumnAppendState struct {

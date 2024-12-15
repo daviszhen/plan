@@ -87,10 +87,7 @@ func (rg *RowGroup) AppendVersionInfo(txn *Txn, count IdxType) {
 		}
 		if start == 0 && end == STANDARD_VECTOR_SIZE {
 			//full vector
-			info := &ChunkInfo{
-				_type:  CONSTANT_INFO,
-				_start: rg._start + idx*STANDARD_VECTOR_SIZE,
-			}
+			info := NewConstantInfo(rg._start + idx*STANDARD_VECTOR_SIZE)
 			info._insertId.Store(uint64(txn._id))
 			info._deleteId.Store(uint64(NotDeletedId))
 			rg._versionInfo._info[idx] = info
@@ -98,10 +95,7 @@ func (rg *RowGroup) AppendVersionInfo(txn *Txn, count IdxType) {
 			var info *ChunkInfo
 			if rg._versionInfo._info[idx] == nil {
 				//first time to vector
-				info = &ChunkInfo{
-					_type:  VECTOR_INFO,
-					_start: rg._start + idx*STANDARD_VECTOR_SIZE,
-				}
+				info = NewVectorInfo(rg._start + idx*STANDARD_VECTOR_SIZE)
 				rg._versionInfo._info[idx] = info
 			} else {
 				info = rg._versionInfo._info[idx]
@@ -158,6 +152,132 @@ func (rg *RowGroup) CommitAppend(
 		info.CommitAppend(commitId, start, end)
 	}
 }
+
+func (rg *RowGroup) InitScan(state *CollectionScanState) bool {
+	colIds := state.GetColumnIds()
+	state._rowGroup = rg
+	state._vectorIdx = 0
+	state._maxRowGroupRow = min(
+		IdxType(rg._count.Load()),
+		state._maxRow-rg._start)
+	if rg._start > state._maxRow {
+		state._maxRowGroupRow = 0
+	}
+	if state._maxRowGroupRow == 0 {
+		return false
+	}
+	for i, idx := range colIds {
+		if idx != IdxType(-1) {
+			col := rg.GetColumn(int(idx))
+			col.InitScan(state._columnScans[i])
+		} else {
+			state._columnScans[i]._current = nil
+		}
+	}
+	return true
+}
+
+func (rg *RowGroup) Scan(txn *Txn, state *CollectionScanState, result *chunk.Chunk) {
+	rg.TemplatedScanScan(txn, state, result, TableScanTypeRegular)
+}
+
+func (rg *RowGroup) TemplatedScanScan(txn *Txn, state *CollectionScanState, result *chunk.Chunk, scanTyp TableScanType) {
+	allowUpdates := scanTyp != TableScanTypeCommittedRowsDisallowUpdates &&
+		scanTyp != TableScanTypeCommittedRowsOmitPermanentlyDeleted
+	colIds := state.GetColumnIds()
+	for {
+		if state._vectorIdx*STANDARD_VECTOR_SIZE >=
+			state._maxRowGroupRow {
+			return
+		}
+		currentRow := state._vectorIdx * STANDARD_VECTOR_SIZE
+		maxCount := min(STANDARD_VECTOR_SIZE, state._maxRowGroupRow-currentRow)
+		count := IdxType(0)
+		validSel := chunk.NewSelectVector(STANDARD_VECTOR_SIZE)
+		if scanTyp == TableScanTypeRegular {
+			count = state._rowGroup.GetSelVector(
+				txn,
+				state._vectorIdx,
+				validSel,
+				maxCount,
+			)
+			if count == 0 {
+				rg.NextVector(state)
+				continue
+			}
+		} else if scanTyp == TableScanTypeCommittedRowsOmitPermanentlyDeleted {
+			panic("usp")
+		} else {
+			count = maxCount
+		}
+		if count == maxCount {
+			for i, idx := range colIds {
+				if idx == IdxType(-1) {
+					//row id
+					result.Data[i].Sequence(uint64(rg._start+currentRow), 1, uint64(count))
+				} else {
+					col := rg.GetColumn(int(idx))
+					if scanTyp != TableScanTypeRegular {
+						panic("usp")
+					} else {
+						col.Scan(
+							txn,
+							state._vectorIdx,
+							state._columnScans[i],
+							result.Data[i])
+					}
+				}
+			}
+		} else {
+			panic("usp")
+		}
+		result.SetCard(int(count))
+		state._vectorIdx++
+		break
+	}
+}
+
+func (rg *RowGroup) GetSelVector(
+	txn *Txn,
+	vectorIdx IdxType,
+	sel *chunk.SelectVector,
+	maxCount IdxType) IdxType {
+	rg._rowGroupLock.Lock()
+	defer rg._rowGroupLock.Unlock()
+	info := rg.GetChunkInfo(vectorIdx)
+	if info == nil {
+		return maxCount
+	}
+	return info.GetSelVector(txn, sel, maxCount)
+}
+
+func (rg *RowGroup) GetChunkInfo(idx IdxType) *ChunkInfo {
+	if rg._versionInfo == nil {
+		return nil
+	}
+	return rg._versionInfo._info[idx]
+}
+
+func (rg *RowGroup) NextVector(state *CollectionScanState) {
+	state._vectorIdx++
+	colIds := state.GetColumnIds()
+	for i, idx := range colIds {
+		if idx == IdxType(-1) {
+			continue
+		}
+		col := rg.GetColumn(int(idx))
+		col.Skip(state._columnScans[i], STANDARD_VECTOR_SIZE)
+	}
+}
+
+type TableScanType int
+
+const (
+	TableScanTypeRegular                             TableScanType = 0
+	TableScanTypeCommittedRows                       TableScanType = 1
+	TableScanTypeCommittedRowsDisallowUpdates        TableScanType = 2
+	TableScanTypeCommittedRowsOmitPermanentlyDeleted TableScanType = 3
+)
 
 func NewRowGroup(collect *RowGroupCollection, start IdxType, count IdxType) *RowGroup {
 	rg := &RowGroup{
@@ -239,11 +359,33 @@ func (collect *RowGroupCollection) Append(data *chunk.Chunk, state *TableAppendS
 			state._remaining -= cnt
 		}
 		if remaining > 0 {
-
+			util.AssertFunc(IdxType(data.Card()) == remaining+appendCount)
+			if remaining < IdxType(data.Card()) {
+				sel := chunk.NewSelectVector(int(remaining))
+				for i := IdxType(0); i < remaining; i++ {
+					sel.SetIndex(int(i), int(appendCount+i))
+				}
+				data.SliceItself(sel, int(remaining))
+			}
+			newRg = true
+			nextStart := curRg._start +
+				state._rowGroupAppendState._offsetInRowGroup
+			fun := func() {
+				release := collect._rowGroups.Lock()
+				defer release()
+				collect.AppendRowGroup(nextStart)
+				lastRg := collect._rowGroups.GetLastSegment()
+				lastRg.InitAppend(&state._rowGroupAppendState)
+				if state._remaining > 0 {
+					lastRg.AppendVersionInfo(state._txn, state._remaining)
+				}
+			}
+			fun()
 		} else {
 			break
 		}
 	}
+	state._currentRow += RowType(appendCount)
 	return newRg
 }
 
@@ -301,6 +443,21 @@ func (collect *RowGroupCollection) InitializeEmpty() {
 
 }
 
+func (collect *RowGroupCollection) InitScan(
+	state *CollectionScanState,
+	columnIds []IdxType) {
+	release := collect._rowGroups.Lock()
+	defer release()
+	rg := collect._rowGroups.GetRootSegment()
+	state._rowGroups = collect._rowGroups
+	state._maxRow = collect._rowStart +
+		IdxType(collect._totalRows.Load())
+	state.Init(collect._types)
+	for rg != nil && !rg.InitScan(state) {
+		rg = collect._rowGroups.GetNextSegment(rg)
+	}
+}
+
 type VersionNode struct {
 	_info [ROW_GROUP_VECTOR_COUNT]*ChunkInfo
 }
@@ -320,11 +477,6 @@ type RowGroupAppendState struct {
 	_rowGroup         *RowGroup
 	_states           []*ColumnAppendState
 	_offsetInRowGroup IdxType
-}
-
-type SegmentNode[T any] struct {
-	_rowStart IdxType
-	_node     *T
 }
 
 type RowGroupSegmentTree struct {
@@ -414,4 +566,11 @@ func (tree *RowGroupSegmentTree) MoveSegments() []*RowGroup {
 
 func (tree *RowGroupSegmentTree) GetSegment(start IdxType) *RowGroup {
 	return tree.GetSegmentByIndex(start)
+}
+
+func (tree *RowGroupSegmentTree) GetRootSegment() *RowGroup {
+	if tree._nodes.Size() == 0 {
+		return nil
+	}
+	return tree._nodes.First().Value()._node
 }

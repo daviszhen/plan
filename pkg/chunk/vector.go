@@ -19,6 +19,7 @@ const (
 	PF_FLAT PhyFormat = iota
 	PF_CONST
 	PF_DICT
+	PF_SEQUENCE
 )
 
 func (f PhyFormat) String() string {
@@ -43,6 +44,10 @@ func (f PhyFormat) IsFlat() bool {
 
 func (f PhyFormat) IsDict() bool {
 	return f == PF_DICT
+}
+
+func (f PhyFormat) IsSequence() bool {
+	return f == PF_SEQUENCE
 }
 
 type SelectVector struct {
@@ -680,6 +685,25 @@ func (vec *Vector) Deserialize(count int, deserial util.Deserialize) error {
 		}
 	}
 	return nil
+}
+
+func (vec *Vector) Sequence(
+	start uint64, incr uint64, count uint64) {
+	vec._PhyFormat = PF_SEQUENCE
+	vec.Buf = NewStandardBuffer(common.BigintType(), 3)
+	dataSlice := GetSliceInPhyFormatSequence(vec)
+	dataSlice[0] = int64(start)
+	dataSlice[1] = int64(incr)
+	dataSlice[2] = int64(count)
+	vec.Mask = nil
+	vec.Aux = nil
+}
+
+// sequence vector
+func GetSliceInPhyFormatSequence(vec *Vector) []int64 {
+	util.AssertFunc(vec.PhyFormat().IsSequence())
+	pSize := vec.Typ().GetInternalType().Size()
+	return util.ToSlice[int64](vec.Data, pSize)
 }
 
 // constant vector

@@ -1,5 +1,9 @@
 package chunk
 
+import (
+	"github.com/daviszhen/plan/pkg/common"
+)
+
 //
 //func TestBitmap(t *testing.T) {
 //	mask := &util.Bitmap{
@@ -15,13 +19,7 @@ package chunk
 //	assert.True(t, !mask.RowIsValid(util.DefaultVectorSize))
 //}
 //
-//func newInt32ConstVector(v int32, null bool) *Vector {
-//	vec := NewConstVector(common.IntegerType())
-//	data := GetSliceInPhyFormatConst[int32](vec)
-//	data[0] = v
-//	SetNullInPhyFormatConst(vec, null)
-//	return vec
-//}
+
 //
 //func newBoolConstVector(b bool, null bool) *Vector {
 //	vec := NewConstVector(common.BooleanType())

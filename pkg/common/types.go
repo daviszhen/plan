@@ -209,7 +209,7 @@ func init() {
 func (pt PhyType) Size() int {
 	switch pt {
 	case BIT:
-		panic("usp")
+		return BoolSize
 	case BOOL:
 		return BoolSize
 	case INT8:
