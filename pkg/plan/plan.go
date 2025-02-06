@@ -1263,6 +1263,7 @@ type PhysicalOperator struct {
 	ColumnIndexMap []int //for insert
 	ScanInfo       *ScanInfo
 	Children       []*PhysicalOperator
+	ExecStats      ExecStats
 }
 
 func (po *PhysicalOperator) String() string {
@@ -1402,6 +1403,7 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 	default:
 		panic(fmt.Sprintf("usp %v", po.Typ))
 	}
+	tree.AddMetaNode("Exec Stats", po.ExecStats.String())
 
 	for _, child := range po.Children {
 		child.Print(tree)

@@ -452,6 +452,9 @@ func execOps(
 				}
 			}
 		}
+		if conf.Debug.PrintPlan {
+			fmt.Println(op.String())
+		}
 		run.Close()
 	}
 	return nil
@@ -538,6 +541,23 @@ const (
 	SinkResNeedMoreInput SinkResult = iota
 	SinkResDone
 )
+
+type ExecStats struct {
+	_totalTime      time.Duration
+	_totalChildTime time.Duration
+}
+
+func (stats ExecStats) String() string {
+	if stats._totalTime == 0 {
+		return fmt.Sprintf("total time is 0")
+	}
+	return fmt.Sprintf("time : total %v, this %v (%.2f) , child %v",
+		stats._totalTime,
+		stats._totalTime-stats._totalChildTime,
+		float64(stats._totalTime-stats._totalChildTime)/float64(stats._totalTime),
+		stats._totalChildTime,
+	)
+}
 
 var _ OperatorExec = &Runner{}
 
@@ -697,6 +717,9 @@ func (run *Runner) Init() error {
 
 func (run *Runner) Execute(input, output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	output.Init(run.outputTypes, util.DefaultVectorSize)
+	defer func(start time.Time) {
+		run.op.ExecStats._totalTime += time.Since(start)
+	}(time.Now())
 	switch run.op.Typ {
 	case POT_Scan:
 		return run.scanExec(output, state)
@@ -726,6 +749,9 @@ func (run *Runner) Execute(input, output *chunk.Chunk, state *OperatorState) (Op
 }
 
 func (run *Runner) execChild(child *Runner, output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+	defer func(start time.Time) {
+		run.op.ExecStats._totalChildTime += time.Since(start)
+	}(time.Now())
 	for output.Card() == 0 {
 		res, err := child.Execute(nil, output, child.state)
 		if err != nil {
