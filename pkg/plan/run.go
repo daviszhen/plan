@@ -187,7 +187,7 @@ func RunDDL(cfg *util.Config) error {
 	return nil
 }
 
-func InitRunner(cfg *util.Config, query string) (*Runner, error) {
+func InitRunner(cfg *util.Config, txn *storage.Txn, query string) (*Runner, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -198,15 +198,13 @@ func InitRunner(cfg *util.Config, query string) (*Runner, error) {
 		return nil, err
 	}
 
-	if len(stmts) != 1 ||
-		stmts[0] == nil ||
-		stmts[0].GetStmt().GetSelectStmt() == nil {
-		return nil, fmt.Errorf("invalid statements")
+	if len(stmts) != 1 {
+		return nil, fmt.Errorf("multiple statements in one request")
 	}
 
 	//gen plan
 	var root *PhysicalOperator
-	root, err = genPhyPlan(nil, stmts[0].GetStmt().GetSelectStmt())
+	root, err = genDDLPhyPlan(txn, stmts[0])
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +217,7 @@ func InitRunner(cfg *util.Config, query string) (*Runner, error) {
 		op:    root,
 		state: &OperatorState{},
 		cfg:   cfg,
+		Txn:   txn,
 	}
 	err = run.Init()
 	if err != nil {
@@ -406,7 +405,7 @@ func execOps(
 
 		run := &Runner{
 			op:    op,
-			txn:   txn,
+			Txn:   txn,
 			state: &OperatorState{},
 			cfg:   conf,
 		}
@@ -569,7 +568,7 @@ type OperatorExec interface {
 
 type Runner struct {
 	cfg   *util.Config
-	txn   *storage.Txn
+	Txn   *storage.Txn
 	op    *PhysicalOperator
 	state *OperatorState
 	//for stub
@@ -661,7 +660,7 @@ func (run *Runner) initChildren() error {
 	for _, child := range run.op.Children {
 		childRun := &Runner{
 			op:    child,
-			txn:   run.txn,
+			Txn:   run.Txn,
 			state: &OperatorState{},
 			cfg:   run.cfg,
 		}
@@ -850,7 +849,7 @@ func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (Operat
 
 	lAState := &storage.LocalAppendState{}
 	table := run.op.TableEnt.GetStorage()
-	table.InitLocalAppend(run.txn, lAState)
+	table.InitLocalAppend(run.Txn, lAState)
 
 	cnt := 0
 	for {
@@ -881,7 +880,7 @@ func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (Operat
 			run.insertChunk)
 
 		err = table.LocalAppend(
-			run.txn,
+			run.Txn,
 			lAState,
 			run.insertChunk,
 			false)
@@ -889,7 +888,7 @@ func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (Operat
 			return InvalidOpResult, err
 		}
 	}
-	table.FinalizeLocalAppend(run.txn, lAState)
+	table.FinalizeLocalAppend(run.Txn, lAState)
 	return Done, nil
 }
 
@@ -910,7 +909,7 @@ func (run *Runner) createTableExec(output *chunk.Chunk, state *OperatorState) (O
 	table := run.op.Table
 	ifNotExists := run.op.IfNotExists
 	//////////////////////////////////////
-	tabEnt := storage.GCatalog.GetEntry(run.txn, storage.CatalogTypeTable, schema, table)
+	tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, schema, table)
 	if tabEnt != nil {
 		if ifNotExists {
 			return Done, nil
@@ -919,7 +918,7 @@ func (run *Runner) createTableExec(output *chunk.Chunk, state *OperatorState) (O
 		}
 	}
 	info := storage.NewDataTableInfo3(schema, table, run.op.ColDefs, run.op.Constraints)
-	_, err := storage.GCatalog.CreateTable(run.txn, info)
+	_, err := storage.GCatalog.CreateTable(run.Txn, info)
 	if err != nil {
 		return 0, err
 	}
@@ -937,7 +936,7 @@ func (run *Runner) createSchemaInit() error {
 func (run *Runner) createSchemaExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	name := run.op.Database
 	ifNotExists := run.op.IfNotExists
-	schEnt := storage.GCatalog.GetSchema(run.txn, name)
+	schEnt := storage.GCatalog.GetSchema(run.Txn, name)
 	if schEnt != nil {
 		if ifNotExists {
 			return Done, nil
@@ -945,7 +944,7 @@ func (run *Runner) createSchemaExec(output *chunk.Chunk, state *OperatorState) (
 			return InvalidOpResult, fmt.Errorf("schema %s already exists", name)
 		}
 	}
-	_, err := storage.GCatalog.CreateSchema(run.txn, name)
+	_, err := storage.GCatalog.CreateSchema(run.Txn, name)
 	if err != nil {
 		return 0, err
 	}
@@ -1918,7 +1917,7 @@ func (run *Runner) scanInit() error {
 	case ScanTypeTable:
 
 		{
-			tabEnt := storage.GCatalog.GetEntry(run.txn, storage.CatalogTypeTable, run.op.Database, run.op.Table)
+			tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, run.op.Database, run.op.Table)
 			if tabEnt == nil {
 				return fmt.Errorf("no table %s in schema %s", run.op.Database, run.op.Table)
 			}
@@ -2078,11 +2077,11 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 					colIds = append(colIds, storage.IdxType(colId))
 				}
 				run.tabEnt.GetStorage().InitScan(
-					run.txn,
+					run.Txn,
 					run.state.tableScanState,
 					colIds)
 			}
-			run.tabEnt.GetStorage().Scan(run.txn, readed, run.state.tableScanState)
+			run.tabEnt.GetStorage().Scan(run.Txn, readed, run.state.tableScanState)
 		}
 		{
 			//read table

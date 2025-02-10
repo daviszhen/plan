@@ -2328,7 +2328,7 @@ func (b *Builder) buildDDL(txn *storage.Txn, ddl *pg_query.RawStmt, ctx *BindCon
 		checkExprIsValid(lp)
 		return lp, nil
 	default:
-		panic("usp")
+		return nil, fmt.Errorf("unsupport statement right now")
 	}
 	return nil, nil
 }
