@@ -3,8 +3,13 @@
 
 围绕执行tpch query而设计的，有计算引擎和存储引擎。
 
+文档：[速实现数据库内核](book/快速实现数据库内核.md)
+
+
 两个bin：
+
 plandb：psql交互执行
+
 tester：非交互。
 
 ## 支持的语句
@@ -93,6 +98,15 @@ psql -h 127.0.0.1
 ./etc/tpch/1g/
 ```
 
+
+### 执行sql
+
+执行支持的语句。不限于tpch的query.
+
+```shell
+tester tpch1gddl --ddl 'sql'
+```
+
 ### 执行tpch1g
 ```shell
 tester help tpch1g
@@ -142,12 +156,3 @@ tpch1g测试结果
 | q22        | right                                                  | y                          | y                             |
 
 **
-
-
-### 执行sql
-
-执行支持的语句。不限于tpch的query.
-
-```shell
-tpch1gddl --ddl 'sql'
-```
