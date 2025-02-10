@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plan
+package util
 
 import (
 	"os"
@@ -21,28 +21,79 @@ import (
 
 func Write[T any](value T, serial Serialize) error {
 	cnt := int(unsafe.Sizeof(value))
-	buf := pointerToSlice[byte](unsafe.Pointer(&value), cnt)
+	buf := PointerToSlice[byte](unsafe.Pointer(&value), cnt)
 	return serial.WriteData(buf, cnt)
 }
 
-func WriteString(val String, serial Serialize) error {
-	err := Write[uint32](uint32(val.len()), serial)
+func WriteString(s string, serial Serialize) error {
+	err := Write[uint32](uint32(len(s)), serial)
 	if err != nil {
 		return err
 	}
+	if len(s) > 0 {
+		return serial.WriteData(UnsafeStringToBytes(s), len(s))
+	}
+	return nil
+}
 
-	if val.len() > 0 {
-		err = serial.WriteData(val.dataSlice(), val.len())
-		if err != nil {
-			return err
-		}
+func WritePtrBytes(ptr unsafe.Pointer, len uint32, serial Serialize) error {
+	err := Write[uint32](len, serial)
+	if err != nil {
+		return err
+	}
+	if len > 0 {
+		data := PointerToSlice[byte](ptr, int(len))
+		return serial.WriteData(data, int(len))
+	}
+	return nil
+}
+
+func WriteOptional(
+	noNil func() bool,
+	doSerial func(serial Serialize) error,
+	serial Serialize) error {
+	has := noNil()
+	err := Write[bool](has, serial)
+	if err != nil {
+		return err
+	}
+	if has {
+		return doSerial(serial)
 	}
 	return err
 }
 
+func ReadOptional(
+	doDeserial func(deserial Deserialize) error,
+	deserial Deserialize) error {
+	opt := false
+	err := Read[bool](&opt, deserial)
+	if err != nil {
+		return err
+	}
+	if opt {
+		return doDeserial(deserial)
+	}
+	return err
+}
+
+func ReadString(deserial Deserialize) (string, error) {
+	var l uint32
+	err := Read[uint32](&l, deserial)
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, l)
+	err = deserial.ReadData(buf, int(l))
+	if err != nil {
+		return "", err
+	}
+	return string(buf), err
+}
+
 func Read[T any](value *T, deserial Deserialize) error {
 	cnt := int(unsafe.Sizeof(*value))
-	buf := pointerToSlice[byte](unsafe.Pointer(value), cnt)
+	buf := PointerToSlice[byte](unsafe.Pointer(value), cnt)
 	err := deserial.ReadData(buf, cnt)
 	if err != nil {
 		return err
@@ -50,21 +101,22 @@ func Read[T any](value *T, deserial Deserialize) error {
 	return nil
 }
 
-func ReadString(val *String, deserial Deserialize) error {
-	var len uint32
-	err := Read[uint32](&len, deserial)
+func ReadPtrBytes(deserial Deserialize) (unsafe.Pointer, uint32, error) {
+	var l uint32
+	err := Read[uint32](&l, deserial)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	if len > 0 {
-		val._data = cMalloc(int(len))
-		val._len = int(len)
-		err = deserial.ReadData(val.dataSlice(), val.len())
+	var ptr unsafe.Pointer
+	if l > 0 {
+		ptr = CMalloc(int(l))
+		data := PointerToSlice[byte](ptr, int(l))
+		err = deserial.ReadData(data, int(l))
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
 	}
-	return err
+	return ptr, l, err
 }
 
 var _ Serialize = new(FileSerialize)

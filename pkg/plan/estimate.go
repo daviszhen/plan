@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/daviszhen/plan/pkg/storage"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type RelationAttributes struct {
@@ -143,12 +146,14 @@ type CardinalityEstimator struct {
 	relationColumnToOriginalColumn ColumnBindMap
 
 	relationsToTDoms []*RelationToTDom
+	txn              *storage.Txn
 }
 
-func NewCardinalityEstimator() *CardinalityEstimator {
+func NewCardinalityEstimator(txn *storage.Txn) *CardinalityEstimator {
 	return &CardinalityEstimator{
 		relationAttributes:             make(map[uint64]*RelationAttributes),
 		relationColumnToOriginalColumn: make(ColumnBindMap),
+		txn:                            txn,
 	}
 }
 
@@ -159,7 +164,7 @@ func (est *CardinalityEstimator) InitCardinalityEstimatorProps(nodeOps []*NodeOp
 	for _, nodeOp := range nodeOps {
 		joinNode := nodeOp.node
 		op := nodeOp.op
-		joinNode.setBaseCard(float64(op.EstimatedCard()))
+		joinNode.setBaseCard(float64(op.EstimatedCard(est.txn)))
 		if op.Typ == LOT_JOIN {
 			if op.JoinTyp == LOT_JoinTypeLeft {
 				panic("usp left join here")
@@ -264,7 +269,7 @@ func (est *CardinalityEstimator) InitTotalDomains() {
 		}
 	}
 	for i := len(removed) - 1; i >= 0; i-- {
-		est.relationsToTDoms = erase(est.relationsToTDoms, removed[i])
+		est.relationsToTDoms = util.Erase(est.relationsToTDoms, removed[i])
 	}
 }
 
@@ -310,9 +315,10 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 	est.relationAttributes[relId].cardinality = node.getCard()
 	distinctCount := uint64(node.getBaseCard())
 	var get *LogicalOperator
-	var catalogTable *CatalogTable
-	var err error
+	//var catalogTable *CatalogTable
+	//var err error
 	var getUpdated bool
+	var tabEnt *storage.CatalogEntry
 	for col := range est.relationAttributes[relId].columns {
 		key := ColumnBind{relId, col}
 		if est.relationColumnToOriginalColumn.find(key) {
@@ -328,18 +334,28 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 		}
 
 		if getUpdated {
-			if get != nil {
-				catalogTable, err = tpchCatalog().Table(get.Database, get.Table)
-				if err != nil {
-					return err
+			{
+				if get != nil {
+					tabEnt = storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.Database, get.Table)
 				}
-			} else {
-				catalogTable = nil
 			}
+			{
+				//if get != nil {
+				//	catalogTable, err = tpchCatalog().Table(get.Database, get.Table)
+				//	if err != nil {
+				//		return err
+				//	}
+				//} else {
+				//	catalogTable = nil
+				//}
+			}
+
 		}
-		if catalogTable != nil && est.relationColumnToOriginalColumn.find(key) {
+		if tabEnt != nil && est.relationColumnToOriginalColumn.find(key) {
 			actualBind := est.relationColumnToOriginalColumn.get(key)
-			baseStats := catalogTable.getStats(actualBind[1])
+			//baseStats := catalogTable.getStats(actualBind[1])
+			sBaseStats := tabEnt.GetStats2(int(actualBind[1]))
+			baseStats := convertStats3(sBaseStats)
 			if baseStats != nil {
 				distinctCount = baseStats.getDistinctCount()
 			}
@@ -354,7 +370,7 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 			if !dom.equivalentRelations.find(key) {
 				continue
 			}
-			if catalogTable != nil {
+			if tabEnt != nil {
 				if dom.tdomHll < distinctCount {
 					dom.tdomHll = distinctCount
 					dom.hasTdomHll = true
@@ -373,18 +389,53 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 	return nil
 }
 
-func (est *CardinalityEstimator) AddRelationColumnMapping(get *LogicalOperator, relId uint64) error {
-	catalogTable, err := tpchCatalog().Table(get.Database, get.Table)
-	if err != nil {
-		return err
+func (est *CardinalityEstimator) AddRelationColumnMapping(
+	get *LogicalOperator,
+	relId uint64) error {
+	switch get.ScanTyp {
+	case ScanTypeTable:
+		{
+			tabEnt := storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.Database, get.Table)
+			if tabEnt == nil {
+				return fmt.Errorf("no table %s in schema %s", get.Database, get.Table)
+			}
+			//TODO: refine
+			for i := range tabEnt.GetColumns() {
+				key := ColumnBind{relId, uint64(i)}
+				value := ColumnBind{get.Index, uint64(i)}
+				est.AddRelationToColumnMapping(key, value)
+			}
+		}
+		//{
+		//	catalogTable, err := tpchCatalog().Table(get.Database, get.Table)
+		//	if err != nil {
+		//		return err
+		//	}
+		//
+		//	//TODO: refine
+		//	for i := range catalogTable.Columns {
+		//		key := ColumnBind{relId, uint64(i)}
+		//		value := ColumnBind{get.Index, uint64(i)}
+		//		est.AddRelationToColumnMapping(key, value)
+		//	}
+		//}
+
+	case ScanTypeValuesList:
+		for i := range get.Names {
+			key := ColumnBind{relId, uint64(i)}
+			value := ColumnBind{get.Index, uint64(i)}
+			est.AddRelationToColumnMapping(key, value)
+		}
+	case ScanTypeCopyFrom:
+		for i := range get.ScanInfo.Names {
+			key := ColumnBind{relId, uint64(i)}
+			value := ColumnBind{get.Index, uint64(i)}
+			est.AddRelationToColumnMapping(key, value)
+		}
+	default:
+		panic("usp")
 	}
 
-	//TODO: refine
-	for i := range catalogTable.Columns {
-		key := ColumnBind{relId, uint64(i)}
-		value := ColumnBind{get.Index, uint64(i)}
-		est.AddRelationToColumnMapping(key, value)
-	}
 	return nil
 }
 
@@ -472,7 +523,7 @@ func (est *CardinalityEstimator) EstimateCardWithSet(newset *JoinRelationSet) fl
 				}
 			}
 			for j := len(empties) - 1; j >= 0; j-- {
-				subgraphs = erase(subgraphs, empties[j])
+				subgraphs = util.Erase(subgraphs, empties[j])
 			}
 			if len(subgraphs) == 1 && subgraphs[0].relations.size() == newset.count() {
 				done = true

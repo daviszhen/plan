@@ -17,6 +17,10 @@ package plan
 import (
 	"sort"
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type OrderType int
@@ -48,7 +52,7 @@ type SortLayout struct {
 	_columnCount      int
 	_orderTypes       []OrderType
 	_orderByNullTypes []OrderByNullType
-	_logicalTypes     []LType
+	_logicalTypes     []common.LType
 	_allConstant      bool
 	_constantSize     []bool
 	//column size + null byte
@@ -70,7 +74,7 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 		_sortingToBlobCol: make(map[int]int),
 	}
 
-	blobLayoutTypes := make([]LType, 0)
+	blobLayoutTypes := make([]common.LType, 0)
 	for i := 0; i < ret._columnCount; i++ {
 		order := orders[i]
 		realOrder := order.Children[0]
@@ -83,8 +87,8 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 		ret._orderByNullTypes = append(ret._orderByNullTypes, OBNT_NULLS_FIRST)
 		ret._logicalTypes = append(ret._logicalTypes, realOrder.DataTyp)
 
-		interTyp := realOrder.DataTyp.getInternalType()
-		ret._constantSize = append(ret._constantSize, interTyp.isConstant())
+		interTyp := realOrder.DataTyp.GetInternalType()
+		ret._constantSize = append(ret._constantSize, interTyp.IsConstant())
 
 		ret._hasNull = append(ret._hasNull, true)
 
@@ -95,20 +99,20 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 		}
 
 		ret._prefixLengths = append(ret._prefixLengths, 0)
-		if !interTyp.isConstant() && interTyp != VARCHAR {
+		if !interTyp.IsConstant() && interTyp != common.VARCHAR {
 			panic("usp")
-		} else if interTyp == VARCHAR {
+		} else if interTyp == common.VARCHAR {
 			sizeBefore := colSize
 			colSize = 12
 			ret._prefixLengths[len(ret._prefixLengths)-1] = colSize - sizeBefore
 		} else {
-			colSize += interTyp.size()
+			colSize += interTyp.Size()
 		}
 
 		ret._comparisonSize += colSize
 		ret._columnSizes = append(ret._columnSizes, colSize)
 	}
-	ret._entrySize = ret._comparisonSize + int32Size
+	ret._entrySize = ret._comparisonSize + common.Int32Size
 
 	//check all constant
 	for i := 0; i < ret._columnCount; i++ {
@@ -124,7 +128,7 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 }
 
 type RowLayout struct {
-	_types             []LType
+	_types             []common.LType
 	_aggregates        []*AggrObject
 	_flagWidth         int
 	_dataWidth         int
@@ -135,40 +139,40 @@ type RowLayout struct {
 	_heapPointerOffset int
 }
 
-func NewRowLayout(types []LType, aggrObjs []*AggrObject) *RowLayout {
+func NewRowLayout(types []common.LType, aggrObjs []*AggrObject) *RowLayout {
 	ret := &RowLayout{
-		_types:       copyLTypes(types...),
+		_types:       common.CopyLTypes(types...),
 		_allConstant: true,
 	}
 
 	alignWith := func() {
-		ret._rowWidth = alignValue(ret._rowWidth)
+		ret._rowWidth = util.AlignValue8(ret._rowWidth)
 	}
 
-	ret._flagWidth = entryCount(len(types))
+	ret._flagWidth = util.EntryCount(len(types))
 	ret._rowWidth = ret._flagWidth
 	alignWith()
 
 	for _, lType := range types {
 		ret._allConstant = ret._allConstant &&
-			lType.getInternalType().isConstant()
+			lType.GetInternalType().IsConstant()
 	}
 
 	//swizzling
 	if !ret._allConstant {
 		ret._heapPointerOffset = ret._rowWidth
-		ret._rowWidth += int64Size
+		ret._rowWidth += common.Int64Size
 		alignWith()
 	}
 
 	for _, lType := range types {
 		ret._offsets = append(ret._offsets, ret._rowWidth)
-		interTyp := lType.getInternalType()
-		if interTyp.isConstant() || interTyp == VARCHAR {
-			ret._rowWidth += interTyp.size()
+		interTyp := lType.GetInternalType()
+		if interTyp.IsConstant() || interTyp == common.VARCHAR {
+			ret._rowWidth += interTyp.Size()
 			alignWith()
 		} else {
-			ret._rowWidth += int64Size
+			ret._rowWidth += common.Int64Size
 			alignWith()
 		}
 	}
@@ -197,7 +201,7 @@ func (lay *RowLayout) GetOffsets() []int {
 	return lay._offsets
 }
 
-func (lay *RowLayout) GetTypes() []LType {
+func (lay *RowLayout) GetTypes() []common.LType {
 	return lay._types
 }
 
@@ -219,7 +223,7 @@ type RowDataBlock struct {
 }
 
 func (block *RowDataBlock) Close() {
-	cFree(block._ptr)
+	util.CFree(block._ptr)
 	block._ptr = unsafe.Pointer(nil)
 	block._count = 0
 }
@@ -239,7 +243,7 @@ func NewRowDataBlock(capacity int, entrySize int) *RowDataBlock {
 		_entrySize: entrySize,
 	}
 	sz := max(BLOCK_SIZE, capacity*entrySize)
-	ret._ptr = cMalloc(sz)
+	ret._ptr = util.CMalloc(sz)
 	return ret
 }
 
@@ -318,14 +322,14 @@ func (cdc *RowDataCollection) Build(
 	addedCnt int,
 	keyLocs []unsafe.Pointer,
 	entrySizes []int,
-	sel *SelectVector) {
+	sel *chunk.SelectVector) {
 	appendEntries := make([]BlockAppendEntry, 0)
 	remaining := addedCnt
 	{
 		//to last block
 		cdc._count += remaining
 		if len(cdc._blocks) != 0 {
-			lastBlock := back(cdc._blocks)
+			lastBlock := util.Back(cdc._blocks)
 			if lastBlock._count < lastBlock._capacity {
 				appendCnt := cdc.AppendToBlock(lastBlock, &appendEntries, remaining, entrySizes)
 				remaining -= appendCnt
@@ -338,7 +342,7 @@ func (cdc *RowDataCollection) Build(
 				offsetEntrySizes = entrySizes[addedCnt-remaining:]
 			}
 			appendCnt := cdc.AppendToBlock(newBlock, &appendEntries, remaining, offsetEntrySizes)
-			assertFunc(newBlock._count > 0)
+			util.AssertFunc(newBlock._count > 0)
 			remaining -= appendCnt
 
 		}
@@ -350,13 +354,13 @@ func (cdc *RowDataCollection) Build(
 		if entrySizes != nil {
 			for ; aidx < next; aidx++ {
 				keyLocs[aidx] = entry._basePtr
-				entry._basePtr = pointerAdd(entry._basePtr, entrySizes[aidx])
+				entry._basePtr = util.PointerAdd(entry._basePtr, entrySizes[aidx])
 			}
 		} else {
 			for ; aidx < next; aidx++ {
-				idx := sel.getIndex(aidx)
+				idx := sel.GetIndex(aidx)
 				keyLocs[idx] = entry._basePtr
-				entry._basePtr = pointerAdd(entry._basePtr, cdc._entrySize)
+				entry._basePtr = util.PointerAdd(entry._basePtr, cdc._entrySize)
 			}
 		}
 	}
@@ -370,15 +374,15 @@ func (cdc *RowDataCollection) AppendToBlock(
 	appendCnt := 0
 	var dataPtr unsafe.Pointer
 	if entrySizes != nil {
-		assertFunc(cdc._entrySize == 1)
-		dataPtr = pointerAdd(block._ptr, block._byteOffset)
+		util.AssertFunc(cdc._entrySize == 1)
+		dataPtr = util.PointerAdd(block._ptr, block._byteOffset)
 		for i := 0; i < remaining; i++ {
 			if block._byteOffset+entrySizes[i] > block._capacity {
 				if block._count == 0 &&
 					appendCnt == 0 &&
 					entrySizes[i] > block._capacity {
 					block._capacity = entrySizes[i]
-					block._ptr = cRealloc(block._ptr, block._capacity)
+					block._ptr = util.CRealloc(block._ptr, block._capacity)
 					dataPtr = block._ptr
 					appendCnt++
 					block._byteOffset += entrySizes[i]
@@ -390,7 +394,7 @@ func (cdc *RowDataCollection) AppendToBlock(
 		}
 	} else {
 		appendCnt = min(remaining, block._capacity-block._count)
-		dataPtr = pointerAdd(block._ptr, block._count*block._entrySize)
+		dataPtr = util.PointerAdd(block._ptr, block._count*block._entrySize)
 	}
 	*appendEntries = append(*appendEntries, BlockAppendEntry{
 		_basePtr: dataPtr,
@@ -432,8 +436,8 @@ type LocalSort struct {
 	_payloadData      *RowDataCollection
 	_payloadHeap      *RowDataCollection
 	_sortedBlocks     []*SortedBlock
-	_addresses        *Vector
-	_sel              *SelectVector
+	_addresses        *chunk.Vector
+	_sel              *chunk.SelectVector
 	_scanner          *PayloadScanner
 }
 
@@ -441,8 +445,8 @@ func NewLocalSort(slayout *SortLayout, playout *RowLayout) *LocalSort {
 	ret := &LocalSort{
 		_sortLayout:    slayout,
 		_payloadLayout: playout,
-		_addresses:     NewFlatVector(pointerType(), defaultVectorSize),
-		_sel:           incrSelectVectorInPhyFormatFlat(),
+		_addresses:     chunk.NewFlatVector(common.PointerType(), util.DefaultVectorSize),
+		_sel:           chunk.IncrSelectVectorInPhyFormatFlat(),
 	}
 
 	ret._radixSortingData = NewRowDataCollection(
@@ -475,23 +479,23 @@ func NewLocalSort(slayout *SortLayout, playout *RowLayout) *LocalSort {
 	return ret
 }
 
-func (ls *LocalSort) SinkChunk(sort, payload *Chunk) {
-	assertFunc(sort.card() == payload.card())
-	dataPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](ls._addresses)
+func (ls *LocalSort) SinkChunk(sort, payload *chunk.Chunk) {
+	util.AssertFunc(sort.Card() == payload.Card())
+	dataPtrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](ls._addresses)
 	//alloc space on the block
-	ls._radixSortingData.Build(sort.card(), dataPtrs, nil, incrSelectVectorInPhyFormatFlat())
+	ls._radixSortingData.Build(sort.Card(), dataPtrs, nil, chunk.IncrSelectVectorInPhyFormatFlat())
 	//scatter
-	for sortCol := 0; sortCol < sort.columnCount(); sortCol++ {
+	for sortCol := 0; sortCol < sort.ColumnCount(); sortCol++ {
 		hasNull := ls._sortLayout._hasNull[sortCol]
 		nullsFirst := ls._sortLayout._orderByNullTypes[sortCol] == OBNT_NULLS_FIRST
 		desc := ls._sortLayout._orderTypes[sortCol] == OT_DESC
 		//copy data from input to the block
 		//only copy prefix for varchar
 		RadixScatter(
-			sort._data[sortCol],
-			sort.card(),
+			sort.Data[sortCol],
+			sort.Card(),
 			ls._sel,
-			sort.card(),
+			sort.Card(),
 			dataPtrs,
 			desc,
 			hasNull,
@@ -503,16 +507,16 @@ func (ls *LocalSort) SinkChunk(sort, payload *Chunk) {
 	}
 	//
 	if !ls._sortLayout._allConstant {
-		blobChunk := &Chunk{}
-		blobChunk.setCard(sort.card())
-		blobChunk.setCap(defaultVectorSize)
-		for i := 0; i < sort.columnCount(); i++ {
+		blobChunk := &chunk.Chunk{}
+		blobChunk.SetCard(sort.Card())
+		blobChunk.SetCap(util.DefaultVectorSize)
+		for i := 0; i < sort.ColumnCount(); i++ {
 			if !ls._sortLayout._constantSize[i] {
-				blobChunk._data = append(blobChunk._data, sort._data[i])
+				blobChunk.Data = append(blobChunk.Data, sort.Data[i])
 			}
 		}
 
-		ls._blobSortingData.Build(blobChunk.card(), dataPtrs, nil, incrSelectVectorInPhyFormatFlat())
+		ls._blobSortingData.Build(blobChunk.Card(), dataPtrs, nil, chunk.IncrSelectVectorInPhyFormatFlat())
 		blobData := blobChunk.ToUnifiedFormat()
 		Scatter(
 			blobChunk,
@@ -521,10 +525,10 @@ func (ls *LocalSort) SinkChunk(sort, payload *Chunk) {
 			ls._addresses,
 			ls._blobSortingHeap,
 			ls._sel,
-			blobChunk.card(),
+			blobChunk.Card(),
 		)
 	}
-	ls._payloadData.Build(payload.card(), dataPtrs, nil, incrSelectVectorInPhyFormatFlat())
+	ls._payloadData.Build(payload.Card(), dataPtrs, nil, chunk.IncrSelectVectorInPhyFormatFlat())
 	inputData := payload.ToUnifiedFormat()
 	Scatter(
 		payload,
@@ -533,12 +537,12 @@ func (ls *LocalSort) SinkChunk(sort, payload *Chunk) {
 		ls._addresses,
 		ls._payloadHeap,
 		ls._sel,
-		payload.card(),
+		payload.Card(),
 	)
 }
 
 func (ls *LocalSort) Sort(reorderHeap bool) {
-	assertFunc(ls._radixSortingData._count == ls._payloadData._count && reorderHeap)
+	util.AssertFunc(ls._radixSortingData._count == ls._payloadData._count && reorderHeap)
 	if ls._radixSortingData._count == 0 {
 		return
 	}
@@ -565,17 +569,17 @@ func (ls *LocalSort) Sort(reorderHeap bool) {
 }
 
 func (ls *LocalSort) SortInMemory() {
-	lastSBk := back(ls._sortedBlocks)
-	lastBlock := back(lastSBk._radixSortingData)
+	lastSBk := util.Back(ls._sortedBlocks)
+	lastBlock := util.Back(lastSBk._radixSortingData)
 	count := lastBlock._count
 	//sort addr of row in the sort block
 	dataPtr := lastBlock._ptr
 	//locate to the addr of the row index
-	idxPtr := pointerAdd(dataPtr, ls._sortLayout._comparisonSize)
+	idxPtr := util.PointerAdd(dataPtr, ls._sortLayout._comparisonSize)
 	//for every row
 	for i := 0; i < count; i++ {
-		store[uint32](uint32(i), idxPtr)
-		idxPtr = pointerAdd(idxPtr, ls._sortLayout._entrySize)
+		util.Store[uint32](uint32(i), idxPtr)
+		idxPtr = util.PointerAdd(idxPtr, ls._sortLayout._entrySize)
 	}
 
 	//radix sort
@@ -586,7 +590,7 @@ func (ls *LocalSort) SortInMemory() {
 	for i := 0; i < ls._sortLayout._columnCount; i++ {
 		sortingSize += ls._sortLayout._columnSizes[i]
 		containsString = containsString ||
-			ls._sortLayout._logicalTypes[i].getInternalType().isVarchar()
+			ls._sortLayout._logicalTypes[i].GetInternalType().IsVarchar()
 		if ls._sortLayout._constantSize[i] && i < ls._sortLayout._columnCount-1 {
 			//util a var len column or the last column
 			continue
@@ -603,7 +607,7 @@ func (ls *LocalSort) SortInMemory() {
 				containsString,
 			)
 			ties = make([]bool, count)
-			fill[bool](ties, count-1, true)
+			util.Fill[bool](ties, count-1, true)
 			ties[count-1] = false
 		} else {
 			//sort tied tuples
@@ -662,9 +666,9 @@ func (ls *LocalSort) SortInMemory() {
 }
 
 func (ls *LocalSort) ReOrder(reorderHeap bool) {
-	sb := back(ls._sortedBlocks)
-	lastSBlock := back(sb._radixSortingData)
-	sortingPtr := pointerAdd(
+	sb := util.Back(ls._sortedBlocks)
+	lastSBlock := util.Back(sb._radixSortingData)
+	sortingPtr := util.PointerAdd(
 		lastSBlock._ptr,
 		ls._sortLayout._comparisonSize,
 	)
@@ -689,7 +693,7 @@ func (ls *LocalSort) ReOrder2(
 	heap *RowDataCollection,
 	reorderHeap bool,
 ) {
-	unorderedDBlock := back(sd._dataBlocks)
+	unorderedDBlock := util.Back(sd._dataBlocks)
 	count := unorderedDBlock._count
 	unorderedDataPtr := unorderedDBlock._ptr
 	orderedDBlock := NewRowDataBlock(
@@ -704,14 +708,14 @@ func (ls *LocalSort) ReOrder2(
 	rowWidth := sd._layout.rowWidth()
 	sortingEntrySize := ls._sortLayout._entrySize
 	for i := 0; i < count; i++ {
-		index := load[uint32](sortingPtr)
-		pointerCopy(
+		index := util.Load[uint32](sortingPtr)
+		util.PointerCopy(
 			orderedDataPtr,
-			pointerAdd(unorderedDataPtr, int(index)*rowWidth),
+			util.PointerAdd(unorderedDataPtr, int(index)*rowWidth),
 			rowWidth,
 		)
-		orderedDataPtr = pointerAdd(orderedDataPtr, rowWidth)
-		sortingPtr = pointerAdd(sortingPtr, sortingEntrySize)
+		orderedDataPtr = util.PointerAdd(orderedDataPtr, rowWidth)
+		sortingPtr = util.PointerAdd(sortingPtr, sortingEntrySize)
 
 	}
 
@@ -735,14 +739,14 @@ func (ls *LocalSort) ReOrder2(
 		orderedDataPtr = orderedDBlock._ptr
 		heapPointerOffset := sd._layout.GetHeapOffset()
 		for i := 0; i < count; i++ {
-			heapRowPtr := load[unsafe.Pointer](
-				pointerAdd(orderedDataPtr, heapPointerOffset),
+			heapRowPtr := util.Load[unsafe.Pointer](
+				util.PointerAdd(orderedDataPtr, heapPointerOffset),
 			)
-			assertFunc(pointerValid(heapRowPtr))
-			heapRowSize := load[uint32](heapRowPtr)
-			pointerCopy(orderedHeapPtr, heapRowPtr, int(heapRowSize))
-			orderedHeapPtr = pointerAdd(orderedHeapPtr, int(heapRowSize))
-			orderedDataPtr = pointerAdd(orderedDataPtr, rowWidth)
+			util.AssertFunc(util.PointerValid(heapRowPtr))
+			heapRowSize := util.Load[uint32](heapRowPtr)
+			util.PointerCopy(orderedHeapPtr, heapRowPtr, int(heapRowSize))
+			orderedHeapPtr = util.PointerAdd(orderedHeapPtr, int(heapRowSize))
+			orderedDataPtr = util.PointerAdd(orderedDataPtr, rowWidth)
 		}
 
 		sd._heapBlocks = append(sd._heapBlocks, orderedHeapBlock)
@@ -768,8 +772,8 @@ func (ls *LocalSort) ConcatenateBlocks(rowData *RowDataCollection) *RowDataBlock
 	for i := 0; i < len(rowData._blocks); i++ {
 		block := rowData._blocks[i]
 		cLen := block._count * rowData._entrySize
-		pointerCopy(newBlockPtr, block._ptr, cLen)
-		newBlockPtr = pointerAdd(newBlockPtr, cLen)
+		util.PointerCopy(newBlockPtr, block._ptr, cLen)
+		newBlockPtr = util.PointerAdd(newBlockPtr, cLen)
 	}
 	rowData.Close()
 	return newBlock
@@ -808,10 +812,10 @@ func RadixSort(
 			sortingSize,
 		)
 	} else {
-		tempPtr := cMalloc(max(count*sortLayout._entrySize, BLOCK_SIZE))
-		defer cFree(tempPtr)
-		preAllocPtr := cMalloc(sortingSize * MSD_RADIX_LOCATIONS * int(unsafe.Sizeof(uint64(0))))
-		defer cFree(preAllocPtr)
+		tempPtr := util.CMalloc(max(count*sortLayout._entrySize, BLOCK_SIZE))
+		defer util.CFree(tempPtr)
+		preAllocPtr := util.CMalloc(sortingSize * MSD_RADIX_LOCATIONS * int(unsafe.Sizeof(uint64(0))))
+		defer util.CFree(preAllocPtr)
 		RadixSortMSD(
 			dataPtr,
 			tempPtr,
@@ -820,7 +824,7 @@ func RadixSort(
 			sortLayout._entrySize,
 			sortingSize,
 			0,
-			pointerToSlice[uint64](preAllocPtr, sortingSize*MSD_RADIX_LOCATIONS),
+			util.PointerToSlice[uint64](preAllocPtr, sortingSize*MSD_RADIX_LOCATIONS),
 			false,
 		)
 	}
@@ -834,7 +838,7 @@ func SubSortTiedTuples(
 	ties []bool,
 	layout *SortLayout,
 	containsString bool) {
-	assertFunc(!ties[count-1])
+	util.AssertFunc(!ties[count-1])
 	for i := 0; i < count; i++ {
 		if !ties[i] {
 			continue
@@ -847,7 +851,7 @@ func SubSortTiedTuples(
 			}
 		}
 		RadixSort(
-			pointerAdd(dataPtr, i*layout._entrySize),
+			util.PointerAdd(dataPtr, i*layout._entrySize),
 			j-i+1,
 			colOffset,
 			sortingSize,
@@ -865,17 +869,17 @@ func ComputeTies(
 	tieSize int,
 	ties []bool,
 	layout *SortLayout) {
-	assertFunc(!ties[count-1])
-	assertFunc(colOffset+tieSize <= layout._comparisonSize)
-	dataPtr = pointerAdd(dataPtr, colOffset)
+	util.AssertFunc(!ties[count-1])
+	util.AssertFunc(colOffset+tieSize <= layout._comparisonSize)
+	dataPtr = util.PointerAdd(dataPtr, colOffset)
 	for i := 0; i < count-1; i++ {
 		ties[i] = ties[i] &&
-			pointerMemcmp(
+			util.PointerMemcmp(
 				dataPtr,
-				pointerAdd(dataPtr, layout._entrySize),
+				util.PointerAdd(dataPtr, layout._entrySize),
 				tieSize,
 			) == 0
-		dataPtr = pointerAdd(dataPtr, layout._entrySize)
+		dataPtr = util.PointerAdd(dataPtr, layout._entrySize)
 	}
 }
 
@@ -886,8 +890,8 @@ func SortTiedBlobs(
 	count int,
 	tieCol int,
 	layout *SortLayout) {
-	assertFunc(!ties[count-1])
-	block := back(sb._blobSortingData._dataBlocks)
+	util.AssertFunc(!ties[count-1])
+	block := util.Back(sb._blobSortingData._dataBlocks)
 	blobPtr := block._ptr
 	for i := 0; i < count; i++ {
 		if !ties[i] {
@@ -922,9 +926,9 @@ func SortTiedBlobs2(
 	layout *SortLayout,
 ) {
 	rowWidth := layout._blobLayout.rowWidth()
-	rowPtr := pointerAdd(dataPtr, start*layout._entrySize)
-	x := int(load[uint32](pointerAdd(rowPtr, layout._comparisonSize)))
-	blobRowPtr := pointerAdd(
+	rowPtr := util.PointerAdd(dataPtr, start*layout._entrySize)
+	x := int(util.Load[uint32](util.PointerAdd(rowPtr, layout._comparisonSize)))
+	blobRowPtr := util.PointerAdd(
 		blobPtr,
 		x*rowWidth,
 	)
@@ -936,14 +940,14 @@ func SortTiedBlobs2(
 		return
 	}
 
-	entryPtrsBase := cMalloc((end - start) * pointerSize)
-	defer cFree(entryPtrsBase)
+	entryPtrsBase := util.CMalloc((end - start) * common.PointerSize)
+	defer util.CFree(entryPtrsBase)
 
 	//prepare pointer
-	entryPtrs := pointerToSlice[unsafe.Pointer](entryPtrsBase, end-start)
+	entryPtrs := util.PointerToSlice[unsafe.Pointer](entryPtrsBase, end-start)
 	for i := start; i < end; i++ {
 		entryPtrs[i-start] = rowPtr
-		rowPtr = pointerAdd(rowPtr, layout._entrySize)
+		rowPtr = util.PointerAdd(rowPtr, layout._entrySize)
 	}
 
 	//sort string
@@ -957,38 +961,38 @@ func SortTiedBlobs2(
 	sort.Slice(entryPtrs, func(i, j int) bool {
 		lPtr := entryPtrs[i]
 		rPtr := entryPtrs[j]
-		lIdx := load[uint32](pointerAdd(lPtr, layout._comparisonSize))
-		rIdx := load[uint32](pointerAdd(rPtr, layout._comparisonSize))
-		leftPtr := pointerAdd(blobPtr, int(lIdx)*rowWidth+tieColOffset)
-		rightPtr := pointerAdd(blobPtr, int(rIdx)*rowWidth+tieColOffset)
+		lIdx := util.Load[uint32](util.PointerAdd(lPtr, layout._comparisonSize))
+		rIdx := util.Load[uint32](util.PointerAdd(rPtr, layout._comparisonSize))
+		leftPtr := util.PointerAdd(blobPtr, int(lIdx)*rowWidth+tieColOffset)
+		rightPtr := util.PointerAdd(blobPtr, int(rIdx)*rowWidth+tieColOffset)
 		return order*CompareVal(leftPtr, rightPtr, logicalType) < 0
 	})
 
 	//reorder
-	tempBasePtr := cMalloc((end - start) * layout._entrySize)
-	defer cFree(tempBasePtr)
+	tempBasePtr := util.CMalloc((end - start) * layout._entrySize)
+	defer util.CFree(tempBasePtr)
 	tempPtr := tempBasePtr
 
 	for i := 0; i < end-start; i++ {
-		pointerCopy(tempPtr, entryPtrs[i], layout._entrySize)
-		tempPtr = pointerAdd(tempPtr, layout._entrySize)
+		util.PointerCopy(tempPtr, entryPtrs[i], layout._entrySize)
+		tempPtr = util.PointerAdd(tempPtr, layout._entrySize)
 	}
 
-	pointerCopy(
-		pointerAdd(dataPtr, start*layout._entrySize),
+	util.PointerCopy(
+		util.PointerAdd(dataPtr, start*layout._entrySize),
 		tempBasePtr,
 		(end-start)*layout._entrySize,
 	)
 	//check ties
 	if tieCol < layout._columnCount-1 {
-		idxPtr := pointerAdd(dataPtr,
+		idxPtr := util.PointerAdd(dataPtr,
 			start*layout._entrySize+layout._comparisonSize)
-		idxVal := load[uint32](idxPtr)
-		currentPtr := pointerAdd(blobPtr, int(idxVal)*rowWidth+tieColOffset)
+		idxVal := util.Load[uint32](idxPtr)
+		currentPtr := util.PointerAdd(blobPtr, int(idxVal)*rowWidth+tieColOffset)
 		for i := 0; i < (end - start - 1); i++ {
-			idxPtr = pointerAdd(idxPtr, layout._entrySize)
-			idxVal2 := load[uint32](idxPtr)
-			nextPtr := pointerAdd(blobPtr, int(idxVal2)*rowWidth+tieColOffset)
+			idxPtr = util.PointerAdd(idxPtr, layout._entrySize)
+			idxVal2 := util.Load[uint32](idxPtr)
+			nextPtr := util.PointerAdd(blobPtr, int(idxVal2)*rowWidth+tieColOffset)
 			ret := CompareVal(currentPtr, nextPtr, logicalType) == 0
 			ties[start+i] = ret
 			currentPtr = nextPtr
@@ -997,7 +1001,7 @@ func SortTiedBlobs2(
 }
 
 func AnyTies(ties []bool, count int) bool {
-	assertFunc(!ties[count-1])
+	util.AssertFunc(!ties[count-1])
 	anyTies := false
 	for i := 0; i < count-1; i++ {
 		anyTies = anyTies || ties[i]
@@ -1006,9 +1010,9 @@ func AnyTies(ties []bool, count int) bool {
 }
 
 func RadixScatter(
-	v *Vector,
+	v *chunk.Vector,
 	vcount int,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	serCount int,
 	keyLocs []unsafe.Pointer,
 	desc bool,
@@ -1018,11 +1022,11 @@ func RadixScatter(
 	width int,
 	offset int,
 ) {
-	var vdata UnifiedFormat
-	v.toUnifiedFormat(vcount, &vdata)
-	switch v.typ().getInternalType() {
-	case BOOL:
-	case INT32:
+	var vdata chunk.UnifiedFormat
+	v.ToUnifiedFormat(vcount, &vdata)
+	switch v.Typ().GetInternalType() {
+	case common.BOOL:
+	case common.INT32:
 		TemplatedRadixScatter[int32](
 			&vdata,
 			sel,
@@ -1034,7 +1038,7 @@ func RadixScatter(
 			offset,
 			int32Encoder{},
 		)
-	case VARCHAR:
+	case common.VARCHAR:
 		RadixScatterStringVector(
 			&vdata,
 			sel,
@@ -1046,8 +1050,8 @@ func RadixScatter(
 			prefixLen,
 			offset,
 		)
-	case DECIMAL:
-		TemplatedRadixScatter[Decimal](
+	case common.DECIMAL:
+		TemplatedRadixScatter[common.Decimal](
 			&vdata,
 			sel,
 			serCount,
@@ -1058,8 +1062,8 @@ func RadixScatter(
 			offset,
 			decimalEncoder{},
 		)
-	case DATE:
-		TemplatedRadixScatter[Date](
+	case common.DATE:
+		TemplatedRadixScatter[common.Date](
 			&vdata,
 			sel,
 			serCount,
@@ -1070,8 +1074,8 @@ func RadixScatter(
 			offset,
 			dateEncoder{},
 		)
-	case INT128:
-		TemplatedRadixScatter[Hugeint](
+	case common.INT128:
+		TemplatedRadixScatter[common.Hugeint](
 			&vdata,
 			sel,
 			serCount,
@@ -1088,8 +1092,8 @@ func RadixScatter(
 }
 
 func TemplatedRadixScatter[T any](
-	vdata *UnifiedFormat,
-	sel *SelectVector,
+	vdata *chunk.UnifiedFormat,
+	sel *chunk.SelectVector,
 	addCount int,
 	keyLocs []unsafe.Pointer,
 	desc bool,
@@ -1098,68 +1102,68 @@ func TemplatedRadixScatter[T any](
 	offset int,
 	enc Encoder[T],
 ) {
-	srcSlice := getSliceInPhyFormatUnifiedFormat[T](vdata)
+	srcSlice := chunk.GetSliceInPhyFormatUnifiedFormat[T](vdata)
 	if hasNull {
-		mask := vdata._mask
+		mask := vdata.Mask
 		valid := byte(0)
 		if nullsFirst {
 			valid = 1
 		}
 		invalid := 1 - valid
 		for i := 0; i < addCount; i++ {
-			idx := sel.getIndex(i)
-			srcIdx := vdata._sel.getIndex(idx) + offset
-			if mask.rowIsValid(uint64(srcIdx)) {
+			idx := sel.GetIndex(i)
+			srcIdx := vdata.Sel.GetIndex(idx) + offset
+			if mask.RowIsValid(uint64(srcIdx)) {
 				//first byte
-				store[byte](valid, keyLocs[i])
-				enc.EncodeData(pointerAdd(keyLocs[i], 1), &srcSlice[srcIdx])
+				util.Store[byte](valid, keyLocs[i])
+				enc.EncodeData(util.PointerAdd(keyLocs[i], 1), &srcSlice[srcIdx])
 				//desc , invert bits
 				if desc {
 					for s := 1; s < enc.TypeSize()+1; s++ {
-						invertBits(keyLocs[i], s)
+						util.InvertBits(keyLocs[i], s)
 					}
 				}
 			} else {
-				store[byte](invalid, keyLocs[i])
-				memset(pointerAdd(keyLocs[i], 1), 0, enc.TypeSize())
+				util.Store[byte](invalid, keyLocs[i])
+				util.Memset(util.PointerAdd(keyLocs[i], 1), 0, enc.TypeSize())
 			}
-			keyLocs[i] = pointerAdd(keyLocs[i], 1+enc.TypeSize())
+			keyLocs[i] = util.PointerAdd(keyLocs[i], 1+enc.TypeSize())
 		}
 	} else {
 		for i := 0; i < addCount; i++ {
-			idx := sel.getIndex(i)
-			srcIdx := vdata._sel.getIndex(idx) + offset
+			idx := sel.GetIndex(i)
+			srcIdx := vdata.Sel.GetIndex(idx) + offset
 			enc.EncodeData(keyLocs[i], &srcSlice[srcIdx])
 			if desc {
 				for s := 0; s < enc.TypeSize(); s++ {
-					invertBits(keyLocs[i], s)
+					util.InvertBits(keyLocs[i], s)
 				}
 			}
-			keyLocs[i] = pointerAdd(keyLocs[i], enc.TypeSize())
+			keyLocs[i] = util.PointerAdd(keyLocs[i], enc.TypeSize())
 		}
 	}
 }
 
 func Scatter(
-	columns *Chunk,
-	colData []*UnifiedFormat,
+	columns *chunk.Chunk,
+	colData []*chunk.UnifiedFormat,
 	layout *RowLayout,
-	rows *Vector,
+	rows *chunk.Vector,
 	stringHeap *RowDataCollection,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	count int,
 ) {
 	if count == 0 {
 		return
 	}
 
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
 	for i := 0; i < count; i++ {
-		ridx := sel.getIndex(i)
+		ridx := sel.GetIndex(i)
 		rowPtr := ptrs[ridx]
-		bSlice := pointerToSlice[uint8](rowPtr, layout.CoumnCount())
-		tempMask := Bitmap{_bits: bSlice}
-		tempMask.setAllValid(layout.CoumnCount())
+		bSlice := util.PointerToSlice[uint8](rowPtr, layout.CoumnCount())
+		tempMask := util.Bitmap{Bits: bSlice}
+		tempMask.SetAllValid(layout.CoumnCount())
 	}
 
 	//vcount := columns.card()
@@ -1167,41 +1171,41 @@ func Scatter(
 	types := layout.GetTypes()
 
 	//compute the entry size of the variable size columns
-	dataLocs := make([]unsafe.Pointer, defaultVectorSize)
+	dataLocs := make([]unsafe.Pointer, util.DefaultVectorSize)
 	if !layout.AllConstant() {
-		entrySizes := make([]int, defaultVectorSize)
-		fill(entrySizes, count, int32Size)
+		entrySizes := make([]int, util.DefaultVectorSize)
+		util.Fill(entrySizes, count, common.Int32Size)
 		for colNo := 0; colNo < len(types); colNo++ {
-			if types[colNo].getInternalType().isConstant() {
+			if types[colNo].GetInternalType().IsConstant() {
 				continue
 			}
-			//vec := columns._data[colNo]
+			//vec := columns.Data[colNo]
 			col := colData[colNo]
-			switch types[colNo].getInternalType() {
-			case VARCHAR:
+			switch types[colNo].GetInternalType() {
+			case common.VARCHAR:
 				ComputeStringEntrySizes(col, entrySizes, sel, count, 0)
 			default:
 				panic("usp internal type")
 			}
 		}
-		stringHeap.Build(count, dataLocs, entrySizes, incrSelectVectorInPhyFormatFlat())
+		stringHeap.Build(count, dataLocs, entrySizes, chunk.IncrSelectVectorInPhyFormatFlat())
 
 		heapPointerOffset := layout.GetHeapOffset()
 		for i := 0; i < count; i++ {
-			rowIdx := sel.getIndex(i)
+			rowIdx := sel.GetIndex(i)
 			rowPtr := ptrs[rowIdx]
-			store[unsafe.Pointer](dataLocs[i], pointerAdd(rowPtr, heapPointerOffset))
-			store[uint32](uint32(entrySizes[i]), dataLocs[i])
-			dataLocs[i] = pointerAdd(dataLocs[i], int32Size)
+			util.Store[unsafe.Pointer](dataLocs[i], util.PointerAdd(rowPtr, heapPointerOffset))
+			util.Store[uint32](uint32(entrySizes[i]), dataLocs[i])
+			dataLocs[i] = util.PointerAdd(dataLocs[i], common.Int32Size)
 		}
 	}
 
 	for colNo := 0; colNo < len(types); colNo++ {
-		//vec := columns._data[colNo]
+		//vec := columns.Data[colNo]
 		col := colData[colNo]
 		colOffset := offsets[colNo]
-		switch types[colNo].getInternalType() {
-		case INT32:
+		switch types[colNo].GetInternalType() {
+		case common.INT32:
 			TemplatedScatter[int32](
 				col,
 				rows,
@@ -1210,9 +1214,20 @@ func Scatter(
 				colOffset,
 				colNo,
 				layout,
-				int32ScatterOp{},
+				chunk.Int32ScatterOp{},
 			)
-		case VARCHAR:
+		case common.INT64:
+			TemplatedScatter[int64](
+				col,
+				rows,
+				sel,
+				count,
+				colOffset,
+				colNo,
+				layout,
+				chunk.Int64ScatterOp{},
+			)
+		case common.VARCHAR:
 			ScatterStringVector(
 				col,
 				rows,
@@ -1223,8 +1238,8 @@ func Scatter(
 				colNo,
 				layout,
 			)
-		case DATE:
-			TemplatedScatter[Date](
+		case common.DATE:
+			TemplatedScatter[common.Date](
 				col,
 				rows,
 				sel,
@@ -1232,10 +1247,10 @@ func Scatter(
 				colOffset,
 				colNo,
 				layout,
-				dateScatterOp{},
+				chunk.DateScatterOp{},
 			)
-		case DECIMAL:
-			TemplatedScatter[Decimal](
+		case common.DECIMAL:
+			TemplatedScatter[common.Decimal](
 				col,
 				rows,
 				sel,
@@ -1243,9 +1258,9 @@ func Scatter(
 				colOffset,
 				colNo,
 				layout,
-				decimalScatterOp{},
+				chunk.DecimalScatterOp{},
 			)
-		case DOUBLE:
+		case common.DOUBLE:
 			TemplatedScatter[float64](
 				col,
 				rows,
@@ -1254,10 +1269,10 @@ func Scatter(
 				colOffset,
 				colNo,
 				layout,
-				float64ScatterOp{},
+				chunk.Float64ScatterOp{},
 			)
-		case INT128:
-			TemplatedScatter[Hugeint](
+		case common.INT128:
+			TemplatedScatter[common.Hugeint](
 				col,
 				rows,
 				sel,
@@ -1265,7 +1280,7 @@ func Scatter(
 				colOffset,
 				colNo,
 				layout,
-				hugeintScatterOp{},
+				chunk.HugeintScatterOp{},
 			)
 		default:
 			panic("usp")
@@ -1274,50 +1289,50 @@ func Scatter(
 }
 
 func ScatterStringVector(
-	col *UnifiedFormat,
-	rows *Vector,
+	col *chunk.UnifiedFormat,
+	rows *chunk.Vector,
 	strLocs []unsafe.Pointer,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	count int,
 	colOffset int,
 	colNo int,
 	layout *RowLayout,
 ) {
-	strSlice := getSliceInPhyFormatUnifiedFormat[String](col)
-	ptrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
+	strSlice := chunk.GetSliceInPhyFormatUnifiedFormat[common.String](col)
+	ptrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
 
-	nullStr := stringScatterOp{}.nullValue()
+	nullStr := chunk.StringScatterOp{}.NullValue()
 	for i := 0; i < count; i++ {
-		idx := sel.getIndex(i)
-		colIdx := col._sel.getIndex(idx)
+		idx := sel.GetIndex(i)
+		colIdx := col.Sel.GetIndex(idx)
 		rowPtr := ptrSlice[idx]
-		if !col._mask.rowIsValid(uint64(colIdx)) {
-			colMask := Bitmap{
-				_bits: pointerToSlice[byte](rowPtr, layout._flagWidth),
+		if !col.Mask.RowIsValid(uint64(colIdx)) {
+			colMask := util.Bitmap{
+				Bits: util.PointerToSlice[byte](rowPtr, layout._flagWidth),
 			}
-			colMask.setInvalidUnsafe(uint64(colNo))
-			store[String](nullStr, pointerAdd(rowPtr, colOffset))
+			colMask.SetInvalidUnsafe(uint64(colNo))
+			util.Store[common.String](nullStr, util.PointerAdd(rowPtr, colOffset))
 		} else {
 			str := strSlice[colIdx]
-			newStr := String{
-				_len:  str.len(),
-				_data: strLocs[i],
+			newStr := common.String{
+				Len:  str.Length(),
+				Data: strLocs[i],
 			}
 			//copy varchar data from input chunk to
 			//the location on the string heap
-			pointerCopy(newStr._data, str.data(), str.len())
+			util.PointerCopy(newStr.Data, str.DataPtr(), str.Length())
 			//move strLocs[i] to the next position
-			strLocs[i] = pointerAdd(strLocs[i], str.len())
+			strLocs[i] = util.PointerAdd(strLocs[i], str.Length())
 
 			//store new String obj to the row in the blob sort block
-			store[String](newStr, pointerAdd(rowPtr, colOffset))
+			util.Store[common.String](newStr, util.PointerAdd(rowPtr, colOffset))
 		}
 	}
 }
 
 func RadixScatterStringVector(
-	vdata *UnifiedFormat,
-	sel *SelectVector,
+	vdata *chunk.UnifiedFormat,
+	sel *chunk.SelectVector,
 	addCount int,
 	keyLocs []unsafe.Pointer,
 	desc bool,
@@ -1326,9 +1341,9 @@ func RadixScatterStringVector(
 	prefixLen int,
 	offset int,
 ) {
-	sourceSlice := getSliceInPhyFormatUnifiedFormat[String](vdata)
+	sourceSlice := chunk.GetSliceInPhyFormatUnifiedFormat[common.String](vdata)
 	if hasNull {
-		mask := vdata._mask
+		mask := vdata.Mask
 		valid := byte(0)
 		if nullsFirst {
 			valid = 1
@@ -1336,35 +1351,35 @@ func RadixScatterStringVector(
 		invalid := 1 - valid
 
 		for i := 0; i < addCount; i++ {
-			idx := sel.getIndex(i)
-			srcIdx := vdata._sel.getIndex(idx) + offset
-			if mask.rowIsValid(uint64(srcIdx)) {
-				store[byte](valid, keyLocs[i])
+			idx := sel.GetIndex(i)
+			srcIdx := vdata.Sel.GetIndex(idx) + offset
+			if mask.RowIsValid(uint64(srcIdx)) {
+				util.Store[byte](valid, keyLocs[i])
 				EncodeStringDataPrefix(
-					pointerAdd(keyLocs[i], 1),
+					util.PointerAdd(keyLocs[i], 1),
 					&sourceSlice[srcIdx],
 					prefixLen,
 				)
 				//invert bits
 				if desc {
 					for s := 1; s < prefixLen+1; s++ {
-						invertBits(keyLocs[i], s)
+						util.InvertBits(keyLocs[i], s)
 					}
 				}
 			} else {
-				store[byte](invalid, keyLocs[i])
-				memset(
-					pointerAdd(keyLocs[i], 1),
+				util.Store[byte](invalid, keyLocs[i])
+				util.Memset(
+					util.PointerAdd(keyLocs[i], 1),
 					0,
 					prefixLen,
 				)
 			}
-			keyLocs[i] = pointerAdd(keyLocs[i], prefixLen+1)
+			keyLocs[i] = util.PointerAdd(keyLocs[i], prefixLen+1)
 		}
 	} else {
 		for i := 0; i < addCount; i++ {
-			idx := sel.getIndex(i)
-			srcIdx := vdata._sel.getIndex(idx) + offset
+			idx := sel.GetIndex(i)
+			srcIdx := vdata.Sel.GetIndex(idx) + offset
 			EncodeStringDataPrefix(
 				keyLocs[i],
 				&sourceSlice[srcIdx],
@@ -1373,85 +1388,85 @@ func RadixScatterStringVector(
 			//invert bits
 			if desc {
 				for s := 0; s < prefixLen; s++ {
-					invertBits(keyLocs[i], s)
+					util.InvertBits(keyLocs[i], s)
 				}
 			}
-			keyLocs[i] = pointerAdd(keyLocs[i], prefixLen)
+			keyLocs[i] = util.PointerAdd(keyLocs[i], prefixLen)
 		}
 	}
 }
 
 func EncodeStringDataPrefix(
 	dataPtr unsafe.Pointer,
-	value *String,
+	value *common.String,
 	prefixLen int) {
-	l := value.len()
-	pointerCopy(dataPtr, value.data(), min(l, prefixLen))
+	l := value.Length()
+	util.PointerCopy(dataPtr, value.DataPtr(), min(l, prefixLen))
 
 	if l < prefixLen {
-		memset(pointerAdd(dataPtr, l), 0, prefixLen-l)
+		util.Memset(util.PointerAdd(dataPtr, l), 0, prefixLen-l)
 	}
 }
 
 func ComputeStringEntrySizes(
-	col *UnifiedFormat,
+	col *chunk.UnifiedFormat,
 	entrySizes []int,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	count int,
 	offset int,
 ) {
-	data := getSliceInPhyFormatUnifiedFormat[String](col)
+	data := chunk.GetSliceInPhyFormatUnifiedFormat[common.String](col)
 	for i := 0; i < count; i++ {
-		idx := sel.getIndex(i)
-		colIdx := col._sel.getIndex(idx) + offset
+		idx := sel.GetIndex(i)
+		colIdx := col.Sel.GetIndex(idx) + offset
 		str := data[colIdx]
-		if col._mask.rowIsValid(uint64(colIdx)) {
-			entrySizes[i] += str.len()
+		if col.Mask.RowIsValid(uint64(colIdx)) {
+			entrySizes[i] += str.Length()
 		}
 	}
 }
 
 func TemplatedScatter[T any](
-	col *UnifiedFormat,
-	rows *Vector,
-	sel *SelectVector,
+	col *chunk.UnifiedFormat,
+	rows *chunk.Vector,
+	sel *chunk.SelectVector,
 	count int,
 	colOffset int,
 	colNo int,
 	layout *RowLayout,
-	sop ScatterOp[T],
+	sop chunk.ScatterOp[T],
 ) {
-	data := getSliceInPhyFormatUnifiedFormat[T](col)
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
+	data := chunk.GetSliceInPhyFormatUnifiedFormat[T](col)
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
 
-	if !col._mask.AllValid() {
+	if !col.Mask.AllValid() {
 		for i := 0; i < count; i++ {
-			idx := sel.getIndex(i)
-			colIdx := col._sel.getIndex(idx)
+			idx := sel.GetIndex(i)
+			colIdx := col.Sel.GetIndex(idx)
 			rowPtr := ptrs[idx]
 
-			isNull := !col._mask.rowIsValid(uint64(colIdx))
+			isNull := !col.Mask.RowIsValid(uint64(colIdx))
 			var val T
 			if isNull {
-				val = sop.nullValue()
+				val = sop.NullValue()
 			} else {
 				val = data[colIdx]
 			}
 
-			store[T](val, pointerAdd(rowPtr, colOffset))
+			util.Store[T](val, util.PointerAdd(rowPtr, colOffset))
 			if isNull {
-				mask := Bitmap{
-					_bits: pointerToSlice[uint8](ptrs[idx], layout.rowWidth()),
+				mask := util.Bitmap{
+					Bits: util.PointerToSlice[uint8](ptrs[idx], layout.rowWidth()),
 				}
-				mask.setInvalidUnsafe(uint64(colNo))
+				mask.SetInvalidUnsafe(uint64(colNo))
 			}
 		}
 	} else {
 		for i := 0; i < count; i++ {
-			idx := sel.getIndex(i)
-			colIdx := col._sel.getIndex(idx)
+			idx := sel.GetIndex(i)
+			colIdx := col.Sel.GetIndex(idx)
 			rowPtr := ptrs[idx]
-			store[T](data[colIdx], pointerAdd(rowPtr, colOffset))
+			util.Store[T](data[colIdx], util.PointerAdd(rowPtr, colOffset))
 		}
 	}
 }
@@ -1491,9 +1506,9 @@ func NewPDQConstants(
 		_entrySize:      entrySize,
 		_compOffset:     compOffset,
 		_compSize:       compSize,
-		_tmpBuf:         cMalloc(entrySize),
-		_iterSwapBuf:    cMalloc(entrySize),
-		_swapOffsetsBuf: cMalloc(entrySize),
+		_tmpBuf:         util.CMalloc(entrySize),
+		_iterSwapBuf:    util.CMalloc(entrySize),
+		_swapOffsetsBuf: util.CMalloc(entrySize),
 		_end:            end,
 	}
 
@@ -1501,9 +1516,9 @@ func NewPDQConstants(
 }
 
 func (pconst *PDQConstants) Close() {
-	cFree(pconst._tmpBuf)
-	cFree(pconst._iterSwapBuf)
-	cFree(pconst._swapOffsetsBuf)
+	util.CFree(pconst._tmpBuf)
+	util.CFree(pconst._iterSwapBuf)
+	util.CFree(pconst._swapOffsetsBuf)
 }
 
 type PDQIterator struct {
@@ -1523,24 +1538,24 @@ func (iter *PDQIterator) ptr() unsafe.Pointer {
 }
 
 func (iter *PDQIterator) plus(n int) {
-	iter._ptr = pointerAdd(iter._ptr, n*iter._entrySize)
+	iter._ptr = util.PointerAdd(iter._ptr, n*iter._entrySize)
 }
 
 func (iter PDQIterator) plusCopy(n int) PDQIterator {
 	return PDQIterator{
-		_ptr:       pointerAdd(iter._ptr, n*iter._entrySize),
+		_ptr:       util.PointerAdd(iter._ptr, n*iter._entrySize),
 		_entrySize: iter._entrySize,
 	}
 }
 
 func pdqIterLess(lhs, rhs *PDQIterator) bool {
-	return pointerLess(lhs.ptr(), rhs.ptr())
+	return util.PointerLess(lhs.ptr(), rhs.ptr())
 }
 
 func pdqIterDiff(lhs, rhs *PDQIterator) int {
-	tlen := pointerSub(lhs.ptr(), rhs.ptr())
-	assertFunc(tlen%int64(lhs._entrySize) == 0)
-	assertFunc(tlen >= 0)
+	tlen := util.PointerSub(lhs.ptr(), rhs.ptr())
+	util.AssertFunc(tlen%int64(lhs._entrySize) == 0)
+	util.AssertFunc(tlen >= 0)
 	return int(tlen / int64(lhs._entrySize))
 }
 
@@ -2112,46 +2127,46 @@ func partitionLeft(begin *PDQIterator, end *PDQIterator, constants *PDQConstants
 }
 
 func comp(l, r unsafe.Pointer, constants *PDQConstants) bool {
-	assertFunc(
+	util.AssertFunc(
 		l == constants._tmpBuf ||
 			l == constants._swapOffsetsBuf ||
-			pointerLess(l, constants._end))
+			util.PointerLess(l, constants._end))
 
-	assertFunc(
+	util.AssertFunc(
 		r == constants._tmpBuf ||
 			r == constants._swapOffsetsBuf ||
-			pointerLess(r, constants._end))
+			util.PointerLess(r, constants._end))
 
-	lAddr := pointerAdd(l, constants._compOffset)
-	rAddr := pointerAdd(r, constants._compOffset)
-	return pointerMemcmp(lAddr, rAddr, constants._compSize) < 0
+	lAddr := util.PointerAdd(l, constants._compOffset)
+	rAddr := util.PointerAdd(r, constants._compOffset)
+	return util.PointerMemcmp(lAddr, rAddr, constants._compSize) < 0
 }
 
 func GetTmp(src unsafe.Pointer, constants *PDQConstants) unsafe.Pointer {
-	assertFunc(src != constants._tmpBuf &&
+	util.AssertFunc(src != constants._tmpBuf &&
 		src != constants._swapOffsetsBuf &&
-		pointerLess(src, constants._end))
-	pointerCopy(constants._tmpBuf, src, constants._entrySize)
+		util.PointerLess(src, constants._end))
+	util.PointerCopy(constants._tmpBuf, src, constants._entrySize)
 	return constants._tmpBuf
 }
 
 func SwapOffsetsGetTmp(src unsafe.Pointer, constants *PDQConstants) unsafe.Pointer {
-	assertFunc(src != constants._tmpBuf &&
+	util.AssertFunc(src != constants._tmpBuf &&
 		src != constants._swapOffsetsBuf &&
-		pointerLess(src, constants._end))
-	pointerCopy(constants._swapOffsetsBuf, src, constants._entrySize)
+		util.PointerLess(src, constants._end))
+	util.PointerCopy(constants._swapOffsetsBuf, src, constants._entrySize)
 	return constants._swapOffsetsBuf
 }
 
 func Move(dst, src unsafe.Pointer, constants *PDQConstants) {
-	assertFunc(
+	util.AssertFunc(
 		dst == constants._tmpBuf ||
 			dst == constants._swapOffsetsBuf ||
-			pointerLess(dst, constants._end))
-	assertFunc(src == constants._tmpBuf ||
+			util.PointerLess(dst, constants._end))
+	util.AssertFunc(src == constants._tmpBuf ||
 		src == constants._swapOffsetsBuf ||
-		pointerLess(src, constants._end))
-	pointerCopy(dst, src, constants._entrySize)
+		util.PointerLess(src, constants._end))
+	util.PointerCopy(dst, src, constants._entrySize)
 }
 
 // sort A[a],A[b],A[c]
@@ -2168,11 +2183,11 @@ func sort2(a *PDQIterator, b *PDQIterator, constants *PDQConstants) {
 }
 
 func iterSwap(lhs *PDQIterator, rhs *PDQIterator, constants *PDQConstants) {
-	assertFunc(pointerLess(lhs.ptr(), constants._end))
-	assertFunc(pointerLess(rhs.ptr(), constants._end))
-	pointerCopy(constants._iterSwapBuf, lhs.ptr(), constants._entrySize)
-	pointerCopy(lhs.ptr(), rhs.ptr(), constants._entrySize)
-	pointerCopy(rhs.ptr(), constants._iterSwapBuf, constants._entrySize)
+	util.AssertFunc(util.PointerLess(lhs.ptr(), constants._end))
+	util.AssertFunc(util.PointerLess(rhs.ptr(), constants._end))
+	util.PointerCopy(constants._iterSwapBuf, lhs.ptr(), constants._entrySize)
+	util.PointerCopy(lhs.ptr(), rhs.ptr(), constants._entrySize)
+	util.PointerCopy(rhs.ptr(), constants._iterSwapBuf, constants._entrySize)
 }
 
 // insert sort [begin,end)
@@ -2259,34 +2274,34 @@ func InsertionSort(
 
 	if count > 1 {
 		totalOffset := colOffset + offset
-		val := cMalloc(rowWidth)
-		defer cFree(val)
+		val := util.CMalloc(rowWidth)
+		defer util.CFree(val)
 		compWidth := totalCompWidth - offset
 		for i := 1; i < count; i++ {
 			//val <= sourcePtr[i][...]
-			pointerCopy(
+			util.PointerCopy(
 				val,
-				pointerAdd(sourcePtr, i*rowWidth),
+				util.PointerAdd(sourcePtr, i*rowWidth),
 				rowWidth)
 			j := i
 			//memcmp (sourcePtr[j-1][totalOffset],val[totalOffset],compWidth)
 			for j > 0 &&
-				pointerMemcmp(
-					pointerAdd(sourcePtr, (j-1)*rowWidth+totalOffset),
-					pointerAdd(val, totalOffset),
+				util.PointerMemcmp(
+					util.PointerAdd(sourcePtr, (j-1)*rowWidth+totalOffset),
+					util.PointerAdd(val, totalOffset),
 					compWidth,
 				) > 0 {
 				//memcopy (sourcePtr[j][...],sourcePtr[j-1][...],rowWidth)
-				pointerCopy(
-					pointerAdd(sourcePtr, j*rowWidth),
-					pointerAdd(sourcePtr, (j-1)*rowWidth),
+				util.PointerCopy(
+					util.PointerAdd(sourcePtr, j*rowWidth),
+					util.PointerAdd(sourcePtr, (j-1)*rowWidth),
 					rowWidth,
 				)
 				j--
 			}
 			//memcpy (sourcePtr[j][...],val,rowWidth)
-			pointerCopy(
-				pointerAdd(sourcePtr, j*rowWidth),
+			util.PointerCopy(
+				util.PointerAdd(sourcePtr, j*rowWidth),
 				val,
 				rowWidth,
 			)
@@ -2294,7 +2309,7 @@ func InsertionSort(
 	}
 
 	if swap {
-		pointerCopy(
+		util.PointerCopy(
 			targetPtr,
 			sourcePtr,
 			count*rowWidth,
@@ -2309,23 +2324,23 @@ func RadixSortLSD(
 	rowWidth int,
 	sortingSize int,
 ) {
-	temp := cMalloc(rowWidth)
-	defer cFree(temp)
+	temp := util.CMalloc(rowWidth)
+	defer util.CFree(temp)
 	swap := false
 
 	var counts [VALUES_PER_RADIX]uint64
 	for r := 1; r <= sortingSize; r++ {
-		fill(counts[:], VALUES_PER_RADIX, 0)
+		util.Fill(counts[:], VALUES_PER_RADIX, 0)
 		sourcePtr, targetPtr := dataPtr, temp
 		if swap {
 			sourcePtr, targetPtr = temp, dataPtr
 		}
 		offset := colOffset + sortingSize - r
-		offsetPtr := pointerAdd(sourcePtr, offset)
+		offsetPtr := util.PointerAdd(sourcePtr, offset)
 		for i := 0; i < count; i++ {
-			val := load[byte](offsetPtr)
+			val := util.Load[byte](offsetPtr)
 			counts[val]++
-			offsetPtr = pointerAdd(offsetPtr, rowWidth)
+			offsetPtr = util.PointerAdd(offsetPtr, rowWidth)
 		}
 
 		maxCount := counts[0]
@@ -2337,22 +2352,22 @@ func RadixSortLSD(
 			continue
 		}
 
-		rowPtr := pointerAdd(sourcePtr, (count-1)*rowWidth)
+		rowPtr := util.PointerAdd(sourcePtr, (count-1)*rowWidth)
 		for i := 0; i < count; i++ {
-			val := load[byte](pointerAdd(rowPtr, offset))
+			val := util.Load[byte](util.PointerAdd(rowPtr, offset))
 			counts[val]--
 			radixOffset := counts[val]
-			pointerCopy(
-				pointerAdd(targetPtr, int(radixOffset)*rowWidth),
+			util.PointerCopy(
+				util.PointerAdd(targetPtr, int(radixOffset)*rowWidth),
 				rowPtr,
 				rowWidth,
 			)
-			rowPtr = pointerAdd(rowPtr, -rowWidth)
+			rowPtr = util.PointerAdd(rowPtr, -rowWidth)
 		}
 		swap = !swap
 	}
 	if swap {
-		pointerCopy(
+		util.PointerCopy(
 			dataPtr,
 			temp,
 			count*rowWidth,
@@ -2376,17 +2391,17 @@ func RadixSortMSD(
 		sourcePtr, targetPtr = tempPtr, origPtr
 	}
 
-	fill[uint64](locations,
+	util.Fill[uint64](locations,
 		MSD_RADIX_LOCATIONS,
 		0,
 	)
 	counts := locations[1:]
 	totalOffset := colOffset + offset
-	offsetPtr := pointerAdd(sourcePtr, totalOffset)
+	offsetPtr := util.PointerAdd(sourcePtr, totalOffset)
 	for i := 0; i < count; i++ {
-		val := load[byte](offsetPtr)
+		val := util.Load[byte](offsetPtr)
 		counts[val]++
-		offsetPtr = pointerAdd(offsetPtr, rowWidth)
+		offsetPtr = util.PointerAdd(offsetPtr, rowWidth)
 	}
 
 	maxCount := uint64(0)
@@ -2398,22 +2413,22 @@ func RadixSortMSD(
 	if maxCount != uint64(count) {
 		rowPtr := sourcePtr
 		for i := 0; i < count; i++ {
-			val := load[byte](pointerAdd(rowPtr, totalOffset))
+			val := util.Load[byte](util.PointerAdd(rowPtr, totalOffset))
 			radixOffset := locations[val]
 			locations[val]++
-			pointerCopy(
-				pointerAdd(targetPtr, int(radixOffset)*rowWidth),
+			util.PointerCopy(
+				util.PointerAdd(targetPtr, int(radixOffset)*rowWidth),
 				rowPtr,
 				rowWidth,
 			)
-			rowPtr = pointerAdd(rowPtr, rowWidth)
+			rowPtr = util.PointerAdd(rowPtr, rowWidth)
 		}
 		swap = !swap
 	}
 
 	if offset == compWidth-1 {
 		if swap {
-			pointerCopy(
+			util.PointerCopy(
 				origPtr,
 				tempPtr,
 				count*rowWidth,
@@ -2442,8 +2457,8 @@ func RadixSortMSD(
 		loc := int(locations[radix]-radixCount) * rowWidth
 		if radixCount > INSERTION_SORT_THRESHOLD {
 			RadixSortMSD(
-				pointerAdd(origPtr, loc),
-				pointerAdd(tempPtr, loc),
+				util.PointerAdd(origPtr, loc),
+				util.PointerAdd(tempPtr, loc),
 				int(radixCount),
 				colOffset,
 				rowWidth,
@@ -2454,8 +2469,8 @@ func RadixSortMSD(
 			)
 		} else if radixCount != 0 {
 			InsertionSort(
-				pointerAdd(origPtr, loc),
-				pointerAdd(tempPtr, loc),
+				util.PointerAdd(origPtr, loc),
+				util.PointerAdd(tempPtr, loc),
 				int(radixCount),
 				colOffset,
 				rowWidth,
@@ -2482,20 +2497,20 @@ type RowDataCollectionScanner struct {
 	_readState    *ScanState
 	_totalCount   int
 	_totalScanned int
-	_addresses    *Vector
+	_addresses    *chunk.Vector
 	_flush        bool
 }
 
-func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
-	count := min(defaultVectorSize,
+func (scan *RowDataCollectionScanner) Scan(output *chunk.Chunk) {
+	count := min(util.DefaultVectorSize,
 		scan._totalCount-scan._totalScanned)
 	if count == 0 {
-		output.setCard(count)
+		output.SetCard(count)
 		return
 	}
 	rowWidth := scan._layout._rowWidth
 	scanned := 0
-	dataPtrs := getSliceInPhyFormatFlat[unsafe.Pointer](scan._addresses)
+	dataPtrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](scan._addresses)
 	for scanned < count {
 		dataBlock := scan._rows._blocks[scan._readState._blockIdx]
 		scan._readState._ptr = dataBlock._ptr
@@ -2503,12 +2518,12 @@ func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
 			dataBlock._count-scan._readState._entryIdx,
 			count-scanned,
 		)
-		dataPtr := pointerAdd(scan._readState._ptr,
+		dataPtr := util.PointerAdd(scan._readState._ptr,
 			scan._readState._entryIdx*rowWidth)
 		rowPtr := dataPtr
 		for i := 0; i < next; i++ {
 			dataPtrs[scanned+i] = rowPtr
-			rowPtr = pointerAdd(rowPtr, rowWidth)
+			rowPtr = util.PointerAdd(rowPtr, rowWidth)
 		}
 
 		scan._readState._entryIdx += next
@@ -2519,13 +2534,13 @@ func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
 		scanned += next
 	}
 
-	assertFunc(scanned == count)
+	util.AssertFunc(scanned == count)
 	for colIdx := 0; colIdx < scan._layout.CoumnCount(); colIdx++ {
 		Gather(
 			scan._addresses,
-			incrSelectVectorInPhyFormatFlat(),
-			output._data[colIdx],
-			incrSelectVectorInPhyFormatFlat(),
+			chunk.IncrSelectVectorInPhyFormatFlat(),
+			output.Data[colIdx],
+			chunk.IncrSelectVectorInPhyFormatFlat(),
 			count,
 			scan._layout,
 			colIdx,
@@ -2534,7 +2549,7 @@ func (scan *RowDataCollectionScanner) Scan(output *Chunk) {
 		)
 	}
 
-	output.setCard(count)
+	output.SetCard(count)
 	scan._totalScanned += scanned
 	if scan._flush {
 		for i := 0; i < scan._readState._blockIdx; i++ {
@@ -2580,7 +2595,7 @@ func NewRowDataCollectionScanner(
 		_totalCount:   row._count,
 		_totalScanned: 0,
 		_flush:        flush,
-		_addresses:    NewFlatVector(pointerType(), defaultVectorSize),
+		_addresses:    chunk.NewFlatVector(common.PointerType(), util.DefaultVectorSize),
 	}
 	ret._readState = &ScanState{
 		_scanner: ret,
@@ -2641,7 +2656,7 @@ func NewPayloadScanner(
 	return ret
 }
 
-func (scan *PayloadScanner) Scan(output *Chunk) {
+func (scan *PayloadScanner) Scan(output *chunk.Chunk) {
 	scan._scanner.Scan(output)
 }
 
@@ -2654,21 +2669,21 @@ func (scan *PayloadScanner) Remaining() int {
 }
 
 func Gather(
-	rows *Vector,
-	rowSel *SelectVector,
-	col *Vector,
-	colSel *SelectVector,
+	rows *chunk.Vector,
+	rowSel *chunk.SelectVector,
+	col *chunk.Vector,
+	colSel *chunk.SelectVector,
 	count int,
 	layout *RowLayout,
 	colNo int,
 	buildSize int,
 	heapPtr unsafe.Pointer,
 ) {
-	assertFunc(rows.phyFormat().isFlat())
-	assertFunc(rows.typ().isPointer())
-	col.setPhyFormat(PF_FLAT)
-	switch col.typ().getInternalType() {
-	case INT32:
+	util.AssertFunc(rows.PhyFormat().IsFlat())
+	util.AssertFunc(rows.Typ().IsPointer())
+	col.SetPhyFormat(chunk.PF_FLAT)
+	switch col.Typ().GetInternalType() {
+	case common.INT32:
 		TemplatedGatherLoop[int32](
 			rows,
 			rowSel,
@@ -2679,8 +2694,8 @@ func Gather(
 			colNo,
 			buildSize,
 		)
-	case INT128:
-		TemplatedGatherLoop[Hugeint](
+	case common.INT64:
+		TemplatedGatherLoop[int64](
 			rows,
 			rowSel,
 			col,
@@ -2690,8 +2705,8 @@ func Gather(
 			colNo,
 			buildSize,
 		)
-	case DECIMAL:
-		TemplatedGatherLoop[Decimal](
+	case common.INT128:
+		TemplatedGatherLoop[common.Hugeint](
 			rows,
 			rowSel,
 			col,
@@ -2701,8 +2716,8 @@ func Gather(
 			colNo,
 			buildSize,
 		)
-	case DATE:
-		TemplatedGatherLoop[Date](
+	case common.DECIMAL:
+		TemplatedGatherLoop[common.Decimal](
 			rows,
 			rowSel,
 			col,
@@ -2712,7 +2727,18 @@ func Gather(
 			colNo,
 			buildSize,
 		)
-	case VARCHAR:
+	case common.DATE:
+		TemplatedGatherLoop[common.Date](
+			rows,
+			rowSel,
+			col,
+			colSel,
+			count,
+			layout,
+			colNo,
+			buildSize,
+		)
+	case common.VARCHAR:
 		GatherVarchar(
 			rows,
 			rowSel,
@@ -2724,7 +2750,7 @@ func Gather(
 			buildSize,
 			heapPtr,
 		)
-	case DOUBLE:
+	case common.DOUBLE:
 		TemplatedGatherLoop[float64](
 			rows,
 			rowSel,
@@ -2741,10 +2767,10 @@ func Gather(
 }
 
 func TemplatedGatherLoop[T any](
-	rows *Vector,
-	rowSel *SelectVector,
-	col *Vector,
-	colSel *SelectVector,
+	rows *chunk.Vector,
+	rowSel *chunk.SelectVector,
+	col *chunk.Vector,
+	colSel *chunk.SelectVector,
 	count int,
 	layout *RowLayout,
 	colNo int,
@@ -2752,35 +2778,35 @@ func TemplatedGatherLoop[T any](
 ) {
 	offsets := layout.GetOffsets()
 	colOffset := offsets[colNo]
-	entryIdx, idxInEntry := getEntryIndex(uint64(colNo))
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
-	dataSlice := getSliceInPhyFormatFlat[T](col)
-	colMask := getMaskInPhyFormatFlat(col)
+	entryIdx, idxInEntry := util.GetEntryIndex(uint64(colNo))
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
+	dataSlice := chunk.GetSliceInPhyFormatFlat[T](col)
+	colMask := chunk.GetMaskInPhyFormatFlat(col)
 
 	for i := 0; i < count; i++ {
-		rowIdx := rowSel.getIndex(i)
+		rowIdx := rowSel.GetIndex(i)
 		row := ptrs[rowIdx]
-		colIdx := colSel.getIndex(i)
-		dataSlice[colIdx] = load[T](pointerAdd(row, colOffset))
-		rowMask := Bitmap{
-			_bits: pointerToSlice[byte](row, layout._flagWidth),
+		colIdx := colSel.GetIndex(i)
+		dataSlice[colIdx] = util.Load[T](util.PointerAdd(row, colOffset))
+		rowMask := util.Bitmap{
+			Bits: util.PointerToSlice[byte](row, layout._flagWidth),
 		}
-		if !rowIsValidInEntry(
-			rowMask.getEntry(entryIdx),
+		if !util.RowIsValidInEntry(
+			rowMask.GetEntry(entryIdx),
 			idxInEntry) {
-			if buildSize > defaultVectorSize && colMask.AllValid() {
-				colMask.init(buildSize)
+			if buildSize > util.DefaultVectorSize && colMask.AllValid() {
+				colMask.Init(buildSize)
 			}
-			colMask.setInvalid(uint64(colIdx))
+			colMask.SetInvalid(uint64(colIdx))
 		}
 	}
 }
 
 func GatherVarchar(
-	rows *Vector,
-	rowSel *SelectVector,
-	col *Vector,
-	colSel *SelectVector,
+	rows *chunk.Vector,
+	rowSel *chunk.SelectVector,
+	col *chunk.Vector,
+	colSel *chunk.SelectVector,
 	count int,
 	layout *RowLayout,
 	colNo int,
@@ -2790,34 +2816,34 @@ func GatherVarchar(
 	offsets := layout.GetOffsets()
 	colOffset := offsets[colNo]
 	heapOffset := layout.GetHeapOffset()
-	entryIdx, idxInEntry := getEntryIndex(uint64(colNo))
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
-	dataSlice := getSliceInPhyFormatFlat[String](col)
-	colMask := getMaskInPhyFormatFlat(col)
+	entryIdx, idxInEntry := util.GetEntryIndex(uint64(colNo))
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
+	dataSlice := chunk.GetSliceInPhyFormatFlat[common.String](col)
+	colMask := chunk.GetMaskInPhyFormatFlat(col)
 
 	for i := 0; i < count; i++ {
-		rowIdx := rowSel.getIndex(i)
+		rowIdx := rowSel.GetIndex(i)
 		row := ptrs[rowIdx]
-		colIdx := colSel.getIndex(i)
-		colPtr := pointerAdd(row, colOffset)
-		dataSlice[colIdx] = load[String](colPtr)
-		rowMask := Bitmap{
-			_bits: pointerToSlice[byte](row, layout._flagWidth),
+		colIdx := colSel.GetIndex(i)
+		colPtr := util.PointerAdd(row, colOffset)
+		dataSlice[colIdx] = util.Load[common.String](colPtr)
+		rowMask := util.Bitmap{
+			Bits: util.PointerToSlice[byte](row, layout._flagWidth),
 		}
-		if !rowIsValidInEntry(
-			rowMask.getEntry(entryIdx),
+		if !util.RowIsValidInEntry(
+			rowMask.GetEntry(entryIdx),
 			idxInEntry,
 		) {
-			if buildSize > defaultVectorSize && colMask.AllValid() {
-				colMask.init(buildSize)
+			if buildSize > util.DefaultVectorSize && colMask.AllValid() {
+				colMask.Init(buildSize)
 			}
-			colMask.setInvalid(uint64(colIdx))
+			colMask.SetInvalid(uint64(colIdx))
 		} else if baseHeapPtr != nil {
-			heapPtrPtr := pointerAdd(row, heapOffset)
-			heapRowPtr := pointerAdd(baseHeapPtr, int(load[uint64](heapPtrPtr)))
+			heapPtrPtr := util.PointerAdd(row, heapOffset)
+			heapRowPtr := util.PointerAdd(baseHeapPtr, int(util.Load[uint64](heapPtrPtr)))
 			strPtr := unsafe.Pointer(&dataSlice[colIdx])
-			store[unsafe.Pointer](
-				pointerAdd(heapRowPtr, int(load[uint64](strPtr))),
+			util.Store[unsafe.Pointer](
+				util.PointerAdd(heapRowPtr, int(util.Load[uint64](strPtr))),
 				strPtr,
 			)
 		}
@@ -2831,12 +2857,12 @@ func TieIsBreakable(
 	layout *SortLayout,
 ) bool {
 	colIdx := layout._sortingToBlobCol[tieCol]
-	rowMask := Bitmap{
-		_bits: pointerToSlice[byte](rowPtr, layout._blobLayout._flagWidth),
+	rowMask := util.Bitmap{
+		Bits: util.PointerToSlice[byte](rowPtr, layout._blobLayout._flagWidth),
 	}
-	entryIdx, idxInEntry := getEntryIndex(uint64(colIdx))
-	if !rowIsValidInEntry(
-		rowMask.getEntry(entryIdx),
+	entryIdx, idxInEntry := util.GetEntryIndex(uint64(colIdx))
+	if !util.RowIsValidInEntry(
+		rowMask.GetEntry(entryIdx),
 		idxInEntry,
 	) {
 		//can not create a NULL tie
@@ -2844,23 +2870,23 @@ func TieIsBreakable(
 	}
 
 	rowLayout := layout._blobLayout
-	if !rowLayout.GetTypes()[colIdx].getInternalType().isVarchar() {
+	if !rowLayout.GetTypes()[colIdx].GetInternalType().IsVarchar() {
 		//nested type
 		return true
 	}
 
 	tieColOffset := rowLayout.GetOffsets()[colIdx]
-	tieString := load[String](pointerAdd(rowPtr, tieColOffset))
-	return tieString.len() >= layout._prefixLengths[tieCol]
+	tieString := util.Load[common.String](util.PointerAdd(rowPtr, tieColOffset))
+	return tieString.Length() >= layout._prefixLengths[tieCol]
 }
 
 func CompareVal(
 	lPtr, rPtr unsafe.Pointer,
-	typ LType,
+	typ common.LType,
 ) int {
-	switch typ.getInternalType() {
-	case VARCHAR:
-		return TemplatedCompareVal[String](
+	switch typ.GetInternalType() {
+	case common.VARCHAR:
+		return TemplatedCompareVal[common.String](
 			lPtr,
 			rPtr,
 			binStringEqualOp,
@@ -2876,8 +2902,8 @@ func TemplatedCompareVal[T any](
 	equalOp BinaryOp[T, T, bool],
 	lessOp BinaryOp[T, T, bool],
 ) int {
-	lVal := load[T](lPtr)
-	rVal := load[T](rPtr)
+	lVal := util.Load[T](lPtr)
+	rVal := util.Load[T](rPtr)
 	eRet := false
 	equalOp(&lVal, &rVal, &eRet)
 	if eRet {
@@ -2922,8 +2948,8 @@ type int32Encoder struct {
 }
 
 func (i int32Encoder) EncodeData(ptr unsafe.Pointer, value *int32) {
-	store[uint32](BSWAP32(uint32(*value)), ptr)
-	store[uint8](FlipSign(load[uint8](ptr)), ptr)
+	util.Store[uint32](BSWAP32(uint32(*value)), ptr)
+	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
 }
 
 func (i int32Encoder) TypeSize() int {
@@ -2935,8 +2961,8 @@ type intEncoder struct {
 }
 
 func (i intEncoder) EncodeData(ptr unsafe.Pointer, value *int) {
-	store[uint64](BSWAP64(uint64(*value)), ptr)
-	store[uint8](FlipSign(load[uint8](ptr)), ptr)
+	util.Store[uint64](BSWAP64(uint64(*value)), ptr)
+	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
 }
 
 func (i intEncoder) TypeSize() int {
@@ -2946,42 +2972,42 @@ func (i intEncoder) TypeSize() int {
 type decimalEncoder struct {
 }
 
-func (decimalEncoder) EncodeData(ptr unsafe.Pointer, dec *Decimal) {
+func (decimalEncoder) EncodeData(ptr unsafe.Pointer, dec *common.Decimal) {
 	whole, frac, ok := dec.Int64(2)
-	assertFunc(ok)
+	util.AssertFunc(ok)
 	encodeInt64(ptr, whole)
-	encodeInt64(pointerAdd(ptr, int64Size), frac)
+	encodeInt64(util.PointerAdd(ptr, common.Int64Size), frac)
 }
 func (decimalEncoder) TypeSize() int {
-	return decimalSize
+	return common.DecimalSize
 }
 
 type dateEncoder struct{}
 
-func (dateEncoder) EncodeData(ptr unsafe.Pointer, d *Date) {
-	encodeInt32(ptr, d._year)
-	encodeInt32(pointerAdd(ptr, int32Size), d._month)
-	encodeInt32(pointerAdd(ptr, 2*int32Size), d._day)
+func (dateEncoder) EncodeData(ptr unsafe.Pointer, d *common.Date) {
+	encodeInt32(ptr, d.Year)
+	encodeInt32(util.PointerAdd(ptr, common.Int32Size), d.Month)
+	encodeInt32(util.PointerAdd(ptr, 2*common.Int32Size), d.Day)
 }
 
 func (dateEncoder) TypeSize() int {
-	return dateSize
+	return common.DateSize
 }
 
 type hugeEncoder struct{}
 
-func (hugeEncoder) EncodeData(ptr unsafe.Pointer, d *Hugeint) {
-	encodeInt64(ptr, d._upper)
-	encodeUint64(pointerAdd(ptr, int64Size), d._lower)
+func (hugeEncoder) EncodeData(ptr unsafe.Pointer, d *common.Hugeint) {
+	encodeInt64(ptr, d.Upper)
+	encodeUint64(util.PointerAdd(ptr, common.Int64Size), d.Lower)
 }
 
 func (hugeEncoder) TypeSize() int {
-	return int128Size
+	return common.Int128Size
 }
 
 func encodeInt32(ptr unsafe.Pointer, value int32) {
-	store[uint32](BSWAP32(uint32(value)), ptr)
-	store[uint8](FlipSign(load[uint8](ptr)), ptr)
+	util.Store[uint32](BSWAP32(uint32(value)), ptr)
+	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
 }
 
 //func encodeUint32(ptr unsafe.Pointer, value uint32) {
@@ -2989,10 +3015,10 @@ func encodeInt32(ptr unsafe.Pointer, value int32) {
 //}
 
 func encodeInt64(ptr unsafe.Pointer, value int64) {
-	store[uint64](BSWAP64(uint64(value)), ptr)
-	store[uint8](FlipSign(load[uint8](ptr)), ptr)
+	util.Store[uint64](BSWAP64(uint64(value)), ptr)
+	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
 }
 
 func encodeUint64(ptr unsafe.Pointer, value uint64) {
-	store[uint64](BSWAP64(value), ptr)
+	util.Store[uint64](BSWAP64(value), ptr)
 }

@@ -16,6 +16,9 @@ package plan
 
 import (
 	"fmt"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type CastOp[T any, R any] func(input *T, result *R, strict bool) bool
@@ -24,11 +27,11 @@ type UnaryOp[T any, R any] func(input *T, result *R)
 
 type UnaryFunc[T any, R any] func(input *T, result *R)
 
-type UnaryOp2[T any, R any] func(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
+type UnaryOp2[T any, R any] func(input *T, result *R, mask *util.Bitmap, idx int, data *UnaryData)
 
 //lint:ignore U1000
 type UnaryWrapper[T any, R any] interface {
-	operation(input *T, result *R, mask *Bitmap, idx int, data *UnaryData)
+	operation(input *T, result *R, mask *util.Bitmap, idx int, data *UnaryData)
 }
 
 //lint:ignore U1000
@@ -39,7 +42,7 @@ type GenericUnaryWrapper[T any, R any] struct {
 func (wrapper *GenericUnaryWrapper[T, R]) operation(
 	input *T,
 	result *R,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	idx int,
 	data *UnaryData,
 ) {
@@ -54,7 +57,7 @@ type UnaryOperatorWrapper[T any, R any] struct {
 func (wrapper *UnaryOperatorWrapper[T, R]) operation(
 	input *T,
 	result *R,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	idx int,
 	data *UnaryData,
 ) {
@@ -69,7 +72,7 @@ type UnaryLambdaWrapper[T any, R any] struct {
 func (wrapper *UnaryLambdaWrapper[T, R]) operation(
 	input *T,
 	result *R,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	idx int,
 	data *UnaryData,
 ) {
@@ -79,7 +82,7 @@ func (wrapper *UnaryLambdaWrapper[T, R]) operation(
 func VectorTryCastOperator[T, R any](
 	input *T,
 	result *R,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	idx int,
 	data *UnaryData,
 	op CastOp[T, R]) {
@@ -88,18 +91,18 @@ func VectorTryCastOperator[T, R any](
 		err := fmt.Sprintf("VectorTryCastOperator[%d]: operation failed", idx)
 		data._tryCastData._errorMsg = &err
 		data._tryCastData._allConverted = false
-		mask.setInvalid(uint64(idx))
+		mask.SetInvalid(uint64(idx))
 	}
 }
 
 func UnaryFunction[T any, R any](
 	op UnaryOp[T, R]) ScalarFunc {
 	wrapper := &UnaryOperatorWrapper[T, R]{}
-	temp := func(input *Chunk, state *ExprState, result *Vector) {
+	temp := func(input *chunk.Chunk, state *ExprState, result *chunk.Vector) {
 		unaryExecStandard[T, R](
-			input._data[0],
+			input.Data[0],
 			result,
-			input.card(),
+			input.Card(),
 			nil,
 			false,
 			wrapper)
@@ -108,7 +111,7 @@ func UnaryFunction[T any, R any](
 }
 
 func UnaryExecuteStandard[T any, R any](
-	input, result *Vector,
+	input, result *chunk.Vector,
 	count int,
 	data *UnaryData,
 	addNulls bool) {
@@ -116,7 +119,7 @@ func UnaryExecuteStandard[T any, R any](
 }
 
 func unaryGenericExec[T any, R any](
-	input, result *Vector,
+	input, result *chunk.Vector,
 	count int,
 	data *UnaryData,
 	addNulls bool,
@@ -133,48 +136,48 @@ func unaryGenericExec[T any, R any](
 }
 
 func unaryExecStandard[T any, R any](
-	input, result *Vector,
+	input, result *chunk.Vector,
 	count int,
 	data *UnaryData,
 	addNulls bool,
 	wrapper UnaryWrapper[T, R]) {
-	if input.phyFormat().isConst() {
-		result.setPhyFormat(PF_CONST)
-		lslice := getSliceInPhyFormatConst[T](input)
-		resSlice := getSliceInPhyFormatConst[R](result)
-		if isNullInPhyFormatConst(input) {
-			setNullInPhyFormatConst(result, true)
+	if input.PhyFormat().IsConst() {
+		result.SetPhyFormat(chunk.PF_CONST)
+		lslice := chunk.GetSliceInPhyFormatConst[T](input)
+		resSlice := chunk.GetSliceInPhyFormatConst[R](result)
+		if chunk.IsNullInPhyFormatConst(input) {
+			chunk.SetNullInPhyFormatConst(result, true)
 		} else {
-			setNullInPhyFormatConst(result, false)
-			wrapper.operation(&lslice[0], &resSlice[0], getMaskInPhyFormatConst(result), 0, data)
+			chunk.SetNullInPhyFormatConst(result, false)
+			wrapper.operation(&lslice[0], &resSlice[0], chunk.GetMaskInPhyFormatConst(result), 0, data)
 		}
-	} else if input.phyFormat().isFlat() {
-		result.setPhyFormat(PF_FLAT)
-		lslice := getSliceInPhyFormatConst[T](input)
-		resSlice := getSliceInPhyFormatConst[R](result)
+	} else if input.PhyFormat().IsFlat() {
+		result.SetPhyFormat(chunk.PF_FLAT)
+		lslice := chunk.GetSliceInPhyFormatConst[T](input)
+		resSlice := chunk.GetSliceInPhyFormatConst[R](result)
 		unaryExecFlat[T, R](
 			lslice,
 			resSlice,
 			count,
-			getMaskInPhyFormatFlat(input),
-			getMaskInPhyFormatFlat(result),
+			chunk.GetMaskInPhyFormatFlat(input),
+			chunk.GetMaskInPhyFormatFlat(result),
 			data,
 			addNulls,
 			wrapper,
 		)
 	} else {
-		var uv UnifiedFormat
-		input.toUnifiedFormat(count, &uv)
-		result.setPhyFormat(PF_FLAT)
-		inputSlice := getSliceInPhyFormatUnifiedFormat[T](&uv)
-		resSlice := getSliceInPhyFormatFlat[R](result)
+		var uv chunk.UnifiedFormat
+		input.ToUnifiedFormat(count, &uv)
+		result.SetPhyFormat(chunk.PF_FLAT)
+		inputSlice := chunk.GetSliceInPhyFormatUnifiedFormat[T](&uv)
+		resSlice := chunk.GetSliceInPhyFormatFlat[R](result)
 		unaryExecLoop[T, R](
 			inputSlice,
 			resSlice,
 			count,
-			uv._sel,
-			uv._mask,
-			getMaskInPhyFormatFlat(result),
+			uv.Sel,
+			uv.Mask,
+			chunk.GetMaskInPhyFormatFlat(result),
 			data,
 			addNulls,
 			wrapper,
@@ -186,34 +189,34 @@ func unaryExecFlat[T any, R any](
 	input []T,
 	result []R,
 	count int,
-	mask *Bitmap,
-	resMask *Bitmap,
+	mask *util.Bitmap,
+	resMask *util.Bitmap,
 	data *UnaryData,
 	addNulls bool,
 	wrapper UnaryWrapper[T, R],
 ) {
 	if !mask.AllValid() {
 		if !addNulls {
-			resMask.shareWith(mask)
+			resMask.ShareWith(mask)
 		} else {
-			resMask.copyFrom(mask, count)
+			resMask.CopyFrom(mask, count)
 		}
 		baseIdx := 0
-		eCnt := entryCount(count)
+		eCnt := util.EntryCount(count)
 		for eIdx := 0; eIdx < eCnt; eIdx++ {
-			ent := mask.getEntry(uint64(eIdx))
+			ent := mask.GetEntry(uint64(eIdx))
 			next := min(baseIdx+8, count)
-			if AllValidInEntry(ent) {
+			if util.AllValidInEntry(ent) {
 				for ; baseIdx < next; baseIdx++ {
 					wrapper.operation(&input[baseIdx], &result[baseIdx], resMask, baseIdx, data)
 				}
-			} else if NoneValidInEntry(ent) {
+			} else if util.NoneValidInEntry(ent) {
 				baseIdx = next
 				continue
 			} else {
 				start := baseIdx
 				for ; baseIdx < next; baseIdx++ {
-					if rowIsValidInEntry(ent, uint64(baseIdx-start)) {
+					if util.RowIsValidInEntry(ent, uint64(baseIdx-start)) {
 						wrapper.operation(&input[baseIdx], &result[baseIdx], resMask, baseIdx, data)
 					}
 				}
@@ -230,25 +233,25 @@ func unaryExecLoop[T any, R any](
 	input []T,
 	result []R,
 	count int,
-	sel *SelectVector,
-	mask *Bitmap,
-	resMask *Bitmap,
+	sel *chunk.SelectVector,
+	mask *util.Bitmap,
+	resMask *util.Bitmap,
 	data *UnaryData,
 	addNulls bool,
 	wrapper UnaryWrapper[T, R],
 ) {
 	if !mask.AllValid() {
 		for i := 0; i < count; i++ {
-			idx := sel.getIndex(i)
-			if mask.rowIsValidUnsafe(uint64(idx)) {
+			idx := sel.GetIndex(i)
+			if mask.RowIsValidUnsafe(uint64(idx)) {
 				wrapper.operation(&input[idx], &result[i], resMask, i, data)
 			} else {
-				resMask.setInvalid(uint64(i))
+				resMask.SetInvalid(uint64(i))
 			}
 		}
 	} else {
 		for i := 0; i < count; i++ {
-			idx := sel.getIndex(i)
+			idx := sel.GetIndex(i)
 			wrapper.operation(&input[idx], &result[i], resMask, i, data)
 		}
 	}

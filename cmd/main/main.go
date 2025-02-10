@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/daviszhen/plan/pkg/plan"
+	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -64,8 +65,15 @@ func main() {
 
 func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
 	util.Info("incoming SQL :", zap.String("query", query))
+	var err error
+	txn, err := storage.GTxnMgr.NewTxn("handler")
+	if err != nil {
+		return nil, err
+	}
+	storage.BeginQuery(txn)
+
 	//init runner
-	run, err := plan.InitRunner(&runCfg, query)
+	run, err := plan.InitRunner(&runCfg, txn, query)
 	if err != nil {
 		return nil, err
 	}
@@ -90,9 +98,18 @@ type ExecCtx struct {
 }
 
 func (exec *ExecCtx) handleX(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
+	var err error
 	defer exec.run.Close()
+	defer func() {
+		if err != nil {
+			storage.GTxnMgr.Rollback(exec.run.Txn)
+		} else {
+			err = storage.GTxnMgr.Commit(exec.run.Txn)
+		}
+	}()
+
 	//run stmt
-	err := exec.run.Run(ctx, writer)
+	err = exec.run.Run(ctx, writer)
 	if err != nil {
 		return err
 	}

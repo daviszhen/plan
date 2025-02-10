@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plan
+package chunk
 
 import (
-	"unsafe"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 const (
@@ -54,6 +55,13 @@ func (hfun HashFuncInt32) fun(value int32) uint64 {
 	return murmurhash32(uint32(value))
 }
 
+type HashFuncInt64 struct {
+}
+
+func (hfun HashFuncInt64) fun(value int64) uint64 {
+	return murmurhash64(uint64(value))
+}
+
 type HashFuncInt8 struct {
 }
 
@@ -72,6 +80,17 @@ func (op HashOpInt32) operation(input int32, isNull bool) uint64 {
 	}
 }
 
+type HashOpInt64 struct {
+}
+
+func (op HashOpInt64) operation(input int64, isNull bool) uint64 {
+	if isNull {
+		return NULL_HASH
+	} else {
+		return HashFuncInt64{}.fun(input)
+	}
+}
+
 type HashOpInt8 struct {
 }
 
@@ -83,77 +102,17 @@ func (op HashOpInt8) operation(input int8, isNull bool) uint64 {
 	}
 }
 
-const (
-	M    uint64 = 0xc6a4a7935bd1e995
-	SEED uint64 = 0xe17a1465
-	R    uint64 = 47
-)
-
-func HashBytes(ptr unsafe.Pointer, len uint64) uint64 {
-	data64 := ptr
-	h := SEED ^ (len * M)
-
-	n_blocks := len / 8
-	for i := uint64(0); i < n_blocks; i++ {
-		k := load[uint64](pointerAdd(data64, int(i*uint64(int64Size))))
-		k *= M
-		k ^= k >> R
-		k *= M
-
-		h ^= k
-		h *= M
-	}
-	data8 := pointerAdd(data64, int(n_blocks*uint64(int64Size)))
-	switch len & 7 {
-	case 7:
-		val := load[byte](pointerAdd(data8, 6))
-		h ^= uint64(val) << 48
-		fallthrough
-	case 6:
-		val := load[byte](pointerAdd(data8, 5))
-		h ^= uint64(val) << 40
-		fallthrough
-	case 5:
-		val := load[byte](pointerAdd(data8, 4))
-		h ^= uint64(val) << 32
-		fallthrough
-	case 4:
-		val := load[byte](pointerAdd(data8, 3))
-		h ^= uint64(val) << 24
-		fallthrough
-	case 3:
-		val := load[byte](pointerAdd(data8, 2))
-		h ^= uint64(val) << 16
-		fallthrough
-	case 2:
-		val := load[byte](pointerAdd(data8, 1))
-		h ^= uint64(val) << 8
-		fallthrough
-	case 1:
-		val := load[byte](data8)
-		h ^= uint64(val)
-		h *= M
-		fallthrough
-	default:
-		break
-	}
-	h ^= h >> R
-	h *= M
-	h ^= h >> R
-	return h
-}
-
 type HashFuncString struct {
 }
 
-func (hfun HashFuncString) fun(value String) uint64 {
-	return HashBytes(value.data(), uint64(value.len()))
+func (hfun HashFuncString) fun(value common.String) uint64 {
+	return util.HashBytes(value.DataPtr(), uint64(value.Length()))
 }
 
 type HashOpString struct {
 }
 
-func (op HashOpString) operation(input String, isNull bool) uint64 {
+func (op HashOpString) operation(input common.String, isNull bool) uint64 {
 	if isNull {
 		return NULL_HASH
 	} else {
@@ -164,14 +123,14 @@ func (op HashOpString) operation(input String, isNull bool) uint64 {
 type HashFuncDate struct {
 }
 
-func (hfun HashFuncDate) fun(value Date) uint64 {
-	return murmurhash64(uint64(value._year)) ^ murmurhash64(uint64(value._month)) ^ murmurhash64(uint64(value._day))
+func (hfun HashFuncDate) fun(value common.Date) uint64 {
+	return murmurhash64(uint64(value.Year)) ^ murmurhash64(uint64(value.Month)) ^ murmurhash64(uint64(value.Day))
 }
 
 type HashOpDate struct {
 }
 
-func (op HashOpDate) operation(input Date, isNull bool) uint64 {
+func (op HashOpDate) operation(input common.Date, isNull bool) uint64 {
 	if isNull {
 		return NULL_HASH
 	} else {
@@ -182,7 +141,7 @@ func (op HashOpDate) operation(input Date, isNull bool) uint64 {
 type HashFuncDecimal struct {
 }
 
-func (hfun HashFuncDecimal) fun(value Decimal) uint64 {
+func (hfun HashFuncDecimal) fun(value common.Decimal) uint64 {
 	neg := 0
 	if value.Decimal.IsNeg() {
 		neg = 1
@@ -195,7 +154,7 @@ func (hfun HashFuncDecimal) fun(value Decimal) uint64 {
 type HashOpDecimal struct {
 }
 
-func (op HashOpDecimal) operation(input Decimal, isNull bool) uint64 {
+func (op HashOpDecimal) operation(input common.Decimal, isNull bool) uint64 {
 	if isNull {
 		return NULL_HASH
 	} else {
@@ -206,13 +165,13 @@ func (op HashOpDecimal) operation(input Decimal, isNull bool) uint64 {
 type HashFuncHugeint struct {
 }
 
-func (HashFuncHugeint) fun(value Hugeint) uint64 {
-	return murmurhash64(uint64(value._upper)) ^ murmurhash64(uint64(value._lower))
+func (HashFuncHugeint) fun(value common.Hugeint) uint64 {
+	return murmurhash64(uint64(value.Upper)) ^ murmurhash64(uint64(value.Lower))
 }
 
 type HashOpHugeint struct{}
 
-func (op HashOpHugeint) operation(input Hugeint, isNull bool) uint64 {
+func (op HashOpHugeint) operation(input common.Hugeint, isNull bool) uint64 {
 	if isNull {
 		return NULL_HASH
 	} else {
@@ -226,18 +185,22 @@ func HashTypeSwitch(
 	count int,
 	hasRsel bool,
 ) {
-	assertFunc(result.typ().id == LTID_UBIGINT)
-	switch input.typ().getInternalType() {
-	case INT32:
+	util.AssertFunc(result.Typ().Id == common.LTID_UBIGINT)
+	switch input.Typ().GetInternalType() {
+	case common.INT32:
 		TemplatedLoopHash[int32](input, result, rsel, count, hasRsel, HashOpInt32{}, HashFuncInt32{})
-	case INT8:
+	case common.INT64:
+		TemplatedLoopHash[int64](input, result, rsel, count, hasRsel, HashOpInt64{}, HashFuncInt64{})
+	case common.INT8:
 		TemplatedLoopHash[int8](input, result, rsel, count, hasRsel, HashOpInt8{}, HashFuncInt8{})
-	case VARCHAR:
-		TemplatedLoopHash[String](input, result, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
-	case DECIMAL:
-		TemplatedLoopHash[Decimal](input, result, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
-	case INT128:
-		TemplatedLoopHash[Hugeint](input, result, rsel, count, hasRsel, HashOpHugeint{}, HashFuncHugeint{})
+	case common.VARCHAR:
+		TemplatedLoopHash[common.String](input, result, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
+	case common.DECIMAL:
+		TemplatedLoopHash[common.Decimal](input, result, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
+	case common.INT128:
+		TemplatedLoopHash[common.Hugeint](input, result, rsel, count, hasRsel, HashOpHugeint{}, HashFuncHugeint{})
+	case common.DATE:
+		TemplatedLoopHash[common.Date](input, result, rsel, count, hasRsel, HashOpDate{}, HashFuncDate{})
 	default:
 		panic("Unknown input type")
 	}
@@ -251,23 +214,23 @@ func TemplatedLoopHash[T any](
 	hashOp HashOp[T],
 	hashFun HashFunc[T],
 ) {
-	if input.phyFormat().isConst() {
-		result.setPhyFormat(PF_CONST)
+	if input.PhyFormat().IsConst() {
+		result.SetPhyFormat(PF_CONST)
 
-		data := getSliceInPhyFormatConst[T](input)
-		resData := getSliceInPhyFormatConst[uint64](result)
-		resData[0] = hashOp.operation(data[0], isNullInPhyFormatConst(input))
+		data := GetSliceInPhyFormatConst[T](input)
+		resData := GetSliceInPhyFormatConst[uint64](result)
+		resData[0] = hashOp.operation(data[0], IsNullInPhyFormatConst(input))
 	} else {
-		result.setPhyFormat(PF_FLAT)
+		result.SetPhyFormat(PF_FLAT)
 		var data UnifiedFormat
-		input.toUnifiedFormat(count, &data)
+		input.ToUnifiedFormat(count, &data)
 		TightLoopHash[T](
-			getSliceInPhyFormatUnifiedFormat[T](&data),
-			getSliceInPhyFormatFlat[uint64](result),
+			GetSliceInPhyFormatUnifiedFormat[T](&data),
+			GetSliceInPhyFormatFlat[uint64](result),
 			rsel,
 			count,
-			data._sel,
-			data._mask,
+			data.Sel,
+			data.Mask,
 			hasRsel,
 			hashOp,
 			hashFun,
@@ -281,7 +244,7 @@ func TightLoopHash[T any](
 	rsel *SelectVector,
 	count int,
 	selVec *SelectVector,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	hasRsel bool,
 	hashOp HashOp[T],
 	hashFun HashFunc[T],
@@ -290,18 +253,18 @@ func TightLoopHash[T any](
 		for i := 0; i < count; i++ {
 			ridx := i
 			if hasRsel {
-				ridx = rsel.getIndex(i)
+				ridx = rsel.GetIndex(i)
 			}
-			idx := selVec.getIndex(ridx)
-			resultData[ridx] = hashOp.operation(ldata[idx], !mask.rowIsValid(uint64(idx)))
+			idx := selVec.GetIndex(ridx)
+			resultData[ridx] = hashOp.operation(ldata[idx], !mask.RowIsValid(uint64(idx)))
 		}
 	} else {
 		for i := 0; i < count; i++ {
 			ridx := i
 			if hasRsel {
-				ridx = rsel.getIndex(i)
+				ridx = rsel.GetIndex(i)
 			}
-			idx := selVec.getIndex(ridx)
+			idx := selVec.GetIndex(ridx)
 			resultData[ridx] = hashFun.fun(ldata[idx])
 		}
 	}
@@ -314,16 +277,18 @@ func CombineHashTypeSwitch(
 	count int,
 	hasRsel bool,
 ) {
-	assertFunc(hashes.typ().id == LTID_UBIGINT)
-	switch input.typ().getInternalType() {
-	case INT32:
+	util.AssertFunc(hashes.Typ().Id == common.LTID_UBIGINT)
+	switch input.Typ().GetInternalType() {
+	case common.INT32:
 		TemplatedLoopCombineHash[int32](input, hashes, rsel, count, hasRsel, HashOpInt32{}, HashFuncInt32{})
-	case DATE:
-		TemplatedLoopCombineHash[Date](input, hashes, rsel, count, hasRsel, HashOpDate{}, HashFuncDate{})
-	case DECIMAL:
-		TemplatedLoopCombineHash[Decimal](input, hashes, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
-	case VARCHAR:
-		TemplatedLoopCombineHash[String](input, hashes, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
+	case common.INT64:
+		TemplatedLoopCombineHash[int64](input, hashes, rsel, count, hasRsel, HashOpInt64{}, HashFuncInt64{})
+	case common.DATE:
+		TemplatedLoopCombineHash[common.Date](input, hashes, rsel, count, hasRsel, HashOpDate{}, HashFuncDate{})
+	case common.DECIMAL:
+		TemplatedLoopCombineHash[common.Decimal](input, hashes, rsel, count, hasRsel, HashOpDecimal{}, HashFuncDecimal{})
+	case common.VARCHAR:
+		TemplatedLoopCombineHash[common.String](input, hashes, rsel, count, hasRsel, HashOpString{}, HashFuncString{})
 	default:
 		panic("Unknown input type")
 	}
@@ -338,38 +303,38 @@ func TemplatedLoopCombineHash[T any](
 	hashOp HashOp[T],
 	hashFun HashFunc[T],
 ) {
-	if input.phyFormat().isConst() && hashes.phyFormat().isConst() {
-		ldata := getSliceInPhyFormatConst[T](input)
-		hashData := getSliceInPhyFormatConst[uint64](hashes)
-		otherHash := hashOp.operation(ldata[0], isNullInPhyFormatConst(input))
+	if input.PhyFormat().IsConst() && hashes.PhyFormat().IsConst() {
+		ldata := GetSliceInPhyFormatConst[T](input)
+		hashData := GetSliceInPhyFormatConst[uint64](hashes)
+		otherHash := hashOp.operation(ldata[0], IsNullInPhyFormatConst(input))
 		hashData[0] = CombineHashScalar(hashData[0], otherHash)
 	} else {
 		var data UnifiedFormat
-		input.toUnifiedFormat(count, &data)
-		if hashes.phyFormat().isConst() {
-			hashData := getSliceInPhyFormatConst[uint64](hashes)
-			hashes.setPhyFormat(PF_FLAT)
+		input.ToUnifiedFormat(count, &data)
+		if hashes.PhyFormat().IsConst() {
+			hashData := GetSliceInPhyFormatConst[uint64](hashes)
+			hashes.SetPhyFormat(PF_FLAT)
 			TightLoopCombineHashConstant[T](
-				getSliceInPhyFormatUnifiedFormat[T](&data),
+				GetSliceInPhyFormatUnifiedFormat[T](&data),
 				hashData[0],
-				getSliceInPhyFormatFlat[uint64](hashes),
+				GetSliceInPhyFormatFlat[uint64](hashes),
 				rsel,
 				count,
-				data._sel,
-				data._mask,
+				data.Sel,
+				data.Mask,
 				hasRsel,
 				hashOp,
 				hashFun,
 			)
 		} else {
-			assertFunc(hashes.phyFormat().isFlat())
+			util.AssertFunc(hashes.PhyFormat().IsFlat())
 			TightLoopCombineHash[T](
-				getSliceInPhyFormatUnifiedFormat[T](&data),
-				getSliceInPhyFormatFlat[uint64](hashes),
+				GetSliceInPhyFormatUnifiedFormat[T](&data),
+				GetSliceInPhyFormatFlat[uint64](hashes),
 				rsel,
 				count,
-				data._sel,
-				data._mask,
+				data.Sel,
+				data.Mask,
 				hasRsel,
 				hashOp,
 				hashFun,
@@ -385,7 +350,7 @@ func TightLoopCombineHashConstant[T any](
 	rsel *SelectVector,
 	count int,
 	selVec *SelectVector,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	hasRsel bool,
 	hashOp HashOp[T],
 	hashFun HashFunc[T],
@@ -394,19 +359,19 @@ func TightLoopCombineHashConstant[T any](
 		for i := 0; i < count; i++ {
 			ridx := i
 			if hasRsel {
-				ridx = rsel.getIndex(i)
+				ridx = rsel.GetIndex(i)
 			}
-			idx := selVec.getIndex(ridx)
-			otherHash := hashOp.operation(ldata[idx], !mask.rowIsValid(uint64(idx)))
+			idx := selVec.GetIndex(ridx)
+			otherHash := hashOp.operation(ldata[idx], !mask.RowIsValid(uint64(idx)))
 			hashData[ridx] = CombineHashScalar(constHash, otherHash)
 		}
 	} else {
 		for i := 0; i < count; i++ {
 			ridx := i
 			if hasRsel {
-				ridx = rsel.getIndex(i)
+				ridx = rsel.GetIndex(i)
 			}
-			idx := selVec.getIndex(ridx)
+			idx := selVec.GetIndex(ridx)
 			otherHash := hashFun.fun(ldata[idx])
 			hashData[ridx] = CombineHashScalar(constHash, otherHash)
 		}
@@ -419,7 +384,7 @@ func TightLoopCombineHash[T any](
 	rsel *SelectVector,
 	count int,
 	selVec *SelectVector,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	hasRsel bool,
 	hashOp HashOp[T],
 	hashFun HashFunc[T],
@@ -428,19 +393,19 @@ func TightLoopCombineHash[T any](
 		for i := 0; i < count; i++ {
 			ridx := i
 			if hasRsel {
-				ridx = rsel.getIndex(i)
+				ridx = rsel.GetIndex(i)
 			}
-			idx := selVec.getIndex(ridx)
-			otherHash := hashOp.operation(ldata[idx], !mask.rowIsValid(uint64(idx)))
+			idx := selVec.GetIndex(ridx)
+			otherHash := hashOp.operation(ldata[idx], !mask.RowIsValid(uint64(idx)))
 			hashData[ridx] = CombineHashScalar(hashData[ridx], otherHash)
 		}
 	} else {
 		for i := 0; i < count; i++ {
 			ridx := i
 			if hasRsel {
-				ridx = rsel.getIndex(i)
+				ridx = rsel.GetIndex(i)
 			}
-			idx := selVec.getIndex(ridx)
+			idx := selVec.GetIndex(ridx)
 			otherHash := hashFun.fun(ldata[idx])
 			hashData[ridx] = CombineHashScalar(hashData[ridx], otherHash)
 		}

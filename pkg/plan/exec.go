@@ -17,22 +17,26 @@ package plan
 import (
 	"fmt"
 	"time"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type ExprState struct {
 	_expr               *Expr
 	_execState          *ExprExecState
 	_children           []*ExprState
-	_types              []LType
-	_interChunk         *Chunk
-	_trueSel, _falseSel *SelectVector //for CASE WHEN
+	_types              []common.LType
+	_interChunk         *chunk.Chunk
+	_trueSel, _falseSel *chunk.SelectVector //for CASE WHEN
 }
 
 func NewExprState(expr *Expr, eeState *ExprExecState) *ExprState {
 	return &ExprState{
 		_expr:       expr,
 		_execState:  eeState,
-		_interChunk: &Chunk{},
+		_interChunk: &chunk.Chunk{},
 	}
 }
 
@@ -45,7 +49,7 @@ func (es *ExprState) finalize() {
 	if len(es._types) == 0 {
 		return
 	}
-	es._interChunk.init(es._types, defaultVectorSize)
+	es._interChunk.Init(es._types, util.DefaultVectorSize)
 }
 
 type ExprExecState struct {
@@ -55,7 +59,7 @@ type ExprExecState struct {
 
 type ExprExec struct {
 	_exprs      []*Expr
-	_chunk      []*Chunk
+	_chunk      []*chunk.Chunk
 	_execStates []*ExprExecState
 }
 
@@ -78,9 +82,9 @@ func (exec *ExprExec) addExpr(expr *Expr) {
 	exec._execStates = append(exec._execStates, eeState)
 }
 
-func (exec *ExprExec) executeExprs(data []*Chunk, result *Chunk) error {
+func (exec *ExprExec) executeExprs(data []*chunk.Chunk, result *chunk.Chunk) error {
 	for i := 0; i < len(exec._exprs); i++ {
-		err := exec.executeExprI(data, i, result._data[i])
+		err := exec.executeExprI(data, i, result.Data[i])
 		if err != nil {
 			return err
 		}
@@ -89,14 +93,14 @@ func (exec *ExprExec) executeExprs(data []*Chunk, result *Chunk) error {
 		if d == nil {
 			continue
 		}
-		result.setCard(d.card())
+		result.SetCard(d.Card())
 		break
 	}
 
 	return nil
 }
 
-func (exec *ExprExec) executeExprI(data []*Chunk, exprId int, result *Vector) error {
+func (exec *ExprExec) executeExprI(data []*chunk.Chunk, exprId int, result *chunk.Vector) error {
 	exec._chunk = data
 	cnt := 1
 	if len(exec._chunk) != 0 {
@@ -104,7 +108,7 @@ func (exec *ExprExec) executeExprI(data []*Chunk, exprId int, result *Vector) er
 			if chunk == nil {
 				continue
 			}
-			cnt = chunk.card()
+			cnt = chunk.Card()
 			break
 		}
 
@@ -118,7 +122,7 @@ func (exec *ExprExec) executeExprI(data []*Chunk, exprId int, result *Vector) er
 	)
 }
 
-func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
+func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, result *chunk.Vector) error {
 	if count == 0 {
 		return nil
 	}
@@ -137,9 +141,9 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *SelectVector, 
 		panic(fmt.Sprintf("%d", expr.Typ))
 	}
 }
-func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
+func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, result *chunk.Vector) error {
 	var err error
-	eState._interChunk.reset()
+	eState._interChunk.Reset()
 	curTrueSel := eState._trueSel
 	curFalseSel := eState._falseSel
 	curSel := sel
@@ -150,7 +154,7 @@ func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVect
 		then := expr.Children[i+1]
 		whenState := eState._children[i]
 		thenState := eState._children[i+1]
-		interRes := eState._interChunk._data[i+1]
+		interRes := eState._interChunk.Data[i+1]
 		tCnt, err := exec.execSelectExpr(
 			when,
 			whenState,
@@ -220,8 +224,8 @@ func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVect
 			}
 			return err
 		} else {
-			interRes := eState._interChunk._data[0]
-			assertFunc(curSel != nil)
+			interRes := eState._interChunk.Data[0]
+			util.AssertFunc(curSel != nil)
 			err = exec.execute(
 				expr.Children[0],
 				elseState,
@@ -236,12 +240,12 @@ func (exec *ExprExec) executeCase(expr *Expr, eState *ExprState, sel *SelectVect
 		}
 	}
 	if sel != nil {
-		result.sliceOnSelf(sel, count)
+		result.SliceOnSelf(sel, count)
 	}
 	return nil
 }
 
-func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
+func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, result *chunk.Vector) error {
 	data := exec._chunk
 	tabId := int64(expr.ColRef.table())
 	if tabId >= 0 {
@@ -253,67 +257,67 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *Selec
 	}
 	colIdx := expr.ColRef.column()
 	if sel != nil {
-		result.slice(data[tabId]._data[colIdx], sel, count)
+		result.Slice(data[tabId].Data[colIdx], sel, count)
 	} else {
-		result.reference(data[tabId]._data[colIdx])
+		result.Reference(data[tabId].Data[colIdx])
 	}
 	return nil
 }
-func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *SelectVector, count int, result *Vector) error {
+func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *chunk.SelectVector, count int, result *chunk.Vector) error {
 	switch expr.Typ {
 	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
-		val := &Value{
-			_typ:  expr.DataTyp,
-			_i64:  expr.Ivalue,
-			_f64:  expr.Fvalue,
-			_str:  expr.Svalue,
-			_bool: expr.Bvalue,
+		val := &chunk.Value{
+			Typ:  expr.DataTyp,
+			I64:  expr.Ivalue,
+			F64:  expr.Fvalue,
+			Str:  expr.Svalue,
+			Bool: expr.Bvalue,
 		}
-		result.referenceValue(val)
+		result.ReferenceValue(val)
 	case ET_DateConst:
 		d, err := time.Parse(time.DateOnly, expr.Svalue)
 		if err != nil {
 			return err
 		}
 		//TODO: to date
-		val := &Value{
-			_typ:   expr.DataTyp,
-			_i64:   int64(d.Year()),
-			_i64_1: int64(d.Month()),
-			_i64_2: int64(d.Day()),
+		val := &chunk.Value{
+			Typ:   expr.DataTyp,
+			I64:   int64(d.Year()),
+			I64_1: int64(d.Month()),
+			I64_2: int64(d.Day()),
 		}
-		result.referenceValue(val)
+		result.ReferenceValue(val)
 	case ET_IntervalConst:
-		val := &Value{
-			_typ: expr.DataTyp,
-			_i64: expr.Ivalue,
-			_f64: expr.Fvalue,
-			_str: expr.Svalue,
+		val := &chunk.Value{
+			Typ: expr.DataTyp,
+			I64: expr.Ivalue,
+			F64: expr.Fvalue,
+			Str: expr.Svalue,
 		}
-		result.referenceValue(val)
+		result.ReferenceValue(val)
 	default:
 		panic("usp")
 	}
 	return nil
 }
 
-func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVector, count int, result *Vector) error {
+func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, result *chunk.Vector) error {
 	var err error
-	eState._interChunk.reset()
+	eState._interChunk.Reset()
 	for i, child := range expr.Children {
 		err = exec.execute(child,
 			eState._children[i],
 			sel,
 			count,
-			eState._interChunk._data[i])
+			eState._interChunk.Data[i])
 		if err != nil {
 			return err
 		}
 	}
-	eState._interChunk.setCard(count)
+	eState._interChunk.SetCard(count)
 	if expr.FunImpl._boundCastInfo != nil {
 		params := &CastParams{}
-		expr.FunImpl._boundCastInfo._fun(eState._interChunk._data[0], result, count, params)
+		expr.FunImpl._boundCastInfo._fun(eState._interChunk.Data[0], result, count, params)
 	} else {
 		expr.FunImpl._scalar(eState._interChunk, eState, result)
 	}
@@ -321,13 +325,13 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *SelectVect
 	return nil
 }
 
-func (exec *ExprExec) executeSelect(datas []*Chunk, sel *SelectVector) (int, error) {
+func (exec *ExprExec) executeSelect(datas []*chunk.Chunk, sel *chunk.SelectVector) (int, error) {
 	card := 0
 	for _, data := range datas {
 		if data == nil {
 			continue
 		}
-		card = data.card()
+		card = data.Card()
 		break
 	}
 	if len(exec._exprs) == 0 {
@@ -345,7 +349,7 @@ func (exec *ExprExec) executeSelect(datas []*Chunk, sel *SelectVector) (int, err
 	)
 }
 
-func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (retCount int, err error) {
+func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector) (retCount int, err error) {
 	if count == 0 {
 		return 0, nil
 	}
@@ -376,15 +380,15 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *SelectV
 	}
 }
 
-func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
+func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector) (int, error) {
 	var err error
-	eState._interChunk.reset()
+	eState._interChunk.Reset()
 	for i, child := range expr.Children {
 		err = exec.execute(child,
 			eState._children[i],
 			sel,
 			count,
-			eState._interChunk._data[i])
+			eState._interChunk.Data[i])
 		if err != nil {
 			return 0, err
 		}
@@ -404,8 +408,8 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 			ET_NotLike,
 			ET_In:
 			return selectOperation(
-				eState._interChunk._data[0],
-				eState._interChunk._data[1],
+				eState._interChunk.Data[0],
+				eState._interChunk.Data[1],
 				sel,
 				count,
 				trueSel,
@@ -421,18 +425,18 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *Sele
 
 }
 
-func (exec *ExprExec) execSelectAnd(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
+func (exec *ExprExec) execSelectAnd(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector) (int, error) {
 	var err error
 	curSel := sel
 	curCount := count
 	falseCount := 0
 	trueCount := 0
-	var tempFalse *SelectVector
+	var tempFalse *chunk.SelectVector
 	if falseSel != nil {
-		tempFalse = NewSelectVector(defaultVectorSize)
+		tempFalse = chunk.NewSelectVector(util.DefaultVectorSize)
 	}
 	if trueSel == nil {
-		trueSel = NewSelectVector(defaultVectorSize)
+		trueSel = chunk.NewSelectVector(util.DefaultVectorSize)
 	}
 
 	for i, child := range expr.Children {
@@ -449,7 +453,7 @@ func (exec *ExprExec) execSelectAnd(expr *Expr, eState *ExprState, sel *SelectVe
 		if fCount > 0 && falseSel != nil {
 			//move failed into false sel
 			for j := 0; j < fCount; j++ {
-				falseSel.setIndex(falseCount, tempFalse.getIndex(j))
+				falseSel.SetIndex(falseCount, tempFalse.GetIndex(j))
 				falseCount++
 			}
 		}
@@ -465,21 +469,21 @@ func (exec *ExprExec) execSelectAnd(expr *Expr, eState *ExprState, sel *SelectVe
 	return curCount, nil
 }
 
-func (exec *ExprExec) execSelectOr(expr *Expr, eState *ExprState, sel *SelectVector, count int, trueSel, falseSel *SelectVector) (int, error) {
+func (exec *ExprExec) execSelectOr(expr *Expr, eState *ExprState, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector) (int, error) {
 	var err error
 	curSel := sel
 	curCount := count
 	resCount := 0
 	trueCount := 0
 
-	var tempTrue *SelectVector
-	var tempFalse *SelectVector
+	var tempTrue *chunk.SelectVector
+	var tempFalse *chunk.SelectVector
 	if trueSel != nil {
-		tempTrue = NewSelectVector(defaultVectorSize)
+		tempTrue = chunk.NewSelectVector(util.DefaultVectorSize)
 	}
 
 	if falseSel == nil {
-		tempFalse = NewSelectVector(defaultVectorSize)
+		tempFalse = chunk.NewSelectVector(util.DefaultVectorSize)
 		falseSel = tempFalse
 	}
 
@@ -497,7 +501,7 @@ func (exec *ExprExec) execSelectOr(expr *Expr, eState *ExprState, sel *SelectVec
 		if trueCount > 0 {
 			if trueSel != nil {
 				for j := 0; j < trueCount; j++ {
-					trueSel.setIndex(resCount, tempTrue.getIndex(j))
+					trueSel.SetIndex(resCount, tempTrue.GetIndex(j))
 					resCount++
 				}
 			}
@@ -520,8 +524,8 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 			ret.addChild(child)
 		}
 		if expr.SubTyp == ET_Case {
-			ret._trueSel = NewSelectVector(defaultVectorSize)
-			ret._falseSel = NewSelectVector(defaultVectorSize)
+			ret._trueSel = chunk.NewSelectVector(util.DefaultVectorSize)
+			ret._falseSel = chunk.NewSelectVector(util.DefaultVectorSize)
 		}
 	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst, ET_DecConst:
 		ret = NewExprState(expr, eeState)
@@ -537,50 +541,50 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 }
 
 func FillSwitch(
-	vec *Vector,
-	res *Vector,
-	sel *SelectVector,
+	vec *chunk.Vector,
+	res *chunk.Vector,
+	sel *chunk.SelectVector,
 	count int,
 ) {
-	switch res.typ().getInternalType() {
-	case INT32:
+	switch res.Typ().GetInternalType() {
+	case common.INT32:
 		TemplatedFillLoop[int32](vec, res, sel, count)
-	case DECIMAL:
-		TemplatedFillLoop[Decimal](vec, res, sel, count)
+	case common.DECIMAL:
+		TemplatedFillLoop[common.Decimal](vec, res, sel, count)
 	default:
 		panic("usp")
 	}
 }
 
 func TemplatedFillLoop[T any](
-	vec *Vector,
-	res *Vector,
-	sel *SelectVector,
+	vec *chunk.Vector,
+	res *chunk.Vector,
+	sel *chunk.SelectVector,
 	count int,
 ) {
-	res.setPhyFormat(PF_FLAT)
-	resSlice := getSliceInPhyFormatFlat[T](res)
-	resBitmap := getMaskInPhyFormatFlat(res)
-	if vec.phyFormat().isConst() {
-		srcSlice := getSliceInPhyFormatConst[T](vec)
-		if isNullInPhyFormatConst(vec) {
+	res.SetPhyFormat(chunk.PF_FLAT)
+	resSlice := chunk.GetSliceInPhyFormatFlat[T](res)
+	resBitmap := chunk.GetMaskInPhyFormatFlat(res)
+	if vec.PhyFormat().IsConst() {
+		srcSlice := chunk.GetSliceInPhyFormatConst[T](vec)
+		if chunk.IsNullInPhyFormatConst(vec) {
 			for i := 0; i < count; i++ {
-				resBitmap.setInvalid(uint64(sel.getIndex(i)))
+				resBitmap.SetInvalid(uint64(sel.GetIndex(i)))
 			}
 		} else {
 			for i := 0; i < count; i++ {
-				resSlice[sel.getIndex(i)] = srcSlice[0]
+				resSlice[sel.GetIndex(i)] = srcSlice[0]
 			}
 		}
 	} else {
-		var vdata UnifiedFormat
-		vec.toUnifiedFormat(count, &vdata)
-		srcSlice := getSliceInPhyFormatUnifiedFormat[T](&vdata)
+		var vdata chunk.UnifiedFormat
+		vec.ToUnifiedFormat(count, &vdata)
+		srcSlice := chunk.GetSliceInPhyFormatUnifiedFormat[T](&vdata)
 		for i := 0; i < count; i++ {
-			srcIdx := vdata._sel.getIndex(i)
-			resIdx := sel.getIndex(i)
+			srcIdx := vdata.Sel.GetIndex(i)
+			resIdx := sel.GetIndex(i)
 			resSlice[resIdx] = srcSlice[srcIdx]
-			resBitmap.set(uint64(resIdx), vdata._mask.rowIsValid(uint64(srcIdx)))
+			resBitmap.Set(uint64(resIdx), vdata.Mask.RowIsValid(uint64(srcIdx)))
 		}
 	}
 }

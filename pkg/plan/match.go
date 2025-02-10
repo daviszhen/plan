@@ -16,17 +16,21 @@ package plan
 
 import (
 	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func Match(
-	columns *Chunk,
-	colData []*UnifiedFormat,
+	columns *chunk.Chunk,
+	colData []*chunk.UnifiedFormat,
 	layout *TupleDataLayout,
-	rows *Vector,
+	rows *chunk.Vector,
 	predicates []ET_SubTyp,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	cnt int,
-	noMatch *SelectVector,
+	noMatch *chunk.SelectVector,
 	noMatchCnt *int,
 ) int {
 	TemplatedMatch(
@@ -45,19 +49,19 @@ func Match(
 }
 
 func TemplatedMatch(
-	columns *Chunk,
-	colData []*UnifiedFormat,
+	columns *chunk.Chunk,
+	colData []*chunk.UnifiedFormat,
 	layout *TupleDataLayout,
-	rows *Vector,
+	rows *chunk.Vector,
 	predicates []ET_SubTyp,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	cnt *int,
-	noMatch *SelectVector,
+	noMatch *chunk.SelectVector,
 	noMatchCnt *int,
 	noMatchSel bool,
 ) {
 	for i := 0; i < len(predicates); i++ {
-		vec := columns._data[i]
+		vec := columns.Data[i]
 		col := colData[i]
 		TemplatedMatchOp(
 			vec,
@@ -77,15 +81,15 @@ func TemplatedMatch(
 }
 
 func TemplatedMatchOp(
-	vec *Vector,
-	col *UnifiedFormat,
+	vec *chunk.Vector,
+	col *chunk.UnifiedFormat,
 	predTyp ET_SubTyp,
 	layout *TupleDataLayout,
-	rows *Vector,
-	sel *SelectVector,
+	rows *chunk.Vector,
+	sel *chunk.SelectVector,
 	cnt *int,
 	colNo int,
-	noMatch *SelectVector,
+	noMatch *chunk.SelectVector,
 	noMatchCnt *int,
 	originalCnt int,
 	noMatchSel bool,
@@ -96,9 +100,9 @@ func TemplatedMatchOp(
 	colOffset := layout.offsets()[colNo]
 	switch predTyp {
 	case ET_Equal, ET_In:
-		pTyp := layout.types()[colNo].getInternalType()
+		pTyp := layout.types()[colNo].GetInternalType()
 		switch pTyp {
-		case INT32:
+		case common.INT32:
 			TemplatedMatchType[int32](
 				col,
 				rows,
@@ -112,7 +116,21 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalOp[int32]{},
 			)
-		case INT8:
+		case common.INT64:
+			TemplatedMatchType[int64](
+				col,
+				rows,
+				layout._rowWidth,
+				sel,
+				cnt,
+				colOffset,
+				colNo,
+				noMatch,
+				noMatchCnt,
+				noMatchSel,
+				equalOp[int64]{},
+			)
+		case common.INT8:
 			TemplatedMatchType[int8](
 				col,
 				rows,
@@ -126,8 +144,8 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalOp[int8]{},
 			)
-		case VARCHAR:
-			TemplatedMatchType[String](
+		case common.VARCHAR:
+			TemplatedMatchType[common.String](
 				col,
 				rows,
 				layout._rowWidth,
@@ -140,8 +158,8 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalStrOp{},
 			)
-		case DATE:
-			TemplatedMatchType[Date](
+		case common.DATE:
+			TemplatedMatchType[common.Date](
 				col,
 				rows,
 				layout._rowWidth,
@@ -154,8 +172,8 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalDateOp{},
 			)
-		case DECIMAL:
-			TemplatedMatchType[Decimal](
+		case common.DECIMAL:
+			TemplatedMatchType[common.Decimal](
 				col,
 				rows,
 				layout._rowWidth,
@@ -168,8 +186,8 @@ func TemplatedMatchOp(
 				noMatchSel,
 				equalDecimalOp{},
 			)
-		case INT128:
-			TemplatedMatchType[Hugeint](
+		case common.INT128:
+			TemplatedMatchType[common.Hugeint](
 				col,
 				rows,
 				layout._rowWidth,
@@ -186,9 +204,9 @@ func TemplatedMatchOp(
 			panic("usp")
 		}
 	case ET_NotEqual:
-		pTyp := layout.types()[colNo].getInternalType()
+		pTyp := layout.types()[colNo].GetInternalType()
 		switch pTyp {
-		case INT32:
+		case common.INT32:
 			TemplatedMatchType[int32](
 				col,
 				rows,
@@ -212,49 +230,49 @@ func TemplatedMatchOp(
 }
 
 func TemplatedMatchType[T any](
-	col *UnifiedFormat,
-	rows *Vector,
+	col *chunk.UnifiedFormat,
+	rows *chunk.Vector,
 	rowWidth int,
-	sel *SelectVector,
+	sel *chunk.SelectVector,
 	cnt *int,
 	colOffset int,
 	colNo int,
-	noMatch *SelectVector,
+	noMatch *chunk.SelectVector,
 	noMatchCnt *int,
 	noMatchSel bool,
 	cmp CompareOp[T],
 ) {
-	entryIdx, idxInEntry := getEntryIndex(uint64(colNo))
-	dataSlice := getSliceInPhyFormatUnifiedFormat[T](col)
-	ptrs := getSliceInPhyFormatFlat[unsafe.Pointer](rows)
+	entryIdx, idxInEntry := util.GetEntryIndex(uint64(colNo))
+	dataSlice := chunk.GetSliceInPhyFormatUnifiedFormat[T](col)
+	ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
 	matchCnt := 0
-	if !col._mask.AllValid() {
+	if !col.Mask.AllValid() {
 		for i := 0; i < *cnt; i++ {
-			idx := sel.getIndex(i)
-			row := pointerToSlice[uint8](ptrs[idx], rowWidth)
-			mask := Bitmap{_bits: row}
-			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
+			idx := sel.GetIndex(i)
+			row := util.PointerToSlice[uint8](ptrs[idx], rowWidth)
+			mask := util.Bitmap{Bits: row}
+			isNull := !util.RowIsValidInEntry(mask.GetEntry(entryIdx), idxInEntry)
 
-			colIdx := col._sel.getIndex(idx)
-			if !col._mask.rowIsValid(uint64(colIdx)) {
+			colIdx := col.Sel.GetIndex(idx)
+			if !col.Mask.RowIsValid(uint64(colIdx)) {
 				if isNull {
-					sel.setIndex(matchCnt, idx)
+					sel.SetIndex(matchCnt, idx)
 					matchCnt++
 				} else {
 					if noMatchSel {
-						noMatch.setIndex(*noMatchCnt, idx)
+						noMatch.SetIndex(*noMatchCnt, idx)
 						(*noMatchCnt)++
 					}
 				}
 			} else {
-				val := load[T](pointerAdd(ptrs[idx], colOffset))
+				val := util.Load[T](util.PointerAdd(ptrs[idx], colOffset))
 				if !isNull &&
 					cmp.operation(&dataSlice[colIdx], &val) {
-					sel.setIndex(matchCnt, idx)
+					sel.SetIndex(matchCnt, idx)
 					matchCnt++
 				} else {
 					if noMatchSel {
-						noMatch.setIndex(*noMatchCnt, idx)
+						noMatch.SetIndex(*noMatchCnt, idx)
 						*noMatchCnt++
 					}
 				}
@@ -262,21 +280,21 @@ func TemplatedMatchType[T any](
 		}
 	} else {
 		for i := 0; i < *cnt; i++ {
-			idx := sel.getIndex(i)
-			row := pointerToSlice[uint8](ptrs[idx], rowWidth)
-			mask := Bitmap{_bits: row}
-			isNull := !rowIsValidInEntry(mask.getEntry(entryIdx), idxInEntry)
-			colIdx := col._sel.getIndex(idx)
-			val := load[T](pointerAdd(ptrs[idx], colOffset))
+			idx := sel.GetIndex(i)
+			row := util.PointerToSlice[uint8](ptrs[idx], rowWidth)
+			mask := util.Bitmap{Bits: row}
+			isNull := !util.RowIsValidInEntry(mask.GetEntry(entryIdx), idxInEntry)
+			colIdx := col.Sel.GetIndex(idx)
+			val := util.Load[T](util.PointerAdd(ptrs[idx], colOffset))
 			//if colOffset == 33 {
 
 			//}
 			if !isNull && cmp.operation(&dataSlice[colIdx], &val) {
-				sel.setIndex(matchCnt, idx)
+				sel.SetIndex(matchCnt, idx)
 				matchCnt++
 			} else {
 				if noMatchSel {
-					noMatch.setIndex(*noMatchCnt, idx)
+					noMatch.SetIndex(*noMatchCnt, idx)
 					(*noMatchCnt)++
 				}
 			}

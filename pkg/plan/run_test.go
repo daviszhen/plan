@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -55,7 +56,7 @@ func loadTestConfig() *util.Config {
 func runOps(
 	t *testing.T,
 	conf *util.Config,
-	serial Serialize,
+	serial util.Serialize,
 	ops []*PhysicalOperator) {
 
 	for _, op := range ops {
@@ -77,8 +78,8 @@ func runOps(
 			if rowCnt >= maxTestCnt {
 				break
 			}
-			output := &Chunk{}
-			output.setCap(defaultVectorSize)
+			output := &chunk.Chunk{}
+			output.SetCap(util.DefaultVectorSize)
 			result, err := run.Execute(nil, output, run.state)
 			assert.NoError(t, err)
 
@@ -88,18 +89,18 @@ func runOps(
 			if result == Done {
 				break
 			}
-			if output.card() > 0 {
-				assertFunc(output.card() != 0)
-				assert.NotEqual(t, 0, output.card())
+			if output.Card() > 0 {
+				util.AssertFunc(output.Card() != 0)
+				assert.NotEqual(t, 0, output.Card())
 
 				if serial != nil {
-					err = output.serialize(serial)
+					err = output.Serialize(serial)
 					assert.NoError(t, err)
 				}
 
-				rowCnt += output.card()
+				rowCnt += output.Card()
 				if conf.Debug.PrintResult {
-					output.print()
+					output.Print()
 				}
 			}
 		}
@@ -112,7 +113,7 @@ func preparePhyPlan(t *testing.T, id int) (*util.Config, *PhysicalOperator) {
 	conf := loadTestConfig()
 	stmts, err := genStmts(conf, id)
 	require.NoError(t, err)
-	phyPlan, err := genPhyPlan(stmts[0].GetStmt().GetSelectStmt())
+	phyPlan, err := genPhyPlan(nil, stmts[0].GetStmt().GetSelectStmt())
 	require.NoError(t, err)
 	return conf, phyPlan
 }
@@ -161,7 +162,7 @@ func Test_prepare_q18(t *testing.T) {
 		},
 	)
 	fname := "./test/q18_out"
-	serial, err := NewFileSerialize(fname)
+	serial, err := util.NewFileSerialize(fname)
 	assert.NoError(t, err, fname)
 	assert.NotNil(t, serial)
 	defer serial.Close()
@@ -177,7 +178,7 @@ func Test_q18_with_stub(t *testing.T) {
 		},
 	)
 
-	assertFunc(len(ops) == 1)
+	util.AssertFunc(len(ops) == 1)
 
 	//replace child by stub
 	stubOp := &PhysicalOperator{

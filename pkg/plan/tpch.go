@@ -14,6 +14,10 @@
 
 package plan
 
+import (
+	"github.com/daviszhen/plan/pkg/common"
+)
+
 func tpchCatalog() *Catalog {
 	//tpch 1g
 	cat := &Catalog{
@@ -34,16 +38,16 @@ func tpchCatalog() *Catalog {
 			"p_retailprice",
 			"p_comment",
 		},
-		Types: []LType{
-			integer(),
-			varchar2(55),
-			varchar2(25),
-			varchar2(10),
-			varchar2(25),
-			integer(),
-			varchar2(10),
-			decimal(15, 2),
-			varchar2(23),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.VarcharType2(55),
+			common.VarcharType2(25),
+			common.VarcharType2(10),
+			common.VarcharType2(25),
+			common.IntegerType(),
+			common.VarcharType2(10),
+			common.DecimalType(15, 2),
+			common.VarcharType2(23),
 		},
 		PK: []int{
 			0,
@@ -87,14 +91,14 @@ func tpchCatalog() *Catalog {
 			"s_acctbal",
 			"s_comment",
 		},
-		Types: []LType{
-			integer(),
-			varchar2(25),
-			varchar2(40),
-			integer(),
-			varchar2(15),
-			decimal(15, 2),
-			varchar2(101),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.VarcharType2(25),
+			common.VarcharType2(40),
+			common.IntegerType(),
+			common.VarcharType2(15),
+			common.DecimalType(15, 2),
+			common.VarcharType2(101),
 		},
 		PK: []int{0},
 		Column2Idx: map[string]int{
@@ -130,12 +134,12 @@ func tpchCatalog() *Catalog {
 			"ps_supplycost",
 			"ps_comment",
 		},
-		Types: []LType{
-			integer(),
-			integer(),
-			integer(),
-			decimal(15, 2),
-			varchar2(199),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.IntegerType(),
+			common.IntegerType(),
+			common.DecimalType(15, 2),
+			common.VarcharType2(199),
 		},
 		PK: []int{0, 1},
 		Column2Idx: map[string]int{
@@ -166,11 +170,11 @@ func tpchCatalog() *Catalog {
 			"n_regionkey",
 			"n_comment",
 		},
-		Types: []LType{
-			integer(),
-			varchar2(25),
-			integer(),
-			varchar2(152),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.VarcharType2(25),
+			common.IntegerType(),
+			common.VarcharType2(152),
 		},
 		PK: []int{0},
 		Column2Idx: map[string]int{
@@ -198,10 +202,10 @@ func tpchCatalog() *Catalog {
 			"r_name",
 			"r_comment",
 		},
-		Types: []LType{
-			integer(),
-			varchar2(25),
-			varchar2(152),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.VarcharType2(25),
+			common.VarcharType2(152),
 		},
 		PK: []int{0},
 		Column2Idx: map[string]int{
@@ -233,16 +237,16 @@ func tpchCatalog() *Catalog {
 			"o_shippriority",
 			"o_comment",
 		},
-		Types: []LType{
-			integer(),
-			integer(),
-			varchar2(1),
-			decimal(15, 2),
-			dateLTyp(),
-			varchar2(15),
-			varchar2(15),
-			integer(),
-			varchar2(79),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.IntegerType(),
+			common.VarcharType2(1),
+			common.DecimalType(15, 2),
+			common.DateType(),
+			common.VarcharType2(15),
+			common.VarcharType2(15),
+			common.IntegerType(),
+			common.VarcharType2(79),
 		},
 		PK: []int{0},
 		Column2Idx: map[string]int{
@@ -294,23 +298,23 @@ func tpchCatalog() *Catalog {
 			"l_shipmode",
 			"l_comment",
 		},
-		Types: []LType{
-			integer(),
-			integer(),
-			integer(),
-			integer(),
-			integer(),
-			decimal(15, 2),
-			decimal(15, 2),
-			decimal(15, 2),
-			varchar2(1),
-			varchar2(1),
-			dateLTyp(),
-			dateLTyp(),
-			dateLTyp(),
-			varchar2(25),
-			varchar2(10),
-			varchar2(44),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.IntegerType(),
+			common.IntegerType(),
+			common.IntegerType(),
+			common.IntegerType(),
+			common.DecimalType(15, 2),
+			common.DecimalType(15, 2),
+			common.DecimalType(15, 2),
+			common.VarcharType2(1),
+			common.VarcharType2(1),
+			common.DateType(),
+			common.DateType(),
+			common.DateType(),
+			common.VarcharType2(25),
+			common.VarcharType2(10),
+			common.VarcharType2(44),
 		},
 		PK: []int{0, 3},
 		Column2Idx: map[string]int{
@@ -368,15 +372,15 @@ func tpchCatalog() *Catalog {
 			"c_mktsegment",
 			"c_comment",
 		},
-		Types: []LType{
-			integer(),
-			varchar2(25),
-			varchar2(40),
-			integer(),
-			varchar2(15),
-			decimal(15, 2),
-			varchar2(10),
-			varchar2(117),
+		Types: []common.LType{
+			common.IntegerType(),
+			common.VarcharType2(25),
+			common.VarcharType2(40),
+			common.IntegerType(),
+			common.VarcharType2(15),
+			common.DecimalType(15, 2),
+			common.VarcharType2(10),
+			common.VarcharType2(117),
 		},
 		PK: []int{0},
 		Column2Idx: map[string]int{

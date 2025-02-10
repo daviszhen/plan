@@ -18,6 +18,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/storage"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 type ColumnBindCountMap map[ColumnBind]int
@@ -257,17 +261,19 @@ func (ref ReferredColumnBindMap) String() string {
 type ColumnPrune struct {
 	//colref -> referenced exprs in the plan tree
 	colRefs ReferredColumnBindMap
+	txn     *storage.Txn
 }
 
-func NewColumnPrune() *ColumnPrune {
+func NewColumnPrune(txn *storage.Txn) *ColumnPrune {
 	return &ColumnPrune{
 		colRefs: make(ReferredColumnBindMap),
+		txn:     txn,
 	}
 }
 
 func (b *Builder) columnPrune(root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
-	cp := NewColumnPrune()
+	cp := NewColumnPrune(b.txn)
 	addRefCountOnFirstProject(cp.colRefs, root)
 	root, err = cp.prune(root)
 	if err != nil {
@@ -338,7 +344,7 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		}
 		//remove unused columns
 		for i := len(removed) - 1; i >= 0; i-- {
-			root.Projects = erase(root.Projects, removed[i])
+			root.Projects = util.Erase(root.Projects, removed[i])
 		}
 		cp.colRefs.replaceAll(cmap)
 		if len(root.Projects) == 0 {
@@ -374,7 +380,7 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		}
 		//remove unused columns
 		for i := len(removed) - 1; i >= 0; i-- {
-			root.Aggs = erase(root.Aggs, removed[i])
+			root.Aggs = util.Erase(root.Aggs, removed[i])
 		}
 		cp.colRefs.replaceAll(cmap)
 		if len(root.Aggs) == 0 {
@@ -385,14 +391,33 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		cp.colRefs.addExpr(root.OnConds...)
 	case LOT_Scan:
 		cp.colRefs.addExpr(root.Filters...)
-		catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
-		if err != nil {
-			return nil, err
+		var columns []string
+		switch root.ScanTyp {
+		case ScanTypeTable:
+			{
+				tabEnt := storage.GCatalog.GetEntry(cp.txn, storage.CatalogTypeTable, root.Database, root.Table)
+				if tabEnt == nil {
+					return nil, fmt.Errorf("no table %s in schema %s", root.Database, root.Table)
+				}
+				columns = tabEnt.GetColumnNames()
+			}
+			//{
+			//	catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
+			//	if err != nil {
+			//		return nil, err
+			//	}
+			//	columns = catalogTable.Columns
+			//}
+		case ScanTypeValuesList:
+			columns = root.Names
+		case ScanTypeCopyFrom:
+			columns = root.ScanInfo.Names
 		}
+
 		cmap := make(ColumnBindMap)
 		needed := make([]string, 0)
 		newId := 0
-		for colId, colName := range catalogTable.Columns {
+		for colId, colName := range columns {
 			bind := ColumnBind{root.Index, uint64(colId)}
 			if cp.colRefs.beenReferred(bind) {
 				cmap.insert(bind, ColumnBind{root.Index, uint64(newId)})
@@ -583,7 +608,9 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 
 func (b *Builder) generateOutputs(root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
-	update := outputsUpdater{}
+	update := outputsUpdater{
+		txn: b.txn,
+	}
 	root, err = update.generateOutputs(root)
 	if err != nil {
 		return nil, err
@@ -600,6 +627,7 @@ const (
 )
 
 type outputsUpdater struct {
+	txn *storage.Txn
 }
 
 func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOperator, error) {
@@ -906,19 +934,44 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			}
 		}
 	case LOT_Scan:
-		catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
-		if err != nil {
-			return nil, err
+		var column2Idx map[string]int
+		var columnTyps []common.LType
+		switch root.ScanTyp {
+		case ScanTypeTable:
+			{
+				tabEnt := storage.GCatalog.GetEntry(update.txn, storage.CatalogTypeTable, root.Database, root.Table)
+				if tabEnt == nil {
+					return nil, fmt.Errorf("no table %s in schema %s", root.Database, root.Table)
+				}
+				column2Idx = tabEnt.GetColumn2Idx()
+				columnTyps = tabEnt.GetTypes()
+			}
+			{
+				//catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
+				//if err != nil {
+				//	return nil, err
+				//}
+				//column2Idx = catalogTable.Column2Idx
+				//columnTyps = catalogTable.Types
+			}
+		case ScanTypeValuesList:
+			column2Idx = root.ColName2Idx
+			columnTyps = root.Types
+		case ScanTypeCopyFrom:
+			column2Idx = root.ColName2Idx
+			columnTyps = root.ScanInfo.ReturnedTypes
+		default:
+			panic("usp")
 		}
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		outputs := make([]*Expr, 0)
 		for _, bind := range binds {
 			colName := root.Columns[bind.column()]
-			idx := catalogTable.Column2Idx[colName]
+			idx := column2Idx[colName]
 			e := &Expr{
 				Typ:      ET_Column,
-				DataTyp:  catalogTable.Types[idx],
+				DataTyp:  columnTyps[idx],
 				Database: root.Database,
 				Table:    root.Table,
 				Name:     colName,

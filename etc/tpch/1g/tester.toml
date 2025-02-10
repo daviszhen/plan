@@ -9,9 +9,12 @@ format = "parquet"
 path = "/home/pengzhen/Documents/temp/plan/cases/tpch/1g/plan"
 needHeadline = true
 
+[tpch1g.ddl]
+#path = "/home/pengzhen/Documents/temp/plan/cases/tpch/query/ddl.sql"
+
 [debug]
 showRaw = false
 maxScanRows = 10
 maxOutputRowCount = -1
-printPlan = true
+printPlan = false
 printResult=false

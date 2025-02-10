@@ -22,10 +22,13 @@ import (
 	"strings"
 
 	"github.com/xlab/treeprint"
+
+	"github.com/daviszhen/plan/pkg/storage"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func (b *Builder) joinOrder(root *LogicalOperator) (*LogicalOperator, error) {
-	joinOrder := NewJoinOrderOptimizer()
+	joinOrder := NewJoinOrderOptimizer(b.txn)
 	return joinOrder.Optimize(root)
 }
 
@@ -39,7 +42,7 @@ type JoinRelationSet struct {
 }
 
 func NewJoinRelationSet(rels []uint64) *JoinRelationSet {
-	ret := &JoinRelationSet{relations: copyTo(rels)}
+	ret := &JoinRelationSet{relations: util.CopyTo(rels)}
 	ret.sort()
 	return ret
 }
@@ -238,7 +241,7 @@ func (edge *queryEdge) Print(prefix []uint64) string {
 		sb.WriteString(fmt.Sprintf("%s -> %s\n", source.String(), neighbor.neighbor.String()))
 	}
 	for k, v := range edge.children {
-		newPrefix := copyTo(prefix)
+		newPrefix := util.CopyTo(prefix)
 		newPrefix = append(newPrefix, k)
 		sb.WriteString(v.Print(newPrefix))
 	}
@@ -428,15 +431,17 @@ type JoinOrderOptimizer struct {
 	queryGraph      *QueryGraph
 	plans           planMap
 	estimator       *CardinalityEstimator
+	txn             *storage.Txn
 }
 
-func NewJoinOrderOptimizer() *JoinOrderOptimizer {
+func NewJoinOrderOptimizer(txn *storage.Txn) *JoinOrderOptimizer {
 	return &JoinOrderOptimizer{
 		relationMapping: make(map[uint64]uint64),
 		setManager:      NewJoinRelationSetManager(),
 		plans:           make(planMap),
 		queryGraph:      NewQueryGraph(),
-		estimator:       NewCardinalityEstimator(),
+		estimator:       NewCardinalityEstimator(txn),
+		txn:             txn,
 	}
 }
 
@@ -587,7 +592,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelation(rel *SingleJoinRelation
 	for i := 0; i < len(children); i++ {
 		if children[i] == rel.op {
 			ret := children[i]
-			children = erase(children, i)
+			children = util.Erase(children, i)
 			rel.parent.Children = children
 			return ret, nil
 		}
@@ -640,7 +645,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				if !(condition.SubTyp == ET_Equal || condition.SubTyp == ET_In) {
 					continue
 				}
-				assertFunc(condition.SubTyp != ET_Less)
+				util.AssertFunc(condition.SubTyp != ET_Less)
 				check := isSubset(left.set, filter.leftSet) && isSubset(right.set, filter.rightSet) ||
 					isSubset(left.set, filter.rightSet) && isSubset(right.set, filter.leftSet)
 				if !check {
@@ -935,8 +940,8 @@ func (joinOrder *JoinOrderOptimizer) greedy() (err error) {
 				bestLeft, bestRight = bestRight, bestLeft
 			}
 		}
-		joinRelations = erase(joinRelations, bestRight)
-		joinRelations = erase(joinRelations, bestLeft)
+		joinRelations = util.Erase(joinRelations, bestRight)
+		joinRelations = util.Erase(joinRelations, bestLeft)
 		joinRelations = append(joinRelations, best.set)
 	}
 	return nil
@@ -1106,7 +1111,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 		}
 
 		if op.Typ == LOT_AggGroup {
-			optimizer := NewJoinOrderOptimizer()
+			optimizer := NewJoinOrderOptimizer(joinOrder.txn)
 			op.Children[0], err = optimizer.Optimize(op.Children[0])
 			if err != nil {
 				return false, nil, err
@@ -1132,7 +1137,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 		//setop or non-inner join
 		cmaps := make([]ColumnBindMap, 0)
 		for i, child := range op.Children {
-			optimizer := NewJoinOrderOptimizer()
+			optimizer := NewJoinOrderOptimizer(joinOrder.txn)
 			op.Children[i], err = optimizer.Optimize(child)
 			if err != nil {
 				return false, nil, err
@@ -1181,7 +1186,7 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 		tableIndex := op.Index
 		relation := &SingleJoinRelation{op: root, parent: parent}
 		relationId := len(joinOrder.relations)
-		optimizer := NewJoinOrderOptimizer()
+		optimizer := NewJoinOrderOptimizer(joinOrder.txn)
 		op.Children[0], err = optimizer.Optimize(op.Children[0])
 		if err != nil {
 			return false, nil, err

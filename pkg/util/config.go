@@ -29,10 +29,16 @@ type Tpch1gResult struct {
 	NeedHeadLine bool   `tag:"needHeadline"`
 }
 
+type Tpch1gDDL struct {
+	Path string `tag:"path"`
+	DDL  string `tag:"ddl"`
+}
+
 type Tpch1g struct {
-	Query  Tpch1gQuery  `tag:"query"`
-	Data   Tpch1gData   `tag:"data"`
-	Result Tpch1gResult `tag:"result"`
+	DDL    Tpch1gDDL    `tag:"ddl"`
+	Query  Tpch1gQuery  `tag:"query" tag:"query"`
+	Data   Tpch1gData   `tag:"data" tag:"data"`
+	Result Tpch1gResult `tag:"result" tag:"result"`
 }
 
 type DebugOptions struct {

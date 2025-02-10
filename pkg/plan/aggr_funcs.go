@@ -18,6 +18,10 @@ import (
 	"unsafe"
 
 	dec "github.com/govalues/decimal"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func StateSize[T any, STATE State[T]]() int {
@@ -27,8 +31,8 @@ func StateSize[T any, STATE State[T]]() int {
 }
 
 func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
-	inputTyp LType,
-	retTyp LType,
+	inputTyp common.LType,
+	retTyp common.LType,
 	nullHandling FuncNullHandling,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
@@ -48,23 +52,23 @@ func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Res
 	init = func(pointer unsafe.Pointer) {
 		aop.Init((*State[ResultT])(pointer), sop)
 	}
-	update = func(inputs []*Vector, data *AggrInputData, inputCount int, states *Vector, count int) {
-		assertFunc(inputCount == 1)
+	update = func(inputs []*chunk.Vector, data *AggrInputData, inputCount int, states *chunk.Vector, count int) {
+		util.AssertFunc(inputCount == 1)
 		UnaryScatter[ResultT, STATE, InputT, OP](inputs[0], states, data, count, aop, sop, addOp, top)
 	}
-	combine = func(source *Vector, target *Vector, data *AggrInputData, count int) {
+	combine = func(source *chunk.Vector, target *chunk.Vector, data *AggrInputData, count int) {
 		Combine[ResultT, STATE, InputT, OP](source, target, data, count, aop, sop, addOp, top)
 	}
-	finalize = func(states *Vector, data *AggrInputData, result *Vector, count int, offset int) {
+	finalize = func(states *chunk.Vector, data *AggrInputData, result *chunk.Vector, count int, offset int) {
 		Finalize[ResultT, STATE, InputT, OP](states, data, result, count, offset, aop, sop, addOp, top)
 	}
-	simpleUpdate = func(inputs []*Vector, data *AggrInputData, inputCount int, state unsafe.Pointer, count int) {
-		assertFunc(inputCount == 1)
+	simpleUpdate = func(inputs []*chunk.Vector, data *AggrInputData, inputCount int, state unsafe.Pointer, count int) {
+		util.AssertFunc(inputCount == 1)
 		UnaryUpdate[ResultT, STATE, InputT, OP](inputs[0], data, state, count, aop, sop, addOp, top)
 	}
 	return &FunctionV2{
 		_funcTyp:      AggregateFuncType,
-		_args:         []LType{inputTyp},
+		_args:         []common.LType{inputTyp},
 		_retType:      retTyp,
 		_stateSize:    size,
 		_init:         init,
@@ -76,28 +80,28 @@ func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Res
 	}
 }
 
-func GetSumAggr(pTyp PhyType) *FunctionV2 {
+func GetSumAggr(pTyp common.PhyType) *FunctionV2 {
 	switch pTyp {
-	case INT32:
-		fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
-			integer(),
-			hugeint(),
+	case common.INT32:
+		fun := UnaryAggregate[common.Hugeint, State[common.Hugeint], int32, SumOp[common.Hugeint, int32]](
+			common.IntegerType(),
+			common.HugeintType(),
 			DefaultNullHandling,
-			SumOp[Hugeint, int32]{},
-			&SumStateOp[Hugeint]{},
+			SumOp[common.Hugeint, int32]{},
+			&SumStateOp[common.Hugeint]{},
 			&HugeintAdd{},
-			&Hugeint{},
+			&common.Hugeint{},
 		)
 		return fun
-	case DECIMAL:
-		fun := UnaryAggregate[Decimal, State[Decimal], Decimal, SumOp[Decimal, Decimal]](
-			decimal(DecimalMaxWidth, 0),
-			decimal(DecimalMaxWidth, 0),
+	case common.DECIMAL:
+		fun := UnaryAggregate[common.Decimal, State[common.Decimal], common.Decimal, SumOp[common.Decimal, common.Decimal]](
+			common.DecimalType(common.DecimalMaxWidth, 0),
+			common.DecimalType(common.DecimalMaxWidth, 0),
 			DefaultNullHandling,
-			SumOp[Decimal, Decimal]{},
-			&SumStateOp[Decimal]{},
+			SumOp[common.Decimal, common.Decimal]{},
+			&SumStateOp[common.Decimal]{},
 			&DecimalAdd{},
-			&Decimal{},
+			&common.Decimal{},
 		)
 		return fun
 	default:
@@ -105,15 +109,15 @@ func GetSumAggr(pTyp PhyType) *FunctionV2 {
 	}
 }
 
-func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
+func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
 	switch inputPhyTyp {
-	case INT32:
+	case common.INT32:
 		switch retPhyTyp {
-		case DOUBLE:
+		case common.DOUBLE:
 			var d Double
 			fun := UnaryAggregate[float64, State[float64], int32, AvgOp[float64, int32]](
-				integer(),
-				double(),
+				common.IntegerType(),
+				common.DoubleType(),
 				DefaultNullHandling,
 				AvgOp[float64, int32]{},
 				&AvgStateOp[float64]{},
@@ -124,13 +128,13 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
 		default:
 			panic("usp")
 		}
-	case DOUBLE:
+	case common.DOUBLE:
 		switch retPhyTyp {
-		case DOUBLE:
+		case common.DOUBLE:
 			var d Double
 			fun := UnaryAggregate[float64, State[float64], float64, AvgOp[float64, float64]](
-				double(),
-				double(),
+				common.DoubleType(),
+				common.DoubleType(),
 				DefaultNullHandling,
 				AvgOp[float64, float64]{},
 				&AvgStateOp[float64]{},
@@ -141,17 +145,17 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
 		default:
 			panic("usp")
 		}
-	case DECIMAL:
+	case common.DECIMAL:
 		switch retPhyTyp {
-		case DECIMAL:
-			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, AvgOp[Decimal, Decimal]](
-				decimal(DecimalMaxWidth, 0),
-				decimal(DecimalMaxWidth, 0),
+		case common.DECIMAL:
+			fun := UnaryAggregate[common.Decimal, State[common.Decimal], common.Decimal, AvgOp[common.Decimal, common.Decimal]](
+				common.DecimalType(common.DecimalMaxWidth, 0),
+				common.DecimalType(common.DecimalMaxWidth, 0),
 				DefaultNullHandling,
-				AvgOp[Decimal, Decimal]{},
-				&AvgStateOp[Decimal]{},
+				AvgOp[common.Decimal, common.Decimal]{},
+				&AvgStateOp[common.Decimal]{},
 				&DecimalAdd{},
-				&Decimal{},
+				&common.Decimal{},
 			)
 			return fun
 		default:
@@ -162,35 +166,51 @@ func GetAvgAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
 	}
 }
 
-func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
+func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
 	switch inputPhyTyp {
-	case INT32:
+	case common.INT32:
 		switch retPhyTyp {
-		case INT32:
-			fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
-				integer(),
-				hugeint(),
+		case common.INT32:
+			fun := UnaryAggregate[common.Hugeint, State[common.Hugeint], int32, SumOp[common.Hugeint, int32]](
+				common.IntegerType(),
+				common.HugeintType(),
 				DefaultNullHandling,
-				CountOp[Hugeint, int32]{},
-				&CountStateOp[Hugeint]{},
+				CountOp[common.Hugeint, int32]{},
+				&CountStateOp[common.Hugeint]{},
 				&HugeintAdd{},
-				&Hugeint{},
+				&common.Hugeint{},
 			)
 			return fun
 		default:
 			panic("usp")
 		}
-	case VARCHAR:
+	case common.INT64:
 		switch retPhyTyp {
-		case INT32:
-			fun := UnaryAggregate[Hugeint, State[Hugeint], int32, SumOp[Hugeint, int32]](
-				varchar(),
-				hugeint(),
+		case common.INT64:
+			fun := UnaryAggregate[common.Hugeint, State[common.Hugeint], int64, SumOp[common.Hugeint, int64]](
+				common.BigintType(),
+				common.HugeintType(),
 				DefaultNullHandling,
-				CountOp[Hugeint, int32]{},
-				&CountStateOp[Hugeint]{},
+				CountOp[common.Hugeint, int64]{},
+				&CountStateOp[common.Hugeint]{},
+				&HugeintAddInt64{},
+				&common.Hugeint{},
+			)
+			return fun
+		default:
+			panic("usp")
+		}
+	case common.VARCHAR:
+		switch retPhyTyp {
+		case common.INT32:
+			fun := UnaryAggregate[common.Hugeint, State[common.Hugeint], int32, SumOp[common.Hugeint, int32]](
+				common.VarcharType(),
+				common.HugeintType(),
+				DefaultNullHandling,
+				CountOp[common.Hugeint, int32]{},
+				&CountStateOp[common.Hugeint]{},
 				&HugeintAdd{},
-				&Hugeint{},
+				&common.Hugeint{},
 			)
 			return fun
 		default:
@@ -201,19 +221,19 @@ func GetCountAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
 	}
 }
 
-func GetMaxAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
+func GetMaxAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
 	switch inputPhyTyp {
-	case DECIMAL:
+	case common.DECIMAL:
 		switch retPhyTyp {
-		case DECIMAL:
-			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MinMaxOp[Decimal, Decimal]](
-				decimal(DecimalMaxWidth, 0),
-				decimal(DecimalMaxWidth, 0),
+		case common.DECIMAL:
+			fun := UnaryAggregate[common.Decimal, State[common.Decimal], common.Decimal, MinMaxOp[common.Decimal, common.Decimal]](
+				common.DecimalType(common.DecimalMaxWidth, 0),
+				common.DecimalType(common.DecimalMaxWidth, 0),
 				DefaultNullHandling,
-				MinMaxOp[Decimal, Decimal]{},
-				&MaxStateOp[Decimal]{},
+				MinMaxOp[common.Decimal, common.Decimal]{},
+				&MaxStateOp[common.Decimal]{},
 				&DecimalAdd{},
-				&Decimal{},
+				&common.Decimal{},
 			)
 			return fun
 		default:
@@ -224,19 +244,19 @@ func GetMaxAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
 	}
 }
 
-func GetMinAggr(retPhyTyp PhyType, inputPhyTyp PhyType) *FunctionV2 {
+func GetMinAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
 	switch inputPhyTyp {
-	case DECIMAL:
+	case common.DECIMAL:
 		switch retPhyTyp {
-		case DECIMAL:
-			fun := UnaryAggregate[Decimal, State[Decimal], Decimal, MinMaxOp[Decimal, Decimal]](
-				decimal(DecimalMaxWidth, 0),
-				decimal(DecimalMaxWidth, 0),
+		case common.DECIMAL:
+			fun := UnaryAggregate[common.Decimal, State[common.Decimal], common.Decimal, MinMaxOp[common.Decimal, common.Decimal]](
+				common.DecimalType(common.DecimalMaxWidth, 0),
+				common.DecimalType(common.DecimalMaxWidth, 0),
 				DefaultNullHandling,
-				MinMaxOp[Decimal, Decimal]{},
-				&MinStateOp[Decimal]{},
+				MinMaxOp[common.Decimal, common.Decimal]{},
+				&MinStateOp[common.Decimal]{},
 				&DecimalAdd{},
-				&Decimal{},
+				&common.Decimal{},
 			)
 			return fun
 		default:
@@ -460,18 +480,18 @@ func (as *MinStateOp[T]) AddValues(s *State[T], cnt int) {
 type HugeintAdd struct {
 }
 
-func (*HugeintAdd) addValue(result *Hugeint, value uint64, positive int) {
-	result._lower += value
+func (*HugeintAdd) addValue(result *common.Hugeint, value uint64, positive int) {
+	result.Lower += value
 	overflow := 0
-	if result._lower < value {
+	if result.Lower < value {
 		overflow = 1
 	}
 	if overflow^positive == 0 {
-		result._upper += -1 + 2*int64(positive)
+		result.Upper += -1 + 2*int64(positive)
 	}
 }
 
-func (hadd *HugeintAdd) AddNumber(state *State[Hugeint], input *int32, top TypeOp[Hugeint]) {
+func (hadd *HugeintAdd) AddNumber(state *State[common.Hugeint], input *int32, top TypeOp[common.Hugeint]) {
 	pos := 0
 	if *input >= 0 {
 		pos = 1
@@ -481,28 +501,60 @@ func (hadd *HugeintAdd) AddNumber(state *State[Hugeint], input *int32, top TypeO
 
 }
 
-func (*HugeintAdd) AddConstant(*State[Hugeint], *int32, int, TypeOp[Hugeint]) {
+func (*HugeintAdd) AddConstant(*State[common.Hugeint], *int32, int, TypeOp[common.Hugeint]) {
 	//TODO:
 	panic("usp")
 }
 
-func (*HugeintAdd) Assign(*State[Hugeint], *int32)                   { panic("usp") }
-func (*HugeintAdd) Execute(*State[Hugeint], *int32, TypeOp[Hugeint]) { panic("usp") }
+func (*HugeintAdd) Assign(*State[common.Hugeint], *int32)                          { panic("usp") }
+func (*HugeintAdd) Execute(*State[common.Hugeint], *int32, TypeOp[common.Hugeint]) { panic("usp") }
+
+type HugeintAddInt64 struct {
+}
+
+func (*HugeintAddInt64) addValue(result *common.Hugeint, value uint64, positive int) {
+	result.Lower += value
+	overflow := 0
+	if result.Lower < value {
+		overflow = 1
+	}
+	if overflow^positive == 0 {
+		result.Upper += -1 + 2*int64(positive)
+	}
+}
+
+func (hadd *HugeintAddInt64) AddNumber(state *State[common.Hugeint], input *int64, top TypeOp[common.Hugeint]) {
+	pos := 0
+	if *input >= 0 {
+		pos = 1
+	}
+
+	hadd.addValue(&state._value, uint64(*input), pos)
+
+}
+
+func (*HugeintAddInt64) AddConstant(*State[common.Hugeint], *int64, int, TypeOp[common.Hugeint]) {
+	//TODO:
+	panic("usp")
+}
+
+func (*HugeintAddInt64) Assign(*State[common.Hugeint], *int64)                          { panic("usp") }
+func (*HugeintAddInt64) Execute(*State[common.Hugeint], *int64, TypeOp[common.Hugeint]) { panic("usp") }
 
 type DecimalAdd struct {
 }
 
-func (dAdd *DecimalAdd) AddNumber(state *State[Decimal], input *Decimal, top TypeOp[Decimal]) {
+func (dAdd *DecimalAdd) AddNumber(state *State[common.Decimal], input *common.Decimal, top TypeOp[common.Decimal]) {
 	state._value.Add(&state._value, input)
 }
-func (*DecimalAdd) AddConstant(*State[Decimal], *Decimal, int, TypeOp[Decimal]) {
+func (*DecimalAdd) AddConstant(*State[common.Decimal], *common.Decimal, int, TypeOp[common.Decimal]) {
 	panic("usp decimalAdd addconstant")
 }
 
-func (*DecimalAdd) Assign(s *State[Decimal], input *Decimal) {
+func (*DecimalAdd) Assign(s *State[common.Decimal], input *common.Decimal) {
 	s._value = *input
 }
-func (*DecimalAdd) Execute(s *State[Decimal], input *Decimal, top TypeOp[Decimal]) {
+func (*DecimalAdd) Execute(s *State[common.Decimal], input *common.Decimal, top TypeOp[common.Decimal]) {
 	if s._typ == STATE_MAX {
 		if top.Greater(input, &s._value) {
 			s._value = *input
@@ -691,13 +743,13 @@ func (AvgOp[ResultT, InputT]) Finalize(
 			c := float64(s3._count)
 			r := v / c
 			*target = any(r).(ResultT)
-		case Decimal:
+		case common.Decimal:
 			c := dec.MustNew(int64(s3._count), 0)
 			quo, err := v.Quo(c)
 			if err != nil {
 				panic(err)
 			}
-			res := Decimal{
+			res := common.Decimal{
 				Decimal: quo,
 			}
 			*target = any(res).(ResultT)
@@ -762,8 +814,8 @@ func (CountOp[ResultT, InputT]) Finalize(
 	if s3._count == 0 {
 		data.ReturnNull()
 	} else {
-		ret := Hugeint{
-			_lower: s3._count,
+		ret := common.Hugeint{
+			Lower: s3._count,
 		}
 		*target = any(ret).(ResultT)
 	}
@@ -840,8 +892,8 @@ func (MinMaxOp[ResultT, InputT]) IgnoreNull() bool {
 }
 
 func UnaryScatter[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
-	input *Vector,
-	states *Vector,
+	input *chunk.Vector,
+	states *chunk.Vector,
 	data *AggrInputData,
 	count int,
 	aop AggrOp[ResultT, InputT],
@@ -849,23 +901,23 @@ func UnaryScatter[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Resul
 	addOp AddOp[ResultT, InputT],
 	top TypeOp[ResultT],
 ) {
-	if input.phyFormat().isConst() &&
-		states.phyFormat().isConst() {
-		if aop.IgnoreNull() && isNullInPhyFormatConst(input) {
+	if input.PhyFormat().IsConst() &&
+		states.PhyFormat().IsConst() {
+		if aop.IgnoreNull() && chunk.IsNullInPhyFormatConst(input) {
 			return
 		}
-		inputSlice := getSliceInPhyFormatConst[InputT](input)
-		statesPtrSlice := getSliceInPhyFormatConst[unsafe.Pointer](states)
-		inputData := NewAggrUnaryInput(data, getMaskInPhyFormatConst(input))
+		inputSlice := chunk.GetSliceInPhyFormatConst[InputT](input)
+		statesPtrSlice := chunk.GetSliceInPhyFormatConst[unsafe.Pointer](states)
+		inputData := NewAggrUnaryInput(data, chunk.GetMaskInPhyFormatConst(input))
 		aop.ConstantOperation((*State[ResultT])(statesPtrSlice[0]), &inputSlice[0], inputData, count, sop, addOp, top)
-	} else if input.phyFormat().isFlat() && states.phyFormat().isFlat() {
-		inputSlice := getSliceInPhyFormatFlat[InputT](input)
-		statesPtrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](states)
+	} else if input.PhyFormat().IsFlat() && states.PhyFormat().IsFlat() {
+		inputSlice := chunk.GetSliceInPhyFormatFlat[InputT](input)
+		statesPtrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](states)
 		UnaryFlatLoop[ResultT, STATE, InputT, OP](
 			inputSlice,
 			data,
 			statesPtrSlice,
-			getMaskInPhyFormatFlat(input),
+			chunk.GetMaskInPhyFormatFlat(input),
 			count,
 			aop,
 			sop,
@@ -873,16 +925,16 @@ func UnaryScatter[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Resul
 			top,
 		)
 	} else {
-		var idata, sdata UnifiedFormat
-		input.toUnifiedFormat(count, &idata)
-		states.toUnifiedFormat(count, &sdata)
+		var idata, sdata chunk.UnifiedFormat
+		input.ToUnifiedFormat(count, &idata)
+		states.ToUnifiedFormat(count, &sdata)
 		UnaryScatterLoop[ResultT, STATE, InputT](
-			getSliceInPhyFormatUnifiedFormat[InputT](&idata),
+			chunk.GetSliceInPhyFormatUnifiedFormat[InputT](&idata),
 			data,
-			getSliceInPhyFormatUnifiedFormat[unsafe.Pointer](&sdata),
-			idata._sel,
-			sdata._sel,
-			idata._mask,
+			chunk.GetSliceInPhyFormatUnifiedFormat[unsafe.Pointer](&sdata),
+			idata.Sel,
+			sdata.Sel,
+			idata.Mask,
 			count,
 			aop,
 			sop,
@@ -896,7 +948,7 @@ func UnaryFlatLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Resu
 	inputSlice []InputT,
 	data *AggrInputData,
 	statesPtrSlice []unsafe.Pointer,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	count int,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
@@ -907,21 +959,21 @@ func UnaryFlatLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Resu
 		input := NewAggrUnaryInput(data, mask)
 		baseIdx := &input._inputIdx
 		*baseIdx = 0
-		eCnt := entryCount(count)
+		eCnt := util.EntryCount(count)
 		for eIdx := 0; eIdx < eCnt; eIdx++ {
-			e := mask.getEntry(uint64(eIdx))
+			e := mask.GetEntry(uint64(eIdx))
 			next := min(*baseIdx+8, count)
-			if AllValidInEntry(e) {
+			if util.AllValidInEntry(e) {
 				for ; *baseIdx < next; *baseIdx++ {
 					aop.Operation((*State[ResultT])(statesPtrSlice[*baseIdx]), &inputSlice[*baseIdx], input, sop, addOp, top)
 				}
-			} else if NoneValidInEntry(e) {
+			} else if util.NoneValidInEntry(e) {
 				*baseIdx = next
 				continue
 			} else {
 				start := *baseIdx
 				for ; *baseIdx < next; *baseIdx++ {
-					if rowIsValidInEntry(e, uint64(*baseIdx-start)) {
+					if util.RowIsValidInEntry(e, uint64(*baseIdx-start)) {
 						aop.Operation((*State[ResultT])(statesPtrSlice[*baseIdx]), &inputSlice[*baseIdx], input, sop, addOp, top)
 					}
 				}
@@ -940,9 +992,9 @@ func UnaryScatterLoop[ResultT any, STATE State[ResultT], InputT any](
 	inputSlice []InputT,
 	data *AggrInputData,
 	statesPtrSlice []unsafe.Pointer,
-	isel *SelectVector,
-	ssel *SelectVector,
-	mask *Bitmap,
+	isel *chunk.SelectVector,
+	ssel *chunk.SelectVector,
+	mask *util.Bitmap,
 	count int,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
@@ -952,25 +1004,25 @@ func UnaryScatterLoop[ResultT any, STATE State[ResultT], InputT any](
 	if aop.IgnoreNull() && !mask.AllValid() {
 		input := NewAggrUnaryInput(data, mask)
 		for i := 0; i < count; i++ {
-			input._inputIdx = isel.getIndex(i)
-			sidx := ssel.getIndex(i)
-			if mask.rowIsValid(uint64(input._inputIdx)) {
+			input._inputIdx = isel.GetIndex(i)
+			sidx := ssel.GetIndex(i)
+			if mask.RowIsValid(uint64(input._inputIdx)) {
 				aop.Operation((*State[ResultT])(statesPtrSlice[sidx]), &inputSlice[input._inputIdx], input, sop, addOp, top)
 			}
 		}
 	} else {
 		input := NewAggrUnaryInput(data, mask)
 		for i := 0; i < count; i++ {
-			input._inputIdx = isel.getIndex(i)
-			sidx := ssel.getIndex(i)
+			input._inputIdx = isel.GetIndex(i)
+			sidx := ssel.GetIndex(i)
 			aop.Operation((*State[ResultT])(statesPtrSlice[sidx]), &inputSlice[input._inputIdx], input, sop, addOp, top)
 		}
 	}
 }
 
 func Combine[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
-	source *Vector,
-	target *Vector,
+	source *chunk.Vector,
+	target *chunk.Vector,
 	data *AggrInputData,
 	count int,
 	aop AggrOp[ResultT, InputT],
@@ -978,10 +1030,10 @@ func Combine[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, I
 	addOp AddOp[ResultT, InputT],
 	top TypeOp[ResultT],
 ) {
-	assertFunc(source.typ().isPointer())
-	assertFunc(target.typ().isPointer())
-	sourcePtrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](source)
-	targetPtrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](target)
+	util.AssertFunc(source.Typ().IsPointer())
+	util.AssertFunc(target.Typ().IsPointer())
+	sourcePtrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](source)
+	targetPtrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](target)
 	for i := 0; i < count; i++ {
 		aop.Combine((*State[ResultT])(sourcePtrSlice[i]),
 			(*State[ResultT])(targetPtrSlice[i]),
@@ -993,9 +1045,9 @@ func Combine[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, I
 }
 
 func Finalize[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
-	states *Vector,
+	states *chunk.Vector,
 	data *AggrInputData,
-	result *Vector,
+	result *chunk.Vector,
 	count int,
 	offset int,
 	aop AggrOp[ResultT, InputT],
@@ -1003,17 +1055,17 @@ func Finalize[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, 
 	addOp AddOp[ResultT, InputT],
 	top TypeOp[ResultT],
 ) {
-	if states.phyFormat().isConst() {
-		result.setPhyFormat(PF_CONST)
-		statePtrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](states)
-		resultSlice := getSliceInPhyFormatFlat[ResultT](result)
+	if states.PhyFormat().IsConst() {
+		result.SetPhyFormat(chunk.PF_CONST)
+		statePtrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](states)
+		resultSlice := chunk.GetSliceInPhyFormatFlat[ResultT](result)
 		final := NewAggrFinalizeData(result, data)
 		aop.Finalize((*State[ResultT])(statePtrSlice[0]), &resultSlice[0], final)
 	} else {
-		assertFunc(states.phyFormat().isFlat())
-		result.setPhyFormat(PF_FLAT)
-		statePtrSlice := getSliceInPhyFormatFlat[unsafe.Pointer](states)
-		resultSlice := getSliceInPhyFormatFlat[ResultT](result)
+		util.AssertFunc(states.PhyFormat().IsFlat())
+		result.SetPhyFormat(chunk.PF_FLAT)
+		statePtrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](states)
+		resultSlice := chunk.GetSliceInPhyFormatFlat[ResultT](result)
 		final := NewAggrFinalizeData(result, data)
 		for i := 0; i < count; i++ {
 			final._resultIdx = i + offset
@@ -1023,7 +1075,7 @@ func Finalize[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, 
 }
 
 func UnaryUpdate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
-	input *Vector,
+	input *chunk.Vector,
 	data *AggrInputData,
 	statePtr unsafe.Pointer,
 	count int,
@@ -1032,37 +1084,37 @@ func UnaryUpdate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Result
 	addOp AddOp[ResultT, InputT],
 	top TypeOp[ResultT],
 ) {
-	switch input.phyFormat() {
-	case PF_CONST:
-		if aop.IgnoreNull() && isNullInPhyFormatConst(input) {
+	switch input.PhyFormat() {
+	case chunk.PF_CONST:
+		if aop.IgnoreNull() && chunk.IsNullInPhyFormatConst(input) {
 			return
 		}
-		inputSlice := getSliceInPhyFormatFlat[InputT](input)
-		inputData := NewAggrUnaryInput(data, getMaskInPhyFormatConst(input))
+		inputSlice := chunk.GetSliceInPhyFormatFlat[InputT](input)
+		inputData := NewAggrUnaryInput(data, chunk.GetMaskInPhyFormatConst(input))
 		aop.ConstantOperation((*State[ResultT])(statePtr), &inputSlice[0], inputData, count, sop, addOp, top)
-	case PF_FLAT:
-		inputSlice := getSliceInPhyFormatFlat[InputT](input)
+	case chunk.PF_FLAT:
+		inputSlice := chunk.GetSliceInPhyFormatFlat[InputT](input)
 		UnaryFlatUpdateLoop[ResultT, STATE, InputT, OP](
 			inputSlice,
 			data,
 			statePtr,
 			count,
-			getMaskInPhyFormatFlat(input),
+			chunk.GetMaskInPhyFormatFlat(input),
 			aop,
 			sop,
 			addOp,
 			top,
 		)
 	default:
-		var idata UnifiedFormat
-		input.toUnifiedFormat(count, &idata)
+		var idata chunk.UnifiedFormat
+		input.ToUnifiedFormat(count, &idata)
 		UnaryUpdateLoop[ResultT, STATE, InputT, OP](
-			getSliceInPhyFormatUnifiedFormat[InputT](&idata),
+			chunk.GetSliceInPhyFormatUnifiedFormat[InputT](&idata),
 			data,
 			statePtr,
 			count,
-			idata._mask,
-			idata._sel,
+			idata.Mask,
+			idata.Sel,
 			aop,
 			sop,
 			addOp,
@@ -1076,7 +1128,7 @@ func UnaryFlatUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrO
 	data *AggrInputData,
 	statePtr unsafe.Pointer,
 	count int,
-	mask *Bitmap,
+	mask *util.Bitmap,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
 	addOp AddOp[ResultT, InputT],
@@ -1085,21 +1137,21 @@ func UnaryFlatUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrO
 	input := NewAggrUnaryInput(data, mask)
 	baseIdx := &input._inputIdx
 	*baseIdx = 0
-	eCnt := entryCount(count)
+	eCnt := util.EntryCount(count)
 	for eIdx := 0; eIdx < eCnt; eIdx++ {
-		e := mask.getEntry(uint64(eIdx))
+		e := mask.GetEntry(uint64(eIdx))
 		next := min(*baseIdx+8, count)
-		if !aop.IgnoreNull() || AllValidInEntry(e) {
+		if !aop.IgnoreNull() || util.AllValidInEntry(e) {
 			for ; *baseIdx < next; *baseIdx++ {
 				aop.Operation((*State[ResultT])(statePtr), &inputSlice[*baseIdx], input, sop, addOp, top)
 			}
-		} else if NoneValidInEntry(e) {
+		} else if util.NoneValidInEntry(e) {
 			*baseIdx = next
 			continue
 		} else {
 			start := *baseIdx
 			for ; *baseIdx < next; *baseIdx++ {
-				if rowIsValidInEntry(e, uint64(*baseIdx-start)) {
+				if util.RowIsValidInEntry(e, uint64(*baseIdx-start)) {
 					aop.Operation((*State[ResultT])(statePtr), &inputSlice[*baseIdx], input, sop, addOp, top)
 				}
 			}
@@ -1112,8 +1164,8 @@ func UnaryUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Re
 	data *AggrInputData,
 	statePtr unsafe.Pointer,
 	count int,
-	mask *Bitmap,
-	selVec *SelectVector,
+	mask *util.Bitmap,
+	selVec *chunk.SelectVector,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
 	addOp AddOp[ResultT, InputT],
@@ -1122,14 +1174,14 @@ func UnaryUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Re
 	input := NewAggrUnaryInput(data, mask)
 	if aop.IgnoreNull() && !mask.AllValid() {
 		for i := 0; i < count; i++ {
-			input._inputIdx = selVec.getIndex(i)
-			if mask.rowIsValid(uint64(input._inputIdx)) {
+			input._inputIdx = selVec.GetIndex(i)
+			if mask.RowIsValid(uint64(input._inputIdx)) {
 				aop.Operation((*State[ResultT])(statePtr), &inputSlice[input._inputIdx], input, sop, addOp, top)
 			}
 		}
 	} else {
 		for i := 0; i < count; i++ {
-			input._inputIdx = selVec.getIndex(i)
+			input._inputIdx = selVec.GetIndex(i)
 			aop.Operation((*State[ResultT])(statePtr), &inputSlice[input._inputIdx], input, sop, addOp, top)
 		}
 	}
@@ -1137,37 +1189,37 @@ func UnaryUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Re
 
 func FinalizeStates(
 	layout *TupleDataLayout,
-	addresses *Vector,
-	result *Chunk,
+	addresses *chunk.Vector,
+	result *chunk.Chunk,
 	aggrIdx int,
 ) {
-	AddInPlace(addresses, int64(layout.aggrOffset()), result.card())
+	AddInPlace(addresses, int64(layout.aggrOffset()), result.Card())
 
 	aggrObjs := layout._aggregates
-	var target *Vector
+	var target *chunk.Vector
 	for i := 0; i < len(aggrObjs); i++ {
 		aggr := aggrObjs[i]
-		sameType := aggr._retType == aggr._func._retType.getInternalType()
+		sameType := aggr._retType == aggr._func._retType.GetInternalType()
 		targetOffset := aggrIdx + i
 		if sameType {
-			target = result._data[targetOffset]
+			target = result.Data[targetOffset]
 		} else {
-			target = NewVector(aggr._func._retType, defaultVectorSize)
+			target = chunk.NewVector2(aggr._func._retType, util.DefaultVectorSize)
 		}
 
-		aggr._func._finalize(addresses, NewAggrInputData(), target, result.card(), 0)
+		aggr._func._finalize(addresses, NewAggrInputData(), target, result.Card(), 0)
 
 		if !sameType {
 			//TODO: put the cast in build plan stage
 			//cast
-			src := target.typ()
-			dst := result._data[targetOffset].typ()
+			src := target.Typ()
+			dst := result.Data[targetOffset].Typ()
 			castInfo := castFuncs.GetCastFunc(src, dst)
 			castParams := &CastParams{}
-			castInfo._fun(target, result._data[targetOffset], result.card(), castParams)
+			castInfo._fun(target, result.Data[targetOffset], result.Card(), castParams)
 		}
 
 		//next aggr state
-		AddInPlace(addresses, int64(aggr._payloadSize), result.card())
+		AddInPlace(addresses, int64(aggr._payloadSize), result.Card())
 	}
 }

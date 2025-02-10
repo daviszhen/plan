@@ -14,6 +14,12 @@
 
 package plan
 
+import (
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
+)
+
 // BoundCastData generated during bind of cast,
 // used during execution of cast
 type BoundCastData struct {
@@ -24,7 +30,7 @@ type CastParams struct {
 	_strict   bool
 }
 
-type CastFuncType func(src, res *Vector, count int, params *CastParams) bool
+type CastFuncType func(src, res *chunk.Vector, count int, params *CastParams) bool
 
 type BoundCastInfo struct {
 	_fun      CastFuncType
@@ -40,51 +46,51 @@ type BindCastInput struct {
 
 func DefaultCastFunc(
 	input *BindCastInput,
-	src, dst LType) *BoundCastInfo {
-	assertFunc(!src.equal(dst))
+	src, dst common.LType) *BoundCastInfo {
+	util.AssertFunc(!src.Equal(dst))
 
-	switch src.id {
-	case LTID_BOOLEAN, LTID_TINYINT, LTID_SMALLINT, LTID_INTEGER, LTID_BIGINT,
-		LTID_UTINYINT, LTID_USMALLINT, LTID_UINTEGER, LTID_UBIGINT, LTID_HUGEINT,
-		LTID_FLOAT, LTID_DOUBLE:
+	switch src.Id {
+	case common.LTID_BOOLEAN, common.LTID_TINYINT, common.LTID_SMALLINT, common.LTID_INTEGER, common.LTID_BIGINT,
+		common.LTID_UTINYINT, common.LTID_USMALLINT, common.LTID_UINTEGER, common.LTID_UBIGINT, common.LTID_HUGEINT,
+		common.LTID_FLOAT, common.LTID_DOUBLE:
 		return NumericCastSwitch(input, src, dst)
-	case LTID_POINTER:
+	case common.LTID_POINTER:
 		panic("usp")
-	case LTID_UUID:
+	case common.LTID_UUID:
 		panic("usp")
-	case LTID_DECIMAL:
+	case common.LTID_DECIMAL:
 		return DecimalCastToSwitch(input, src, dst)
-	case LTID_DATE:
+	case common.LTID_DATE:
 		panic("usp")
-	case LTID_TIME,
-		LTID_TIME_TZ,
-		LTID_TIMESTAMP,
-		LTID_TIMESTAMP_TZ,
-		LTID_TIMESTAMP_NS,
-		LTID_TIMESTAMP_MS,
-		LTID_TIMESTAMP_SEC:
+	case common.LTID_TIME,
+		common.LTID_TIME_TZ,
+		common.LTID_TIMESTAMP,
+		common.LTID_TIMESTAMP_TZ,
+		common.LTID_TIMESTAMP_NS,
+		common.LTID_TIMESTAMP_MS,
+		common.LTID_TIMESTAMP_SEC:
 		panic("usp")
-	case LTID_INTERVAL:
+	case common.LTID_INTERVAL:
 		panic("usp")
-	case LTID_VARCHAR:
+	case common.LTID_VARCHAR:
 		return StringCastToSwitch(input, src, dst)
-	case LTID_BLOB:
+	case common.LTID_BLOB:
 		panic("usp")
-	case LTID_BIT:
+	case common.LTID_BIT:
 		panic("usp")
-	case LTID_NULL:
+	case common.LTID_NULL:
 		panic("usp")
-	case LTID_MAP:
+	case common.LTID_MAP:
 		panic("usp")
-	case LTID_STRUCT:
+	case common.LTID_STRUCT:
 		panic("usp")
-	case LTID_LIST:
+	case common.LTID_LIST:
 		panic("usp")
-	case LTID_UNION:
+	case common.LTID_UNION:
 		panic("usp")
-	case LTID_ENUM:
+	case common.LTID_ENUM:
 		panic("usp")
-	case LTID_AGGREGATE_STATE:
+	case common.LTID_AGGREGATE_STATE:
 		panic("usp")
 	default:
 		panic("usp")
@@ -93,26 +99,26 @@ func DefaultCastFunc(
 
 func NumericCastSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch src.id {
-	case LTID_BOOLEAN:
+	switch src.Id {
+	case common.LTID_BOOLEAN:
 		ret = BoolCastToSwitch(input, src, dst)
-	case LTID_TINYINT:
-	case LTID_SMALLINT:
-	case LTID_INTEGER:
+	case common.LTID_TINYINT:
+	case common.LTID_SMALLINT:
+	case common.LTID_INTEGER:
 		ret = IntegerCastToSwitch(input, src, dst)
-	case LTID_BIGINT:
-	case LTID_UTINYINT:
-	case LTID_USMALLINT:
-	case LTID_UINTEGER:
-	case LTID_UBIGINT:
-	case LTID_HUGEINT:
+	case common.LTID_BIGINT:
+	case common.LTID_UTINYINT:
+	case common.LTID_USMALLINT:
+	case common.LTID_UINTEGER:
+	case common.LTID_UBIGINT:
+	case common.LTID_HUGEINT:
 		ret = HugeintCastToSwitch(input, src, dst)
-	case LTID_FLOAT:
+	case common.LTID_FLOAT:
 		ret = FloatCastToSwitch(input, src, dst)
-	case LTID_DOUBLE:
+	case common.LTID_DOUBLE:
 	default:
 		panic("usp")
 	}
@@ -124,22 +130,22 @@ func NumericCastSwitch(
 
 func BoolCastToSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch dst.id {
-	case LTID_BOOLEAN:
-	case LTID_TINYINT:
-	case LTID_SMALLINT:
-	case LTID_INTEGER:
-	case LTID_BIGINT:
-	case LTID_UTINYINT:
-	case LTID_USMALLINT:
-	case LTID_UINTEGER:
-	case LTID_UBIGINT:
-	case LTID_HUGEINT:
-	case LTID_FLOAT:
-	case LTID_DOUBLE:
+	switch dst.Id {
+	case common.LTID_BOOLEAN:
+	case common.LTID_TINYINT:
+	case common.LTID_SMALLINT:
+	case common.LTID_INTEGER:
+	case common.LTID_BIGINT:
+	case common.LTID_UTINYINT:
+	case common.LTID_USMALLINT:
+	case common.LTID_UINTEGER:
+	case common.LTID_UBIGINT:
+	case common.LTID_HUGEINT:
+	case common.LTID_FLOAT:
+	case common.LTID_DOUBLE:
 	default:
 		panic("usp")
 	}
@@ -148,31 +154,32 @@ func BoolCastToSwitch(
 
 func IntegerCastToSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch dst.id {
-	case LTID_BOOLEAN:
-	case LTID_TINYINT:
-	case LTID_SMALLINT:
-	case LTID_INTEGER:
+	switch dst.Id {
+	case common.LTID_BOOLEAN:
+	case common.LTID_TINYINT:
+	case common.LTID_SMALLINT:
+	case common.LTID_INTEGER:
 		ret._fun = MakeCastFunc[int32, int32](tryCastInt32ToInt32)
-	case LTID_BIGINT:
-	case LTID_UTINYINT:
-	case LTID_USMALLINT:
-	case LTID_UINTEGER:
-	case LTID_UBIGINT:
-	case LTID_HUGEINT:
-		ret._fun = MakeCastFunc[int32, Hugeint](tryCastInt32ToHugeint)
-	case LTID_FLOAT:
+	case common.LTID_BIGINT:
+		ret._fun = MakeCastFunc[int32, int64](tryCastInt32ToInt64)
+	case common.LTID_UTINYINT:
+	case common.LTID_USMALLINT:
+	case common.LTID_UINTEGER:
+	case common.LTID_UBIGINT:
+	case common.LTID_HUGEINT:
+		ret._fun = MakeCastFunc[int32, common.Hugeint](tryCastInt32ToHugeint)
+	case common.LTID_FLOAT:
 		ret._fun = MakeCastFunc[int32, float32](tryCastInt32ToFloat32)
-	case LTID_DOUBLE:
+	case common.LTID_DOUBLE:
 		ret._fun = MakeCastFunc[int32, float64](tryCastInt32ToFloat64)
-	case LTID_DECIMAL:
-		decCast := func(input *int32, result *Decimal, _ bool) bool {
-			return tryCastInt32ToDecimal(input, result, dst.scale, true)
+	case common.LTID_DECIMAL:
+		decCast := func(input *int32, result *common.Decimal, _ bool) bool {
+			return tryCastInt32ToDecimal(input, result, dst.Scale, true)
 		}
-		ret._fun = MakeCastFunc[int32, Decimal](decCast)
+		ret._fun = MakeCastFunc[int32, common.Decimal](decCast)
 	default:
 		panic("usp")
 	}
@@ -181,24 +188,26 @@ func IntegerCastToSwitch(
 
 func FloatCastToSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch dst.id {
-	case LTID_BOOLEAN:
-	case LTID_TINYINT:
-	case LTID_SMALLINT:
-	case LTID_INTEGER:
+	switch dst.Id {
+	case common.LTID_BOOLEAN:
+	case common.LTID_TINYINT:
+	case common.LTID_SMALLINT:
+	case common.LTID_INTEGER:
 		ret._fun = MakeCastFunc[float32, int32](tryCastFloat32ToInt32)
-	case LTID_BIGINT:
-	case LTID_UTINYINT:
-	case LTID_USMALLINT:
-	case LTID_UINTEGER:
-	case LTID_UBIGINT:
-	case LTID_HUGEINT:
-	case LTID_FLOAT:
-	case LTID_DOUBLE:
+	case common.LTID_BIGINT:
+	case common.LTID_UTINYINT:
+	case common.LTID_USMALLINT:
+	case common.LTID_UINTEGER:
+	case common.LTID_UBIGINT:
+	case common.LTID_HUGEINT:
+	case common.LTID_FLOAT:
+	case common.LTID_DOUBLE:
 		ret._fun = MakeCastFunc[float32, float64](tryCastFloat32ToFloat64)
+	case common.LTID_DECIMAL:
+		ret._fun = MakeCastFunc[float32, common.Decimal](tryCastFloat32ToDecimal)
 	default:
 		panic("usp")
 	}
@@ -207,26 +216,26 @@ func FloatCastToSwitch(
 
 func HugeintCastToSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch dst.id {
-	case LTID_BOOLEAN:
-	case LTID_TINYINT:
-	case LTID_SMALLINT:
-	case LTID_INTEGER:
-		ret._fun = MakeCastFunc[Hugeint, int32](tryCastBigintToInt32)
-	case LTID_BIGINT:
-	case LTID_UTINYINT:
-	case LTID_USMALLINT:
-	case LTID_UINTEGER:
-	case LTID_UBIGINT:
-	case LTID_HUGEINT:
-	case LTID_FLOAT:
-		ret._fun = MakeCastFunc[Hugeint, float32](tryCastBigintToFloat32)
-	case LTID_DOUBLE:
-	case LTID_DECIMAL:
-		ret._fun = MakeCastFunc[Hugeint, Decimal](tryCastBigintToDecimal)
+	switch dst.Id {
+	case common.LTID_BOOLEAN:
+	case common.LTID_TINYINT:
+	case common.LTID_SMALLINT:
+	case common.LTID_INTEGER:
+		ret._fun = MakeCastFunc[common.Hugeint, int32](tryCastBigintToInt32)
+	case common.LTID_BIGINT:
+	case common.LTID_UTINYINT:
+	case common.LTID_USMALLINT:
+	case common.LTID_UINTEGER:
+	case common.LTID_UBIGINT:
+	case common.LTID_HUGEINT:
+	case common.LTID_FLOAT:
+		ret._fun = MakeCastFunc[common.Hugeint, float32](tryCastBigintToFloat32)
+	case common.LTID_DOUBLE:
+	case common.LTID_DECIMAL:
+		ret._fun = MakeCastFunc[common.Hugeint, common.Decimal](tryCastBigintToDecimal)
 	default:
 		panic("usp")
 	}
@@ -235,28 +244,28 @@ func HugeintCastToSwitch(
 
 func DecimalCastToSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch dst.id {
-	case LTID_BOOLEAN:
-	case LTID_TINYINT:
-	case LTID_SMALLINT:
-	case LTID_INTEGER:
-	case LTID_BIGINT:
-	case LTID_UTINYINT:
-	case LTID_USMALLINT:
-	case LTID_UINTEGER:
-	case LTID_UBIGINT:
-	case LTID_HUGEINT:
-	case LTID_FLOAT:
-		ret._fun = MakeCastFunc[Decimal, float32](tryCastDecimalToFloat32)
-	case LTID_DOUBLE:
-	case LTID_DECIMAL:
-		decCast := func(input *Decimal, result *Decimal, _ bool) bool {
-			return tryCastDecimalToDecimal(input, result, src.scale, dst.scale, true)
+	switch dst.Id {
+	case common.LTID_BOOLEAN:
+	case common.LTID_TINYINT:
+	case common.LTID_SMALLINT:
+	case common.LTID_INTEGER:
+	case common.LTID_BIGINT:
+	case common.LTID_UTINYINT:
+	case common.LTID_USMALLINT:
+	case common.LTID_UINTEGER:
+	case common.LTID_UBIGINT:
+	case common.LTID_HUGEINT:
+	case common.LTID_FLOAT:
+		ret._fun = MakeCastFunc[common.Decimal, float32](tryCastDecimalToFloat32)
+	case common.LTID_DOUBLE:
+	case common.LTID_DECIMAL:
+		decCast := func(input *common.Decimal, result *common.Decimal, _ bool) bool {
+			return tryCastDecimalToDecimal(input, result, src.Scale, dst.Scale, true)
 		}
-		ret._fun = MakeCastFunc[Decimal, Decimal](decCast)
+		ret._fun = MakeCastFunc[common.Decimal, common.Decimal](decCast)
 	default:
 		panic("usp")
 	}
@@ -265,14 +274,14 @@ func DecimalCastToSwitch(
 
 func StringCastToSwitch(
 	input *BindCastInput,
-	src, dst LType,
+	src, dst common.LType,
 ) *BoundCastInfo {
 	ret := &BoundCastInfo{}
-	switch dst.id {
-	case LTID_DATE:
-		ret._fun = MakeCastFunc[String, Date](tryCastVarcharToDate)
-	case LTID_INTERVAL:
-		ret._fun = MakeCastFunc[String, Interval](tryCastVarcharToInterval)
+	switch dst.Id {
+	case common.LTID_DATE:
+		ret._fun = MakeCastFunc[common.String, common.Date](tryCastVarcharToDate)
+	case common.LTID_INTERVAL:
+		ret._fun = MakeCastFunc[common.String, common.Interval](tryCastVarcharToInterval)
 	default:
 		panic("usp")
 	}
@@ -280,7 +289,7 @@ func StringCastToSwitch(
 }
 
 func MakeCastFunc[T any, R any](op CastOp[T, R]) CastFuncType {
-	temp := func(src *Vector, res *Vector, count int, params *CastParams) bool {
+	temp := func(src *chunk.Vector, res *chunk.Vector, count int, params *CastParams) bool {
 		return TryCastLoop[T, R](
 			src,
 			res,

@@ -81,6 +81,25 @@ func initTpch1gCfg() {
 	testerCfg.Tpch1g.Result.NeedHeadLine = viper.GetBool("tpch1g.result.needHeadline")
 }
 
+// tpch1g ddl
+var tpch1gDDLInfo = "run tpch1g ddl"
+var tpch1gDDLCmd = &cobra.Command{
+	Use:   "tpch1gddl",
+	Short: tpch1gDDLInfo,
+	Long:  tpch1gDDLInfo,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		initTpch1gDDLCfg()
+		initTpch1gCfg()
+		return plan.RunDDL(testerCfg)
+	},
+}
+
+func initTpch1gDDLCfg() {
+	initDebugOptions()
+	testerCfg.Tpch1g.DDL.Path = viper.GetString("tpch1g.ddl.path")
+	testerCfg.Tpch1g.DDL.DDL = viper.GetString("tpch1g.ddl.ddl")
+}
+
 func initTpch1gCmd() {
 	RootCmd.AddCommand(tpch1gCmd)
 	tpch1gCmd.Flags().UintVar(&testerCfg.Tpch1g.Query.QueryId, "query_id", 0, "query id")
@@ -94,6 +113,13 @@ func initTpch1gCmd() {
 	viper.BindPFlag("tpch1g.data.format", tpch1gCmd.Flags().Lookup("data_format"))
 	viper.BindPFlag("tpch1g.result.path", tpch1gCmd.Flags().Lookup("result_path"))
 	viper.BindPFlag("tpch1g.result.needHeadline", tpch1gCmd.Flags().Lookup("need_headline"))
+
+	RootCmd.AddCommand(tpch1gDDLCmd)
+	tpch1gDDLCmd.Flags().StringVar(&testerCfg.Tpch1g.DDL.Path, "path", "", "ddl path")
+	tpch1gDDLCmd.Flags().StringVar(&testerCfg.Tpch1g.DDL.DDL, "ddl", "", "ddl")
+
+	viper.BindPFlag("tpch1g.ddl.path", tpch1gDDLCmd.Flags().Lookup("path"))
+	viper.BindPFlag("tpch1g.ddl.ddl", tpch1gDDLCmd.Flags().Lookup("ddl"))
 }
 
 var defCfgFilePaths = []string{".", "etc/tpch/1g"}

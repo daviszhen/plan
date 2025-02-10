@@ -20,6 +20,8 @@ import (
 	"sort"
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
@@ -68,13 +70,13 @@ func (gs GroupingSet) count() int {
 type GroupedAggrData struct {
 	_groups              []*Expr
 	_groupingFuncs       [][]int //GROUPING functions
-	_groupTypes          []LType
+	_groupTypes          []common.LType
 	_aggregates          []*Expr
-	_payloadTypes        []LType
+	_payloadTypes        []common.LType
 	_paramExprs          []*Expr //param exprs of the aggr function
-	_aggrReturnTypes     []LType
+	_aggrReturnTypes     []common.LType
 	_bindings            []*Expr //pointer to aggregates
-	_childrenOutputTypes []LType
+	_childrenOutputTypes []common.LType
 	_refChildrenOutput   []*Expr
 }
 
@@ -107,7 +109,7 @@ func (gad *GroupedAggrData) InitGroupby(
 func (gad *GroupedAggrData) InitDistinct(
 	aggr *Expr,
 	groups []*Expr,
-	rawInputTypes []LType,
+	rawInputTypes []common.LType,
 ) {
 	gad.InitDistinctGroups(groups)
 	gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp)
@@ -177,7 +179,7 @@ type DistinctAggrData struct {
 }
 
 func (dad *DistinctAggrData) IsDistinct(index int) bool {
-	if !empty(dad._radixTables) {
+	if !util.Empty(dad._radixTables) {
 		if _, has := dad._info._tableMap[index]; has {
 			return true
 		}
@@ -189,7 +191,7 @@ func NewDistinctAggrData(
 	info *DistinctAggrCollectionInfo,
 	groups GroupingSet,
 	groupExprs []*Expr,
-	rawInputTypes []LType,
+	rawInputTypes []common.LType,
 ) *DistinctAggrData {
 	ret := new(DistinctAggrData)
 	ret._info = info
@@ -245,7 +247,7 @@ func (daci *DistinctAggrCollectionInfo) CreateTableIndexMap() int {
 	tableInputs := make([]*Expr, 0)
 	for _, aggrIdx := range daci._indices {
 		aggr := daci._aggregates[aggrIdx]
-		found := findIf[*Expr](tableInputs, func(t *Expr) bool {
+		found := util.FindIf[*Expr](tableInputs, func(t *Expr) bool {
 			if len(aggr.Children) != len(t.Children) {
 				return false
 			}
@@ -265,8 +267,8 @@ func (daci *DistinctAggrCollectionInfo) CreateTableIndexMap() int {
 		daci._tableMap[aggrIdx] = len(tableInputs)
 		tableInputs = append(tableInputs, aggr)
 	}
-	assertFunc(len(daci._tableMap) == len(daci._indices))
-	assertFunc(len(tableInputs) <= len(daci._indices))
+	util.AssertFunc(len(daci._tableMap) == len(daci._indices))
+	util.AssertFunc(len(tableInputs) <= len(daci._indices))
 
 	return len(tableInputs)
 }
@@ -338,19 +340,19 @@ const (
 
 type HashAggr struct {
 	_has                    HashAggrState
-	_types                  []LType
+	_types                  []common.LType
 	_groupedAggrData        *GroupedAggrData
 	_groupingSets           []GroupingSet
 	_groupings              []*HashAggrGroupingData
 	_distinctCollectionInfo *DistinctAggrCollectionInfo
-	_inputGroupTypes        []LType
+	_inputGroupTypes        []common.LType
 	_nonDistinctFilter      []int
 	_distinctFilter         []int
 	_printHash              bool
 }
 
 func NewHashAggr(
-	types []LType,
+	types []common.LType,
 	aggrExprs []*Expr,
 	groups []*Expr,
 	groupingSets []GroupingSet,
@@ -400,7 +402,7 @@ func NewHashAggr(
 }
 
 // TODO: add project on aggregate
-func createGroupChunkTypes(groups []*Expr) []LType {
+func createGroupChunkTypes(groups []*Expr) []common.LType {
 	if len(groups) == 0 {
 		return nil
 	}
@@ -409,10 +411,10 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 		groupIndices.insert(gidx)
 	}
 	maxIdx := groupIndices.max()
-	assertFunc(maxIdx >= 0)
-	types := make([]LType, maxIdx+1)
+	util.AssertFunc(maxIdx >= 0)
+	types := make([]common.LType, maxIdx+1)
 	for i := 0; i < len(types); i++ {
-		types[i] = null()
+		types[i] = common.Null()
 	}
 	for gidx, group := range groups {
 		types[gidx] = group.DataTyp
@@ -421,7 +423,7 @@ func createGroupChunkTypes(groups []*Expr) []LType {
 }
 
 func (haggr *HashAggr) SinkDistinctGrouping(
-	chunk, childrenOutput *Chunk,
+	data, childrenOutput *chunk.Chunk,
 	groupingIdx int,
 ) {
 	distinctInfo := haggr._distinctCollectionInfo
@@ -429,7 +431,7 @@ func (haggr *HashAggr) SinkDistinctGrouping(
 
 	var tableIdx int
 	var has bool
-	dump := &Chunk{}
+	dump := &chunk.Chunk{}
 	for _, idx := range distinctInfo._indices {
 		//aggr := haggr._groupedAggrData._aggregates[idx]
 
@@ -441,44 +443,44 @@ func (haggr *HashAggr) SinkDistinctGrouping(
 		if radixTable == nil {
 			continue
 		}
-		radixTable.Sink(chunk, dump, childrenOutput, []int{})
+		radixTable.Sink(data, dump, childrenOutput, []int{})
 	}
 }
 
-func (haggr *HashAggr) SinkDistinct(chunk, childrenOutput *Chunk) {
+func (haggr *HashAggr) SinkDistinct(chunk, childrenOutput *chunk.Chunk) {
 	for i := 0; i < len(haggr._groupings); i++ {
 		haggr.SinkDistinctGrouping(chunk, childrenOutput, i)
 	}
 }
 
-func (haggr *HashAggr) Sink(chunk *Chunk) {
-	payload := &Chunk{}
-	payload.init(haggr._groupedAggrData._payloadTypes, defaultVectorSize)
+func (haggr *HashAggr) Sink(data *chunk.Chunk) {
+	payload := &chunk.Chunk{}
+	payload.Init(haggr._groupedAggrData._payloadTypes, util.DefaultVectorSize)
 	offset := len(haggr._groupedAggrData._groupTypes)
 	for i := 0; i < len(haggr._groupedAggrData._payloadTypes); i++ {
-		payload._data[i].reference(chunk._data[offset+i])
+		payload.Data[i].Reference(data.Data[offset+i])
 	}
-	payload.setCard(chunk.card())
+	payload.SetCard(data.Card())
 
-	childrenOutput := &Chunk{}
-	childrenOutput.init(haggr._groupedAggrData._childrenOutputTypes, defaultVectorSize)
+	childrenOutput := &chunk.Chunk{}
+	childrenOutput.Init(haggr._groupedAggrData._childrenOutputTypes, util.DefaultVectorSize)
 	offset = offset + len(haggr._groupedAggrData._payloadTypes)
 	for i := 0; i < len(haggr._groupedAggrData._childrenOutputTypes); i++ {
-		childrenOutput._data[i].reference(chunk._data[offset+i])
+		childrenOutput.Data[i].Reference(data.Data[offset+i])
 	}
-	childrenOutput.setCard(chunk.card())
+	childrenOutput.SetCard(data.Card())
 
 	if haggr._distinctCollectionInfo != nil {
-		haggr.SinkDistinct(chunk, childrenOutput)
+		haggr.SinkDistinct(data, childrenOutput)
 	}
 
 	for _, grouping := range haggr._groupings {
 		grouping._tableData._printHash = haggr._printHash
-		grouping._tableData.Sink(chunk, payload, childrenOutput, haggr._nonDistinctFilter)
+		grouping._tableData.Sink(data, payload, childrenOutput, haggr._nonDistinctFilter)
 	}
 }
 
-func (haggr *HashAggr) FetechAggregates(state *HashAggrScanState, groups, output *Chunk) OperatorResult {
+func (haggr *HashAggr) FetechAggregates(state *HashAggrScanState, groups, output *chunk.Chunk) OperatorResult {
 	//1. table_data.GetData
 	for {
 		if state._radixIdx >= len(haggr._groupings) {
@@ -487,7 +489,7 @@ func (haggr *HashAggr) FetechAggregates(state *HashAggrScanState, groups, output
 		grouping := haggr._groupings[state._radixIdx]
 		radixTable := grouping._tableData
 		radixTable.FetchAggregates(groups, output)
-		if output.card() != 0 {
+		if output.Card() != 0 {
 			return haveMoreOutput
 		}
 		state._radixIdx++
@@ -497,14 +499,14 @@ func (haggr *HashAggr) FetechAggregates(state *HashAggrScanState, groups, output
 		state._state = &TupleDataScanState{}
 	}
 
-	if output.card() == 0 {
+	if output.Card() == 0 {
 		return Done
 	} else {
 		return haveMoreOutput
 	}
 }
 
-func (haggr *HashAggr) GetData(state *HashAggrScanState, output, rawInput *Chunk) OperatorResult {
+func (haggr *HashAggr) GetData(state *HashAggrScanState, output, rawInput *chunk.Chunk) OperatorResult {
 	//1. table_data.GetData
 	for {
 		if state._radixIdx >= len(haggr._groupings) {
@@ -513,7 +515,7 @@ func (haggr *HashAggr) GetData(state *HashAggrScanState, output, rawInput *Chunk
 		grouping := haggr._groupings[state._radixIdx]
 		radixTable := grouping._tableData
 		radixTable.GetData(state._state, output, rawInput)
-		if output.card() != 0 {
+		if output.Card() != 0 {
 			return haveMoreOutput
 		}
 		state._radixIdx++
@@ -524,7 +526,7 @@ func (haggr *HashAggr) GetData(state *HashAggrScanState, output, rawInput *Chunk
 	}
 
 	//2. run filter
-	if output.card() == 0 {
+	if output.Card() == 0 {
 		return Done
 	} else {
 		return haveMoreOutput
@@ -575,14 +577,14 @@ func (haggr *HashAggr) DistinctGrouping(
 
 	//fake input chunk
 	//group by
-	groupChunk := &Chunk{}
-	groupChunk.init(haggr._inputGroupTypes, defaultVectorSize)
+	groupChunk := &chunk.Chunk{}
+	groupChunk.Init(haggr._inputGroupTypes, util.DefaultVectorSize)
 
 	groups := haggr._groupedAggrData._groups
-	groupbySize := size(groups)
+	groupbySize := util.Size(groups)
 
-	aggrInputChunk := &Chunk{}
-	aggrInputChunk.init(haggr._groupedAggrData._payloadTypes, defaultVectorSize)
+	aggrInputChunk := &chunk.Chunk{}
+	aggrInputChunk.Init(haggr._groupedAggrData._payloadTypes, util.DefaultVectorSize)
 
 	payloadIdx := 0
 	nextPayloadIdx := 0
@@ -603,12 +605,12 @@ func (haggr *HashAggr) DistinctGrouping(
 		radixTable := data._radixTables[tableIdx]
 
 		//groupby + distinct payload
-		outputChunk := &Chunk{}
-		outputChunk.init(data._groupedAggrData[tableIdx]._groupTypes, defaultVectorSize)
+		outputChunk := &chunk.Chunk{}
+		outputChunk.Init(data._groupedAggrData[tableIdx]._groupTypes, util.DefaultVectorSize)
 
 		//children output
-		childrenChunk := &Chunk{}
-		childrenChunk.init(data._groupedAggrData[tableIdx]._childrenOutputTypes, defaultVectorSize)
+		childrenChunk := &chunk.Chunk{}
+		childrenChunk.Init(data._groupedAggrData[tableIdx]._childrenOutputTypes, util.DefaultVectorSize)
 
 		//get all data from distinct aggr hashtable
 		//sink them into main hashtable
@@ -616,19 +618,19 @@ func (haggr *HashAggr) DistinctGrouping(
 		scanState := &TupleDataScanState{}
 
 		for {
-			outputChunk.reset()
-			groupChunk.reset()
-			aggrInputChunk.reset()
-			childrenChunk.reset()
+			outputChunk.Reset()
+			groupChunk.Reset()
+			aggrInputChunk.Reset()
+			childrenChunk.Reset()
 
 			res := radixTable.GetData(scanState, outputChunk, childrenChunk)
 			switch res {
 			case Done:
-				assertFunc(outputChunk.card() == 0)
+				util.AssertFunc(outputChunk.Card() == 0)
 			case InvalidOpResult:
 				panic("invalid op result")
 			}
-			if outputChunk.card() == 0 {
+			if outputChunk.Card() == 0 {
 				break
 			}
 
@@ -636,15 +638,15 @@ func (haggr *HashAggr) DistinctGrouping(
 			groupedAggrData := data._groupedAggrData[tableIdx]
 			for groupIdx := 0; groupIdx < groupbySize; groupIdx++ {
 				//group := groupedAggrData._groups[groupIdx]
-				groupChunk._data[groupIdx].reference(outputChunk._data[groupIdx])
+				groupChunk.Data[groupIdx].Reference(outputChunk.Data[groupIdx])
 			}
-			groupChunk.setCard(outputChunk.card())
+			groupChunk.SetCard(outputChunk.Card())
 
 			for childIdx := 0; childIdx < len(groupedAggrData._groups)-groupbySize; childIdx++ {
-				aggrInputChunk._data[payloadIdx+childIdx].reference(
-					outputChunk._data[groupbySize+childIdx])
+				aggrInputChunk.Data[payloadIdx+childIdx].Reference(
+					outputChunk.Data[groupbySize+childIdx])
 			}
-			aggrInputChunk.setCard(outputChunk.card())
+			aggrInputChunk.SetCard(outputChunk.Card())
 			groupingData._tableData.Sink(groupChunk, aggrInputChunk, childrenChunk, []int{i})
 		}
 	}
@@ -681,30 +683,30 @@ func init() {
 }
 
 type AggrHTAppendState struct {
-	_htOffsets          *Vector
-	_hashSalts          *Vector
-	_groupCompareVector *SelectVector
-	_noMatchVector      *SelectVector
-	_emptyVector        *SelectVector
-	_newGroups          *SelectVector
-	_addresses          *Vector
+	_htOffsets          *chunk.Vector
+	_hashSalts          *chunk.Vector
+	_groupCompareVector *chunk.SelectVector
+	_noMatchVector      *chunk.SelectVector
+	_emptyVector        *chunk.SelectVector
+	_newGroups          *chunk.SelectVector
+	_addresses          *chunk.Vector
 	//unified format of Chunk
-	_groupData []*UnifiedFormat
+	_groupData []*chunk.UnifiedFormat
 	//Chunk
-	_groupChunk *Chunk
+	_groupChunk *chunk.Chunk
 	_chunkState *TupleDataChunkState
 }
 
 func NewAggrHTAppendState() *AggrHTAppendState {
 	ret := new(AggrHTAppendState)
-	ret._htOffsets = NewFlatVector(bigint(), defaultVectorSize)
-	ret._hashSalts = NewFlatVector(smallint(), defaultVectorSize)
-	ret._groupCompareVector = NewSelectVector(defaultVectorSize)
-	ret._noMatchVector = NewSelectVector(defaultVectorSize)
-	ret._emptyVector = NewSelectVector(defaultVectorSize)
-	ret._newGroups = NewSelectVector(defaultVectorSize)
-	ret._addresses = NewVector(pointerType(), defaultVectorSize)
-	ret._groupChunk = &Chunk{}
+	ret._htOffsets = chunk.NewFlatVector(common.BigintType(), util.DefaultVectorSize)
+	ret._hashSalts = chunk.NewFlatVector(common.SmallintType(), util.DefaultVectorSize)
+	ret._groupCompareVector = chunk.NewSelectVector(util.DefaultVectorSize)
+	ret._noMatchVector = chunk.NewSelectVector(util.DefaultVectorSize)
+	ret._emptyVector = chunk.NewSelectVector(util.DefaultVectorSize)
+	ret._newGroups = chunk.NewSelectVector(util.DefaultVectorSize)
+	ret._addresses = chunk.NewVector2(common.PointerType(), util.DefaultVectorSize)
+	ret._groupChunk = &chunk.Chunk{}
 	return ret
 }
 
@@ -712,9 +714,9 @@ type RadixPartitionedHashTable struct {
 	_groupingSet     GroupingSet
 	_nullGroups      []int
 	_groupedAggrData *GroupedAggrData
-	_groupTypes      []LType
+	_groupTypes      []common.LType
 	_radixLimit      int
-	_groupingValues  []*Value
+	_groupingValues  []*chunk.Value
 	_finalizedHT     *GroupedAggrHashTable
 	_printHash       bool
 	_finalized       bool
@@ -738,11 +740,11 @@ func NewRadixPartitionedHashTable(
 	ret._radixLimit = 10000
 
 	if ret._groupingSet.empty() {
-		ret._groupTypes = append(ret._groupTypes, tinyint())
+		ret._groupTypes = append(ret._groupTypes, common.TinyintType())
 	}
 
 	for ent := range ret._groupingSet.ordered() {
-		assertFunc(ent < len(ret._groupedAggrData._groupTypes))
+		util.AssertFunc(ent < len(ret._groupedAggrData._groupTypes))
 		ret._groupTypes = append(ret._groupTypes,
 			ret._groupedAggrData._groupTypes[ent])
 	}
@@ -753,7 +755,7 @@ func NewRadixPartitionedHashTable(
 func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
 	groupFuncs := rpht._groupedAggrData._groupingFuncs
 	for _, group := range groupFuncs {
-		assertFunc(len(group) < 64)
+		util.AssertFunc(len(group) < 64)
 		for i, gval := range group {
 			groupingValue := int64(0)
 			if !rpht._groupingSet.find(gval) {
@@ -761,16 +763,16 @@ func (rpht *RadixPartitionedHashTable) SetGroupingValues() {
 				groupingValue += 1 << (len(group) - (i + 1))
 			}
 			rpht._groupingValues = append(rpht._groupingValues,
-				&Value{
-					_typ: bigint(),
-					_i64: groupingValue,
+				&chunk.Value{
+					Typ: common.BigintType(),
+					I64: groupingValue,
 				})
 		}
 
 	}
 }
 
-func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, childrenOutput *Chunk, filter []int) {
+func (rpht *RadixPartitionedHashTable) Sink(data, payload, childrenOutput *chunk.Chunk, filter []int) {
 	if rpht._finalizedHT == nil {
 		fmt.Println("init aggregate finalize ht")
 		//prepare aggr objs
@@ -781,17 +783,17 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, childrenOutput *Chun
 			rpht._groupedAggrData._payloadTypes,
 			rpht._groupedAggrData._childrenOutputTypes,
 			aggrObjs,
-			2*defaultVectorSize,
+			2*util.DefaultVectorSize,
 			storage.GBufferMgr,
 		)
 		rpht._finalizedHT._printHash = rpht._printHash
 	}
-	groupChunk := &Chunk{}
-	groupChunk.init(rpht._groupTypes, defaultVectorSize)
+	groupChunk := &chunk.Chunk{}
+	groupChunk.Init(rpht._groupTypes, util.DefaultVectorSize)
 	for i, idx := range rpht._groupingSet.ordered() {
-		groupChunk._data[i].reference(chunk._data[idx])
+		groupChunk.Data[i].Reference(data.Data[idx])
 	}
-	groupChunk.setCard(chunk.card())
+	groupChunk.SetCard(data.Card())
 	state := NewAggrHTAppendState()
 	rpht._finalizedHT.AddChunk2(
 		state,
@@ -802,17 +804,17 @@ func (rpht *RadixPartitionedHashTable) Sink(chunk, payload, childrenOutput *Chun
 	)
 }
 
-func (rpht *RadixPartitionedHashTable) FetchAggregates(groups, result *Chunk) {
-	groupChunk := &Chunk{}
-	groupChunk.init(rpht._groupTypes, defaultVectorSize)
+func (rpht *RadixPartitionedHashTable) FetchAggregates(groups, result *chunk.Chunk) {
+	groupChunk := &chunk.Chunk{}
+	groupChunk.Init(rpht._groupTypes, util.DefaultVectorSize)
 	for i, idx := range rpht._groupingSet.ordered() {
-		groupChunk._data[i].reference(groups._data[idx])
+		groupChunk.Data[i].Reference(groups.Data[idx])
 	}
-	groupChunk.setCard(groups.card())
+	groupChunk.SetCard(groups.Card())
 	rpht._finalizedHT.FetchAggregates(groups, result)
 }
 
-func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output, childrenOutput *Chunk) OperatorResult {
+func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output, childrenOutput *chunk.Chunk) OperatorResult {
 	if !state._init {
 		if rpht._finalizedHT == nil {
 			return Done
@@ -825,43 +827,43 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 		rpht._finalizedHT._dataCollection.InitScan(state)
 	}
 
-	scanTyps := make([]LType, 0)
+	scanTyps := make([]common.LType, 0)
 	//FIXME:
 	//groupby types + children output types +aggr return types
 	scanTyps = append(scanTyps, rpht._groupTypes...)
 	scanTyps = append(scanTyps, rpht._groupedAggrData._childrenOutputTypes...)
 	scanTyps = append(scanTyps, rpht._groupedAggrData._aggrReturnTypes...)
-	scanChunk := &Chunk{}
-	scanChunk.init(scanTyps, defaultVectorSize)
+	scanChunk := &chunk.Chunk{}
+	scanChunk.Init(scanTyps, util.DefaultVectorSize)
 	cnt := rpht._finalizedHT.Scan(state, scanChunk)
-	output.setCard(cnt)
+	output.SetCard(cnt)
 
 	for i, ent := range rpht._groupingSet.ordered() {
-		output._data[ent].reference(scanChunk._data[i])
+		output.Data[ent].Reference(scanChunk.Data[i])
 	}
 
 	for ent := range rpht._nullGroups {
-		output._data[ent].setPhyFormat(PF_CONST)
-		setNullInPhyFormatConst(output._data[ent], true)
+		output.Data[ent].SetPhyFormat(chunk.PF_CONST)
+		chunk.SetNullInPhyFormatConst(output.Data[ent], true)
 	}
 
-	assertFunc(rpht._groupingSet.count()+len(rpht._nullGroups) == rpht._groupedAggrData.GroupCount())
+	util.AssertFunc(rpht._groupingSet.count()+len(rpht._nullGroups) == rpht._groupedAggrData.GroupCount())
 	for i := 0; i < len(rpht._groupedAggrData._aggregates); i++ {
-		output._data[rpht._groupedAggrData.GroupCount()+i].reference(scanChunk._data[len(rpht._groupTypes)+len(rpht._groupedAggrData._childrenOutputTypes)+i])
+		output.Data[rpht._groupedAggrData.GroupCount()+i].Reference(scanChunk.Data[len(rpht._groupTypes)+len(rpht._groupedAggrData._childrenOutputTypes)+i])
 	}
 
-	assertFunc(len(rpht._groupedAggrData._groupingFuncs) == len(rpht._groupingValues))
+	util.AssertFunc(len(rpht._groupedAggrData._groupingFuncs) == len(rpht._groupingValues))
 	for i := 0; i < len(rpht._groupedAggrData._groupingFuncs); i++ {
-		output._data[rpht._groupedAggrData.GroupCount()+len(rpht._groupedAggrData._aggregates)+i].referenceValue(rpht._groupingValues[i])
+		output.Data[rpht._groupedAggrData.GroupCount()+len(rpht._groupedAggrData._aggregates)+i].ReferenceValue(rpht._groupingValues[i])
 	}
 
 	//split the children output chunk from the scan chunk
 	for i := 0; i < len(rpht._groupedAggrData._childrenOutputTypes); i++ {
-		childrenOutput._data[i].reference(scanChunk._data[len(rpht._groupTypes)+i])
+		childrenOutput.Data[i].Reference(scanChunk.Data[len(rpht._groupTypes)+i])
 	}
-	childrenOutput.setCard(cnt)
+	childrenOutput.SetCard(cnt)
 
-	if output.card() == 0 {
+	if output.Card() == 0 {
 		return Done
 	} else {
 		return haveMoreOutput
@@ -869,7 +871,7 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 }
 
 func (rpht *RadixPartitionedHashTable) Finalize() {
-	assertFunc(!rpht._finalized)
+	util.AssertFunc(!rpht._finalized)
 	rpht._finalized = true
 	rpht._finalizedHT.Finalize()
 }
@@ -892,7 +894,7 @@ func NewTupleDataScanState(colCnt int, prop TupleDataPinProperties) *TupleDataSc
 
 type GroupedAggrHashTable struct {
 	_layout       *TupleDataLayout
-	_payloadTypes []LType
+	_payloadTypes []common.LType
 
 	_capacity        int
 	_tupleSize       int
@@ -924,15 +926,15 @@ type AggrObject struct {
 	_childCount  int
 	_payloadSize int
 	_aggrType    AggrType
-	_retType     PhyType
+	_retType     common.PhyType
 }
 
 func NewAggrObject(aggr *Expr) *AggrObject {
-	assertFunc(aggr.SubTyp == ET_SubFunc)
+	util.AssertFunc(aggr.SubTyp == ET_SubFunc)
 	ret := new(AggrObject)
 	ret._childCount = len(aggr.Children)
 	ret._aggrType = aggr.AggrTyp
-	ret._retType = aggr.DataTyp.getInternalType()
+	ret._retType = aggr.DataTyp.GetInternalType()
 	ret._name = aggr.Svalue
 	ret._func = aggr.FunImpl
 	ret._payloadSize = ret._func._stateSize()
@@ -956,11 +958,11 @@ func NewAggrInputData() *AggrInputData {
 
 type AggrUnaryInput struct {
 	_input     *AggrInputData
-	_inputMask *Bitmap
+	_inputMask *util.Bitmap
 	_inputIdx  int
 }
 
-func NewAggrUnaryInput(input *AggrInputData, mask *Bitmap) *AggrUnaryInput {
+func NewAggrUnaryInput(input *AggrInputData, mask *util.Bitmap) *AggrUnaryInput {
 	return &AggrUnaryInput{
 		_input:     input,
 		_inputMask: mask,
@@ -969,12 +971,12 @@ func NewAggrUnaryInput(input *AggrInputData, mask *Bitmap) *AggrUnaryInput {
 }
 
 type AggrFinalizeData struct {
-	_result    *Vector
+	_result    *chunk.Vector
 	_input     *AggrInputData
 	_resultIdx int
 }
 
-func NewAggrFinalizeData(result *Vector, input *AggrInputData) *AggrFinalizeData {
+func NewAggrFinalizeData(result *chunk.Vector, input *AggrInputData) *AggrFinalizeData {
 	return &AggrFinalizeData{
 		_result: result,
 		_input:  input,
@@ -982,20 +984,20 @@ func NewAggrFinalizeData(result *Vector, input *AggrInputData) *AggrFinalizeData
 }
 
 func (data *AggrFinalizeData) ReturnNull() {
-	switch data._result.phyFormat() {
-	case PF_FLAT:
-		setNullInPhyFormatFlat(data._result, uint64(data._resultIdx), true)
-	case PF_CONST:
-		setNullInPhyFormatConst(data._result, true)
+	switch data._result.PhyFormat() {
+	case chunk.PF_FLAT:
+		chunk.SetNullInPhyFormatFlat(data._result, uint64(data._resultIdx), true)
+	case chunk.PF_CONST:
+		chunk.SetNullInPhyFormatConst(data._result, true)
 	default:
 		panic("usp")
 	}
 }
 
 func NewGroupedAggrHashTable(
-	groupTypes []LType,
-	payloadTypes []LType,
-	childrenOutputTypes []LType,
+	groupTypes []common.LType,
+	payloadTypes []common.LType,
+	childrenOutputTypes []common.LType,
 	aggrObjs []*AggrObject,
 	initCap int,
 	bufMgr *storage.BufferManager,
@@ -1003,7 +1005,7 @@ func NewGroupedAggrHashTable(
 	ret := new(GroupedAggrHashTable)
 	ret._bufMgr = bufMgr
 	//hash column in the end of tuple
-	groupTypes = append(groupTypes, hashType())
+	groupTypes = append(groupTypes, common.HashType())
 	ret._layout = NewTupleDataLayout(groupTypes, aggrObjs, childrenOutputTypes, true, true)
 	ret._payloadTypes = payloadTypes
 
@@ -1029,12 +1031,12 @@ func NewGroupedAggrHashTable(
 
 func (aht *GroupedAggrHashTable) AddChunk2(
 	state *AggrHTAppendState,
-	groups *Chunk,
-	payload *Chunk,
-	childrenOutput *Chunk,
+	groups *chunk.Chunk,
+	payload *chunk.Chunk,
+	childrenOutput *chunk.Chunk,
 	filter []int,
 ) int {
-	hashes := NewFlatVector(hashType(), defaultVectorSize)
+	hashes := chunk.NewFlatVector(common.HashType(), util.DefaultVectorSize)
 	groups.Hash(hashes)
 
 	//	hashes.print(groups.card())
@@ -1051,14 +1053,14 @@ func (aht *GroupedAggrHashTable) AddChunk2(
 
 func (aht *GroupedAggrHashTable) AddChunk(
 	state *AggrHTAppendState,
-	groups *Chunk,
-	groupHashes *Vector,
-	payload *Chunk,
-	childrenOutput *Chunk,
+	groups *chunk.Chunk,
+	groupHashes *chunk.Vector,
+	payload *chunk.Chunk,
+	childrenOutput *chunk.Chunk,
 	filter []int,
 ) int {
-	assertFunc(!aht._finalized)
-	if groups.card() == 0 {
+	util.AssertFunc(!aht._finalized)
+	if groups.Card() == 0 {
 		return 0
 	}
 
@@ -1070,7 +1072,7 @@ func (aht *GroupedAggrHashTable) AddChunk(
 		state._newGroups,
 		childrenOutput,
 	)
-	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.card())
+	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.Card())
 	//fmt.Println("address", "tcnt", groups.card(), "new group count", newGroupCount, "equal", groups.card() == newGroupCount)
 	//state._addresses.print(groups.card())
 
@@ -1079,19 +1081,19 @@ func (aht *GroupedAggrHashTable) AddChunk(
 	for i, aggr := range aht._layout._aggregates {
 		if filterIdx >= len(filter) || i < filter[filterIdx] {
 			payloadIdx += aggr._childCount
-			AddInPlace(state._addresses, int64(aggr._payloadSize), payload.card())
+			AddInPlace(state._addresses, int64(aggr._payloadSize), payload.Card())
 			continue
 		}
-		assertFunc(i == filter[filterIdx])
+		util.AssertFunc(i == filter[filterIdx])
 		UpdateStates(
 			aggr,
 			state._addresses,
 			payload,
 			payloadIdx,
-			payload.card(),
+			payload.Card(),
 		)
 		payloadIdx += aggr._childCount
-		AddInPlace(state._addresses, int64(aggr._payloadSize), payload.card())
+		AddInPlace(state._addresses, int64(aggr._payloadSize), payload.Card())
 		filterIdx++
 	}
 	return newGroupCount
@@ -1099,55 +1101,55 @@ func (aht *GroupedAggrHashTable) AddChunk(
 
 func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	state *AggrHTAppendState,
-	groups *Chunk,
-	groupHashes *Vector,
-	addresses *Vector,
-	newGroupsOut *SelectVector,
-	childrenOutput *Chunk,
+	groups *chunk.Chunk,
+	groupHashes *chunk.Vector,
+	addresses *chunk.Vector,
+	newGroupsOut *chunk.SelectVector,
+	childrenOutput *chunk.Chunk,
 ) int {
-	assertFunc(!aht._finalized)
-	assertFunc(groups.columnCount()+1 == aht._layout.columnCount())
-	assertFunc(groupHashes.typ().id == hashType().id)
-	assertFunc(state._htOffsets.phyFormat().isFlat())
-	assertFunc(state._htOffsets.typ().id == LTID_BIGINT)
-	assertFunc(addresses.typ().id == pointerType().id)
-	assertFunc(state._hashSalts.typ().id == LTID_SMALLINT)
+	util.AssertFunc(!aht._finalized)
+	util.AssertFunc(groups.ColumnCount()+1 == aht._layout.columnCount())
+	util.AssertFunc(groupHashes.Typ().Id == common.HashType().Id)
+	util.AssertFunc(state._htOffsets.PhyFormat().IsFlat())
+	util.AssertFunc(state._htOffsets.Typ().Id == common.LTID_BIGINT)
+	util.AssertFunc(addresses.Typ().Id == common.PointerType().Id)
+	util.AssertFunc(state._hashSalts.Typ().Id == common.LTID_SMALLINT)
 
 	//assertFunc(aht.Count()+groups.card() <= aht.MaxCap())
 	//resize if needed
-	if aht._capacity-aht.Count() <= groups.card() || aht.Count() > aht.ResizeThreshold() {
+	if aht._capacity-aht.Count() <= groups.Card() || aht.Count() > aht.ResizeThreshold() {
 		aht.Resize(aht._capacity * 2)
 	}
-	assertFunc(aht._capacity-aht.Count() >= groups.card())
-	groupHashes.flatten(groups.card())
-	groupHashesSlice := getSliceInPhyFormatFlat[uint64](groupHashes)
+	util.AssertFunc(aht._capacity-aht.Count() >= groups.Card())
+	groupHashes.Flatten(groups.Card())
+	groupHashesSlice := chunk.GetSliceInPhyFormatFlat[uint64](groupHashes)
 
-	addresses.flatten(groups.card())
-	addresessSlice := getSliceInPhyFormatFlat[unsafe.Pointer](addresses)
+	addresses.Flatten(groups.Card())
+	addresessSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](addresses)
 
-	htOffsetsPtr := getSliceInPhyFormatFlat[uint64](state._htOffsets)
-	hashSaltsPtr := getSliceInPhyFormatFlat[uint16](state._hashSalts)
-	for i := 0; i < groups.card(); i++ {
+	htOffsetsPtr := chunk.GetSliceInPhyFormatFlat[uint64](state._htOffsets)
+	hashSaltsPtr := chunk.GetSliceInPhyFormatFlat[uint16](state._hashSalts)
+	for i := 0; i < groups.Card(); i++ {
 		ele := groupHashesSlice[i]
-		assertFunc((ele & aht._bitmask) == (ele % uint64(aht._capacity)))
+		util.AssertFunc((ele & aht._bitmask) == (ele % uint64(aht._capacity)))
 		htOffsetsPtr[i] = ele & aht._bitmask
 		hashSaltsPtr[i] = uint16(ele >> aht._hashPrefixShift)
 	}
 
-	selVec := incrSelectVectorInPhyFormatFlat()
-	if state._groupChunk.columnCount() == 0 {
-		state._groupChunk.init(aht._layout.types(), defaultVectorSize)
+	selVec := chunk.IncrSelectVectorInPhyFormatFlat()
+	if state._groupChunk.ColumnCount() == 0 {
+		state._groupChunk.Init(aht._layout.types(), util.DefaultVectorSize)
 	}
 
-	assertFunc(state._groupChunk.columnCount() ==
+	util.AssertFunc(state._groupChunk.ColumnCount() ==
 		len(aht._layout.types()))
 
-	for i := 0; i < groups.columnCount(); i++ {
-		state._groupChunk._data[i].reference(groups._data[i])
+	for i := 0; i < groups.ColumnCount(); i++ {
+		state._groupChunk.Data[i].Reference(groups.Data[i])
 	}
 
-	state._groupChunk._data[groups.columnCount()].reference(groupHashes)
-	state._groupChunk.setCard(groups.card())
+	state._groupChunk.Data[groups.ColumnCount()].Reference(groupHashes)
+	state._groupChunk.SetCard(groups.Card())
 
 	//if state._chunkState == nil {
 	//prepare data structure holding incoming Chunk
@@ -1159,9 +1161,9 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	toUnifiedFormatForChildrenOutput(state._chunkState, childrenOutput)
 
 	if state._groupData == nil {
-		state._groupData = make([]*UnifiedFormat, state._groupChunk.columnCount())
-		for i := 0; i < state._groupChunk.columnCount(); i++ {
-			state._groupData[i] = &UnifiedFormat{}
+		state._groupData = make([]*chunk.UnifiedFormat, state._groupChunk.ColumnCount())
+		for i := 0; i < state._groupChunk.ColumnCount(); i++ {
+			state._groupData[i] = &chunk.UnifiedFormat{}
 		}
 	}
 
@@ -1169,16 +1171,16 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	getVectorData(state._chunkState, state._groupData)
 
 	newGroupCount := 0
-	remainingEntries := groups.card()
+	remainingEntries := groups.Card()
 	for remainingEntries > 0 {
 		newEntryCount := 0
 		needCompareCount := 0
 		noMatchCount := 0
 
 		//check the entry exists or nit
-		htEntrySlice := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
+		htEntrySlice := util.PointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
 		for i := 0; i < remainingEntries; i++ {
-			idx := selVec.getIndex(i)
+			idx := selVec.GetIndex(i)
 			htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 			if htEntry._pageNr == 0 {
 				//empty cell
@@ -1186,18 +1188,18 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				htEntry._pageNr = 1
 				htEntry._salt = uint16(groupHashesSlice[idx] >> aht._hashPrefixShift)
 
-				state._emptyVector.setIndex(newEntryCount, idx)
+				state._emptyVector.SetIndex(newEntryCount, idx)
 				newEntryCount++
 
-				newGroupsOut.setIndex(newGroupCount, idx)
+				newGroupsOut.SetIndex(newGroupCount, idx)
 				newGroupCount++
 			} else {
 				if htEntry._salt == hashSaltsPtr[idx] {
 					//salt equal. need compare again
-					state._groupCompareVector.setIndex(needCompareCount, idx)
+					state._groupCompareVector.SetIndex(needCompareCount, idx)
 					needCompareCount++
 				} else {
-					state._noMatchVector.setIndex(noMatchCount, idx)
+					state._noMatchVector.SetIndex(noMatchCount, idx)
 					noMatchCount++
 				}
 			}
@@ -1218,37 +1220,37 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 			InitStates(
 				aht._layout,
 				state._chunkState._rowLocations,
-				incrSelectVectorInPhyFormatFlat(),
+				chunk.IncrSelectVectorInPhyFormatFlat(),
 				newEntryCount)
 
 			//newly created block
 			var blockId int
-			if !empty(aht._payloadHdsPtrs) {
-				blockId = size(aht._payloadHdsPtrs) - 1
+			if !util.Empty(aht._payloadHdsPtrs) {
+				blockId = util.Size(aht._payloadHdsPtrs) - 1
 			}
 			aht.UpdateBlockPointers()
 			blockPtr := aht._payloadHdsPtrs[blockId]
 			blockEnd := util.PointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
 
 			//update htEntry & save address
-			rowLocations := getSliceInPhyFormatFlat[unsafe.Pointer](state._chunkState._rowLocations)
+			rowLocations := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](state._chunkState._rowLocations)
 			for j := 0; j < newEntryCount; j++ {
 				rowLoc := rowLocations[j]
-				if pointerLess(blockEnd, rowLoc) ||
-					pointerLess(rowLoc, blockPtr) {
+				if util.PointerLess(blockEnd, rowLoc) ||
+					util.PointerLess(rowLoc, blockPtr) {
 					blockId++
-					assertFunc(blockId < size(aht._payloadHdsPtrs))
+					util.AssertFunc(blockId < util.Size(aht._payloadHdsPtrs))
 					blockPtr = aht._payloadHdsPtrs[blockId]
 					blockEnd = util.PointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
 				}
-				assertFunc(
-					pointerLessEqual(blockPtr, rowLoc) &&
-						pointerLess(rowLoc, blockEnd))
-				assertFunc(pointerSub(rowLoc, blockPtr)%int64(aht._tupleSize) == 0)
-				idx := state._emptyVector.getIndex(j)
+				util.AssertFunc(
+					util.PointerLessEqual(blockPtr, rowLoc) &&
+						util.PointerLess(rowLoc, blockEnd))
+				util.AssertFunc(util.PointerSub(rowLoc, blockPtr)%int64(aht._tupleSize) == 0)
+				idx := state._emptyVector.GetIndex(j)
 				htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 				htEntry._pageNr = uint32(blockId + 1)
-				htEntry._pageOffset = uint16(pointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
+				htEntry._pageOffset = uint16(util.PointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
 				addresessSlice[idx] = rowLoc
 				//fmt.Println("new rowloc", rowLoc)
 			}
@@ -1257,11 +1259,11 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 		if needCompareCount > 0 {
 			//get address
 			for j := 0; j < needCompareCount; j++ {
-				idx := state._groupCompareVector.getIndex(j)
+				idx := state._groupCompareVector.GetIndex(j)
 				htEntry := &htEntrySlice[htOffsetsPtr[idx]]
 				pagePtr := aht._payloadHdsPtrs[htEntry._pageNr-1]
 				pageOffset := int(htEntry._pageOffset) * aht._tupleSize
-				addresessSlice[idx] = pointerAdd(pagePtr, pageOffset)
+				addresessSlice[idx] = util.PointerAdd(pagePtr, pageOffset)
 				//fmt.Println("old rowloc", addresessSlice[idx])
 			}
 
@@ -1279,7 +1281,7 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 		}
 
 		for i := 0; i < noMatchCount; i++ {
-			idx := state._noMatchVector.getIndex(i)
+			idx := state._noMatchVector.GetIndex(i)
 			htOffsetsPtr[idx]++
 			if htOffsetsPtr[idx] >= uint64(aht._capacity) {
 				htOffsetsPtr[idx] = 0
@@ -1293,38 +1295,38 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	return newGroupCount
 }
 
-func (aht *GroupedAggrHashTable) FetchAggregates(groups, result *Chunk) {
-	assertFunc(groups.columnCount()+1 == aht._layout.columnCount())
-	for i := 0; i < result.columnCount(); i++ {
-		assertFunc(result._data[i].typ().id == aht._payloadTypes[i].id)
+func (aht *GroupedAggrHashTable) FetchAggregates(groups, result *chunk.Chunk) {
+	util.AssertFunc(groups.ColumnCount()+1 == aht._layout.columnCount())
+	for i := 0; i < result.ColumnCount(); i++ {
+		util.AssertFunc(result.Data[i].Typ().Id == aht._payloadTypes[i].Id)
 	}
-	result.setCard(groups.card())
-	if groups.card() == 0 {
+	result.SetCard(groups.Card())
+	if groups.Card() == 0 {
 		return
 	}
 
 	appendState := NewAggrHTAppendState()
-	addresses := NewVector(pointerType(), defaultVectorSize)
-	hashes := NewFlatVector(hashType(), defaultVectorSize)
+	addresses := chunk.NewVector2(common.PointerType(), util.DefaultVectorSize)
+	hashes := chunk.NewFlatVector(common.HashType(), util.DefaultVectorSize)
 	groups.Hash(hashes)
 	if aht._printHash {
 		println("scan hash")
-		hashes.print(groups.card())
-		groups.print()
+		hashes.Print(groups.Card())
+		groups.Print()
 	}
 
 	newGroupCnt := aht.FindOrCreateGroups(appendState, groups, hashes, addresses, appendState._newGroups, nil)
-	assertFunc(newGroupCnt == 0)
+	util.AssertFunc(newGroupCnt == 0)
 
 	//fetch the agg
 	FinalizeStates(aht._layout, addresses, result, 0)
 	if aht._printHash {
 		fmt.Println("scan result")
-		result.print()
+		result.Print()
 	}
 }
 
-func (aht *GroupedAggrHashTable) Scan(state *TupleDataScanState, result *Chunk) int {
+func (aht *GroupedAggrHashTable) Scan(state *TupleDataScanState, result *chunk.Chunk) int {
 	//get groupby data
 	ret := aht._dataCollection.Scan(state, result)
 	if !ret {
@@ -1337,14 +1339,14 @@ func (aht *GroupedAggrHashTable) Scan(state *TupleDataScanState, result *Chunk) 
 	groupCols := aht._layout.columnCount() - 1 + aht._layout.childrenOutputCount()
 	FinalizeStates(aht._layout, state._chunkState._rowLocations, result, groupCols)
 
-	return result.card()
+	return result.Card()
 }
 
 func (aht *GroupedAggrHashTable) Resize(size int) {
-	assertFunc(!aht._finalized)
-	assertFunc(size >= defaultVectorSize)
-	assertFunc(isPowerOfTwo(uint64(size)))
-	assertFunc(size >= aht._capacity)
+	util.AssertFunc(!aht._finalized)
+	util.AssertFunc(size >= util.DefaultVectorSize)
+	util.AssertFunc(util.IsPowerOfTwo(uint64(size)))
+	util.AssertFunc(size >= aht._capacity)
 
 	//fmt.Println("resize from ", aht._capacity, "to", size)
 	aht._capacity = size
@@ -1354,16 +1356,16 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 		aht._hashesHdl = aht._bufMgr.Allocate(uint64(byteSize), true, nil)
 		aht._hashesHdlPtr = aht._hashesHdl.Ptr()
 	}
-	hashesArr := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
+	hashesArr := util.PointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
 	for i := 0; i < len(hashesArr); i++ {
 		hashesArr[i].clean()
 	}
 	if aht.Count() != 0 {
-		assertFunc(!empty(aht._payloadHdsPtrs))
+		util.AssertFunc(!util.Empty(aht._payloadHdsPtrs))
 		aht._dataCollection.checkDupAll()
 		blockId := 0
 		blockPtr := aht._payloadHdsPtrs[blockId]
-		blockEnt := pointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
+		blockEnt := util.PointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
 
 		iter := NewTupleDataChunkIterator2(
 			aht._dataCollection,
@@ -1375,22 +1377,22 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 			rowLocs := iter.GetRowLocations()
 			for i := 0; i < iter.GetCurrentChunkCount(); i++ {
 				rowLoc := rowLocs[i]
-				if pointerLess(blockEnt, rowLoc) ||
-					pointerLess(rowLoc, blockPtr) {
+				if util.PointerLess(blockEnt, rowLoc) ||
+					util.PointerLess(rowLoc, blockPtr) {
 					blockId++
-					assertFunc(blockId < len(aht._payloadHdsPtrs))
+					util.AssertFunc(blockId < len(aht._payloadHdsPtrs))
 					blockPtr = aht._payloadHdsPtrs[blockId]
-					blockEnt = pointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
+					blockEnt = util.PointerAdd(blockPtr, aht._tuplesPerBlock*aht._tupleSize)
 				}
 
-				assertFunc(
-					pointerLessEqual(blockPtr, rowLoc) &&
-						pointerLess(rowLoc, blockEnt))
-				assertFunc(pointerSub(rowLoc, blockPtr)%int64(aht._tupleSize) == 0)
+				util.AssertFunc(
+					util.PointerLessEqual(blockPtr, rowLoc) &&
+						util.PointerLess(rowLoc, blockEnt))
+				util.AssertFunc(util.PointerSub(rowLoc, blockPtr)%int64(aht._tupleSize) == 0)
 
-				hash := load[uint64](pointerAdd(rowLoc, aht._hashOffset))
-				assertFunc((hash & aht._bitmask) == (hash % uint64(aht._capacity)))
-				assertFunc((hash >> aht._hashPrefixShift) <= math.MaxUint16)
+				hash := util.Load[uint64](util.PointerAdd(rowLoc, aht._hashOffset))
+				util.AssertFunc((hash & aht._bitmask) == (hash % uint64(aht._capacity)))
+				util.AssertFunc((hash >> aht._hashPrefixShift) <= math.MaxUint16)
 				entIdx := hash & aht._bitmask
 				for hashesArr[entIdx]._pageNr > 0 {
 					entIdx++
@@ -1399,10 +1401,10 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 					}
 				}
 				htEnt := &hashesArr[entIdx]
-				assertFunc(htEnt._pageNr == 0)
+				util.AssertFunc(htEnt._pageNr == 0)
 				htEnt._salt = uint16(hash >> aht._hashPrefixShift)
 				htEnt._pageNr = uint32(1 + blockId)
-				htEnt._pageOffset = uint16(pointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
+				htEnt._pageOffset = uint16(util.PointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
 			}
 
 			next := iter.Next()
@@ -1416,22 +1418,22 @@ func (aht *GroupedAggrHashTable) Resize(size int) {
 }
 
 func (aht *GroupedAggrHashTable) Verify() {
-	hashesArr := pointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
+	hashesArr := util.PointerToSlice[aggrHTEntry](aht._hashesHdlPtr, aht._capacity)
 	count := 0
 	for i := 0; i < aht._capacity; i++ {
 		hEnt := hashesArr[i]
 		if hEnt._pageNr > 0 {
-			assertFunc(int(hEnt._pageOffset) < aht._tuplesPerBlock)
-			assertFunc(int(hEnt._pageNr) <= size(aht._payloadHdsPtrs))
-			ptr := pointerAdd(
+			util.AssertFunc(int(hEnt._pageOffset) < aht._tuplesPerBlock)
+			util.AssertFunc(int(hEnt._pageNr) <= util.Size(aht._payloadHdsPtrs))
+			ptr := util.PointerAdd(
 				aht._payloadHdsPtrs[hEnt._pageNr-1],
 				int(hEnt._pageOffset)*aht._tupleSize)
-			hash := load[uint64](pointerAdd(ptr, aht._hashOffset))
-			assertFunc(uint64(hEnt._salt) == (hash >> aht._hashPrefixShift))
+			hash := util.Load[uint64](util.PointerAdd(ptr, aht._hashOffset))
+			util.AssertFunc(uint64(hEnt._salt) == (hash >> aht._hashPrefixShift))
 			count++
 		}
 	}
-	assertFunc(count == aht.Count())
+	util.AssertFunc(count == aht.Count())
 }
 
 func (aht *GroupedAggrHashTable) Count() int {
@@ -1445,8 +1447,8 @@ func (aht *GroupedAggrHashTable) ResizeThreshold() int {
 func (aht *GroupedAggrHashTable) UpdateBlockPointers() {
 	for id, handle := range aht._pinState._rowHandles {
 		if len(aht._payloadHdsPtrs) == 0 ||
-			id > uint32(size(aht._payloadHdsPtrs))-1 {
-			need := id - uint32(size(aht._payloadHdsPtrs)) + 1
+			id > uint32(util.Size(aht._payloadHdsPtrs))-1 {
+			need := id - uint32(util.Size(aht._payloadHdsPtrs)) + 1
 			aht._payloadHdsPtrs = append(aht._payloadHdsPtrs,
 				make([]unsafe.Pointer, need)...)
 		}
@@ -1467,23 +1469,23 @@ func (aht *GroupedAggrHashTable) Finalize() {
 
 func InitStates(
 	layout *TupleDataLayout,
-	addresses *Vector,
-	sel *SelectVector,
+	addresses *chunk.Vector,
+	sel *chunk.SelectVector,
 	cnt int,
 ) {
 	if cnt == 0 {
 		return
 	}
 
-	pointers := getSliceInPhyFormatFlat[unsafe.Pointer](addresses)
+	pointers := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](addresses)
 	offsets := layout.offsets()
 	aggrIdx := layout.aggrIdx()
 
 	for _, aggr := range layout._aggregates {
 		for i := 0; i < cnt; i++ {
-			rowIdx := sel.getIndex(i)
+			rowIdx := sel.GetIndex(i)
 			row := pointers[rowIdx]
-			aggr._func._init(pointerAdd(row, offsets[aggrIdx]))
+			aggr._func._init(util.PointerAdd(row, offsets[aggrIdx]))
 		}
 		aggrIdx++
 	}
@@ -1491,15 +1493,15 @@ func InitStates(
 
 func UpdateStates(
 	aggr *AggrObject,
-	addresses *Vector,
-	payload *Chunk,
+	addresses *chunk.Vector,
+	payload *chunk.Chunk,
 	argIdx int,
 	cnt int,
 ) {
 	inputData := &AggrInputData{}
-	var input []*Vector
+	var input []*chunk.Vector
 	if aggr._childCount != 0 {
-		input = []*Vector{payload._data[argIdx]}
+		input = []*chunk.Vector{payload.Data[argIdx]}
 	}
 	aggr._func._update(
 		input,
