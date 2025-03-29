@@ -422,8 +422,8 @@ func (pmap planMap) get(set *JoinRelationSet) *JoinNode {
 }
 
 type JoinOrderOptimizer struct {
-	relations []*SingleJoinRelation
-	//table index -> relation number
+	relations []*SingleJoinRelation //relation node
+	//table index -> relation id
 	relationMapping map[uint64]uint64
 	filters         []*Expr
 	filterInfos     []*FilterInfo
