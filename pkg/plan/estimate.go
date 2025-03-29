@@ -142,7 +142,7 @@ type CardinalityEstimator struct {
 	// relation_id -> relation attributes
 	relationAttributes map[uint64]*RelationAttributes
 
-	//(relation_id, column_id) -> (original table, original column)
+	//(relation_id, column_id) -> (original table index, original column id)
 	relationColumnToOriginalColumn ColumnBindMap
 
 	relationsToTDoms []*RelationToTDom
