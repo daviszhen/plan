@@ -989,7 +989,3 @@ func (exec *ExprExec) execSelectOr(expr *Expr, eState *ExprState, sel *chunk.Sel
 ## project
 
 ## filter
-
-## limit
-
-# 小结
