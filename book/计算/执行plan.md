@@ -978,7 +978,184 @@ func (exec *ExprExec) execSelectOr(expr *Expr, eState *ExprState, sel *chunk.Sel
 
 ## agg
 
+在深入具体实现之前，先明确一些必要的概念：
+- group by表达式。select语句中提供的。
+- grouping set。常规的是仅对group by分组聚合。如果要在同一个select语句中，对多个不同子分组分别聚合，用grouping set表达。
 
+例子：
+```sql
+SELECT city, street_name, avg(income) 
+FROM addresses 
+GROUP BY GROUPING SETS ((city, street_name), (city), (street_name), ());
+```
+
+hash聚合整体实现阶段：
+- 初始化。设计数据结构和数据组织方式。
+- 填充数据。构建hash表阶段。存储数据。更新聚合函数中间值。
+- 用数据。hash表构建完成后。上层算子获取聚合函数的值。
+
+### 初始化
+
+先看需要哪些内容初始化agg算子。
+输入参数：
+- agg算子的输出值类型。
+- 聚合函数表达式。agg算子要计算的聚合函数。
+- group by表达式。分组的依据
+- grouping set。group by表达式的再分子分组。每个子分组的实现形式是一样的。
+- 子节点的输出值表达式。
+
+
+agg算子复杂，涉及多个数据结构，容易弄混。初始化过程分为多个层次。需要按层次理解关联的数据结构和初始化过程。
+
+agg管理结构的层次：第一、二层为逻辑结构。第三层为物理结构。
+- 第一层：HashAggr。agg最顶层结构。管理一个agg算子的所有内容。一个plan里面有多个agg算子，会有多个HashAggr对象。
+- 第二层：相关表达式和存储方式
+	- 全局GroupedAggrData。在整个aggr算子中共享。
+		- group by表达式 及其类型
+		- agg表达式及其参数类型，返回值类型。
+		- 子节点输出表达式。
+	- DistinctAggrCollectionInfo。distinct聚合函数信息。在整个aggr算子中共享。
+		- distinct聚合表达式的index。
+	- HashAggrGroupingData。每个grouping set关联的聚合结果
+		- RadixPartitionedHashTable。聚合结果包装层。
+			- GroupedAggrHashTable。存储聚合结果
+		- DistinctAggrData。为每个distinct聚合函数单独存储数据。
+			- GroupedAggrData。每个distinct聚合函数关联的groupby,agg,子节点表达式。
+			- RadixPartitionedHashTable。每个distinct聚合函数的聚合结果
+- 第三层：用行层存储聚合结果
+	- GroupedAggrHashTable 存储聚合结果。
+		- TupleDataCollection。列存转行存存储。
+			- TupleDataLayout。行存的存储格式。
+			- TupleDataSegment。行存的实际数据block地址。
+		- 哈希表。存储的数据的blockid和block的位置。
+
+关键的数据结构：
+- HashAggr
+- GroupedAggrData
+- DistinctAggrCollectionInfo
+- HashAggrGroupingData
+- RadixPartitionedHashTable
+- GroupedAggrHashTable
+- TupleDataCollection
+- TupleDataLayout
+- TupleDataSegment
+- DistinctAggrData
+
+agg算子的初始化实质是构建上述三层结构的关联的数据结构对象。具体每个数据结构有哪些字段，字段的意义，在对agg算子处理数据的过程中来介绍。
+
+
+### 输入数据
+
+整体过程：
+- 从子节点读取一批数据。
+- 数据预处理。计算一些表达式，转化成agg算子需要的输入数据。
+- 如果有distinct。数据先进入distinct的逻辑。
+- 数据进入hash聚合逻辑。
+
+第一步简单。重点介绍后面的环节。
+
+#### 数据预处理
+
+输入：
+- 子节点的输出数据。
+
+输出数据的组织形式，有很多列，分为几段：
+- 第一段：group by表达式的值。计算每个group by表达式，得出值。
+- 第二段：每个聚合函数输入参数表达式的值。计算每个聚合函数输入参数表达式，得出值。
+- 第三段：子节点的输出数据。复制子节点的输出数据。
+
+输出数据组织成一个chunk，每个vector对应上面的一列数据。
+```go
+
+group by 0,...,aggr 0 param 0,...,child ouput 0,....
+
+```
+
+#### hash聚合逻辑
+
+聚合逻辑的数据输入入口：
+```go
+func (haggr *HashAggr) Sink(data *chunk.Chunk) {
+	//准备数据
+	...
+	//处理distinct
+	if haggr._distinctCollectionInfo != nil {
+		haggr.SinkDistinct(
+			data, 
+			childrenOutput)
+	}
+
+	//处理各个grouping set
+	for _, grouping := range haggr._groupings {	
+		grouping._tableData.Sink(
+			data, 
+			payload, 
+			childrenOutput, 
+			haggr._nonDistinctFilter)
+	}
+}
+```
+
+
+内部分为三个部分：
+- 准备数据。从输入chunk中分离出数据（目前的处理方式不好，有些冗余）
+	- payload。聚合函数参数表达式的值。
+	- childrenOutput。子节点的输出数据。
+- 处理distinct。下一节再讲
+- 处理每个grouping set 的聚合。数据经过几层接口进入聚合逻辑。
+	- RadixPartitionedHashTable.Sink。
+		- 第一次进入时，初始化哈希表和物理组织结构。
+		- 分离group by 表达式的值。
+		- GroupedAggrHashTable.AddChunk2。
+			- 计算group by表达式的值的哈希值。一行值算一个哈希值。因为要按group by表达式的值分组。
+			- GroupedAggrHashTable.AddChunk。
+				- GroupedAggrHashTable.FindOrCreateGroups。按group by表达式的值进行分组。
+				- UpdateStates。更新每个聚合函数的中间状态。
+
+重点介绍数据分组和更新中间状态。
+##### 数据分组
+`FindOrCreateGroups`完成数据分组功能。
+
+参数：
+- groups。group by 表达式的值
+- groupHashes。group by表达式的值的哈希值
+- addresses。函数返回后，每个组的首地址。
+- newGroupsOut。产生的新组。
+- childrenOutput。子节点的输出数据。
+
+整体过程：
+- 哈希表的扩容（可能）。线性探测法解决冲突。后面会单独讲哈希表的组织方式。
+- 从group by哈希值提取。
+	- offset。哈希表桶号。`offset = hash % capacity`
+	- salt。哈希值的前缀。用于快速判断。`salt = hash >> _hashPrefixShift`。\
+- 复合输入数据：作为后续处理的输入。
+	- group by 表达式的值。
+	- group by hash值。
+	- childrenOutput。
+	- 复合数据转为UnifiedFormat。方便后续处理。
+- 分组逻辑：线性探测法，可能需要多轮扫哈希表。
+	- 每轮的逻辑
+		- 探测哈希表。有三种结果：
+			- 新组。
+			- salt值相同。需要进一步比较分组值。仅salt值相同，不能完全断定分组值也相同。
+			- 没有匹配。由于是线性探测法，不能立即说此值不存在。要移动到下一个位置继续探测。
+		- 对`新组`的处理：
+			- TODO：
+		- 对`需要进一步比较分组值`的处理：
+			- TODO：
+		- 对`没有匹配`的处理：
+			- TODO：
+
+
+##### 更新中间状态
+UpdateStates负责更新聚合函数的中间状态。
+
+#### distinct逻辑
+
+
+
+
+### 取聚合结果
 
 ## order
 
