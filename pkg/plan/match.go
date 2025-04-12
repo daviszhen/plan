@@ -286,9 +286,6 @@ func TemplatedMatchType[T any](
 			isNull := !util.RowIsValidInEntry(mask.GetEntry(entryIdx), idxInEntry)
 			colIdx := col.Sel.GetIndex(idx)
 			val := util.Load[T](util.PointerAdd(ptrs[idx], colOffset))
-			//if colOffset == 33 {
-
-			//}
 			if !isNull && cmp.operation(&dataSlice[colIdx], &val) {
 				sel.SetIndex(matchCnt, idx)
 				matchCnt++
