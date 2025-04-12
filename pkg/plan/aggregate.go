@@ -1038,9 +1038,6 @@ func (aht *GroupedAggrHashTable) AddChunk2(
 ) int {
 	hashes := chunk.NewFlatVector(common.HashType(), util.DefaultVectorSize)
 	groups.Hash(hashes)
-
-	//	hashes.print(groups.card())
-	//}
 	return aht.AddChunk(
 		state,
 		groups,
@@ -1073,8 +1070,6 @@ func (aht *GroupedAggrHashTable) AddChunk(
 		childrenOutput,
 	)
 	AddInPlace(state._addresses, int64(aht._layout.aggrOffset()), payload.Card())
-	//fmt.Println("address", "tcnt", groups.card(), "new group count", newGroupCount, "equal", groups.card() == newGroupCount)
-	//state._addresses.print(groups.card())
 
 	filterIdx := 0
 	payloadIdx := 0
@@ -1151,10 +1146,8 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 	state._groupChunk.Data[groups.ColumnCount()].Reference(groupHashes)
 	state._groupChunk.SetCard(groups.Card())
 
-	//if state._chunkState == nil {
 	//prepare data structure holding incoming Chunk
 	state._chunkState = NewTupleDataChunkState(aht._layout.columnCount(), aht._layout.childrenOutputCount())
-	//}
 
 	//groupChunk converted into chunkstate.data unified format
 	toUnifiedFormat(state._chunkState, state._groupChunk)
@@ -1252,7 +1245,6 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				htEntry._pageNr = uint32(blockId + 1)
 				htEntry._pageOffset = uint16(util.PointerSub(rowLoc, blockPtr) / int64(aht._tupleSize))
 				addresessSlice[idx] = rowLoc
-				//fmt.Println("new rowloc", rowLoc)
 			}
 		}
 
@@ -1264,7 +1256,6 @@ func (aht *GroupedAggrHashTable) FindOrCreateGroups(
 				pagePtr := aht._payloadHdsPtrs[htEntry._pageNr-1]
 				pageOffset := int(htEntry._pageOffset) * aht._tupleSize
 				addresessSlice[idx] = util.PointerAdd(pagePtr, pageOffset)
-				//fmt.Println("old rowloc", addresessSlice[idx])
 			}
 
 			Match(
