@@ -1201,7 +1201,6 @@ func Scatter(
 	}
 
 	for colNo := 0; colNo < len(types); colNo++ {
-		//vec := columns.Data[colNo]
 		col := colData[colNo]
 		colOffset := offsets[colNo]
 		switch types[colNo].GetInternalType() {

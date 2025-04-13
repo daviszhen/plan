@@ -1148,10 +1148,6 @@ func (run *Runner) orderExec(output *chunk.Chunk, state *OperatorState) (Operato
 			cnt += key.Card()
 			util.AssertFunc(key.Card() == payload.Card())
 
-			//key.print()
-
-			//payload.print()
-
 			run.localSort.SinkChunk(key, payload)
 		}
 		fmt.Println("total count", cnt)
