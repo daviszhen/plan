@@ -2681,6 +2681,749 @@ func TupleDataTemplatedGather[T any](
 一批输入数据会算出order by表达式的值和输出表达式的值（payload）。
 order算子实质是依据order by表达式的值，对payload进行排序。
 
+执行过程：
+- 输入数据
+	- 计算order by表达式的值和payload
+	- 列转行。以行格式存储
+- 排序
+	- 内存排序。暂时不涉及外部排序
+	- reorder。按排序结果，对非定长字段和payload重排列
+- 读排序结果：sort算子的payload
+	- 从行存中读结果
+
+### 初始化
+
+参数：
+- order by表达式。
+- output 表达式。即payload
+
+层次管理数据结构：从逻辑层到物理层
+- 顶层：LocalSort。order算子管理结构。
+- 中层：组织数据块。
+	- RowDataCollection。多个block。存储输入数据，行存结构
+		- RowDataBlock。单个block
+	- SortedBlock 排序内存块。
+		- SortedData 多个block
+			- RowDataBlock
+	- PayloadScanner 读排序结果
+		- RowDataCollectionScanner 读多个block
+			- RowDataCollection
+- 物理层：
+	- SortLayout。排序键的行存组织方式。
+	- RowLayout。非定长字段，payload的行存组织方式。
+	- RowDataBlock。单个block。entry个数，容量。
+
+按阶段分：
+- 输入数据阶段：
+	- RowDataCollection。多个block。entry个数。
+- 排序阶段：排序键的内存是单独的。
+	- SortedBlock 排序键内存块。
+		- SortedData 多个block
+- 读排序结果阶段：
+	- PayloadScanner 读排序结果
+		- RowDataCollectionScanner 读多个block
+
+#### 排序键行存结构
+SortLayout定义order by表达式值的行存结构。规定的每行长度一定是定长的。非定长部分一定存储在堆中。
+
+两部分构成：定长部分+非定长部分
+- 定长部分。字节数固定。定长字段+非定长字段的固定长度prefix
+- 非定长部分。字节数不定。单独行存结构。单独block存储。与定长部分的block分开。
+
+从每个order by表达式中收集的信息：
+- `_orderTypes`. 排序类型。asc,desc
+- `_orderByNullTypes`. NULL值排序类型。默认是NULL值排前面
+- `_logicalTypes`. 数据类型
+- `_constantSize` . 是否是定长字段
+- `_hasNull` . 是否有null值。
+- `_columnSizes` . 列size。null byte（NULL字段）+字段size
+- `_prefixLengths`. 前缀长度。varchar类型。在排序键中只存前缀。
+
+内存形式：
+```go
+|null byte, col0|...|null by,prefix|...|null byte,colN-1|
+```
+
+SortLayout除了上述信息外，还有整体信息：
+- `_allConstant`. 是否全是定长字段。
+- `_comparisonSize`。参与比较的字节数。
+- `_entrySize`. entry长度。entry长度 = `_comparisonSize` + 行索引size(4字节)。
+- `_blobLayout` 非定长字段的行存组织方式。由RowLayout表示。
+
+#### 通用行存结构
+RowLayout定义的行存结构服务payload，排序键中非定长字段。规定的每行长度一定是定长的。非定长部分一定存储在堆中。
+
+
+内存形式：
+```
+|null bitmap|heap ptr offset|col 0|...|col i heap ptr|...|col n-1|
+```
+
+
+### 输入数据
+
+数据列转行后，会分成三部分：
+- 排序键的定长部分。来自order by表达式。
+- 排序键的非定长部分。来自order by表达式。
+- payload。
+
+三部分数据都是用RowDataCollection存储。
+- 排序键的定长部分。一个RowDataCollection对象。长度一定是固定size。
+- 排序键的非定长部分。两个RowDataCollection对象。一个放堆指针，固定size的行。一个放变长字段值。
+- payload。两个RowDataCollection对象。一个放堆指针，固定size的行。一个放变长字段值。
+
+输入阶段有5个RowDataCollection对象。
+
+输入过程是将数据转换成这三部分。
+
+过程：
+- 计算order by表达式的值和payload
+- 分配内存块
+- 列转行
+	- 排序键的定长部分 
+	- 排序键的非定长部分
+	- payload
+
+函数关系：
+- LocalSort.SinkChunk 输入数据入口
+    - RowDataCollection.Build 分配内存
+    - RadixScatter 转换排序键的定长部分
+    - Scatter  转换排序键的非定长部分和payload
+
+```go
+func (ls *LocalSort) SinkChunk(sort, payload *chunk.Chunk) {
+    dataPtrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](ls._addresses)
+    
+    //为排序键的定长部分 分配空间
+    ls._radixSortingData.Build(sort.Card(), dataPtrs, nil, chunk.IncrSelectVectorInPhyFormatFlat())
+    
+    //转换排序键的定长部分
+    for sortCol := 0; sortCol < sort.ColumnCount(); sortCol++ {
+        ...
+        //copy data from input to the block
+        //only copy prefix for varchar
+        RadixScatter(
+          ...
+        )
+    }
+    
+    //排序键的非定长部分
+    if !ls._sortLayout._allConstant {
+        ...
+        //分配空间
+        ls._blobSortingData.Build(blobChunk.Card(), dataPtrs, nil, chunk.IncrSelectVectorInPhyFormatFlat())
+        ...
+        //转换
+        Scatter(
+        ...    
+        )
+    }
+    //payload
+    //分配空间
+    ls._payloadData.Build(payload.Card(), dataPtrs, nil, chunk.IncrSelectVectorInPhyFormatFlat())
+    ...    
+    //转换
+    Scatter(
+    ...
+    )
+
+}
+```
+
+#### 分配内存块
+
+分配block和entry的首地址。
+
+RowDataCollection：组织多个block。
+- RowDataBlock 单个block
+
+RowDataCollection的字段
+- `_count` entry个数
+- `_blockCapacity` 每个block中entry个数
+- `_entrySize` entry字节数
+- `_blocks` 分配的内存block
+
+RowDataBlock的字段
+- `_ptr` 内存地址
+- `_capacity` block中entry个数
+- `_entrySize` entry字节数
+- `_count` entry个数
+- `_byteOffset` 变成entry的写入位置
+
+分配过程：
+- 分配block
+	- 如果当前block空间足够，分配entry空间
+	- 如果当前block空间不够，分配新的block。并重复上一步。
+	- 直到所有行的block都确定。
+- 计算entry地址
+	- 遍历分配的block。计算block上每个entry的首地址
+
+
+函数关系：
+- RowDataCollection.Build 入口。分配内存，拿到每个entry的地址
+	- RowDataCollection.CreateBlock 分配全新block
+	- RowDataCollection.AppendToBlock 在block上分配连续entry空间。
+
+这几个函数实现不复杂，不再细说。
+
+#### 转换排序键的定长部分 
+
+处理过程，对order by表达式的值：
+- 对每列vector
+	- 对每行：函数RadixScatter
+		- 定序编码： 函数EncodeData/EncodeStringDataPrefix
+
+函数关系：
+- RadixScatter 入口
+	- TemplatedRadixScatter 转换定长字段
+		- EncodeData 定长字段定序编码
+	- RadixScatterStringVector 转换字符串
+		- EncodeStringDataPrefix 字符串定序编码
+
+```go
+func RadixScatter(
+	v vector,
+	...
+	keyLocs []pointer,
+	...){
+	switch v.Typ().GetInternalType() {
+	case common.INT32:
+		TemplatedRadixScatter[int32](
+		...
+		keyLocs,
+		...
+		int32Encoder{},
+		)
+	
+	case common.VARCHAR:
+		RadixScatterStringVector(
+		...
+		keyLocs,
+		...
+		)
+	...
+	}
+}
+
+```
+
+**函数TemplatedRadixScatter**：
+
+对定长字段的每行定序编码。
+
+要解决的问题：
+- NULL值编码和顺序。默认NULL值排在前。
+- NULL值存储。1个byte，排在字段编码前。
+- 字段编码。编码后的二进制串保留值的有序性。
+- asc/desc。升序/降序
+
+在字段编码前，加1个byte空间表示NULL.
+如果NULL值要排在非NULL值前面，NULL值的null byte = 0，非NULL值的null byte = 1。
+
+```text
+...| null byte| encoded field |...
+```
+
+定序编码接口：
+```go
+type Encoder[T any] interface {
+	EncodeData(unsafe.Pointer, *T)
+	TypeSize() int
+}
+```
+
+int32的编码实现：
+例如：value1 = 0x12345678, value2 = 0x12345679. value1 < value2
+BSWAP32(value1) => 0x78563412 => FlipSign =>0xF8563412
+BSWAP32(value2) =>0x79563412 => FlipSign =>0xF9563412
+在二进制上，value1 < value2 (0xF8563412 < 0xF9563412)
+
+```go
+func (i int32Encoder) EncodeData(ptr unsafe.Pointer, value *int32) {
+	util.Store[uint32](BSWAP32(uint32(*value)), ptr)
+	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
+}
+
+func BSWAP32(x uint32) uint32 {
+	return 
+	((x & 0xff000000) >> 24) | 
+	((x & 0x00ff0000) >> 8) | 
+	((x & 0x0000ff00) << 8) | 
+	((x & 0x000000ff) << 24)
+}
+
+func FlipSign(b uint8) uint8 {
+	return b ^ 128	
+}
+```
+
+如果desc 为true，降序排列。将编码后的二进制串取反即可。
+例如，上面的例子。
+0xF8563412 =>取反=> 0x07A9CBED
+0xF9563412 =>取反=> 0x06A9CBED
+在二进制上，value1 > value2 (0x07A9CBED >0x06A9CBED)。恰好与数值顺序相反。
+
+再看函数实现，
+- 对每行
+	- 确定null byte值。
+	- 编码
+	- 如果desc，编码值取反
+```go
+func TemplatedRadixScatter[T any](
+	vdata *chunk.UnifiedFormat,
+	...
+	keyLocs []unsafe.Pointer,
+	desc bool,
+	hasNull bool,
+	nullsFirst bool,
+	...
+	enc Encoder[T],
+	) {
+	//字段有null值
+	if hasNull {
+		mask := vdata.Mask
+		valid := byte(0)
+		if nullsFirst {
+			valid = 1
+		}
+		invalid := 1 - valid
+		//对每行
+		for i := 0; i < addCount; i++ {
+			idx := sel.GetIndex(i)
+			srcIdx := vdata.Sel.GetIndex(idx) + offset
+			if mask.RowIsValid(uint64(srcIdx)) {
+				//not null
+				//first byte
+				util.Store[byte](valid, keyLocs[i])
+				//编码
+				enc.EncodeData(util.PointerAdd(keyLocs[i], 1), &srcSlice[srcIdx])
+				//desc , invert bits
+				if desc {
+					for s := 1; s < enc.TypeSize()+1; s++ {
+						util.InvertBits(keyLocs[i], s)
+					}
+				}
+			
+			} else {
+				util.Store[byte](invalid, keyLocs[i])
+				util.Memset(util.PointerAdd(keyLocs[i], 1), 0, enc.TypeSize())
+			}
+			
+			keyLocs[i] = util.PointerAdd(keyLocs[i], 1+enc.TypeSize())
+		}
+		
+	} 	
+	...
+}
+
+```
+
+**函数RadixScatterStringVector**：
+
+对字符串的每行定序编码。
+
+对NULL值和desc的处理与上面的相同。区别在字符串的定序编码。剩余的处理也相同，实现代码就再讲了
+
+字符串的定序编码。
+- 最多赋值prefixLen个字节的前缀。
+- 不够prefixLen的部分填0
+
+```go
+func EncodeStringDataPrefix(
+	dataPtr unsafe.Pointer,
+	value *common.String,
+	prefixLen int) {
+	l := value.Length()
+	util.PointerCopy(dataPtr, value.DataPtr(), min(l, prefixLen))
+	if l < prefixLen {
+		util.Memset(util.PointerAdd(dataPtr, l), 0, prefixLen-l)
+	}
+}
+```
+
+#### 转换排序键的非定长部分和payload
+
+这两块是同一套逻辑。
+每块都有两个RowDataCollection对象。一个放堆指针，固定size的行。一个放变长字段值。
+
+两个RowDataCollection对象关系：
+```text
+对象1，固定size的行:
+
+	|null bitmap|heap ptr offset|col 0|...|col i heap ptr|...|col n-1|
+                    |						|
+					|						|
+|--------------------                       |
+|                                           |
+|                                  |--------|
+|	对像2，变长字段值，堆空间：         |
+|                                 \|/
+|--->|var len field |...|var len field i|
+
+```
+
+过程：
+- 分配变长字段的堆空间
+    - 计算每行所有变长字段空间总size，即每行堆空间size
+    - 分配堆空间。准备对象2
+    - 记录每行堆空间首地址。将对象2每行堆空间首地址记录到对象1 heap ptr offset处。组成上图关系
+- 列转行
+    - 对每列vector
+    	- 对每行：函数TemplatedScatter/ScatterStringVector
+    		- 填充字段 
+
+函数关系：
+- Scatter 入口
+    - TemplatedScatter 转换定长字段
+    - ScatterStringVector 转换字符串
+
+```go
+func Scatter(
+    ...
+    ) {
+    ...
+    //compute the entry size of the variable size columns
+    dataLocs := make([]unsafe.Pointer, util.DefaultVectorSize)
+    if !layout.AllConstant() {
+        entrySizes := make([]int, util.DefaultVectorSize)
+        util.Fill(entrySizes, count, common.Int32Size)
+        //计算变长字段 堆空间size
+        for colNo := 0; colNo < len(types); colNo++ {
+            if types[colNo].GetInternalType().IsConstant() {
+                continue
+            }
+            ...
+            ComputeStringEntrySizes(col, entrySizes, sel, count, 0)
+        }
+        
+        //分配堆空间
+        stringHeap.Build(count, dataLocs, entrySizes, chunk.IncrSelectVectorInPhyFormatFlat())
+        
+        //将堆空间指针存储到dataLocs中，关联对象2和对象1
+        heapPointerOffset := layout.GetHeapOffset()
+        for i := 0; i < count; i++ {
+            rowIdx := sel.GetIndex(i)
+            rowPtr := ptrs[rowIdx]
+            util.Store[unsafe.Pointer](dataLocs[i], util.PointerAdd(rowPtr, heapPointerOffset))
+            util.Store[uint32](uint32(entrySizes[i]), dataLocs[i])
+            dataLocs[i] = util.PointerAdd(dataLocs[i], common.Int32Size)
+        }
+    }
+    
+      
+    //转换每列
+    for colNo := 0; colNo < len(types); colNo++ {
+        col := colData[colNo]
+        colOffset := offsets[colNo]
+        switch types[colNo].GetInternalType() {
+        
+        case common.INT32:    
+            TemplatedScatter[int32](
+            ...
+            )
+        case common.VARCHAR:
+            ScatterStringVector(
+            ...
+            )
+        ...
+        }
+    }
+
+}
+```
+
+**函数TemplatedScatter**:
+
+对每行，从vector取字段值，填到对象1的行中。不会存到对象2中。
+```go
+  
+
+func TemplatedScatter[T any](
+...
+) {
+    data := chunk.GetSliceInPhyFormatUnifiedFormat[T](col)
+    ptrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
+    ...
+    //填每行
+    for i := 0; i < count; i++ {
+        idx := sel.GetIndex(i) 
+        colIdx := col.Sel.GetIndex(idx)
+        rowPtr := ptrs[idx]
+        util.Store[T](data[colIdx], util.PointerAdd(rowPtr, colOffset))
+    }
+}
+```
+
+**函数ScatterStringVector**：
+
+对每行，从vector取字段值，填到对象2的行中。再将其在对象2中的地址，存到对象1中。构成上面的两者关系图。
+
+```go
+func ScatterStringVector(
+...
+) {
+    strSlice := chunk.GetSliceInPhyFormatUnifiedFormat[common.String](col) 
+    ptrSlice := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](rows)
+
+    nullStr := chunk.StringScatterOp{}.NullValue()    
+    for i := 0; i < count; i++ {
+        ...
+        str := strSlice[colIdx]
+        newStr := common.String{
+            Len: str.Length(),
+            Data: strLocs[i],
+        }
+        
+        //copy varchar data from input chunk to
+        //the location on the string heap
+        util.PointerCopy(newStr.Data, str.DataPtr(), str.Length())
+        
+        //move strLocs[i] to the next position
+        strLocs[i] = util.PointerAdd(strLocs[i], str.Length())
+
+        //store new String obj to the row in the blob sort block        
+        util.Store[common.String](newStr, util.PointerAdd(rowPtr, colOffset))
+    }
+}
+```
+
+### 排序
+
+过程：
+- 分配排序内存。排序内存是大块连续内存。不同于存储输入数据的内存。
+    - 排序键的定长部分
+    - 排序键的非定长部分
+    - payload
+- 排序
+    - 多维排序方案
+        - 第一维：按列分组
+        - 第二维：按Tie分行
+        - 第三维：排序算法
+- 重排列
+    - 重排列排序键的非定长部分
+    - 重排列payload
+
+#### 分配排序内存
+
+为三部分数据，准备排序内存。不包括堆内存。
+- 排序键的定长部分
+- 排序键的非定长部分
+- payload
+
+三部分做法一致。函数ConcatenateBlocks
+- 分配足够大的内存块。能装下全部的entry
+- 从输入数据的block中将数据复制到排序内存
+
+函数ConcatenateBlocks的实现清晰：分配内存，复制内存。不细讲。
+
+#### 排序
+
+排序方案的层次：
+- 逻辑层：组织方式
+    - 按列分组。竖切
+        - 排序键的定长部分
+    - 按Tie分行。横切
+        - 排序键的非定长部分
+- 物理层：数据搬运
+    - 选择合适的排序算法
+##### 逻辑层
+
+函数SortInMemory完成逻辑层的工作。
+
+函数关系：部分函数会在后面介绍
+- SortInMemory
+    - RadixSort 排序算法
+    - SubSortTiedTuples 借助Tie，对排序键继续排序
+    - ComputeTies 计算tie
+    - AnyTies 任一个Tie为true，结果为true
+    - SortTiedBlobs 借助Tie，对不定长字段继续排序。
+
+```go
+func (ls *LocalSort) SortInMemory() {
+
+    ...
+    dataPtr := lastBlock._ptr
+    //locate to the addr of the row index
+    idxPtr := util.PointerAdd(dataPtr, ls._sortLayout._comparisonSize)
+    
+    //给每行分配序号
+    for i := 0; i < count; i++ {
+        util.Store[uint32](uint32(i), idxPtr)
+        idxPtr = util.PointerAdd(idxPtr, ls._sortLayout._entrySize)
+    }
+
+  
+
+    //radix sort
+    sortingSize := 0//组k的字节数
+    colOffset := 0//组k的开始位置
+    var ties []bool
+    containsString := false
+    for i := 0; i < ls._sortLayout._columnCount; i++ {
+        //组k的字节数
+        sortingSize += ls._sortLayout._columnSizes[i]
+        containsString = containsString ||
+        ls._sortLayout._logicalTypes[i].GetInternalType().IsVarchar()
+        //确定组k
+        if ls._sortLayout._constantSize[i] && i < ls._sortLayout._columnCount-1 {
+            //util a var len column or the last column
+            continue
+        }
+
+        if ties == nil {            
+            //first sort
+            RadixSort(
+            ...
+            )
+            //初始化tie
+            ties = make([]bool, count)
+            util.Fill[bool](ties, count-1, true)
+            ties[count-1] = false
+        } else {
+            //在组k上，借助Tie，继续排序
+            //sort tied tuples        
+            SubSortTiedTuples(
+            ...
+            )
+        
+        }
+        
+
+        containsString = false
+        //所有列都排序完了，排序结束。不用再关系Tie了
+        if ls._sortLayout._constantSize[i] &&
+            i == ls._sortLayout._columnCount-1 {
+            //all columns are sorted
+            //no ties to break due to
+            //last column is constant size
+            break
+        
+        }
+        
+          
+        //计算tie
+        ComputeTies(
+            ...
+            ties,
+            ...
+            )
+        //Tie值全为false
+        if !AnyTies(ties, count) {
+            //no ties, stop sorting
+            break
+        }
+        
+          
+        //不定长字段
+        if !ls._sortLayout._constantSize[i] {
+            //在组k上，借助Tie，对不定长字段排序
+            SortTiedBlobs(
+            ...
+            )
+            
+            if !AnyTies(ties, count) {
+                //no ties, stop sorting
+                break
+            }
+        }
+        
+
+        colOffset += sortingSize        
+        sortingSize = 0
+    
+    }
+}
+```
+
+##### 按列分组
+
+分组形式：竖切
+- 连续的多个定长字段+变长字段 
+- 连续的多个定长字段 直到列结束
+- 单个变长字段
+
+```text
+组形式 0: |fix len field 0|,...,|var len field i|
+组形式 1: |var len field i+1|
+组形式 2: |fix len field j|,...,|var len field N-1|
+组形式 3: |fix len field j|,...,|fix len field N-1|
+```
+
+分组后，组内排序：
+- 数据比较的大小。当前组的字段长度之和
+- 没有任何tie时（第一次排序时）
+    - 将当前`[组k]`作为内容，对组内所有行，执行排序算法。得出所有行的顺序。
+- 在有tie时
+    - 按行分Tie。见下节
+##### 按Tie分行
+
+引入Tie的原因，在某次排序结束时，全局顺序关系已经确定。
+而相邻排序键entry，在当前组上（见上面）的顺序关系情况有：
+- 行的排序键`entry[组k]` < i+1 行的排序键`entry[组k]`，即`sork_key_entry[i][组k] < sort_key_entry[i+1][组k]`。此时这两个entry，无需再进行后续排序。
+- 行的排序键`entry[组k]` == i+1 行的排序键`entry[组k]`，即`sork_key_entry[i][组k] == sort_key_entry[i+1][组k]`。这个两个entry，还需要进行在后续组上排序。
+
+Tie的定义：
+- 与数据行数相等的布尔数组。`Tie bool[0,...,N-1]`
+- 初始值：`Tie[0 ~ N-2] = True, Tie[N-1] = false`
+- 更新：
+    - 如果i行的排序键`entry[组k]` 与 i+1 行的排序键`entry[组k]`相等，则`Tie[i] = true`
+    - 即：`Tie[i] = true if Tie[i] is True and sort_key_entry[i][组k] == sort_key_entry[i+1][组k], i in [0,...,N-2]`
+
+结论1: Tie用来挑选出需要再继续排序的行。`Tie[i]`为true行都要继续排序。
+结论2: 当`Tie[i]`全为false时，排序结束。
+结论3: `Tie[N-1]`不会变为true。
+
+函数ComputeTies按Tie的定义计算Tie值:
+```go
+func ComputeTies(   
+    dataPtr unsafe.Pointer,
+    count int,
+    colOffset int,//组k开始位置
+    tieSize int,//组k的字节数
+    ties []bool,
+    layout *SortLayout) {
+
+    //组k的首地址
+    dataPtr = util.PointerAdd(dataPtr, colOffset)    
+    for i := 0; i < count-1; i++ {
+        ties[i] = ties[i] &&
+        util.PointerMemcmp(
+            dataPtr,//i行
+            util.PointerAdd(dataPtr, layout._entrySize),//i+1行
+            tieSize,//组k的字节数
+        ) == 0
+        dataPtr = util.PointerAdd(dataPtr, layout._entrySize)
+    }
+}
+```
+
+按连续的`Tie[i]`为true的行再分组，组内进行排序。
+如下逻辑，`Tie[i]~Tie[j]`为一组。函数SubSortTiedTuples和SortTiedBlobs 利用此逻辑。
+```go
+for i := 0; i < count; i++ {
+    if !ties[i] {
+        continue
+    }
+
+    var j int
+    for j = i; j < count; j++ {
+        if !ties[j] {
+            break
+        }
+    }
+    //对Tie[i]~Tie[j]组的行再排序。
+    ...
+}
+```
+
+##### 排序算法
+
+
+#### 重排列
+
+
+### 读排序结果
+
 
 ## join
 

@@ -28,3 +28,4 @@ ast
 tester
 **/*_out
 plandb
+**/*.DS_Store
