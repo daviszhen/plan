@@ -1610,7 +1610,6 @@ func pdqsortLoop(
 			if leftMost {
 				insertSort(begin, end, constants)
 			} else {
-				//FIXME: has bug
 				unguardedInsertSort(begin, end, constants)
 			}
 			return
@@ -2323,7 +2322,7 @@ func RadixSortLSD(
 	rowWidth int,
 	sortingSize int,
 ) {
-	temp := util.CMalloc(rowWidth)
+	temp := util.CMalloc(count * rowWidth)
 	defer util.CFree(temp)
 	swap := false
 

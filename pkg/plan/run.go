@@ -1697,7 +1697,6 @@ func (run *Runner) hashJoinExec(output *chunk.Chunk, state *OperatorState) (Oper
 }
 
 func (run *Runner) crossProductExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	//1. Build Hash Table on the right child
 	res, err := run.crossBuild(state)
 	if err != nil {
 		return InvalidOpResult, err
