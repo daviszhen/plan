@@ -2741,7 +2741,7 @@ SortLayout定义order by表达式值的行存结构。规定的每行长度一�
 
 内存形式：
 ```go
-|null byte, col0|...|null by,prefix|...|null byte,colN-1|
+|null byte, col0|...|null byte,prefix|...|null byte,colN-1|
 ```
 
 SortLayout除了上述信息外，还有整体信息：
@@ -3418,17 +3418,660 @@ for i := 0; i < count; i++ {
 
 ##### 排序算法
 
+多种排序算法组合使用，选择的依据：
+- 包含字符串。用快速排序。
+- 元素个数 <=24。用插入排序。
+- `[组k]`的排序字节数 <= 4。用基数排序LSD
+- 其它情况。用基数排序MSD
+###### 快速排序
 
-#### 重排列
+快排的执行框架：
+- 划分为左右两部分。
+    - 挑pivot
+    - 将比pivot大的元素放在pivot右边
+    - 将比pivot小的元素放在pivot左边
+    - 将pivot放置到其正确位置。并且pivot的位置为全局有序位置。
+- 对左半递归
+- 对右半递归
 
+框架层面的改进：
+- 元素个数 < 24时，换插入排序。
+    - 如果是最左边的分区，普通插入排序
+    - 否则，用改进版的插入排序（少了与begin比较的判断）。
+- pivot的挑选方法：
+    - 元素个数 > 128。9中选1.
+    - 其它，3中选1
+- 递归剪枝
+    - 如果是非最左边的分区，并且位置begin和begin-1的值相等。
+        - 此时，将分区`[begin,end)`中与pivot相等的元素，放入此分区的左子分区。并且左子分区一定有序。
+        - 仅对右子分区排序。
+- 划分的改进
+    - 先做第一轮与pivot的比较。如果已经划分，不再继续比较
+    - 块交换。一次交换多个元素.
+    - 与pivot相等的元素，放左边或右边
+- 非平衡的处理
+    - 如果左边的size < 总size/8 或 右边的size < 总size/8，定义此时为不平衡态
+    - shuffle一些元素。没有采用堆排序。
+    - 对第一轮比较已经划分的分区，尝试用插入排序。如果插入排序，一轮扫描的元素个数超过8个，停止用插入排序。
+- 消除尾递归
+    - 对左子分区，递归排序。
+    - 对右子分区，begin = pivot + 1，进入下一轮迭代。
+
+快排实现：
+```go
+func pdqsortLoop(
+    begin, end *PDQIterator,
+    constants *PDQConstants,
+    ...
+    leftMost bool,
+    ...
+    ) {
+    for {
+        size := pdqIterDiff(end, begin)
+        if size < 24 {
+            插入排序
+            return
+        }
+        挑pivot；//3元素 或 9元素
+        //递归剪枝:
+        if !leftmost && begin-1的值 == begin的值{
+            //划分.与pivot相等的元素，放在左子分区
+            begin = partitionLeft(begin,end) + 1
+            //左子分区已经排序。
+            //仅需处理右子分区
+            continue
+        }
+        //划分。与pivot相等的元素，放在右子分区
+        pivotPos, alreadyPartitioned = partitionRightBranchless(begin, end, constants)
+        //非平衡
+        lSize := pdqIterDiff(&pivotPos, begin)
+        x := pivotPos.plusCopy(1)
+        rSize := pdqIterDiff(end, &x)
+        if lSize < size/8 || rSize < size/8 {
+            shuffle
+        }else {
+            //第一轮比较已经划分的分区，尝试用插入排序
+            if alreadyPartitioned {
+                if partialInsertionSort(begin, &pivotPos, constants) {  
+                    x = pivotPos.plusCopy(1)
+                    if partialInsertionSort(&x, end, constants) {
+                        return
+                    }
+                }
+                
+            }
+        }
+        //对左子分区递归排序
+        pdqsortLoop(begin, &pivotPos, constants, badAllowed, leftMost, branchLess)
+        //对右子分区迭代排序
+        x = pivotPos.plusCopy(1)
+        begin = &x
+        leftMost = false
+    }
+}
+```
+
+划分方法：
+
+**函数partitionLeft**：与pivot相等的元素放置在左子分区。
+**函数partitionRightBranchless**：与pivot相等的元素放置在右子分区。并且使用块交换。
+
+###### 插入排序
+
+**常规实现**：函数insertSort。容易理解，不细说
+
+**ungarded实现**：函数unguardedInsertSort。
+在常规实现中，判断 sift != begin，确保未越界。
+
+但是，在确保begin-1存在且begin-1的值 < begin的值前提下，可以将判断 sift != begin去掉。并且不会越界。
+
+**部分插入排序**：函数partialInsertionSort。
+在常规实现的基础上，限制每轮移动的元素个数。如果一轮移动的元素个数超过8个，提前结束，排序失败。
+
+###### 基数排序LSD
+在排序字节数 <= 4时，用基数排序LSD。
+用的是常规实现。结合了桶排序。无需递归。从字节序列尾部向头部（逆序），在每个字节位置上，先分桶，再重排。
+
+###### 基数排序MSD
+除了快排，插入排序，基数LSD的情况外，用基数MSD。
+
+从字节序列头部到尾部（正序），在每个字节位置上，结合桶排序，先分桶，再重排。
+假设，在第k-1个字节上，已经排序完成。说明在区间0～k-1上，桶之间的相对顺序是确定的。
+那么，只需在第k-1个字节上，对同一个桶中的序列，再对第k个字节进行递归基数MSD排序即可。注意：一定是对同一个桶中的序列递归。不同桶之间，相对顺序一定已经确定。
+
+并且在递归过程中，当元素个数 <=24时。改用插入排序。
+
+
+##### 重排序
+对排序键的非定长部分和payload。
+
+过程：
+- 为要重排的固定size部分，分配大内存块，存储重排后的entry。
+- 遍历排序键的定长部分。
+    - 取每个entry的原始index。
+    - 确定源内存地址
+    - 从源内存复制数据到大内存块
+- 为变长部分，分配大内存块，存储重排后的堆内存
+    - 依据已经重排的entry，确定堆内存地址。heapPointerOffset
+    - 从源堆内存复制数据重排后的堆内存
 
 ### 读排序结果
 
+遍历payload的数据块，取出每个entry上的对应列。
+
+数据层次：
+- PayloadScanner 入口
+    - RowDataCollectionScanner 扫描数据集
+        - ScanState 扫描位置：block idx，entry idx。
+
+读取过程：
+- 初始化。函数NewPayloadScanner
+    - 确定payload的数据RowDataBlock。固定size部分和堆。
+    - 初始化对象。
+        - XXXScanner
+        - ScanState。指向第一个block的，第一个entry
+- scan过程：函数RowDataCollectionScanner.Scan
+    - 计算要读的entry的首地址：entryIdx X rowWidth + block首地址
+    - 读每个entry上的列。函数Gather.
+
+函数关系：
+- RowDataCollectionScanner.Scan 
+    - Gather.
+
+```go
+func (scan *RowDataCollectionScanner) Scan(output *chunk.Chunk) {
+    ...
+    确定每个entry的首地址;
+    ...
+    //取出每列colIdx上的值
+    for colIdx := 0; colIdx < scan._layout.CoumnCount(); colIdx++ {
+        Gather(
+            scan._addresses,
+            ...
+            output.Data[colIdx],
+            ...
+            count,
+            scan._layout,
+            colIdx,
+            ...
+        )
+    }
+
+    output.SetCard(count)
+    scan._totalScanned += scanned
+}
+
+func Gather(
+    rows *chunk.Vector,
+    rowSel *chunk.SelectVector,
+    col *chunk.Vector,
+    colSel *chunk.SelectVector,
+    count int,
+    layout *RowLayout,
+    colNo int,
+    buildSize int,
+    heapPtr unsafe.Pointer,
+) {
+    switch col.Typ().GetInternalType() {
+    case common.INT32:
+        TemplatedGatherLoop[int32](
+        ...
+        )
+    ...
+    case common.VARCHAR:
+        GatherVarchar(
+        ...
+        )
+    }
+}
+
+func TemplatedGatherLoop[T any](
+    ...
+    ) {
+    ...
+    for i := 0; i < count; i++ {
+        rowIdx := rowSel.GetIndex(i)
+        row := ptrs[rowIdx]
+        colIdx := colSel.GetIndex(i)
+        dataSlice[colIdx] = util.Load[T](util.PointerAdd(row, colOffset))
+        rowMask := util.Bitmap{
+        ...
+        
+        if !util.RowIsValidInEntry(
+            rowMask.GetEntry(entryIdx), 
+            idxInEntry) {
+            ...
+            colMask.SetInvalid(uint64(colIdx))
+        }
+    }
+}
+```
+
+**函数Gather**：入口
+- 函数TemplatedGatherLoop
+    - 取出每个entry上的指定列
+- 函数GatherVarchar。类似
 
 ## join
 
-## scan
+支持的join类型：cross, inner, mark, anti mark, semi, anti semi, left
 
-## project
+### 非cross join
 
-## filter
+对于非cross join，目前支持基于hash表的实现方式。左子节点的数据用于probe。
+非cross join的执行过程：
+- 输入数据
+    - 列转行。右子节点的数据存为行存结构。并计算hash值。
+    - build hash表。数据输入完成后，再在之上构建hash表（拉链法解决冲突）。不是边输入数据，边构建hash表。
+- 执行join
+    - probe阶段
+        - 读左子节点的数据。计算hash值。从hash表中确定hash值相等的桶。
+    - 构建join结果
+        - 从桶中确定与probe数据相等的记录
+        - 依据join类型，组合join的结果。
+
+#### 初始化
+
+非cross join的层次管理结构：
+- 顶层：HashJoin。
+- 中层：
+    - JoinHashTable。列转行。构建hash表。
+    - Scan。执行join
+- 物理层：行存结构与agg节点的做法一致。
+    - TupleDataCollection。行存存储右子节点数据。
+    - TupleDataLayout。行存结构。
+
+按其执行阶段分：
+- build阶段：
+    - JoinHashTable
+    - TupleDataCollection
+- probe阶段：
+    - Scan
+
+hash表的key：join on条件中右子表达式的值。
+- 约束：
+    - 在plan阶段，确保join on右子表达式的数据都来自join的右子节点。在允许交换join左右子节点的前提下，也会保持这种对应关系。
+    - NULL不进入hash表
+- join on条件可能不止一个。filter下推阶段，可能会将多个filter条件推到join节点，作为join on条件，并且满足上面的约束。这些join on条件中右子表达式的值都要作为hash表的key。最终的hash值是这些右子表达式值的复合结果。
+
+与hash表的key对应，probe的key：为join on条件中左子表达式的值
+
+
+行存的内容：用TupleDataLayout。
+- hash key。probe阶段，需要用join on条件中左子表达式的值来查hash表。并且判断与hash key的值是否相等。
+- payload。join右子节点的数据。probe阶段，依据join类型，组合不同的结果。
+- hash值。
+
+#### 输入数据
+
+build阶段的两个阶段：
+- 读数据
+- 构建hash表。不是边读边构建
+
+读数据：
+- 从join右子节点读一批数据（payload数据）
+    - 过滤NULL值
+    - 计算hash key。
+    - 计算hash key的hash值
+    - hash key+payload+hash值存入TupleDataCollection。与agg节点中的做法一致，不细讲
+    - 直到join右子节点无数据
+
+此时数据读完，数据在TupleDataCollection中不再移动。只需将数据的地址依据hash值存入hash表。
+
+hash表：
+- 确定hash的size。比`2*size`大的最小的2的n次方值。
+- hash表的结构简化为一个地址数组。每个元素是一个链表首节点的地址。
+- 拉链法解决冲突。hash值相同时，用头插入法插入新值。并且下一个值的地址放置在行格式中，原先放置hash值的位置。因为hash值不再需要了。
+- 构建过程：
+    - 读出TupleDataCollection的所有数据
+    - 按每个行的hash值，插入对应的桶，并解决冲突
+
+
+#### 执行
+
+prob阶段的过程
+- 从join左子节点读一批数据
+- probe: 探测hash表。函数JoinHashTable.Probe
+    - 计算probe key。join on条件中左子表达式的值
+    - 计算probe key的hash值。函数JoinHashTable.hash
+    - 由hash值确定桶，取桶连表的首节点地址。注意：hash值相等，不代表链表中的每个节点值都与probe key相等。函数JoinHashTable.ApplyBitmask2
+- scan：依据join类型组合数据。函数Scan.Next，入口函数
+    - inner。函数Scan.NextInnerJoin
+    - mark, anti mark。函数Scan.NextMarkJoin
+    - semi。函数Scan.NextSemiJoin
+    - anti semi。函数Scan.NextAntiJoin
+    - left。函数Scan.NextLeftJoin
+
+probe函数关系：
+- JoinHashTable.Probe
+    - JoinHashTable.hash。复合hash值
+    - JoinHashTable.ApplyBitmask2。取桶连表的首节点地址。
+
+```go
+func (jht *JoinHashTable) Probe(keys *chunk.Chunk) *Scan {
+    ...
+    hashes := chunk.NewFlatVector(common.HashType(), util.DefaultVectorSize)
+    jht.hash(keys, curSel, newScan._count, hashes)
+    jht.ApplyBitmask2(hashes, curSel, newScan._count, newScan._pointers)
+    ...
+    return newScan
+}
+```
+
+
+scan的函数关系：
+- Scan.Next
+    - Scan.NextInnerJoin。执行inner join
+    - Scan.NextMarkJoin。执行mark，anti mark join
+    - Scan.NextSemiJoin。执行semi join
+    - Scan.NextAntiJoin。执行anti semi join
+    - Scan.NextLeftJoin。执行left join
+
+##### inner join
+
+整体结构：
+- 确定与probe key相等的行。函数Scan.InnerJoin
+    - 每个probe key会对应一个桶链表。
+    - 遍历桶链表，寻找相等的节点。hash值相等，probe key与hash key不见得相等。
+        - 对每行probe key。函数Scan.resolvePredicates
+            - 其每列与链表首节点的每列比较。
+            - 如果每列都相等，则此行probe key匹配了一行
+            - 直到所有probe key与对应的首节点比较结束
+        - 如果有匹配行，进入拼接结果阶段
+        - 如果没有匹配行，说明此时链表首节点都不匹配。
+            - 所有链表首节点移动到下一个节点。
+            - 重复上面的过程，直到链表都结束。
+    - 直到找到hash key相等的节点，或者没有相等的节点。
+- 拼接inner join的结果。
+    - join左子节点的数据。
+    - join右子节点的数据。数据位置在TupleDataCollection中。
+
+函数关系：
+- Scan.NextInnerJoin
+    - Scan.InnerJoin
+        - Scan.resolvePredicates
+
+**函数Scan.NextInnerJoin**:
+函数gatherResult2从TupleDataCollection中取数据。与agg算子中的取法一致。
+```go
+
+func (scan *Scan) NextInnerJoin(keys, left, result *chunk.Chunk) {
+    ...
+    resCnt := scan.InnerJoin(keys, resVec)
+    //有匹配的行
+    if resCnt > 0 {
+        //left part result
+        result.Slice(left, resVec, resCnt, 0)
+        //right part result
+        //拼接join右子节点的数据
+        for i := 0; i < len(scan._ht._buildTypes); i++ {
+            vec := result.Data[left.ColumnCount()+i]
+            scan.gatherResult2(
+            vec,
+            resVec,
+            resCnt,
+            i+len(scan._ht._keyTypes))
+        }
+        //链表移动到下一个节点
+        scan.advancePointers2()
+    
+    }
+
+}
+
+```
+
+**函数Scan.InnerJoin:**
+```go
+func (scan *Scan) InnerJoin(keys *chunk.Chunk, resVec *chunk.SelectVector) int {
+    for {
+        //匹配probe key与首节点
+        resCnt := scan.resolvePredicates(
+        keys,
+        resVec,
+        nil,
+        )
+        //有匹配的行
+        if resCnt > 0 {
+            return resCnt
+        }
+        //无匹配的行，所有链表移动到下一个节点
+        scan.advancePointers2()        
+        //所有链表的都结束。停止
+        if scan._count == 0 {
+            return 0
+        }
+    }
+
+}
+
+```
+
+**函数Scan.resolvePredicates:**
+实质是Match函数。在agg算子时讲过。
+```go
+func (scan *Scan) resolvePredicates(    
+    keys *chunk.Chunk,
+    matchSel *chunk.SelectVector,
+    noMatchSel *chunk.SelectVector,
+    ) int {
+    ...
+    noMatchCount := 0
+    return Match(
+        ...
+        matchSel,
+        scan._count,
+        noMatchSel,
+        &noMatchCount,
+    )
+}
+```
+
+##### mark, anti mark join
+EXISTS，NOT EXISTS通常转为mark，anti mark。
+结果会多出mark列，布尔值，其表示某行匹配与否。join节点的父节点采用mark列值为true的行就是mark join。采用false的行就是anti mark join。
+
+过程：
+- 确定所有行的匹配情况。函数Scan.ScanKeyMatches
+    - 遍历桶链表，寻找相等的节点。hash值相等，probe key与hash key不见得相等。
+        - 对每行probe key，计算匹配的行。见函数Scan.resolvePredicates
+        - 如果有匹配行。`_foundMatch`。记录匹配的行。
+        - 没有匹配行的链表首节点移动到下一个节点。
+        - 如此直到所有链表结束
+- 构建结果
+    - join左子节点的数据。
+    - mark列。`_foundMatch`值为true的行为true。
+
+**函数Scan.ScanKeyMatches**
+```go
+func (scan *Scan) ScanKeyMatches(keys *chunk.Chunk) {
+    matchSel := chunk.NewSelectVector(util.DefaultVectorSize)
+    noMatchSel := chunk.NewSelectVector(util.DefaultVectorSize)
+    for scan._count > 0 {
+        //匹配probe key与链表首节点
+        matchCount := scan.resolvePredicates(keys, matchSel, noMatchSel)
+        noMatchCount := scan._count - matchCount
+        //记录匹配的行
+        for i := 0; i < matchCount; i++ {    
+            scan._foundMatch[matchSel.GetIndex(i)] = true
+        }
+        //不匹配的行，继续比较。链表移动到下一个节点
+        scan.advancePointers(noMatchSel, noMatchCount)
+    }
+}
+```
+
+##### semi, anti semi join
+IN，NOT IN通常转为semi, anti semi。
+结果只来自join左子节点的数据。semi保留匹配的行。anti semi保留不匹配的行。
+
+过程：
+- 确定所有行的匹配情况。函数Scan.ScanKeyMatches，见上面
+- 构建结果
+    - join左子节点的数据。semi需要匹配的行。anti semi保留不匹配的行。
+```go
+func (scan *Scan) NextSemiOrAntiJoin(keys, left, result *chunk.Chunk, Match bool) {
+    sel := chunk.NewSelectVector(util.DefaultVectorSize)
+    resultCount := 0
+    for i := 0; i < keys.Card(); i++ {
+        //Match为true。semi join
+        //Match为false。anti semi join
+        if scan._foundMatch[i] == Match {
+            sel.SetIndex(resultCount, i)    
+            resultCount++
+        }
+    }
+
+    if resultCount > 0 {
+        result.Slice(left, sel, resultCount, 0)
+    }
+}
+```
+
+##### left join
+结果中，join左子节点的数据完全保留。与inner join的区别，不匹配的行，右边用NULL填充。
+
+过程：
+- 先当inner join执行一遍。函数Scan.NextInnerJoin，见上面。
+- 构建结果
+    - 匹配的行。inner join的逻辑
+        - join左子节点的数据。
+        - join右子节点的数据。
+    - 不匹配行。left join加的逻辑
+        - join左子节点的数据。
+        - 右边补充NULL
+
+```go
+
+func (scan *Scan) NextLeftJoin(keys, left, result *chunk.Chunk) {
+    //执行inner join
+    scan.NextInnerJoin(keys, left, result)
+    if result.Card() == 0 {
+        //此时检测，还有多少行未匹配
+        remainingCount := 0
+        sel := chunk.NewSelectVector(util.DefaultVectorSize)
+        for i := 0; i < left.Card(); i++ {
+            if !scan._foundMatch[i] {
+                sel.SetIndex(remainingCount, i)
+                remainingCount++
+            }
+        }
+        //有未匹配的行
+        if remainingCount > 0 {
+            //join左子节点的数据
+            result.Slice(left, sel, remainingCount, 0)
+            //右边补充NULL
+            for i := left.ColumnCount(); i < result.ColumnCount(); i++ {
+                vec := result.Data[i]
+                vec.SetPhyFormat(chunk.PF_CONST)
+                chunk.SetNullInPhyFormatConst(vec, true)
+            }
+        }
+        
+        scan._finished = true   
+    }
+}
+```
+### cross join
+
+cross join的执行过程：
+- 输入数据
+    - 输入右子节点的数据，保持列存。
+- 执行join
+    - 读左子节点的数据。
+    - 遍历右子节点的数据块。拼接结果。
+
+#### 初始化
+
+cross join的层次管理结构：
+- 顶层：CrossProduct。cross join管理结构
+    - ColumnDataCollection
+    - CrossProductExec
+- 中层：
+    - CrossProductExec。 cross join执行器
+- 物理层：
+    - ColumnDataCollection。 存储列数据块
+
+按其阶段划分：
+- build阶段：
+    - ColumnDataCollection
+- probe阶段：
+    - CrossProductExec
+    - ColumnDataCollection
+
+
+#### 输入数据
+
+列式存储结构：ColumnDataCollection
+- 存储格式
+    - 列存。
+    - Chunk数组。每个Chunk都是满的，除了最后一个可能装不满。
+    - 每输入一份数据，尽可能填满最后一个Chunk。
+- 接口
+    - Append。追加新数据到集合中。
+        - 尽可能填满最后一个Chunk。空间不够时，会分配新的Chunk。
+    - Scan。从指定chunk的指定行，读取一个Chunk。
+        - 每读完一个Chunk，切换到下一个Chunk。
+
+#### 执行
+
+过程：函数CrossProductExec.Execute
+- 对每一块左子节点的数据（简称左边数据块）
+    - 确定右子节点的Chunk（简称右边数据块）。`
+        - 第一次时，从ColumnDataCollection读取第一个Chunk。
+    - 对左边数据块的每一行。函数CrossProductExec.NextValue
+        - 与右边数据块组合成一个输出块。
+            - 左边部分是这一行的重复
+            - 右边部分是右边数据块
+        - 如此直到左边数据块的行用完。
+            - 左边数据块回到第一行。
+            - 从ColumnDataCollection读取下一个Chunk。
+            - 如果还有Chunk，重复上面的逻辑
+            - 如果没有Chunk，从左子节点读取下一个块
+    - 直到左子节点的数据读完
+
+```go
+func (cross *CrossProductExec) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
+    ...
+    //切换左边数据块的下一行。
+    //如果左边数据块的行用完，从ColumnDataCollection读取下一个Chunk。
+    if !cross.NextValue(input, output) {
+        //右边数据块读完。
+        //从左子节点读取下一个块
+        cross._init = false
+        //RHS is read over.
+        //switch to the next Chunk on the LHS and reset the RHS
+        return NeedMoreInput, nil
+    
+    }
+    
+    var constChunk *chunk.Chunk
+    //scanning chunk. refer a single value
+    var scanChunk *chunk.Chunk
+    for i := 0; i < output.ColumnCount(); i++ {
+        ...
+        constChunk = cross._scanChunk
+        ...
+        scanChunk = input
+        ... 
+        if tblIdx == -2 {
+            //拼接右边数据块
+            output.Data[i].Reference(constChunk.Data[colIdx])
+        } else if tblIdx == -1 {
+            //拼接左边数据块的某一行。此行重复多次。
+            chunk.ReferenceInPhyFormatConst(
+                output.Data[i],
+                scanChunk.Data[colIdx],
+                cross._positionInChunk,
+                scanChunk.Card(),
+            )
+        }
+    }
+    output.SetCard(constChunk.Card())
+    return haveMoreOutput, nil
+}
+```
+
+## 其它算子
+
+scan、project、filter比前面介绍的算子简单，不再展开。topN算子暂时不支持。
