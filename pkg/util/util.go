@@ -23,12 +23,16 @@ import (
 	"unsafe"
 )
 
-func AlignValue[T ~uint64](value, align T) T {
+func AlignValue[T ~uint64 | ~uint32 | ~uint16 | ~int](value, align T) T {
 	return (value + (align - 1)) & ^(align - 1)
 }
 
-func AlignValue8(value int) int {
-	return (value + 7) & (^7)
+func AlignValue8[T ~uint64 | ~uint32 | ~uint16 | ~int](value T) T {
+	return (value + 7) & (^T(7))
+}
+
+func AlignValueWaste8[T ~uint64 | ~uint32 | ~uint16 | ~int](value T) T {
+	return 7 - (value+7)%8
 }
 
 func AssertFunc(b bool) {
@@ -133,4 +137,8 @@ func Abs[T int32](val T) T {
 		return val
 	}
 	return -val
+}
+
+func FlagIsSet[T uint8 | uint16 | uint32 | uint64](val, flag T) bool {
+	return (val & flag) != 0
 }

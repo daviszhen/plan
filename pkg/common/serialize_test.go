@@ -95,7 +95,7 @@ func Test_serialize(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		sSlice[i] = byte('0' + i)
 	}
-	err = util.WriteString(s, tSerial)
+	err = util.WriteString(s.String(), tSerial)
 	assert.NoError(t, err)
 	err = util.Write[Hugeint](
 		Hugeint{Lower: math.MaxUint64 / 2, Upper: math.MaxInt64 / 2},

@@ -174,7 +174,7 @@ type DecimalScatterOp struct {
 
 func (scatter DecimalScatterOp) NullValue() common.Decimal {
 	zero := decimal.Zero
-	return common.Decimal{zero}
+	return common.Decimal{Decimal: zero}
 }
 
 func (scatter DecimalScatterOp) RandValue() common.Decimal {
@@ -185,7 +185,7 @@ func (scatter DecimalScatterOp) RandValue() common.Decimal {
 
 func (scatter DecimalScatterOp) Store(src common.Decimal, rowLoc unsafe.Pointer, offsetInRow int, heapLoc *unsafe.Pointer) {
 	dst := src.Decimal
-	util.Store[common.Decimal](common.Decimal{dst}, util.PointerAdd(rowLoc, offsetInRow))
+	util.Store[common.Decimal](common.Decimal{Decimal: dst}, util.PointerAdd(rowLoc, offsetInRow))
 }
 
 type DateScatterOp struct {
