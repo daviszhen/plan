@@ -29,3 +29,4 @@ tester
 **/*_out
 plandb
 **/*.DS_Store
+.obsidian/

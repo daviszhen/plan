@@ -23,7 +23,7 @@ import (
 	"unsafe"
 )
 
-func AlignValue[T ~uint64](value, align T) T {
+func AlignValue[T ~uint64 | ~uint32 | ~uint16 | ~int](value, align T) T {
 	return (value + (align - 1)) & ^(align - 1)
 }
 
@@ -133,4 +133,8 @@ func Abs[T int32](val T) T {
 		return val
 	}
 	return -val
+}
+
+func FlagIsSet[T uint8 | uint16 | uint32 | uint64](val, flag T) bool {
+	return (val & flag) != 0
 }
