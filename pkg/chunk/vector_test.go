@@ -1,9 +1,5 @@
 package chunk
 
-import (
-	"github.com/daviszhen/plan/pkg/common"
-)
-
 //
 //func TestBitmap(t *testing.T) {
 //	mask := &util.Bitmap{
