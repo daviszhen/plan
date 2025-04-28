@@ -640,7 +640,7 @@ func (vec *Vector) SetValue(idx int, val *Value) {
 			}
 			val.Str = ""
 			slice[idx] = common.Decimal{
-				decVal,
+				Decimal: decVal,
 			}
 		} else {
 			nDec, err := decimal.NewFromInt64(val.I64, val.I64_1, vec._Typ.Scale)
@@ -648,7 +648,7 @@ func (vec *Vector) SetValue(idx int, val *Value) {
 				panic(err)
 			}
 			slice[idx] = common.Decimal{
-				nDec,
+				Decimal: nDec,
 			}
 		}
 
@@ -693,7 +693,7 @@ func (vec *Vector) Serialize(count int, serial util.Serialize) error {
 	var vdata UnifiedFormat
 	vec.ToUnifiedFormat(count, &vdata)
 	writeValidity := (count > 0) && !vdata.Mask.AllValid()
-	err := util.Write[bool](writeValidity, serial)
+	err := util.Write(writeValidity, serial)
 	if err != nil {
 		return err
 	}
@@ -758,7 +758,7 @@ func (vec *Vector) Deserialize(count int, deserial util.Deserialize) error {
 	}
 	mask.Reset()
 	hasMask := false
-	err := util.Read[bool](&hasMask, deserial)
+	err := util.Read(&hasMask, deserial)
 	if err != nil {
 		return err
 	}
@@ -1179,15 +1179,15 @@ func WriteToStorage(
 
 	switch src.Typ().GetInternalType() {
 	case common.INT32:
-		SaveLoop[int32](&vdata, count, ptr, Int32ScatterOp{})
+		SaveLoop(&vdata, count, ptr, Int32ScatterOp{})
 	case common.DECIMAL:
-		SaveLoop[common.Decimal](&vdata, count, ptr, DecimalScatterOp{})
+		SaveLoop(&vdata, count, ptr, DecimalScatterOp{})
 	case common.DATE:
-		SaveLoop[common.Date](&vdata, count, ptr, DateScatterOp{})
+		SaveLoop(&vdata, count, ptr, DateScatterOp{})
 	case common.INT64:
-		SaveLoop[int64](&vdata, count, ptr, Int64ScatterOp{})
+		SaveLoop(&vdata, count, ptr, Int64ScatterOp{})
 	case common.UINT64:
-		SaveLoop[uint64](&vdata, count, ptr, Uint64ScatterOp{})
+		SaveLoop(&vdata, count, ptr, Uint64ScatterOp{})
 	default:
 		panic("usp")
 	}
