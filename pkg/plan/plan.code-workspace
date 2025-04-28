@@ -1,0 +1,14 @@
+{
+	"folders": [
+        {
+            "path": "../.."
+        },
+        {
+            "path": "../../../duckdb"
+        },
+        {
+            "path": "../../../orioledb"
+        }
+    ],
+    "settings": {}
+}
