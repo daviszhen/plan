@@ -5,9 +5,7 @@
 
 文档：[快速实现数据库内核](book/快速实现数据库内核.md)
 
-![](./计算引擎.png)
-
-![](存储引擎.png)
+[快速实现数据库内核.pdf](https://docs.qq.com/pdf/DVU5Xb1BHR3BUQ3FO)
 
 两个bin：
 
