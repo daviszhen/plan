@@ -134,3 +134,7 @@ func Abs[T int32](val T) T {
 	}
 	return -val
 }
+
+func FlagIsSet[T uint8 | uint16 | uint32 | uint64](val, flag T) bool {
+	return (val & flag) != 0
+}

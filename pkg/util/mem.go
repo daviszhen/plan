@@ -6,6 +6,7 @@ import (
 
 //#include <stdio.h>
 //#include <stdlib.h>
+//#include <string.h>
 import "C"
 
 func CMalloc(sz int) unsafe.Pointer {
@@ -18,6 +19,10 @@ func CFree(ptr unsafe.Pointer) {
 
 func CRealloc(ptr unsafe.Pointer, sz int) unsafe.Pointer {
 	return C.realloc(ptr, C.size_t(sz))
+}
+
+func CMemset(ptr unsafe.Pointer, val byte, sz int) {
+	C.memset(ptr, C.int(val), C.size_t(sz))
 }
 
 type BytesAllocator interface {
