@@ -1,15 +1,10 @@
 package btree
 
 import (
-	"fmt"
 	"unsafe"
 )
 
 func init() {
-	itemSz := unsafe.Sizeof(ItemData{})
-	if itemSz != ItemIdDataSize {
-		panic(fmt.Sprintf("ItemData size is not 32 bytes %d %d", itemSz, ItemIdDataSize))
-	}
 }
 
 type CommitSeqNo uint64
@@ -20,7 +15,8 @@ const (
 )
 
 const (
-	ItemIdDataSize = 4
+	LocationIndexSize = uint32(unsafe.Sizeof(LocationIndex(0)))
+	ItemIdDataSize    = uint32(unsafe.Sizeof(ItemData{}))
 )
 
 type ItemData struct {
@@ -32,5 +28,5 @@ type OffsetNumber uint16
 const (
 	InvalidOffsetNumber OffsetNumber = 0
 	FirstOffsetNumber   OffsetNumber = 1
-	MaxOffsetNumber     OffsetNumber = (BLOCK_SIZE / ItemIdDataSize)
+	MaxOffsetNumber     OffsetNumber = OffsetNumber(BLOCK_SIZE / ItemIdDataSize)
 )

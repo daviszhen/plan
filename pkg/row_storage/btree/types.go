@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	MAX_DEPTH            = 32
 	BLOCK_SIZE           = 8192
 	InvalidUsageCount    = 0xFF
 	UCM_USAGE_LEVELS     = 7
@@ -61,29 +62,43 @@ type RelOids struct {
 
 var (
 	gSharedBuffsers unsafe.Pointer
-	gPageDescs      unsafe.Pointer
+	gPageCount      int
+	gPageDescs      []*PageDesc
 )
 
 func InitPages(cnt int) {
+	gPageCount = cnt
 	gSharedBuffsers = util.CMalloc(BLOCK_SIZE * cnt)
-	gPageDescs = util.CMalloc(pageDescSize * cnt)
+	util.CMemset(gSharedBuffsers, 0, BLOCK_SIZE*cnt)
+	gPageDescs = make([]*PageDesc, cnt)
+	for i := 0; i < cnt; i++ {
+		gPageDescs[i] = &PageDesc{
+			waitC: make(chan struct{}, 1),
+		}
+	}
 }
 
 func ClosePages() {
 	util.CFree(gSharedBuffsers)
-	util.CFree(gPageDescs)
+	for _, desc := range gPageDescs {
+		close(desc.waitC)
+	}
 }
 
 func GetInMemPage(blkno Blkno) unsafe.Pointer {
+	if blkno >= Blkno(gPageCount) {
+		panic("blkno out of range")
+	}
 	return util.PointerAdd(
 		gSharedBuffsers,
 		int(blkno)*BLOCK_SIZE)
 }
 
 func GetInMemPageDesc(blkno Blkno) *PageDesc {
-	return (*PageDesc)(
-		util.PointerAdd(gPageDescs,
-			int(blkno)*pageDescSize))
+	if blkno >= Blkno(gPageCount) {
+		panic("blkno out of range")
+	}
+	return gPageDescs[blkno]
 }
 
 func GetPageHeader(pagePtr unsafe.Pointer) *PageHeader {

@@ -1,0 +1,1279 @@
+package btree
+
+import (
+	"fmt"
+	"testing"
+	"unsafe"
+
+	"github.com/daviszhen/plan/pkg/util"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestInitPageFirstChunk(t *testing.T) {
+	// 创建测试用的页面和描述符
+	page := make([]byte, 8192)
+	header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+	desc := &BTDesc{}
+
+	// 测试叶子节点
+	t.Run("leaf page", func(t *testing.T) {
+		// 设置叶子节点标志
+		header.SetFlags(BTREE_FLAG_LEAF)
+
+		tests := []struct {
+			name      string
+			hikeySize LocationIndex
+		}{
+			{
+				name:      "small hikey",
+				hikeySize: 16, // 已对齐的小hikey
+			},
+			{
+				name:      "medium hikey",
+				hikeySize: 128, // 中等大小的hikey
+			},
+			{
+				name:      "large hikey",
+				hikeySize: 248, // 接近叶子节点限制的hikey
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// 初始化第一个chunk
+				initPageFirstChunk(desc, unsafe.Pointer(&page[0]), tt.hikeySize)
+
+				// 验证基本字段
+				assert.Equal(t, OffsetNumber(1), header.chunksCount)
+				assert.Equal(t, OffsetNumber(0), header.itemsCount)
+
+				// 计算预期的hikeysEnd
+				expectedHikeysEnd := OffsetNumber(util.AlignValue(BT_PAGE_HEADER_SIZE, 8)) + OffsetNumber(tt.hikeySize)
+
+				// 验证hikeysEnd
+				assert.Equal(t, expectedHikeysEnd, header.hikeysEnd)
+
+				// 对于叶子节点，BTPageHikeysEnd返回256
+				assert.Equal(t, LocationIndex(256), BTPageHikeysEnd(desc, unsafe.Pointer(&page[0])))
+
+				// 验证dataSize
+				if header.hikeysEnd > 256 {
+					assert.Equal(t, LocationIndex(header.hikeysEnd), header.dataSize)
+				} else {
+					assert.Equal(t, LocationIndex(256), header.dataSize)
+				}
+
+				// 验证chunk描述符
+				assert.Equal(t, uint32(util.AlignValue(BT_PAGE_HEADER_SIZE, 8))>>2, header.chunksDesc[0].GetHikeyShortLocation())
+				assert.Equal(t, uint32(header.dataSize)>>2, header.chunksDesc[0].GetShortLocation())
+				assert.Equal(t, uint32(0), header.chunksDesc[0].GetOffset())
+				assert.Equal(t, uint32(0), header.chunksDesc[0].GetHikeyFlags())
+			})
+		}
+	})
+
+	// 测试非叶子节点
+	t.Run("non-leaf page", func(t *testing.T) {
+		// 清除叶子节点标志
+		header.SetFlags(0)
+
+		tests := []struct {
+			name      string
+			hikeySize LocationIndex
+		}{
+			{
+				name:      "small hikey",
+				hikeySize: 16, // 已对齐的小hikey
+			},
+			{
+				name:      "medium hikey",
+				hikeySize: 256, // 中等大小的hikey
+			},
+			{
+				name:      "large hikey",
+				hikeySize: 504, // 接近非叶子节点限制的hikey
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// 初始化第一个chunk
+				initPageFirstChunk(desc, unsafe.Pointer(&page[0]), tt.hikeySize)
+
+				// 验证基本字段
+				assert.Equal(t, OffsetNumber(1), header.chunksCount)
+				assert.Equal(t, OffsetNumber(0), header.itemsCount)
+
+				// 计算预期的hikeysEnd
+				expectedHikeysEnd := OffsetNumber(util.AlignValue(BT_PAGE_HEADER_SIZE, 8)) + OffsetNumber(tt.hikeySize)
+
+				// 验证hikeysEnd
+				assert.Equal(t, expectedHikeysEnd, header.hikeysEnd)
+
+				// 对于非叶子节点，BTPageHikeysEnd返回512
+				assert.Equal(t, LocationIndex(512), BTPageHikeysEnd(desc, unsafe.Pointer(&page[0])))
+
+				// 验证dataSize
+				if header.hikeysEnd > 512 {
+					assert.Equal(t, LocationIndex(header.hikeysEnd), header.dataSize)
+				} else {
+					assert.Equal(t, LocationIndex(512), header.dataSize)
+				}
+
+				// 验证chunk描述符
+				assert.Equal(t, uint32(util.AlignValue(BT_PAGE_HEADER_SIZE, 8))>>2, header.chunksDesc[0].GetHikeyShortLocation())
+				assert.Equal(t, uint32(header.dataSize)>>2, header.chunksDesc[0].GetShortLocation())
+				assert.Equal(t, uint32(0), header.chunksDesc[0].GetOffset())
+				assert.Equal(t, uint32(0), header.chunksDesc[0].GetHikeyFlags())
+			})
+		}
+	})
+
+	// 测试未对齐的hikeySize
+	t.Run("unaligned hikey size", func(t *testing.T) {
+		unalignedSizes := []LocationIndex{15, 123, 255}
+		for _, size := range unalignedSizes {
+			t.Run(fmt.Sprintf("size %d", size), func(t *testing.T) {
+				assert.Panics(t, func() {
+					initPageFirstChunk(desc, unsafe.Pointer(&page[0]), size)
+				})
+			})
+		}
+	})
+
+	// 测试 chunksDesc 地址对齐
+	t.Run("chunksDesc address alignment", func(t *testing.T) {
+		// 计算 chunksDesc 第一个元素的首地址
+		chunksDescAddr := uintptr(unsafe.Pointer(&header.chunksDesc[0]))
+
+		// 计算 page 首地址加上 chunkDesc 字段的偏移量
+		expectedAddr := uintptr(unsafe.Pointer(&page[0])) + unsafe.Offsetof(header.chunksDesc)
+
+		// 验证两个地址是否相同
+		assert.Equal(t, expectedAddr, chunksDescAddr,
+			fmt.Sprintf("chunksDesc first element address (0x%x) should be equal to page address plus offsetof chunkDesc (0x%x)",
+				chunksDescAddr, expectedAddr))
+	})
+}
+
+func TestPageChunkFillLocator(t *testing.T) {
+	// 创建测试用的页面和描述符
+	desc := &BTDesc{}
+	InitPages(1)
+	defer ClosePages()
+
+	page := GetInMemPage(0)
+	header := (*BTPageHeader)(page)
+
+	// 初始化页面
+	initNewBtreePage(desc, 0, 0, 0, true)
+
+	// 测试用例
+	tests := []struct {
+		name         string
+		chunkOffset  OffsetNumber
+		chunksCount  OffsetNumber
+		itemsCount   OffsetNumber
+		chunkOffsets []uint32
+		shortLocs    []uint32
+		dataSize     LocationIndex
+		expected     struct {
+			itemsCount OffsetNumber
+			chunkSize  LocationIndex
+		}
+	}{
+		{
+			name:        "middle chunk",
+			chunkOffset: 1,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				itemsCount OffsetNumber
+				chunkSize  LocationIndex
+			}{
+				itemsCount: 10,  // 20 - 10
+				chunkSize:  256, // 768 - 512
+			},
+		},
+		{
+			name:        "last chunk",
+			chunkOffset: 2,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				itemsCount OffsetNumber
+				chunkSize  LocationIndex
+			}{
+				itemsCount: 10,  // 30 - 20
+				chunkSize:  256, // 1024 - 768
+			},
+		},
+		{
+			name:        "last chunk boundary",
+			chunkOffset: 0,
+			chunksCount: 1,
+			itemsCount:  1,
+			chunkOffsets: []uint32{
+				0, // chunk 0 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+			},
+			dataSize: 8192, // 刚好是页面大小
+			expected: struct {
+				itemsCount OffsetNumber
+				chunkSize  LocationIndex
+			}{
+				itemsCount: 1,    // 只有一个 item
+				chunkSize:  7936, // 8192 - 256
+			},
+		},
+		{
+			name:        "multiple items with correct alignment",
+			chunkOffset: 0,
+			chunksCount: 1,
+			itemsCount:  3,
+			chunkOffsets: []uint32{
+				0, // chunk 0 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+			},
+			dataSize: 512, // 每个 item 占用 256 字节
+			expected: struct {
+				itemsCount OffsetNumber
+				chunkSize  LocationIndex
+			}{
+				itemsCount: 3,   // 3 个 items
+				chunkSize:  256, // 512 - 256
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 设置页面头信息
+			header.chunksCount = tt.chunksCount
+			header.itemsCount = tt.itemsCount
+			header.dataSize = tt.dataSize
+
+			// 设置chunk描述符
+			for i := 0; i < len(tt.chunkOffsets); i++ {
+				chunkDesc := header.GetChunkDesc(i)
+				chunkDesc.SetOffset(tt.chunkOffsets[i])
+				chunkDesc.SetShortLocation(tt.shortLocs[i])
+			}
+
+			// 填充 item 区域
+			chunkDesc := header.GetChunkDesc(int(tt.chunkOffset))
+			chunkStart := ShortGetLocation(chunkDesc.GetShortLocation())
+			chunkEnd := chunkStart + uint32(tt.expected.chunkSize)
+
+			// 用标记值填充 item 区域
+			itemMarker := byte(0xAA)
+			for i := chunkStart; i < chunkEnd; i++ {
+				*(*byte)(util.PointerAdd(page, int(i))) = itemMarker
+			}
+
+			// 创建定位器
+			locator := &BTPageItemLocator{}
+
+			// 填充定位器
+			pageChunkFillLocator(page, tt.chunkOffset, locator)
+
+			// 验证结果
+			assert.Equal(t, tt.chunkOffset, locator.chunkOffset)
+			assert.Equal(t, tt.expected.itemsCount, locator.chunkItemsCount)
+			assert.Equal(t, tt.expected.chunkSize, locator.chunkSize)
+			assert.Equal(t, OffsetNumber(0), locator.itemOffset)
+
+			// 验证chunk指针
+			expectedChunkAddr := uintptr(page) +
+				uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+			actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+			assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+				fmt.Sprintf("chunk address mismatch: expected 0x%x, got 0x%x",
+					expectedChunkAddr, actualChunkAddr))
+
+			// 验证 item 区域与 chunkDesc 区域没有重叠
+			chunkDescStart := uintptr(unsafe.Pointer(&header.chunksDesc[0]))
+			chunkDescEnd := chunkDescStart + uintptr(tt.chunksCount)*unsafe.Sizeof(BTPageChunkDesc{})
+			itemStart := uintptr(page) + uintptr(chunkStart)
+			itemEnd := uintptr(page) + uintptr(chunkEnd)
+
+			// 检查区域是否重叠
+			assert.False(t, itemStart < chunkDescEnd && chunkDescStart < itemEnd,
+				fmt.Sprintf("item region [0x%x, 0x%x] overlaps with chunkDesc region [0x%x, 0x%x]",
+					itemStart, itemEnd, chunkDescStart, chunkDescEnd))
+
+			// 验证 item 区域被正确填充
+			for i := chunkStart; i < chunkEnd; i++ {
+				value := *(*byte)(util.PointerAdd(page, int(i)))
+				assert.Equal(t, itemMarker, value,
+					fmt.Sprintf("item region at offset %d should be filled with 0x%x, got 0x%x",
+						i, itemMarker, value))
+			}
+		})
+	}
+}
+
+func TestPageItemFillLocator(t *testing.T) {
+	// 创建测试用的页面和描述符
+	desc := &BTDesc{}
+	InitPages(1)
+	defer ClosePages()
+
+	page := GetInMemPage(0)
+	header := (*BTPageHeader)(page)
+
+	// 初始化页面
+	initNewBtreePage(desc, 0, 0, 0, true)
+
+	// 测试用例
+	tests := []struct {
+		name         string
+		itemOffset   OffsetNumber
+		chunksCount  OffsetNumber
+		itemsCount   OffsetNumber
+		chunkOffsets []uint32
+		shortLocs    []uint32
+		dataSize     LocationIndex
+		expected     struct {
+			chunkOffset OffsetNumber
+			itemOffset  OffsetNumber
+		}
+	}{
+		{
+			name:        "first chunk first item",
+			itemOffset:  0,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 0,
+				itemOffset:  0,
+			},
+		},
+		{
+			name:        "first chunk last item",
+			itemOffset:  9,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 0,
+				itemOffset:  9,
+			},
+		},
+		{
+			name:        "middle chunk first item",
+			itemOffset:  10,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 1,
+				itemOffset:  0,
+			},
+		},
+		{
+			name:        "last chunk last item",
+			itemOffset:  29,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 2,
+				itemOffset:  9,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 设置页面头信息
+			header.chunksCount = tt.chunksCount
+			header.itemsCount = tt.itemsCount
+			header.dataSize = tt.dataSize
+
+			// 设置chunk描述符
+			for i := 0; i < len(tt.chunkOffsets); i++ {
+				chunkDesc := header.GetChunkDesc(i)
+				chunkDesc.SetOffset(tt.chunkOffsets[i])
+				chunkDesc.SetShortLocation(tt.shortLocs[i])
+			}
+
+			// 创建定位器
+			locator := &BTPageItemLocator{}
+
+			// 填充定位器
+			pageItemFillLocator(page, tt.itemOffset, locator)
+
+			// 验证结果
+			assert.Equal(t, tt.expected.chunkOffset, locator.chunkOffset,
+				fmt.Sprintf("chunk offset mismatch: expected %d, got %d",
+					tt.expected.chunkOffset, locator.chunkOffset))
+			assert.Equal(t, tt.expected.itemOffset, locator.itemOffset,
+				fmt.Sprintf("item offset mismatch: expected %d, got %d",
+					tt.expected.itemOffset, locator.itemOffset))
+
+			// 验证 chunk 信息
+			chunkDesc := header.GetChunkDesc(int(locator.chunkOffset))
+			expectedChunkAddr := uintptr(page) +
+				uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+			actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+			assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+				fmt.Sprintf("chunk address mismatch: expected 0x%x, got 0x%x",
+					expectedChunkAddr, actualChunkAddr))
+		})
+	}
+}
+
+func TestPageItemFillLocatorBackwards(t *testing.T) {
+	// 创建测试用的页面和描述符
+	desc := &BTDesc{}
+	InitPages(1)
+	defer ClosePages()
+
+	page := GetInMemPage(0)
+	header := (*BTPageHeader)(page)
+
+	// 初始化页面
+	initNewBtreePage(desc, 0, 0, 0, true)
+
+	// 测试用例
+	tests := []struct {
+		name         string
+		itemOffset   OffsetNumber
+		chunksCount  OffsetNumber
+		itemsCount   OffsetNumber
+		chunkOffsets []uint32
+		shortLocs    []uint32
+		dataSize     LocationIndex
+		expected     struct {
+			chunkOffset OffsetNumber
+			itemOffset  OffsetNumber
+		}
+	}{
+		{
+			name:        "last chunk last item",
+			itemOffset:  29,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 2,
+				itemOffset:  9,
+			},
+		},
+		{
+			name:        "middle chunk first item",
+			itemOffset:  10,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 1,
+				itemOffset:  0,
+			},
+		},
+		{
+			name:        "first chunk first item",
+			itemOffset:  0,
+			chunksCount: 3,
+			itemsCount:  30,
+			chunkOffsets: []uint32{
+				0,  // chunk 0 offset
+				10, // chunk 1 offset
+				20, // chunk 2 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+				LocationGetShort(512), // chunk 1 location: 从 512 开始
+				LocationGetShort(768), // chunk 2 location: 从 768 开始
+			},
+			dataSize: 1024,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 0,
+				itemOffset:  0,
+			},
+		},
+		{
+			name:        "single chunk last item",
+			itemOffset:  9,
+			chunksCount: 1,
+			itemsCount:  10,
+			chunkOffsets: []uint32{
+				0, // chunk 0 offset
+			},
+			shortLocs: []uint32{
+				LocationGetShort(256), // chunk 0 location: 从 256 开始
+			},
+			dataSize: 512,
+			expected: struct {
+				chunkOffset OffsetNumber
+				itemOffset  OffsetNumber
+			}{
+				chunkOffset: 0,
+				itemOffset:  9,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 设置页面头信息
+			header.chunksCount = tt.chunksCount
+			header.itemsCount = tt.itemsCount
+			header.dataSize = tt.dataSize
+
+			// 设置chunk描述符
+			for i := 0; i < len(tt.chunkOffsets); i++ {
+				chunkDesc := header.GetChunkDesc(i)
+				chunkDesc.SetOffset(tt.chunkOffsets[i])
+				chunkDesc.SetShortLocation(tt.shortLocs[i])
+			}
+
+			// 创建定位器
+			locator := &BTPageItemLocator{}
+
+			// 填充定位器
+			pageItemFillLocatorBackwards(page, tt.itemOffset, locator)
+
+			// 验证结果
+			assert.Equal(t, tt.expected.chunkOffset, locator.chunkOffset,
+				fmt.Sprintf("chunk offset mismatch: expected %d, got %d",
+					tt.expected.chunkOffset, locator.chunkOffset))
+			assert.Equal(t, tt.expected.itemOffset, locator.itemOffset,
+				fmt.Sprintf("item offset mismatch: expected %d, got %d",
+					tt.expected.itemOffset, locator.itemOffset))
+
+			// 验证 chunk 信息
+			chunkDesc := header.GetChunkDesc(int(locator.chunkOffset))
+			expectedChunkAddr := uintptr(page) +
+				uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+			actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+			assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+				fmt.Sprintf("chunk address mismatch: expected 0x%x, got 0x%x",
+					expectedChunkAddr, actualChunkAddr))
+		})
+	}
+}
+
+func TestPageLocatorNextChunk(t *testing.T) {
+	// 创建测试用的页面和描述符
+	desc := &BTDesc{}
+	InitPages(1)
+	defer ClosePages()
+
+	// 测试移动到下一个chunk的情况
+	t.Run("move to next chunk when item offset equals chunk items count", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      10, // 等于第一个chunk的items数量
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 验证填充后的itemOffset
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset,
+			"itemOffset should be 0 after pageChunkFillLocator")
+
+		// 设置itemOffset为初始值，这样pageLocatorNextChunk才能正确判断是否移动到下一个chunk
+		locator.itemOffset = 10
+
+		// 尝试移动到下一个chunk
+		success := pageLocatorNextChunk(page, locator)
+
+		// 验证结果
+		assert.True(t, success, "should move to next chunk")
+		assert.Equal(t, OffsetNumber(1), locator.chunkOffset, "should move to next chunk")
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset, "itemOffset should be reset to 0")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should remain unchanged")
+
+		// 验证 chunk 信息
+		chunkDesc := header.GetChunkDesc(1)
+		expectedChunkAddr := uintptr(page) +
+			uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+		actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+		assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+			"chunk address mismatch")
+	})
+
+	// 测试移动到下一个chunk的情况（itemOffset大于chunkItemsCount）
+	t.Run("move to next chunk when item offset greater than chunk items count", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      15, // 大于第一个chunk的items数量
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 验证填充后的itemOffset
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset,
+			"itemOffset should be 0 after pageChunkFillLocator")
+
+		// 设置itemOffset为初始值，这样pageLocatorNextChunk才能正确判断是否移动到下一个chunk
+		locator.itemOffset = 15
+
+		// 尝试移动到下一个chunk
+		success := pageLocatorNextChunk(page, locator)
+
+		// 验证结果
+		assert.True(t, success, "should move to next chunk")
+		assert.Equal(t, OffsetNumber(1), locator.chunkOffset, "should move to next chunk")
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset, "itemOffset should be reset to 0")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should remain unchanged")
+
+		// 验证 chunk 信息
+		chunkDesc := header.GetChunkDesc(1)
+		expectedChunkAddr := uintptr(page) +
+			uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+		actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+		assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+			"chunk address mismatch")
+	})
+
+	// 测试在最后一个chunk时的情况
+	t.Run("no next chunk when item offset equals chunk items count", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     2,  // 最后一个chunk
+			itemOffset:      10, // 等于最后一个chunk的items数量
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 2, locator)
+
+		// 验证填充后的itemOffset
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset,
+			"itemOffset should be 0 after pageChunkFillLocator")
+
+		// 设置itemOffset为初始值，这样pageLocatorNextChunk才能正确判断是否移动到下一个chunk
+		locator.itemOffset = 10
+
+		// 尝试移动到下一个chunk
+		success := pageLocatorNextChunk(page, locator)
+
+		// 验证结果
+		assert.False(t, success, "should not move to next chunk")
+		assert.Equal(t, OffsetNumber(2), locator.chunkOffset, "should stay in current chunk")
+		assert.Equal(t, OffsetNumber(10), locator.itemOffset, "itemOffset should remain unchanged")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should remain unchanged")
+	})
+
+	// 测试保持在当前chunk的情况
+	t.Run("stay in current chunk when item offset less than chunk items count", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      5, // 小于第一个chunk的items数量
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 验证填充后的itemOffset
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset,
+			"itemOffset should be 0 after pageChunkFillLocator")
+
+		// 设置itemOffset为初始值，这样pageLocatorNextChunk才能正确判断是否移动到下一个chunk
+		locator.itemOffset = 5
+
+		// 尝试移动到下一个chunk
+		success := pageLocatorNextChunk(page, locator)
+
+		// 验证结果
+		assert.True(t, success, "should stay in current chunk")
+		assert.Equal(t, OffsetNumber(0), locator.chunkOffset, "should stay in current chunk")
+		assert.Equal(t, OffsetNumber(5), locator.itemOffset, "itemOffset should be unchanged")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should remain unchanged")
+
+		// 验证 chunk 信息
+		chunkDesc := header.GetChunkDesc(0)
+		expectedChunkAddr := uintptr(page) +
+			uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+		actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+		assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+			"chunk address mismatch")
+	})
+
+	// 测试 chunkOffset 大于 chunksCount 的情况
+	t.Run("chunk offset greater than chunks count", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     2, // 大于 chunksCount (3)
+			itemOffset:      10,
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 2, locator)
+
+		// 验证填充后的itemOffset
+		assert.Equal(t, OffsetNumber(0), locator.itemOffset,
+			"itemOffset should be 0 after pageChunkFillLocator")
+
+		// 设置itemOffset为初始值，这样pageLocatorNextChunk才能正确判断是否移动到下一个chunk
+		locator.itemOffset = 10
+
+		// 尝试移动到下一个chunk
+		success := pageLocatorNextChunk(page, locator)
+
+		// 验证结果
+		assert.False(t, success, "should not move to next chunk when chunk offset is invalid")
+		assert.Equal(t, OffsetNumber(2), locator.chunkOffset, "should stay in current chunk")
+		assert.Equal(t, OffsetNumber(10), locator.itemOffset, "itemOffset should remain unchanged")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should remain unchanged")
+	})
+}
+
+func TestPageLocatorPrevChunk(t *testing.T) {
+	// 创建测试用的页面和描述符
+	desc := &BTDesc{}
+	InitPages(1)
+	defer ClosePages()
+
+	// 测试从中间chunk移动到前一个chunk的情况
+	t.Run("move to previous chunk from middle chunk", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     2, // 从最后一个chunk开始
+			itemOffset:      5,
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 2, locator)
+
+		// 尝试移动到前一个chunk
+		success := pageLocatorPrevChunk(page, locator)
+
+		// 验证结果
+		assert.True(t, success, "should move to previous chunk")
+		assert.Equal(t, OffsetNumber(1), locator.chunkOffset, "should move to previous chunk")
+		assert.Equal(t, OffsetNumber(9), locator.itemOffset, "itemOffset should be set to last item of previous chunk")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should be set to previous chunk's items count")
+
+		// 验证 chunk 信息
+		chunkDesc := header.GetChunkDesc(1)
+		expectedChunkAddr := uintptr(page) +
+			uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+		actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+		assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+			"chunk address mismatch")
+	})
+
+	// 测试从第一个chunk移动到前一个chunk的情况
+	t.Run("no previous chunk when at first chunk", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset
+			20, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0, // 从第一个chunk开始
+			itemOffset:      5,
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 尝试移动到前一个chunk
+		success := pageLocatorPrevChunk(page, locator)
+
+		// 验证结果
+		assert.False(t, success, "should not move to previous chunk")
+		assert.Equal(t, OffsetNumber(0), locator.chunkOffset, "should stay at first chunk")
+		assert.Nil(t, locator.chunk, "chunk should be nil")
+	})
+
+	// 测试移动到空chunk的情况
+	t.Run("skip empty chunk when moving to previous chunk", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 3
+		header.itemsCount = 30
+		header.dataSize = 1024
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0,  // chunk 0 offset
+			10, // chunk 1 offset (空chunk)
+			10, // chunk 2 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+			LocationGetShort(512), // chunk 1 location: 从 512 开始
+			LocationGetShort(768), // chunk 2 location: 从 768 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     2, // 从最后一个chunk开始
+			itemOffset:      5,
+			chunkItemsCount: 10,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 2, locator)
+
+		// 尝试移动到前一个chunk
+		success := pageLocatorPrevChunk(page, locator)
+
+		// 验证结果
+		assert.True(t, success, "should move to previous non-empty chunk")
+		assert.Equal(t, OffsetNumber(0), locator.chunkOffset, "should skip empty chunk and move to first chunk")
+		assert.Equal(t, OffsetNumber(9), locator.itemOffset, "itemOffset should be set to last item of first chunk")
+		assert.Equal(t, OffsetNumber(10), locator.chunkItemsCount, "chunkItemsCount should be set to first chunk's items count")
+
+		// 验证 chunk 信息
+		chunkDesc := header.GetChunkDesc(0)
+		expectedChunkAddr := uintptr(page) +
+			uintptr(ShortGetLocation(chunkDesc.GetShortLocation()))
+		actualChunkAddr := uintptr(unsafe.Pointer(locator.chunk))
+		assert.Equal(t, expectedChunkAddr, actualChunkAddr,
+			"chunk address mismatch")
+	})
+}
+
+func TestPageLocatorFitsNewItem(t *testing.T) {
+	// 创建测试用的页面和描述符
+	desc := &BTDesc{}
+	InitPages(1)
+	defer ClosePages()
+
+	// 测试有足够空间的情况
+	t.Run("has enough space for new item", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 1
+		header.itemsCount = 5
+		header.dataSize = 256 // 设置较小的dataSize，确保有足够空间
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0, // chunk 0 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      5,
+			chunkItemsCount: 5,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 测试小尺寸的item
+		fits := pageLocatorFitsNewItem(page, locator, 16)
+		assert.True(t, fits, "should have enough space for small item")
+
+		// 测试中等尺寸的item
+		fits = pageLocatorFitsNewItem(page, locator, 64)
+		assert.True(t, fits, "should have enough space for medium item")
+	})
+
+	// 测试空间不足的情况
+	t.Run("not enough space for new item", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 1
+		header.itemsCount = 5
+		header.dataSize = 8192 // 设置较大的dataSize，模拟空间不足
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0, // chunk 0 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      5,
+			chunkItemsCount: 5,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 测试大尺寸的item
+		fits := pageLocatorFitsNewItem(page, locator, 4096)
+		assert.False(t, fits, "should not have enough space for large item")
+	})
+
+	// 测试边界情况
+	t.Run("boundary conditions", func(t *testing.T) {
+		// 初始化页面
+		page := GetInMemPage(0)
+		header := (*BTPageHeader)(page)
+		initNewBtreePage(desc, 0, 0, 0, true)
+
+		// 设置页面头信息
+		header.chunksCount = 1
+		header.itemsCount = 0 // 空chunk
+		header.dataSize = 256
+
+		// 设置chunk描述符
+		chunkOffsets := []uint32{
+			0, // chunk 0 offset
+		}
+		shortLocs := []uint32{
+			LocationGetShort(256), // chunk 0 location: 从 256 开始
+		}
+		for i := 0; i < len(chunkOffsets); i++ {
+			chunkDesc := header.GetChunkDesc(i)
+			chunkDesc.SetOffset(chunkOffsets[i])
+			chunkDesc.SetShortLocation(shortLocs[i])
+		}
+
+		// 创建并初始化定位器
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 0,
+		}
+
+		// 填充初始chunk信息
+		pageChunkFillLocator(page, 0, locator)
+
+		// 测试空chunk添加第一个item
+		fits := pageLocatorFitsNewItem(page, locator, 16)
+		assert.True(t, fits, "should have enough space for first item in empty chunk")
+
+		// 测试对齐边界
+		fits = pageLocatorFitsNewItem(page, locator, 7) // 7 会被对齐到 8
+		assert.True(t, fits, "should handle alignment correctly")
+	})
+}

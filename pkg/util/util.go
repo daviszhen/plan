@@ -23,7 +23,7 @@ import (
 	"unsafe"
 )
 
-func AlignValue[T ~uint64](value, align T) T {
+func AlignValue[T ~uint64 | ~uint32 | ~uint16](value, align T) T {
 	return (value + (align - 1)) & ^(align - 1)
 }
 
