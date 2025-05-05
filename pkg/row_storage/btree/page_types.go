@@ -91,7 +91,8 @@ func (desc *BTPageChunkDesc) SetHikeyFlags(val uint32) {
 }
 
 const (
-	BT_PAGE_HEADER_SIZE = uint32(unsafe.Sizeof(BTPageHeader{}))
+	BT_PAGE_HEADER_SIZE              = uint32(unsafe.Sizeof(BTPageHeader{}))
+	BT_PAGE_HEADER_CHUNK_DESC_OFFSET = uint32(unsafe.Offsetof(BTPageHeader{}.chunksDesc))
 )
 
 type BTPageHeader struct {
@@ -139,7 +140,24 @@ func (h *BTPageHeader) GetChunkDesc(n int) *BTPageChunkDesc {
 }
 
 type BTPageChunk struct {
+	//offset relative to the chunk position
 	items [1]LocationIndex
+}
+
+func (chunk *BTPageChunk) GetItem(n int) LocationIndex {
+	util.AssertFunc(n >= 0)
+	return *(*LocationIndex)(util.PointerAdd(
+		unsafe.Pointer(&chunk.items[0]),
+		n*int(LocationIndexSize)),
+	)
+}
+
+func (chunk *BTPageChunk) SetItem(n int, loc LocationIndex) {
+	util.AssertFunc(n >= 0)
+	*(*LocationIndex)(util.PointerAdd(
+		unsafe.Pointer(&chunk.items[0]),
+		n*int(LocationIndexSize),
+	)) = loc
 }
 
 type BTPageItemLocator struct {
@@ -212,3 +230,12 @@ func LocationGetShort(loc uint32) uint32 {
 func ShortGetLocation(loc uint32) uint32 {
 	return loc << 2
 }
+
+const (
+	BT_PAGE_MAX_CHUNK_ITEMS = uint32((BLOCK_SIZE - BT_PAGE_HEADER_SIZE) /
+		(8 + LocationIndexSize))
+	BT_PAGE_MAX_ITEMS = uint32((BLOCK_SIZE - BT_PAGE_HEADER_SIZE) /
+		(8 + LocationIndexSize))
+	BT_PAGE_MAX_CHUNKS = uint32((uint32(512) - BT_PAGE_HEADER_CHUNK_DESC_OFFSET) /
+		uint32(8+BT_PAGE_CHUNK_DESC_SIZE))
+)

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -738,6 +739,69 @@ func TestLocationGetShort(t *testing.T) {
 		// 测试最大值最后两位为1的情况
 		assert.Panics(t, func() {
 			LocationGetShort(0xFFFFFFFF)
+		})
+	})
+}
+
+func TestBTPageChunk_GetItem(t *testing.T) {
+	// 分配一个页面空间
+	page := make([]byte, BLOCK_SIZE)
+
+	// 测试正常情况
+	t.Run("normal cases", func(t *testing.T) {
+		// 在页面中写入测试数据
+		testData := []LocationIndex{100, 200, 300, 400}
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[0]))
+
+		// 写入测试数据
+		for i, v := range testData {
+			*(*LocationIndex)(util.PointerAdd(
+				unsafe.Pointer(&chunk.items[0]),
+				i*int(LocationIndexSize),
+			)) = v
+		}
+
+		tests := []struct {
+			name     string
+			index    int
+			expected LocationIndex
+		}{
+			{"first item", 0, 100},
+			{"second item", 1, 200},
+			{"third item", 2, 300},
+			{"fourth item", 3, 400},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := chunk.GetItem(tt.index)
+				if got != tt.expected {
+					t.Errorf("GetItem(%d) = %v, want %v", tt.index, got, tt.expected)
+				}
+			})
+		}
+	})
+
+	// 测试边界情况
+	t.Run("boundary cases", func(t *testing.T) {
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[0]))
+
+		// 测试负索引
+		t.Run("negative index", func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Error("GetItem with negative index should panic")
+				}
+			}()
+			chunk.GetItem(-1)
+		})
+
+		// 测试内存对齐
+		t.Run("memory alignment", func(t *testing.T) {
+			addr := uintptr(unsafe.Pointer(&chunk.items[0]))
+			if addr%unsafe.Alignof(LocationIndex(0)) != 0 {
+				t.Error("items array is not properly aligned")
+			}
 		})
 	})
 }

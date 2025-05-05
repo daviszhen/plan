@@ -25,6 +25,14 @@ func CMemset(ptr unsafe.Pointer, val byte, sz int) {
 	C.memset(ptr, C.int(val), C.size_t(sz))
 }
 
+func CMemmove(dst unsafe.Pointer, src unsafe.Pointer, sz int) {
+	C.memmove(dst, src, C.size_t(sz))
+}
+
+func CMemcpy(dst unsafe.Pointer, src unsafe.Pointer, sz int) {
+	C.memcpy(dst, src, C.size_t(sz))
+}
+
 type BytesAllocator interface {
 	Alloc(sz int) []byte
 	Free([]byte)

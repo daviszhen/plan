@@ -8,7 +8,7 @@ func init() {
 }
 
 type CommitSeqNo uint64
-type LocationIndex uint64
+type LocationIndex uint16
 
 const (
 	COMMITSEQNO_FROZEN CommitSeqNo = 0x3

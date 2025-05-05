@@ -1277,3 +1277,402 @@ func TestPageLocatorFitsNewItem(t *testing.T) {
 		assert.True(t, fits, "should handle alignment correctly")
 	})
 }
+
+func TestPageLocatorGetItemSize(t *testing.T) {
+	t.Run("same chunk items", func(t *testing.T) {
+		// 分配一个页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.dataSize = 100
+
+		// 创建第一个chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据：两个相邻的item
+		// item1: offset = 10
+		// item2: offset = 30
+		*(*LocationIndex)(util.PointerAdd(
+			unsafe.Pointer(&chunk.items[0]),
+			0*int(LocationIndexSize),
+		)) = LocationIndex(10) // 第一个item的offset
+
+		*(*LocationIndex)(util.PointerAdd(
+			unsafe.Pointer(&chunk.items[0]),
+			1*int(LocationIndexSize),
+		)) = LocationIndex(30) // 第二个item的offset
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 2,
+			chunk:           chunk,
+		}
+
+		// 测试获取第一个item的大小
+		size := pageLocatorGetItemSize(unsafe.Pointer(&page[0]), locator)
+		if size != 20 { // 30 - 10 = 20
+			t.Errorf("pageLocatorGetItemSize() = %v, want %v", size, 20)
+		}
+	})
+
+	t.Run("different chunks items", func(t *testing.T) {
+		// 分配一个页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 2
+		header.dataSize = 200
+
+		// 设置第一个chunk的描述符
+		chunk1Desc := header.GetChunkDesc(0)
+		chunk1Desc.SetShortLocation(LocationGetShort(uint32(BT_PAGE_HEADER_SIZE)))
+
+		// 设置第二个chunk的描述符
+		chunk2Desc := header.GetChunkDesc(1)
+		chunk2Desc.SetShortLocation(LocationGetShort(uint32(BT_PAGE_HEADER_SIZE + 100)))
+
+		// 创建第一个chunk
+		chunk1 := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据
+		// chunk1的最后一个item: offset = 80
+		*(*LocationIndex)(util.PointerAdd(
+			unsafe.Pointer(&chunk1.items[0]),
+			0*int(LocationIndexSize),
+		)) = LocationIndex(80)
+
+		// 创建第二个chunk
+		chunk2 := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE+100]))
+
+		// 写入测试数据
+		// chunk2的第一个item: offset = 20
+		*(*LocationIndex)(util.PointerAdd(
+			unsafe.Pointer(&chunk2.items[0]),
+			0*int(LocationIndexSize),
+		)) = LocationIndex(20)
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 1,
+			chunk:           chunk1,
+		}
+
+		// 测试获取最后一个item的大小
+		size := pageLocatorGetItemSize(unsafe.Pointer(&page[0]), locator)
+		expectedSize := LocationIndex(20) // 第二个chunk的第一个item的offset - (第一个chunk的起始位置 + 80)
+		if size != expectedSize {
+			t.Errorf("pageLocatorGetItemSize() = %v, want %v", size, expectedSize)
+		}
+	})
+
+	t.Run("last chunk last item", func(t *testing.T) {
+		// 分配一个页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.dataSize = 180 // BT_PAGE_HEADER_SIZE + 80 + 20
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据：最后一个item
+		*(*LocationIndex)(util.PointerAdd(
+			unsafe.Pointer(&chunk.items[0]),
+			0*int(LocationIndexSize),
+		)) = LocationIndex(80)
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 1,
+			chunk:           chunk,
+		}
+
+		// 测试获取最后一个item的大小
+		size := pageLocatorGetItemSize(unsafe.Pointer(&page[0]), locator)
+		expectedSize := LocationIndex(20) // dataSize(180) - (chunk起始位置 + 80)
+		if size != expectedSize {
+			t.Errorf("pageLocatorGetItemSize() = %v, want %v", size, expectedSize)
+		}
+	})
+}
+
+func TestPageLocatorResizeItem(t *testing.T) {
+	t.Run("increase item size", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.itemsCount = 2
+		header.dataSize = 208 // BT_PAGE_HEADER_SIZE + 80 + 24 (8字节对齐)
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据
+		chunk.SetItem(0, LocationIndex(80))  // 第一个item的offset
+		chunk.SetItem(1, LocationIndex(104)) // 第二个item的offset (80 + 24)
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 2,
+			chunkSize:       104,
+			chunk:           chunk,
+		}
+
+		// 增加第一个item的大小 (24 -> 48)
+		pageLocatorResizeItem(unsafe.Pointer(&page[0]), locator, 48)
+
+		// 验证结果
+		assert.Equal(t, LocationIndex(232), header.dataSize)  // 184 + 48
+		assert.Equal(t, LocationIndex(80), chunk.GetItem(0))  // 第一个item的offset不变
+		assert.Equal(t, LocationIndex(128), chunk.GetItem(1)) // 第二个item的offset增加48
+	})
+
+	t.Run("no size change", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.itemsCount = 2
+		header.dataSize = 184 // BT_PAGE_HEADER_SIZE + 80 + 24 (8字节对齐)
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据
+		chunk.SetItem(0, LocationIndex(80))  // 第一个item的offset
+		chunk.SetItem(1, LocationIndex(104)) // 第二个item的offset (80 + 24)
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 2,
+			chunkSize:       104,
+			chunk:           chunk,
+		}
+
+		// 保持item大小不变
+		pageLocatorResizeItem(unsafe.Pointer(&page[0]), locator, 24)
+
+		// 验证结果
+		assert.Equal(t, LocationIndex(184), header.dataSize)  // 保持不变
+		assert.Equal(t, LocationIndex(80), chunk.GetItem(0))  // 保持不变
+		assert.Equal(t, LocationIndex(104), chunk.GetItem(1)) // 保持不变
+	})
+
+	t.Run("multiple chunks", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 2
+		header.itemsCount = 3
+		header.dataSize = 288 // BT_PAGE_HEADER_SIZE + 80 + 24 + 104 (8字节对齐)
+
+		// 设置第一个chunk的描述符
+		chunk1Desc := header.GetChunkDesc(0)
+		chunk1Desc.SetShortLocation(LocationGetShort(uint32(BT_PAGE_HEADER_SIZE)))
+
+		// 设置第二个chunk的描述符
+		chunk2Desc := header.GetChunkDesc(1)
+		chunk2Desc.SetShortLocation(LocationGetShort(uint32(BT_PAGE_HEADER_SIZE + 104)))
+
+		// 创建第一个chunk
+		chunk1 := (*BTPageChunk)(util.PointerAdd(
+			unsafe.Pointer(&page[0]),
+			int(ShortGetLocation(chunk1Desc.GetShortLocation()))))
+		chunk1.SetItem(0, LocationIndex(80))  // 第一个item的offset
+		chunk1.SetItem(1, LocationIndex(104)) // 第二个item的offset (80 + 24)
+
+		// 创建第二个chunk
+		chunk2 := (*BTPageChunk)(util.PointerAdd(
+			unsafe.Pointer(&page[0]),
+			int(ShortGetLocation(chunk2Desc.GetShortLocation()))))
+		fmt.Println(ShortGetLocation(chunk2Desc.GetShortLocation()))
+		//184
+		chunk2.SetItem(0, LocationIndex(ShortGetLocation(chunk2Desc.GetShortLocation()))) // 第三个item的offset
+	})
+}
+
+func TestPageLocatorInsertItem(t *testing.T) {
+	t.Run("insert item in empty chunk", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.itemsCount = 0
+		header.dataSize = 80 // BT_PAGE_HEADER_SIZE
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      0,
+			chunkItemsCount: 0,
+			chunkSize:       0,
+			chunk:           chunk,
+		}
+
+		// 插入一个24字节的item
+		pageLocatorInsertItem(unsafe.Pointer(&page[0]), locator, 24)
+
+		// 验证结果
+		assert.Equal(t, OffsetNumber(1), header.itemsCount)
+		assert.Equal(t, LocationIndex(112), header.dataSize) // 80 + 24+8
+		assert.Equal(t, LocationIndex(8), chunk.GetItem(0))  // 第一个item的offset
+	})
+
+	t.Run("insert item between existing items", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.itemsCount = 2
+		header.dataSize = 208 // BT_PAGE_HEADER_SIZE + 80 + 24 + 24
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据
+		chunk.SetItem(0, LocationIndex(80))  // 第一个item的offset
+		chunk.SetItem(1, LocationIndex(104)) // 第二个item的offset
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      1, // 在第一个和第二个item之间插入
+			chunkItemsCount: 2,
+			chunkSize:       104,
+			chunk:           chunk,
+		}
+
+		// 插入一个24字节的item
+		pageLocatorInsertItem(unsafe.Pointer(&page[0]), locator, 24)
+
+		// 验证结果
+		//由于items array增加了一个元素。所有的offset都要加8
+		assert.Equal(t, OffsetNumber(3), header.itemsCount)
+		assert.Equal(t, LocationIndex(240), header.dataSize)  // 208 + 24 + 8
+		assert.Equal(t, LocationIndex(88), chunk.GetItem(0))  // 第一个item的offset+8
+		assert.Equal(t, LocationIndex(112), chunk.GetItem(1)) // 新插入的item的offset
+		assert.Equal(t, LocationIndex(136), chunk.GetItem(2)) // 原来的第二个item的offset增加24
+	})
+
+	t.Run("insert item at end of chunk", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 1
+		header.itemsCount = 2
+		header.dataSize = 208 // BT_PAGE_HEADER_SIZE + 80 + 24 + 24
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(unsafe.Pointer(&page[BT_PAGE_HEADER_SIZE]))
+
+		// 写入测试数据
+		chunk.SetItem(0, LocationIndex(80))  // 第一个item的offset
+		chunk.SetItem(1, LocationIndex(104)) // 第二个item的offset
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      2, // 在chunk末尾插入
+			chunkItemsCount: 2,
+			chunkSize:       128,
+			chunk:           chunk,
+		}
+
+		// 插入一个24字节的item
+		pageLocatorInsertItem(unsafe.Pointer(&page[0]), locator, 24)
+
+		// 验证结果
+		assert.Equal(t, OffsetNumber(3), header.itemsCount)
+		assert.Equal(t, LocationIndex(240), header.dataSize)  // 208 + 24+8
+		assert.Equal(t, LocationIndex(88), chunk.GetItem(0))  // 第一个item的offset+8
+		assert.Equal(t, LocationIndex(112), chunk.GetItem(1)) // 第二个item的offset+8
+		assert.Equal(t, LocationIndex(136), chunk.GetItem(2)) // 新插入的item的offset+
+	})
+
+	t.Run("insert item with multiple chunks", func(t *testing.T) {
+		// 分配页面空间
+		page := make([]byte, BLOCK_SIZE)
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 设置页面头部信息
+		header.chunksCount = 2
+		header.itemsCount = 3
+		header.dataSize = 288 // BT_PAGE_HEADER_SIZE + 80 + 24 + 24 + 104
+
+		// 设置第一个chunk的描述符
+		chunk1Desc := header.GetChunkDesc(0)
+		chunk1Desc.SetShortLocation(LocationGetShort(uint32(BT_PAGE_HEADER_SIZE)))
+
+		// 设置第二个chunk的描述符
+		chunk2Desc := header.GetChunkDesc(1)
+		chunk2Desc.SetShortLocation(LocationGetShort(uint32(BT_PAGE_HEADER_SIZE + 104)))
+
+		// 创建第一个chunk
+		chunk1 := (*BTPageChunk)(util.PointerAdd(
+			unsafe.Pointer(&page[0]),
+			int(ShortGetLocation(chunk1Desc.GetShortLocation()))))
+		chunk1.SetItem(0, LocationIndex(80))  // 第一个item的offset
+		chunk1.SetItem(1, LocationIndex(104)) // 第二个item的offset
+
+		// 创建第二个chunk
+		chunk2 := (*BTPageChunk)(util.PointerAdd(
+			unsafe.Pointer(&page[0]),
+			int(ShortGetLocation(chunk2Desc.GetShortLocation()))))
+		chunk2.SetItem(0, LocationIndex(0)) // 第三个item的offset
+
+		chunk2Loc := int(ShortGetLocation(chunk2Desc.GetShortLocation()))
+
+		// 创建locator
+		locator := &BTPageItemLocator{
+			chunkOffset:     0,
+			itemOffset:      1, // 在第一个chunk的中间插入
+			chunkItemsCount: 2,
+			chunkSize:       184,
+			chunk:           chunk1,
+		}
+
+		// 插入一个24字节的item
+		pageLocatorInsertItem(unsafe.Pointer(&page[0]), locator, 24)
+
+		// 验证结果
+		assert.Equal(t, OffsetNumber(4), header.itemsCount)
+		assert.Equal(t, LocationIndex(320), header.dataSize)   // 288 + 24+8
+		assert.Equal(t, LocationIndex(88), chunk1.GetItem(0))  // 第一个item的offset不变
+		assert.Equal(t, LocationIndex(112), chunk1.GetItem(1)) // 新插入的item的offset
+		assert.Equal(t, LocationIndex(136), chunk1.GetItem(2)) // 原来的第二个item的offset增加24
+		chunk2Loc2 := int(ShortGetLocation(chunk2Desc.GetShortLocation()))
+		assert.Equal(t, chunk2Loc+32, chunk2Loc2)
+		assert.Equal(t, LocationIndex(0), chunk2.GetItem(0)) // 第二个chunk的item的offset增加24
+	})
+}
