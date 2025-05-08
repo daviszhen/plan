@@ -2,6 +2,7 @@ package btree
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -1400,7 +1401,7 @@ func TestPageLocatorGetItemSize(t *testing.T) {
 
 		// 测试获取最后一个item的大小
 		size := pageLocatorGetItemSize(unsafe.Pointer(&page[0]), locator)
-		expectedSize := LocationIndex(20) // dataSize(180) - (chunk起始位置 + 80)
+		expectedSize := LocationIndex(36) // dataSize(180) - (chunk起始位置 + 80)
 		if size != expectedSize {
 			t.Errorf("pageLocatorGetItemSize() = %v, want %v", size, expectedSize)
 		}
@@ -1501,7 +1502,7 @@ func TestPageLocatorResizeItem(t *testing.T) {
 			unsafe.Pointer(&page[0]),
 			int(ShortGetLocation(chunk1Desc.GetShortLocation()))))
 		chunk1.SetItem(0, LocationIndex(80))  // 第一个item的offset
-		chunk1.SetItem(1, LocationIndex(104)) // 第二个item的offset (80 + 24)
+		chunk1.SetItem(1, LocationIndex(104)) // 第二个item的offset
 
 		// 创建第二个chunk
 		chunk2 := (*BTPageChunk)(util.PointerAdd(
@@ -1577,10 +1578,10 @@ func TestPageLocatorInsertItem(t *testing.T) {
 		// 验证结果
 		//由于items array增加了一个元素。所有的offset都要加8
 		assert.Equal(t, OffsetNumber(3), header.itemsCount)
-		assert.Equal(t, LocationIndex(240), header.dataSize)  // 208 + 24 + 8
-		assert.Equal(t, LocationIndex(88), chunk.GetItem(0))  // 第一个item的offset+8
-		assert.Equal(t, LocationIndex(112), chunk.GetItem(1)) // 新插入的item的offset
-		assert.Equal(t, LocationIndex(136), chunk.GetItem(2)) // 原来的第二个item的offset增加24
+		assert.Equal(t, LocationIndex(232), header.dataSize)  // 208 + 24 + 8
+		assert.Equal(t, LocationIndex(80), chunk.GetItem(0))  // 第一个item的offset+8
+		assert.Equal(t, LocationIndex(104), chunk.GetItem(1)) // 新插入的item的offset
+		assert.Equal(t, LocationIndex(128), chunk.GetItem(2)) // 原来的第二个item的offset增加24
 	})
 
 	t.Run("insert item at end of chunk", func(t *testing.T) {
@@ -1614,10 +1615,10 @@ func TestPageLocatorInsertItem(t *testing.T) {
 
 		// 验证结果
 		assert.Equal(t, OffsetNumber(3), header.itemsCount)
-		assert.Equal(t, LocationIndex(240), header.dataSize)  // 208 + 24+8
-		assert.Equal(t, LocationIndex(88), chunk.GetItem(0))  // 第一个item的offset+8
-		assert.Equal(t, LocationIndex(112), chunk.GetItem(1)) // 第二个item的offset+8
-		assert.Equal(t, LocationIndex(136), chunk.GetItem(2)) // 新插入的item的offset+
+		assert.Equal(t, LocationIndex(232), header.dataSize)  // 208 + 24+8
+		assert.Equal(t, LocationIndex(80), chunk.GetItem(0))  // 第一个item的offset+8
+		assert.Equal(t, LocationIndex(104), chunk.GetItem(1)) // 第二个item的offset+8
+		assert.Equal(t, LocationIndex(128), chunk.GetItem(2)) // 新插入的item的offset+
 	})
 
 	t.Run("insert item with multiple chunks", func(t *testing.T) {
@@ -1667,12 +1668,383 @@ func TestPageLocatorInsertItem(t *testing.T) {
 
 		// 验证结果
 		assert.Equal(t, OffsetNumber(4), header.itemsCount)
-		assert.Equal(t, LocationIndex(320), header.dataSize)   // 288 + 24+8
-		assert.Equal(t, LocationIndex(88), chunk1.GetItem(0))  // 第一个item的offset不变
-		assert.Equal(t, LocationIndex(112), chunk1.GetItem(1)) // 新插入的item的offset
-		assert.Equal(t, LocationIndex(136), chunk1.GetItem(2)) // 原来的第二个item的offset增加24
+		assert.Equal(t, LocationIndex(312), header.dataSize)   // 288 + 24+8
+		assert.Equal(t, LocationIndex(80), chunk1.GetItem(0))  // 第一个item的offset不变
+		assert.Equal(t, LocationIndex(104), chunk1.GetItem(1)) // 新插入的item的offset
+		assert.Equal(t, LocationIndex(128), chunk1.GetItem(2)) // 原来的第二个item的offset增加24
 		chunk2Loc2 := int(ShortGetLocation(chunk2Desc.GetShortLocation()))
-		assert.Equal(t, chunk2Loc+32, chunk2Loc2)
+		assert.Equal(t, chunk2Loc+24, chunk2Loc2)
 		assert.Equal(t, LocationIndex(0), chunk2.GetItem(0)) // 第二个chunk的item的offset增加24
+	})
+}
+
+// setupPageWithChunks 是一个helper函数,用于设置测试页面
+// 参数:
+// - page: 页面指针
+// - chunksData: 每个chunk的配置,包含items数据和hikey
+// 返回:
+// - 各个chunk的描述符位置,用于验证
+type ChunkData struct {
+	Items []struct {
+		Offset uint32
+		Data   []byte
+	}
+	Hikey []byte
+}
+
+type SetupResult struct {
+	ChunkLoc      uint32
+	HikeyLoc      uint32
+	ItemsCount    int
+	OriginalItems []struct {
+		Offset uint32
+		Data   []byte
+	}
+}
+
+func (r SetupResult) String() string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Chunk Location: %d\n", r.ChunkLoc))
+	sb.WriteString(fmt.Sprintf("Hikey Location: %d\n", r.HikeyLoc))
+	sb.WriteString(fmt.Sprintf("Items Count: %d\n", r.ItemsCount))
+
+	sb.WriteString("Original Items:\n")
+	for i, item := range r.OriginalItems {
+		sb.WriteString(fmt.Sprintf("  Item %d:\n", i))
+		sb.WriteString(fmt.Sprintf("    Offset: %d\n", item.Offset))
+		sb.WriteString(fmt.Sprintf("    Data: % x\n", item.Data))
+	}
+
+	return sb.String()
+}
+
+func setupPageWithChunks(page unsafe.Pointer, chunksData []ChunkData) []SetupResult {
+	header := (*BTPageHeader)(page)
+
+	// 设置基本页面信息
+	header.chunksCount = OffsetNumber(len(chunksData))
+	header.itemsCount = 0 // 会在添加items时累加
+
+	// 获取chunkDesc字段相对于BTPageHeader的偏移量
+	chunkDescOffset := uint32(unsafe.Offsetof(header.chunksDesc))
+
+	// 计算chunkDesc数组的大小(8字节对齐)
+	chunkDescSize := util.AlignValue(uint32(unsafe.Sizeof(BTPageChunkDesc{}))*uint32(len(chunksData)), 8)
+
+	// 计算所有hikey的总大小
+	totalHikeySize := uint32(0)
+	for _, cd := range chunksData {
+		if len(cd.Hikey) > 0 {
+			totalHikeySize += uint32(util.AlignValue(uint32(len(cd.Hikey)), 8))
+		}
+	}
+
+	// 确保hikey区域也是8字节对齐的
+	totalHikeySize = util.AlignValue(totalHikeySize, 8)
+
+	// 设置hikeysEnd
+	header.hikeysEnd = OffsetNumber(chunkDescOffset + chunkDescSize + totalHikeySize)
+
+	// 跟踪当前位置
+	currentHikeyOffset := chunkDescOffset + chunkDescSize
+	currentChunkOffset := chunkDescOffset + chunkDescSize + totalHikeySize
+	currentItemOffset := uint32(0)
+
+	// 保存chunk信息用于返回
+	result := make([]SetupResult, len(chunksData))
+
+	// 处理每个chunk
+	for i, cd := range chunksData {
+		// 设置chunk描述符
+		chunkDesc := header.GetChunkDesc(i)
+		chunkDesc.SetShortLocation(LocationGetShort(currentChunkOffset))
+		chunkDesc.SetOffset(currentItemOffset)
+
+		if len(cd.Hikey) > 0 {
+			chunkDesc.SetHikeyShortLocation(LocationGetShort(currentHikeyOffset))
+			// 复制hikey数据
+			util.CMemcpy(
+				util.PointerAdd(page, int(currentHikeyOffset)),
+				unsafe.Pointer(&cd.Hikey[0]),
+				len(cd.Hikey),
+			)
+			// 如果需要填充以对齐到8字节
+			hikeyAlignedSize := util.AlignValue(uint32(len(cd.Hikey)), 8)
+			if hikeyAlignedSize > uint32(len(cd.Hikey)) {
+				util.CMemset(
+					util.PointerAdd(page, int(currentHikeyOffset)+len(cd.Hikey)),
+					0,
+					int(hikeyAlignedSize-uint32(len(cd.Hikey))),
+				)
+			}
+			currentHikeyOffset += hikeyAlignedSize
+		}
+
+		// 创建chunk
+		chunk := (*BTPageChunk)(util.PointerAdd(page, int(currentChunkOffset)))
+
+		// 保存原始信息用于返回
+		result[i].ChunkLoc = currentChunkOffset
+		result[i].HikeyLoc = currentHikeyOffset
+		result[i].ItemsCount = len(cd.Items)
+		result[i].OriginalItems = make([]struct {
+			Offset uint32
+			Data   []byte
+		}, len(cd.Items))
+
+		// 设置items
+		for j, item := range cd.Items {
+			chunk.SetItem(j, LocationIndex(item.Offset))
+			if len(item.Data) > 0 {
+				util.CMemcpy(
+					util.PointerAdd(unsafe.Pointer(chunk), int(item.Offset)),
+					unsafe.Pointer(&item.Data[0]),
+					len(item.Data),
+				)
+			}
+			result[i].OriginalItems[j] = struct {
+				Offset uint32
+				Data   []byte
+			}{
+				Offset: item.Offset,
+				Data:   item.Data,
+			}
+		}
+
+		// 更新计数
+		header.itemsCount += OffsetNumber(len(cd.Items))
+		currentItemOffset += uint32(len(cd.Items))
+
+		// 计算下一个chunk的位置
+		// chunk size = items数组大小(对齐到8字节) + 最后一个item的offset + 最后一个item的大小
+		lastItemOffset := uint32(0)
+		lastItemSize := uint32(0)
+		if len(cd.Items) > 0 {
+			lastItem := cd.Items[len(cd.Items)-1]
+			lastItemOffset = lastItem.Offset
+			lastItemSize = uint32(len(lastItem.Data))
+		}
+		// 确保整个chunk size是8字节对齐的
+		itemsArraySize := util.AlignValue(uint32(LocationIndexSize)*uint32(len(cd.Items)), 8)
+		chunkSize := util.AlignValue(itemsArraySize+lastItemOffset+lastItemSize, 8)
+		currentChunkOffset += chunkSize
+	}
+
+	// 设置最终的dataSize
+	header.dataSize = LocationIndex(currentChunkOffset)
+
+	return result
+}
+
+// printPageInfo 打印page的详细信息
+func printPageInfo(page unsafe.Pointer) {
+	header := (*BTPageHeader)(page)
+
+	// 打印页面头部信息
+	fmt.Printf("\n=== Page Header Info ===\n")
+	fmt.Printf("chunksCount: %d\n", header.chunksCount)
+	fmt.Printf("itemsCount: %d\n", header.itemsCount)
+	fmt.Printf("hikeysEnd: %d\n", header.hikeysEnd)
+	fmt.Printf("dataSize: %d\n", header.dataSize)
+
+	// 打印chunkDesc数组信息
+	fmt.Printf("\n=== ChunkDesc Array Info ===\n")
+	for i := 0; i < int(header.chunksCount); i++ {
+		chunkDesc := header.GetChunkDesc(i)
+		fmt.Printf("ChunkDesc %d:\n", i)
+		fmt.Printf("  Offset: %d\n", chunkDesc.GetOffset())
+		fmt.Printf("  ShortLocation: %d (actual: %d)\n", chunkDesc.GetShortLocation(), ShortGetLocation(chunkDesc.GetShortLocation()))
+		fmt.Printf("  HikeyShortLocation: %d (actual: %d)\n", chunkDesc.GetHikeyShortLocation(), ShortGetLocation(chunkDesc.GetHikeyShortLocation()))
+		fmt.Printf("  HikeyFlags: %d\n", chunkDesc.GetHikeyFlags())
+	}
+
+	// 打印hikey区域信息
+	fmt.Printf("\n=== Hikey Area Info ===\n")
+	for i := 0; i < int(header.chunksCount); i++ {
+		chunkDesc := header.GetChunkDesc(i)
+		hikeyLoc := ShortGetLocation(chunkDesc.GetHikeyShortLocation())
+		if hikeyLoc > 0 {
+			fmt.Printf("Chunk %d Hikey at offset %d:\n", i, hikeyLoc)
+			// 打印hikey数据(十六进制格式)
+			hikeyData := (*[1 << 30]byte)(util.PointerAdd(page, int(hikeyLoc)))[:8]
+			fmt.Printf("  Data: % x\n", hikeyData)
+		}
+	}
+
+	// 打印chunk信息
+	fmt.Printf("\n=== Chunks Info ===\n")
+	for i := 0; i < int(header.chunksCount); i++ {
+		chunkDesc := header.GetChunkDesc(i)
+		chunkLoc := ShortGetLocation(chunkDesc.GetShortLocation())
+		chunkOffset := chunkDesc.GetOffset()
+
+		fmt.Printf("Chunk %d:\n", i)
+		fmt.Printf("  Location: %d\n", chunkLoc)
+		fmt.Printf("  Offset: %d\n", chunkOffset)
+
+		// 获取chunk
+		chunk := (*BTPageChunk)(util.PointerAdd(page, int(chunkLoc)))
+
+		// 计算这个chunk的items数量
+		itemsCount := 0
+		if i < int(header.chunksCount)-1 {
+			nextChunkDesc := header.GetChunkDesc(i + 1)
+			itemsCount = int(nextChunkDesc.GetOffset() - chunkOffset)
+		} else {
+			itemsCount = int(uint32(header.itemsCount) - chunkOffset)
+		}
+
+		fmt.Printf("  Items Count: %d\n", itemsCount)
+
+		// 打印每个item的信息
+		for j := 0; j < itemsCount; j++ {
+			itemOffset := chunk.GetItem(j)
+			fmt.Printf("  Item %d:\n", j)
+			fmt.Printf("    Offset: %d\n", itemOffset)
+
+			// 获取item数据
+			itemData := (*[1 << 30]byte)(util.PointerAdd(unsafe.Pointer(chunk), int(itemOffset)))
+
+			// 计算item大小
+			itemSize := 0
+			if j < itemsCount-1 {
+				nextItemOffset := chunk.GetItem(j + 1)
+				itemSize = int(nextItemOffset - itemOffset)
+			} else if i < int(header.chunksCount)-1 {
+				nextChunkDesc := header.GetChunkDesc(i + 1)
+				nextChunkLoc := ShortGetLocation(nextChunkDesc.GetShortLocation())
+				itemSize = int(nextChunkLoc - (chunkLoc + uint32(itemOffset)))
+			} else {
+				itemSize = int(header.dataSize - LocationIndex(chunkLoc+uint32(itemOffset)))
+			}
+
+			// 打印item数据(十六进制格式)
+			fmt.Printf("    Size: %d\n", itemSize)
+			fmt.Printf("    Data: % x\n", itemData[:itemSize])
+		}
+	}
+	fmt.Printf("\n")
+}
+
+func TestPageMergeChunks(t *testing.T) {
+	t.Run("merge chunks with hikey", func(t *testing.T) {
+		// 分配一个页面空间
+		page := make([]byte, BLOCK_SIZE)
+
+		// 设置测试数据
+		chunksData := []ChunkData{
+			{
+				// 第一个chunk
+				Items: []struct {
+					Offset uint32
+					Data   []byte
+				}{
+					{
+						Offset: 80,
+						Data:   []byte("item1"),
+					},
+					{
+						Offset: 100,
+						Data:   []byte("item2"),
+					},
+				},
+				Hikey: []byte{1, 2, 3, 4},
+			},
+			{
+				// 第二个chunk
+				Items: []struct {
+					Offset uint32
+					Data   []byte
+				}{
+					{
+						Offset: 20,
+						Data:   []byte("item3"),
+					},
+					{
+						Offset: 40,
+						Data:   []byte("item4"),
+					},
+				},
+				Hikey: []byte{5, 6, 7, 8},
+			},
+		}
+
+		// 设置页面
+		chunksInfo := setupPageWithChunks(unsafe.Pointer(&page[0]), chunksData)
+		for i, info := range chunksInfo {
+			fmt.Printf("Chunk %d:\n%s\n", i, info)
+		}
+
+		// 打印合并前的页面信息
+		fmt.Println("Before merge:")
+		printPageInfo(unsafe.Pointer(&page[0]))
+
+		// 执行merge操作
+		pageMergeChunks(unsafe.Pointer(&page[0]), OffsetNumber(0))
+
+		// 打印合并后的页面信息
+		fmt.Println("After merge:")
+		printPageInfo(unsafe.Pointer(&page[0]))
+
+		// 验证merge后的结果
+		header := (*BTPageHeader)(unsafe.Pointer(&page[0]))
+
+		// 1. 验证chunksCount
+		assert.Equal(t, OffsetNumber(1), header.chunksCount, "chunksCount should be 1 after merge")
+
+		// 2. 验证itemsCount
+		assert.Equal(t, OffsetNumber(4), header.itemsCount, "itemsCount should be 4 after merge")
+
+		// 3. 验证hikey区域
+		// 3.1 验证hikey区域大小
+		// 获取chunkDesc字段相对于BTPageHeader的偏移量
+		chunkDescOffset := uint32(unsafe.Offsetof(header.chunksDesc))
+		// 计算chunkDesc数组的大小(8字节对齐)
+		chunkDescSize := util.AlignValue(uint32(unsafe.Sizeof(BTPageChunkDesc{}))*uint32(header.chunksCount), 8)
+		// hikey区域应该在header和chunkDesc之后
+		expectedHikeysEnd := OffsetNumber(chunkDescOffset + chunkDescSize + util.AlignValue(uint32(4), 8)) // 4是hikey的大小
+		assert.Equal(t, expectedHikeysEnd, header.hikeysEnd, "hikeysEnd should be chunkDescOffset + chunkDescSize + hikeySize")
+
+		// 3.2 验证hikey内容
+		expectedHikey := []byte{5, 6, 7, 8} // 修改为chunk[1]的hikey
+		actualHikey := page[chunkDescOffset+chunkDescSize : header.hikeysEnd]
+		assert.Equal(t, expectedHikey, actualHikey, "hikey content should be preserved")
+
+		// 4. 验证chunk的位置和内容
+		// 4.1 验证第一个chunk的位置
+		chunk1Desc := header.GetChunkDesc(0)
+		expectedChunkLoc := chunkDescOffset + chunkDescSize + util.AlignValue(uint32(4), 8) // chunkDesc + hikey(对齐后)
+		assert.Equal(t, LocationGetShort(expectedChunkLoc), chunk1Desc.GetShortLocation(), "chunk1 location should be correct")
+
+		// 4.2 验证chunk的内容
+		chunk1 := (*BTPageChunk)(util.PointerAdd(unsafe.Pointer(&page[0]), int(expectedChunkLoc)))
+
+		// 验证所有items
+		expectedItems := []struct {
+			offset uint32
+			data   []byte
+			size   int
+		}{
+			{80, []byte("item1"), 20},
+			{100, []byte("item2"), 20},
+			{20, []byte("item3"), 20},
+			{40, []byte("item4"), 20},
+		}
+
+		for i, expected := range expectedItems {
+			// 验证offset
+			itemOffset := chunk1.GetItem(i)
+			assert.Equal(t, LocationIndex(expected.offset), itemOffset, fmt.Sprintf("item %d offset should be correct", i))
+
+			// 验证数据
+			itemData := make([]byte, expected.size)
+			util.CMemcpy(
+				unsafe.Pointer(&itemData[0]),
+				util.PointerAdd(unsafe.Pointer(chunk1), int(itemOffset)),
+				expected.size,
+			)
+			assert.Equal(t, expected.data, itemData[:len(expected.data)], fmt.Sprintf("item %d data should be correct", i))
+		}
 	})
 }

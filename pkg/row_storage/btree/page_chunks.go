@@ -418,6 +418,7 @@ func pageMergeChunks(
 	shift2 = LocationIndex(chunk1ItemsArrSizeAlign + chunk2ItemsArrSizeAlign -
 		mergedItemsArrSizeAlign)
 
+	//evaluate the item offset of the data of locator2
 	tmpItems[0] = 0
 	for i := 0; i < int(count2); i++ {
 		offsetToChunk2DataBeginPosition := loc2.chunk.GetItem(i) -
@@ -437,11 +438,10 @@ func pageMergeChunks(
 				loc1.chunk.GetItem(i)+shift1)
 		}
 		dstPtr := util.PointerAdd(chunk1DataPtr, int(shift1))
-		dataLen := util.PointerSub(chunk1EndPtr, chunk1DataPtr)
 		util.CMemmove(
 			dstPtr,
 			chunk1DataPtr,
-			int(dataLen),
+			int(chunk1Len),
 		)
 	}
 
@@ -477,6 +477,7 @@ func pageMergeChunks(
 		BT_PAGE_HEADER_CHUNK_DESC_OFFSET+
 			uint32(BT_PAGE_CHUNK_DESC_SIZE)*uint32(header.chunksCount-1), 8)
 
+	//move hikey
 	hikeyShift = LocationIndex(part1 - part2)
 
 	indexHikeyLoc := ShortGetLocation(header.GetChunkDesc(int(index)).GetHikeyShortLocation())
