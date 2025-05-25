@@ -14,4 +14,24 @@
 
 package plan
 
-// 删除重复声明的常量和类型
+import (
+	"math"
+)
+
+const (
+	INVALID_INDEX uint32 = math.MaxUint32
+	defaultIndent        = 4
+)
+
+type InWhichClause int
+
+const (
+	IWC_SELECT InWhichClause = iota
+	IWC_WHERE
+	IWC_GROUP
+	IWC_HAVING
+	IWC_ORDER
+	IWC_LIMIT
+	IWC_JOINON
+	IWC_VALUES //for insert ... values
+)
