@@ -3824,3 +3824,172 @@ func TestBTPageReorgBasic(t *testing.T) {
 		}
 	}
 }
+
+func TestPartialLoadChunk(t *testing.T) {
+	// 创建测试用的页面和描述符
+	InitPages(2) // 需要两个页面：一个作为源页面，一个作为目标页面
+	defer ClosePages()
+
+	srcPage := GetInMemPage(0)
+	dstPage := GetInMemPage(1)
+
+	// 准备源页面测试数据
+	srcChunksData := []ChunkData{
+		{
+			Items: []struct {
+				Data []byte
+			}{
+				{Data: []byte("src_chunk0_item1_data_that_is_longer_than_header")},
+				{Data: []byte("src_chunk0_item2_data_that_is_longer_than_header")},
+			},
+		},
+		{
+			Items: []struct {
+				Data []byte
+			}{
+				{Data: []byte("src_chunk1_item1_data_that_is_longer_than_header")},
+				{Data: []byte("src_chunk1_item2_data_that_is_longer_than_header")},
+			},
+		},
+	}
+
+	// 设置源页面
+	SetupPageWithChunksV2(srcPage, srcChunksData, BTREE_FLAG_LEAF, []byte("src_last_hikey_data_that_is_longer_than_header"))
+
+	// 准备目标页面测试数据（使用不同的数据）
+	dstChunksData := []ChunkData{
+		{
+			Items: []struct {
+				Data []byte
+			}{
+				{Data: []byte("dst_chunk0_item1_data_that_is_longer_than_header")},
+				{Data: []byte("dst_chunk0_item2_data_that_is_longer_than_header")},
+			},
+		},
+		{
+			Items: []struct {
+				Data []byte
+			}{
+				{Data: []byte("dst_chunk1_item1_data_that_is_longer_than_header")},
+				{Data: []byte("dst_chunk1_item2_data_that_is_longer_than_header")},
+			},
+		},
+	}
+
+	// 设置目标页面
+	SetupPageWithChunksV2(dstPage, dstChunksData, BTREE_FLAG_LEAF, []byte("dst_last_hikey_data_that_is_longer_than_header"))
+
+	// 创建PartialPageState
+	partial := &PartialPageState{
+		src:           srcPage,
+		isPartial:     true,
+		chunkIsLoaded: [BT_PAGE_MAX_CHUNKS]bool{},
+	}
+
+	t.Run("already loaded chunk", func(t *testing.T) {
+		// 重置状态
+		partial.isPartial = true
+		for i := range partial.chunkIsLoaded {
+			partial.chunkIsLoaded[i] = false
+		}
+
+		// 设置已加载状态
+		partial.chunkIsLoaded[0] = true
+
+		// 执行测试
+		got := partialLoadChunk(partial, dstPage, 0)
+
+		// 验证结果
+		assert.True(t, got)
+		// 验证数据没有被改变（因为chunk已经加载）
+		dstHeader := (*BTPageHeader)(dstPage)
+		chunkBegin := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(0).GetShortLocation()))
+		chunkEnd := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(1).GetShortLocation()))
+		dstData := util.PointerAdd(dstPage, int(chunkBegin))
+		dstBytes := (*[1 << 30]byte)(dstData)[:chunkEnd-chunkBegin]
+		assert.Contains(t, string(dstBytes), "dst_chunk0")
+	})
+
+	t.Run("not partial page", func(t *testing.T) {
+		// 重置状态
+		partial.isPartial = true
+		for i := range partial.chunkIsLoaded {
+			partial.chunkIsLoaded[i] = false
+		}
+
+		// 设置非部分页面状态
+		partial.isPartial = false
+
+		// 执行测试
+		got := partialLoadChunk(partial, dstPage, 0)
+
+		// 验证结果
+		assert.True(t, got)
+		// 验证数据没有被改变（因为不是部分页面）
+		dstHeader := (*BTPageHeader)(dstPage)
+		chunkBegin := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(0).GetShortLocation()))
+		chunkEnd := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(1).GetShortLocation()))
+		dstData := util.PointerAdd(dstPage, int(chunkBegin))
+		dstBytes := (*[1 << 30]byte)(dstData)[:chunkEnd-chunkBegin]
+		assert.Contains(t, string(dstBytes), "dst_chunk0")
+	})
+
+	t.Run("successful load first chunk", func(t *testing.T) {
+		// 重置状态
+		partial.isPartial = true
+		for i := range partial.chunkIsLoaded {
+			partial.chunkIsLoaded[i] = false
+		}
+
+		// 执行测试
+		got := partialLoadChunk(partial, dstPage, 0)
+
+		// 验证结果
+		assert.True(t, got)
+
+		// 验证数据是否正确复制
+		dstHeader := (*BTPageHeader)(dstPage)
+		chunkBegin := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(0).GetShortLocation()))
+		chunkEnd := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(1).GetShortLocation()))
+
+		// 比较源页面和目标页面的数据
+		srcData := util.PointerAdd(srcPage, int(chunkBegin))
+		dstData := util.PointerAdd(dstPage, int(chunkBegin))
+		dataLen := int(chunkEnd - chunkBegin)
+		srcBytes := (*[1 << 30]byte)(srcData)[:dataLen]
+		dstBytes := (*[1 << 30]byte)(dstData)[:dataLen]
+		assert.Equal(t, srcBytes, dstBytes)
+		// 验证数据确实被改变了
+		assert.Contains(t, string(dstBytes), "src_chunk0")
+	})
+
+	t.Run("successful load last chunk", func(t *testing.T) {
+
+		// 创建PartialPageState
+		partial := &PartialPageState{
+			src:           srcPage,
+			isPartial:     true,
+			chunkIsLoaded: [BT_PAGE_MAX_CHUNKS]bool{},
+		}
+		// 执行测试
+		got := partialLoadChunk(partial, dstPage, 1)
+
+		// 验证结果
+		assert.True(t, got)
+
+		// 验证数据是否正确复制
+		dstHeader := (*BTPageHeader)(dstPage)
+		chunkBegin := LocationIndex(ShortGetLocation(dstHeader.GetChunkDesc(1).GetShortLocation()))
+		chunkEnd := dstHeader.dataSize
+
+		// 比较源页面和目标页面的数据
+		srcData := util.PointerAdd(srcPage, int(chunkBegin))
+		dstData := util.PointerAdd(dstPage, int(chunkBegin))
+		dataLen := int(chunkEnd - chunkBegin)
+		srcBytes := (*[1 << 30]byte)(srcData)[:dataLen]
+		dstBytes := (*[1 << 30]byte)(dstData)[:dataLen]
+		assert.Equal(t, srcBytes, dstBytes)
+		// 验证数据确实被改变了
+		assert.Contains(t, string(dstBytes), "src_chunk1")
+	})
+}

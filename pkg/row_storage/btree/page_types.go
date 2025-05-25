@@ -343,3 +343,9 @@ type FixedKey struct {
 	tuple     Tuple
 	fixedData [BT_MAX_KEY_SIZE]byte
 }
+
+type PartialPageState struct {
+	src           unsafe.Pointer
+	isPartial     bool
+	chunkIsLoaded [BT_PAGE_MAX_CHUNKS]bool
+}

@@ -2,6 +2,7 @@ package btree
 
 import (
 	"fmt"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/daviszhen/plan/pkg/util"
@@ -1440,4 +1441,57 @@ func splitPageByChunks(
 	}
 
 	BTPageReorg(desc, p, items, OffsetNumber(i), hikeySize, hikey.tuple, nil)
+}
+
+// load chunk data from partial to img
+func partialLoadChunk(
+	partial *PartialPageState,
+	img unsafe.Pointer,
+	chunkOffset OffsetNumber,
+) bool {
+	var (
+		imgState, srcState   uint32
+		src                  unsafe.Pointer
+		chunkBegin, chunkEnd LocationIndex
+	)
+	src = partial.src
+	header := (*BTPageHeader)(img)
+
+	if !partial.isPartial || partial.chunkIsLoaded[chunkOffset] {
+		return true
+	}
+
+	chkdesc := header.GetChunkDesc(int(chunkOffset))
+	chunkBegin = LocationIndex(ShortGetLocation(chkdesc.GetShortLocation()))
+	if chunkOffset+1 < header.chunksCount {
+		chunkEnd = LocationIndex(ShortGetLocation(header.GetChunkDesc(int(chunkOffset + 1)).GetShortLocation()))
+	} else {
+		chunkEnd = header.dataSize
+	}
+
+	util.AssertFunc(chunkBegin >= 0 && chunkBegin <= BLOCK_SIZE)
+	util.AssertFunc(chunkEnd >= 0 && chunkEnd <= BLOCK_SIZE)
+
+	util.CMemcpy(
+		util.PointerAdd(img, int(chunkBegin)),
+		util.PointerAdd(src, int(chunkBegin)),
+		int(chunkEnd-chunkBegin))
+
+	imgHeader := (*BTPageHeader)(img)
+	srcHeader := (*BTPageHeader)(src)
+
+	imgState = atomic.LoadUint32(&(imgHeader.header.stateAtomic))
+	srcState = atomic.LoadUint32(&(srcHeader.header.stateAtomic))
+
+	if (imgState&PageStateChangeCountMask) != (srcState&PageStateChangeCountMask) ||
+		PageStateReadIsBlocked(srcState) {
+		return false
+	}
+
+	if PageGetChangeCount(img) != PageGetChangeCount(src) {
+		return false
+	}
+
+	partial.chunkIsLoaded[chunkOffset] = true
+	return true
 }

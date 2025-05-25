@@ -3,6 +3,7 @@ package btree
 import (
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/daviszhen/plan/pkg/util"
 	"github.com/petermattis/goid"
@@ -104,6 +105,11 @@ func pageIncUsageCount(blkno Blkno, usageCount uint32) {
 	ptr := GetInMemPage(blkno)
 	header := GetPageHeader(ptr)
 	atomic.CompareAndSwapUint32(&header.usageCountAtomic, usageCount, usageCount+1)
+}
+
+func PageGetChangeCount(p unsafe.Pointer) uint32 {
+	header := (*BTPageHeader)(p)
+	return header.header.pageChangeCount
 }
 
 func lockPage(blkno Blkno) {
