@@ -59,7 +59,6 @@ func (state *ReplayState) replayUseTable(txn *Txn) error {
 	if state._deserializeOnly {
 		return nil
 	}
-	//FIXME: create data table
 	state._currentTable = GCatalog.GetEntry(txn, CatalogTypeTable, schema, table)
 	return nil
 }

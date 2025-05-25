@@ -135,10 +135,7 @@ func (storage *LocalTableStorage) AppendToIndexes(
 			}
 
 			currentRow += RowType(data.Card())
-			if currentRow >= appendState._currentRow {
-				return false
-			}
-			return true
+			return currentRow < appendState._currentRow
 		})
 		if appendToTable {
 			storage._table.RevertAppendInternal(

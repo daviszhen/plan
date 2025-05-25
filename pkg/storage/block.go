@@ -158,7 +158,6 @@ func (handle *BlockHandle) CanUnload() bool {
 	if handle._readers.Load() > 0 {
 		return false
 	}
-	//TODO: temporary block
 	return true
 }
 

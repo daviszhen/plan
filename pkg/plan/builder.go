@@ -2465,7 +2465,7 @@ func (b *Builder) buildInsertInternal(
 			columnNameMap[colName] = i
 			colIdx := tabEnt.GetColumnIndex(colName)
 			if colIdx == -1 {
-				return nil, fmt.Errorf("invalid column %s", colIdx)
+				return nil, fmt.Errorf("invalid column %d", colIdx)
 			}
 			colDef := tabEnt.GetColumn(colIdx)
 			insert.ExpectedTypes = append(insert.ExpectedTypes, colDef.Type)

@@ -202,8 +202,6 @@ func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	name := getFuncName(expr)
 	if name == "count" {
 		if expr.AggStar {
-			//replace * by the column 0 of the first table
-			//TODO: refine
 			colName := b.rootCtx.bindingsList[0].names[0]
 			expr.Args = []*pg_query.Node{
 				{
@@ -407,7 +405,6 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		return nil, err
 	}
 
-	//TODO: refine it
 	//special :
 	// not in
 	if et == ET_Not {

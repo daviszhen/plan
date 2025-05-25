@@ -272,7 +272,6 @@ func (idx *Index) Append2(
 	lock *IndexLock,
 	entries *chunk.Chunk,
 	rowIds *chunk.Vector) error {
-	//TODO:execute exprs
 	temp := &chunk.Chunk{}
 	temp.Init(idx._logicalTypes, STANDARD_VECTOR_SIZE)
 	for i, colIdx := range idx._columnIds {
@@ -565,16 +564,12 @@ func (idx *Index) Delete2(
 	state *IndexLock,
 	input *chunk.Chunk,
 	rowIds *chunk.Vector) error {
-	//TODO:execute exprs
 	//one key for one row
 	keys := make([]*IndexKey, input.Card())
 	for i := 0; i < input.Card(); i++ {
 		keys[i] = &IndexKey{}
 	}
 	idx.GenerateKeys(input, keys)
-
-	//rowIds.Flatten(input.Card())
-	//rowIdsSlice := chunk.GetSliceInPhyFormatFlat[uint64](rowIds)
 
 	for i := 0; i < input.Card(); i++ {
 		if keys[i].Empty() {
@@ -675,10 +670,7 @@ func (idx *Index) SearchLess(
 	})
 	//reverse result ids
 	slices.Reverse(*resultIds)
-	if cnt < maxCount {
-		return true
-	}
-	return false
+	return cnt < maxCount
 }
 
 func (idx *Index) SearchCloseRange(
@@ -720,10 +712,7 @@ func (idx *Index) SearchCloseRange(
 		cnt++
 		return true
 	})
-	if cnt < maxCount {
-		return true
-	}
-	return false
+	return cnt < maxCount
 }
 
 func AppendToIndexes(
