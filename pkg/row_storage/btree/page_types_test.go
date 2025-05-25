@@ -1,9 +1,11 @@
 package btree
 
 import (
+	"fmt"
 	"testing"
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/row_storage/txn"
 	"github.com/daviszhen/plan/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
@@ -804,4 +806,275 @@ func TestBTPageChunk_GetItem(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestBTLeafTuphdr_GetXactInfo(t *testing.T) {
+	tests := []struct {
+		name     string
+		fields   TupleXactInfo
+		expected TupleXactInfo
+	}{
+		{
+			name:     "zero value",
+			fields:   0,
+			expected: 0,
+		},
+		{
+			name:     "max xact info value",
+			fields:   (1 << 61) - 1,
+			expected: (1 << 61) - 1,
+		},
+		{
+			name:     "with deleted flag",
+			fields:   (1 << 61) | 0x3,
+			expected: 0x3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tupHdr := &BTLeafTuphdr{
+				fields: tt.fields,
+			}
+			if got := tupHdr.GetXactInfo(); got != tt.expected {
+				t.Errorf("BTLeafTuphdr.GetXactInfo() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBTLeafTuphdr_IsDeleted(t *testing.T) {
+	tests := []struct {
+		name     string
+		fields   TupleXactInfo
+		expected bool
+	}{
+		{
+			name:     "not deleted",
+			fields:   0,
+			expected: false,
+		},
+		{
+			name:     "deleted with flag 1",
+			fields:   1 << 61,
+			expected: true,
+		},
+		{
+			name:     "deleted with flag 2",
+			fields:   2 << 61,
+			expected: true,
+		},
+		{
+			name:     "deleted with flag 3",
+			fields:   3 << 61,
+			expected: true,
+		},
+		{
+			name:     "with xact info but not deleted",
+			fields:   (1 << 61) - 1,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tupHdr := &BTLeafTuphdr{
+				fields: tt.fields,
+			}
+			if got := tupHdr.IsDeleted(); got != tt.expected {
+				t.Errorf("BTLeafTuphdr.IsDeleted() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestXactInfoIsLockOnly(t *testing.T) {
+	tests := []struct {
+		name     string
+		xactInfo TupleXactInfo
+		expected bool
+	}{
+		{
+			name:     "zero value",
+			xactInfo: 0,
+			expected: false,
+		},
+		{
+			name:     "lock only bit set",
+			xactInfo: XACT_INFO_LOCK_ONLY_BIT,
+			expected: true,
+		},
+		{
+			name:     "lock only bit and other bits set",
+			xactInfo: XACT_INFO_LOCK_ONLY_BIT | 0x3,
+			expected: true,
+		},
+		{
+			name:     "other bits set but not lock only",
+			xactInfo: 0x3,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := XactInfoIsLockOnly(tt.xactInfo); got != tt.expected {
+				t.Errorf("XactInfoIsLockOnly() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestXactInfoGetXid(t *testing.T) {
+	tests := []struct {
+		name     string
+		xactInfo TupleXactInfo
+		expected txn.Xid
+	}{
+		{
+			name:     "zero value",
+			xactInfo: 0,
+			expected: 0,
+		},
+		{
+			name:     "simple xid",
+			xactInfo: 0x123,
+			expected: 0x123,
+		},
+		{
+			name:     "max xid value",
+			xactInfo: XACT_INFO_LOCK_XID_MASK,
+			expected: txn.Xid(XACT_INFO_LOCK_XID_MASK),
+		},
+		{
+			name:     "xid with lock only bit",
+			xactInfo: XACT_INFO_LOCK_ONLY_BIT | 0x123,
+			expected: 0x123,
+		},
+		{
+			name:     "xid with lock mode",
+			xactInfo: (0x3 << XACT_INFO_LOCK_MODE_SHIFT) | 0x123,
+			expected: 0x123,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := XactInfoGetXid(tt.xactInfo); got != tt.expected {
+				t.Errorf("XactInfoGetXid() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestXactInfoFinishedForEverybody(t *testing.T) {
+	tests := []struct {
+		name     string
+		xactInfo TupleXactInfo
+		expected bool
+	}{
+		{
+			name:     "zero value",
+			xactInfo: 0,
+			expected: true,
+		},
+		{
+			name:     "simple xid",
+			xactInfo: 0x123,
+			expected: true,
+		},
+		{
+			name:     "max xid value",
+			xactInfo: XACT_INFO_LOCK_XID_MASK,
+			expected: true,
+		},
+		{
+			name:     "xid with lock only bit",
+			xactInfo: XACT_INFO_LOCK_ONLY_BIT | 0x123,
+			expected: true,
+		},
+		{
+			name:     "xid with lock mode",
+			xactInfo: (0x3 << XACT_INFO_LOCK_MODE_SHIFT) | 0x123,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := XactInfoFinishedForEverybody(tt.xactInfo); got != tt.expected {
+				t.Errorf("XactInfoFinishedForEverybody() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBTPageReadLeafItem(t *testing.T) {
+	// 构造测试数据：只有一个chunk
+	itemCount := 8
+	itemSize := 32
+	items := make([]struct{ Data []byte }, itemCount)
+	itemDataList := make([][]byte, itemCount)
+	headLen := int(BT_LEAF_TUPHDR_SIZE)
+	for i := 0; i < itemCount; i++ {
+		itemData := make([]byte, itemSize)
+		// 填充 head 区域
+		for j := 0; j < headLen; j++ {
+			itemData[j] = 0xA0 + byte(i)
+		}
+		// 填充 payload 区域
+		for j := 0; j < itemSize-headLen; j++ {
+			itemData[headLen+j] = 0xC0 + byte(i*itemSize+j)
+		}
+		items[i] = struct{ Data []byte }{Data: itemData}
+		itemDataList[i] = itemData
+	}
+	lasthikey := make([]byte, itemSize-headLen)
+	for i := 0; i < itemSize-headLen; i++ {
+		lasthikey[i] = byte(200 + i)
+	}
+	chunksData := []ChunkData{
+		{Items: items},
+	}
+
+	// 初始化页面
+	page := make([]byte, BLOCK_SIZE)
+	pagePtr := unsafe.Pointer(&page[0])
+	SetupPageWithChunksV2(pagePtr, chunksData, BTREE_FLAG_LEAF, lasthikey)
+	header := (*BTPageHeader)(pagePtr)
+
+	// 验证hikey内容
+	chunkDesc := header.GetChunkDesc(0)
+	hikeyLoc := ShortGetLocation(chunkDesc.GetHikeyShortLocation())
+	hikeyData := util.PointerToSlice[byte](util.PointerAdd(pagePtr, int(hikeyLoc)), itemSize-headLen)
+	assert.Equal(t, lasthikey, hikeyData[:len(lasthikey)])
+	fmt.Printf("hikeyData: % x\n", hikeyData)
+
+	// 验证chunk和item
+	assert.Equal(t, OffsetNumber(1), header.chunksCount)
+	assert.Equal(t, OffsetNumber(itemCount), header.itemsCount)
+	chunk := (*BTPageChunk)(util.PointerAdd(pagePtr, int(ShortGetLocation(chunkDesc.GetShortLocation()))))
+	for i := 0; i < itemCount; i++ {
+		item := chunk.GetItem(i)
+		itemLoc := ItemGetOffset(item)
+		itemData := (*[32]byte)(util.PointerAdd(unsafe.Pointer(chunk), int(itemLoc)))[:]
+		assert.Equal(t, itemDataList[i][headLen:], itemData[headLen:])
+		// 设置 flags
+		chunk.SetItem(i, ItemSetFlags(item, 1))
+	}
+
+	// 测试 BTPageReadLeafItem
+	var tuphdr *BTLeafTuphdr
+	var tup Tuple
+	locator := BTPageItemLocator{
+		chunkOffset:     0,
+		itemOffset:      0,
+		chunkItemsCount: OffsetNumber(itemCount),
+		chunkSize:       LocationIndex(itemSize * itemCount),
+		chunk:           chunk,
+	}
+	BTPageReadLeafItem(&tuphdr, &tup, pagePtr, &locator)
+	assert.NotNil(t, tuphdr)
+	assert.NotNil(t, tup.data)
+	assert.Equal(t, uint8(1), tup.formatFlags)
 }

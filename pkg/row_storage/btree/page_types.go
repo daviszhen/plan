@@ -3,6 +3,7 @@ package btree
 import (
 	"unsafe"
 
+	"github.com/daviszhen/plan/pkg/row_storage/txn"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -223,6 +224,19 @@ func BTPageGetItemSize(p unsafe.Pointer, locator *BTPageItemLocator) LocationInd
 	return pageLocatorGetItemSize(p, locator)
 }
 
+func BTPageReadLeafItem(
+	tuphdr **BTLeafTuphdr,
+	tup *Tuple,
+	p unsafe.Pointer,
+	locator *BTPageItemLocator,
+) {
+	item := BTPageLocatorGetItem(p, locator)
+	util.AssertFunc(PageIs(p, BTREE_FLAG_LEAF))
+	*tuphdr = (*BTLeafTuphdr)(item)
+	tup.data = util.PointerAdd(item, int(BT_LEAF_TUPHDR_SIZE))
+	tup.formatFlags = uint8(BTPageGetItemFlags(p, locator))
+}
+
 func BTPageItemsCount(p unsafe.Pointer) OffsetNumber {
 	header := (*BTPageHeader)(p)
 	return header.itemsCount
@@ -254,9 +268,36 @@ type BTNonLeafTuphdr struct {
 
 type TupleXactInfo uint64
 
+const (
+	XACT_INFO_LOCK_ONLY_BIT   = TupleXactInfo(1 << 60)
+	XACT_INFO_LOCK_MODE_MASK  = TupleXactInfo(0x3 << 58)
+	XACT_INFO_LOCK_XID_MASK   = TupleXactInfo(0x03FFFFFFFFFFFFFF)
+	XACT_INFO_LOCK_MODE_SHIFT = 58
+)
+
+func XactInfoIsLockOnly(xactInfo TupleXactInfo) bool {
+	return xactInfo&XACT_INFO_LOCK_ONLY_BIT != 0
+}
+
+func XactInfoGetXid(xactInfo TupleXactInfo) txn.Xid {
+	return txn.Xid(xactInfo & XACT_INFO_LOCK_XID_MASK)
+}
+
+func XactInfoFinishedForEverybody(xactInfo TupleXactInfo) bool {
+	return txn.XidIsFinishedForEverybody(XactInfoGetXid(xactInfo))
+}
+
 type BTLeafTuphdr struct {
 	fields TupleXactInfo //xactInfo:61,deleted:2,chainHasLocks:1
 	locs   UndoLocation  //undoLocation:62,formatFlags:2
+}
+
+func (tupHdr *BTLeafTuphdr) GetXactInfo() TupleXactInfo {
+	return tupHdr.fields & ((1 << 61) - 1)
+}
+
+func (tupHdr *BTLeafTuphdr) IsDeleted() bool {
+	return (tupHdr.fields>>61)&0x3 != 0
 }
 
 func ItemGetOffset(item LocationIndex) uint16 {

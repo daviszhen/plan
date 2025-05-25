@@ -184,9 +184,30 @@ func pageGetHikeySize(p unsafe.Pointer) LocationIndex {
 		OffsetNumber(ShortGetLocation(chunkDesc.GetHikeyShortLocation())))
 }
 
-// func pageSetHikeyFlags(p unsafe.Pointer, flags uint8) {
-// 	header := (*BTPageHeader)(p)
-// 	util.AssertFunc(!PageIs(p, BTREE_FLAG_RIGHTMOST))
-// 	chunkDesc := header.GetChunkDesc(int(header.chunksCount - 1))
-// 	chunkDesc.SetHikeyFlags(uint32(flags))
-// }
+// estimate vacated space in the page
+func pageGetVacatedSpace(
+	desc *BTDesc,
+	p unsafe.Pointer,
+	csn CommitSeqNo) LocationIndex {
+	vacatedBytes := LocationIndex(0)
+	var loc BTPageItemLocator
+
+	for BTPageLocatorFirst(p, &loc); BTPageLocatorIsValid(p, &loc); BTPageLocatorNext(p, &loc) {
+		var header *BTLeafTuphdr
+		var tuple Tuple
+		BTPageReadLeafItem(&header, &tuple, p, &loc)
+		if XactInfoFinishedForEverybody(header.GetXactInfo()) {
+			if header.IsDeleted() {
+				//FIXME:
+				// if COMMITSEQNO_IS_INPROGRESS(csn) || XactInfoGetCsn(header.GetXactInfo()) < csn {
+				// 	vacatedBytes += LocationIndex(BTPageGetItemSize(p, &loc))
+				// }
+			} else {
+				elemsize := LocationIndex(BTPageGetItemSize(p, &loc))
+				vacatedBytes += elemsize - (LocationIndex(BT_LEAF_TUPHDR_SIZE) +
+					LocationIndex(util.AlignValue8(BTLen(desc, tuple, TupleLength))))
+			}
+		}
+	}
+	return vacatedBytes
+}

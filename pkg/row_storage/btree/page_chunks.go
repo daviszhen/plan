@@ -1495,3 +1495,66 @@ func partialLoadChunk(
 	partial.chunkIsLoaded[chunkOffset] = true
 	return true
 }
+
+func pageLocatorFitsItem(
+	desc *BTDesc,
+	p unsafe.Pointer,
+	locator *BTPageItemLocator,
+	size LocationIndex,
+	replace bool,
+	csn CommitSeqNo,
+) BTItemPageFitType {
+	freeSpace := int(BTPageFreeSpace(p))
+	spaceNeeded := int(size)
+	oldItemSize := LocationIndex(0)
+
+	util.AssertFunc(spaceNeeded == util.AlignValue8(spaceNeeded))
+
+	if !replace {
+		//add item array extend size
+		aLen := util.AlignValue8(LocationIndexSize * uint32(locator.chunkItemsCount+1))
+		bLen := util.AlignValue8(LocationIndexSize * uint32(locator.chunkItemsCount))
+		spaceNeeded += int(aLen - bLen)
+	} else {
+		oldItemSize = LocationIndex(BTPageGetItemSize(p, locator))
+		//only leaf page can replace item
+		util.AssertFunc(PageIs(p, BTREE_FLAG_LEAF))
+		//substract already occupied space in replace mode
+		spaceNeeded -= int(oldItemSize)
+		util.AssertFunc(spaceNeeded == util.AlignValue8(spaceNeeded))
+	}
+
+	if freeSpace >= spaceNeeded {
+		//enough free space
+		return BTItemPageFitAsIs
+	} else if PageIs(p, BTREE_FLAG_LEAF) && desc.idxType != IndexBridge {
+		//try to compact first on leaf page
+		//optimistic estimated free space
+		compactedFreeSpace := freeSpace + int(PageGetNVacated(p))
+		if replace {
+			tupHdr := (*BTLeafTuphdr)(BTPageLocatorGetItem(p, locator))
+			if tupHdr.IsDeleted() &&
+				XactInfoFinishedForEverybody(tupHdr.GetXactInfo()) {
+				// util.AssertFunc(COMMITSEQNO_IS_INPROGRESS(csn) ||
+				// 	XACT_INFO_MAP_CSN(tupHdr.GetXactInfo()) < csn)
+				//substract already occupied space in replace mode
+				compactedFreeSpace -= int(oldItemSize)
+			}
+		}
+
+		//no enough free space, need to split
+		if compactedFreeSpace < spaceNeeded {
+			return BTItemPageFitSplitRequired
+		}
+		//real estimated free space
+		compactedFreeSpace -= int(PageGetNVacated(p)) -
+			int(pageGetVacatedSpace(desc, p, csn))
+		if compactedFreeSpace >= spaceNeeded {
+			return BTItemPageFitCompactRequired
+		} else {
+			return BTItemPageFitSplitRequired
+		}
+	} else {
+		return BTItemPageFitSplitRequired
+	}
+}
