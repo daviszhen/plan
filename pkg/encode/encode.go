@@ -33,10 +33,6 @@ func EncodeInt32(ptr unsafe.Pointer, value int32) {
 	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
 }
 
-//func encodeUint32(ptr unsafe.Pointer, value uint32) {
-//	store[uint32](BSWAP32(value), ptr)
-//}
-
 func EncodeInt64(ptr unsafe.Pointer, value int64) {
 	util.Store[uint64](BSWAP64(uint64(value)), ptr)
 	util.Store[uint8](FlipSign(util.Load[uint8](ptr)), ptr)
