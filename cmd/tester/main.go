@@ -24,7 +24,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/daviszhen/plan/pkg/plan"
+	"github.com/daviszhen/plan/pkg/compute"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -67,7 +67,7 @@ var tpch1gCmd = &cobra.Command{
 	Long:  tpch1gInfo,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		initTpch1gCfg()
-		return plan.Run(testerCfg)
+		return compute.Run(testerCfg)
 	},
 }
 
@@ -90,7 +90,7 @@ var tpch1gDDLCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		initTpch1gDDLCfg()
 		initTpch1gCfg()
-		return plan.RunDDL(testerCfg)
+		return compute.RunDDL(testerCfg)
 	},
 }
 

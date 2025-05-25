@@ -774,15 +774,8 @@ func (stats *DistinctStats) Deserialize2(reader *FieldReader) error {
 	if err != nil {
 		return err
 	}
-	//fmt.Println("distinct stats d",
-	//	scount,
-	//	tcount,
-	//	logLen,
-	//)
 	return stats._log.UnmarshalBinary(logData)
 }
-
-func serializeHLL() {}
 
 type ColumnStats struct {
 	_stats         BaseStats

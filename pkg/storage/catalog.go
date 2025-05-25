@@ -193,7 +193,7 @@ func (set *CatalogSet) CreateEntry(
 		index = mapping._index._index
 		curEnt := mapping._index.GetEntry()
 		if set.HasConflict(txn, TxnType(curEnt._timestamp.Load())) {
-			panic(fmt.Sprintf("write-write conflicts on %s", curEnt._name))
+			panic("write-write conflicts on " + curEnt._name)
 		}
 		if !curEnt._deleted {
 			return false, nil
@@ -269,7 +269,7 @@ func (set *CatalogSet) GetEntryInternal2(
 	entIdx EntryIndex) *CatalogEntry {
 	ent := entIdx.GetEntry()
 	if set.HasConflict(txn, TxnType(ent._timestamp.Load())) {
-		panic(fmt.Sprintf("write-write conflict on %s ", ent._name))
+		panic("write-write conflict on " + ent._name)
 	}
 	if ent._deleted {
 		return nil
@@ -286,7 +286,7 @@ func (set *CatalogSet) PutEntry(
 	entIdx IdxType,
 	ent *CatalogEntry) EntryIndex {
 	if _, has := set._entries[entIdx]; has {
-		panic(fmt.Sprintf("entry index %d already exists", entIdx))
+		panic("entry index " + fmt.Sprint(entIdx) + " already exists")
 	}
 	set._entries[entIdx] = &EntryValue{
 		_entry: ent,
@@ -304,7 +304,7 @@ func (set *CatalogSet) PutMapping(
 	newVal._timestamp = txn._id
 	if val, has := set._mapping[name]; has {
 		if set.HasConflict(txn, val._timestamp) {
-			panic(fmt.Sprintf("write-write conflicts on %s", name))
+			panic("write-write conflicts on " + name)
 		}
 		newVal._child = val
 		newVal._child._parent = newVal
@@ -316,7 +316,7 @@ func (set *CatalogSet) PutEntry2(
 	entIdx EntryIndex,
 	ent *CatalogEntry) {
 	if oldEnt, has := set._entries[entIdx._index]; !has {
-		panic(fmt.Sprintf("entry index %d does not exists", entIdx._index))
+		panic("entry index " + fmt.Sprint(entIdx._index) + " does not exists")
 	} else {
 		ent._child = oldEnt._entry
 		ent._child._parent = ent
@@ -373,8 +373,6 @@ func (set *CatalogSet) Undo(ent *CatalogEntry) {
 			delete(set._mapping, ent._name)
 		}
 	}
-
-	//TODO: mark catalog version
 }
 
 func (set *CatalogSet) AdjustTableDependencies(ent *CatalogEntry) {
@@ -471,8 +469,6 @@ func (ent *CatalogEntry) GetStorage() *DataTable {
 }
 
 func (ent *CatalogEntry) SetAsRoot() {
-	//TODO: only for table entry
-
 }
 
 func (ent *CatalogEntry) CreateTable(
@@ -864,7 +860,7 @@ func (ent *EntryIndex) Copy() EntryIndex {
 
 func (ent *EntryIndex) GetEntry() *CatalogEntry {
 	if res, has := ent._catalog._entries[ent._index]; !has {
-		panic(fmt.Sprintf("catalog entry not found"))
+		panic("catalog entry not found")
 	} else {
 		return res._entry
 	}
@@ -872,7 +868,7 @@ func (ent *EntryIndex) GetEntry() *CatalogEntry {
 
 func (ent *EntryIndex) Replace(newEnt *CatalogEntry) {
 	if res, has := ent._catalog._entries[ent._index]; !has {
-		panic(fmt.Sprintf("catalog entry not found"))
+		panic("catalog entry not found")
 	} else {
 		res._entry = newEnt
 	}
