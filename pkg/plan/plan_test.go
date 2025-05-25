@@ -195,51 +195,6 @@ func fillTypeMatrix() {
 	typeMatrix[common.LTID_UUID][common.LTID_VARCHAR] = IMPLICIT_CAST
 }
 
-var ltypes = []common.LTypeId{
-	common.LTID_INVALID,
-	common.LTID_NULL,
-	common.LTID_UNKNOWN,
-	common.LTID_ANY,
-	common.LTID_USER,
-	common.LTID_BOOLEAN,
-	common.LTID_TINYINT,
-	common.LTID_SMALLINT,
-	common.LTID_INTEGER,
-	common.LTID_BIGINT,
-	common.LTID_DATE,
-	common.LTID_TIME,
-	common.LTID_TIMESTAMP_SEC,
-	common.LTID_TIMESTAMP_MS,
-	common.LTID_TIMESTAMP,
-	common.LTID_TIMESTAMP_NS,
-	common.LTID_DECIMAL,
-	common.LTID_FLOAT,
-	common.LTID_DOUBLE,
-	common.LTID_CHAR,
-	common.LTID_VARCHAR,
-	common.LTID_BLOB,
-	common.LTID_INTERVAL,
-	common.LTID_UTINYINT,
-	common.LTID_USMALLINT,
-	common.LTID_UINTEGER,
-	common.LTID_UBIGINT,
-	common.LTID_TIMESTAMP_TZ,
-	common.LTID_TIME_TZ,
-	common.LTID_BIT,
-	common.LTID_HUGEINT,
-	common.LTID_POINTER,
-	common.LTID_VALIDITY,
-	common.LTID_UUID,
-	common.LTID_STRUCT,
-	common.LTID_LIST,
-	common.LTID_MAP,
-	common.LTID_TABLE,
-	common.LTID_ENUM,
-	common.LTID_AGGREGATE_STATE,
-	common.LTID_LAMBDA,
-	common.LTID_UNION,
-}
-
 func init() {
 	fillTypeMatrix()
 }

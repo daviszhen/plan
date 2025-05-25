@@ -265,16 +265,7 @@ type LogicalOperator struct {
 
 func (lo *LogicalOperator) EstimatedCard(txn *storage.Txn) uint64 {
 	if lo.Typ == LOT_Scan {
-		{
-			return lo.TableEnt.GetStats2(0).Count()
-		}
-		{
-			//catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
-			//if err != nil {
-			//	panic(err)
-			//}
-			//return uint64(catalogTable.Stats.RowCount)
-		}
+		return lo.TableEnt.GetStats2(0).Count()
 	}
 	if lo.hasEstimatedCard {
 		return lo.estimatedCard
@@ -327,44 +318,14 @@ func (lo *LogicalOperator) Print(tree treeprint.Tree) {
 			}
 			return t.String()
 		}
-		//printColumns2 := func(cols []*Expr) string {
-		//	t := strings.Builder{}
-		//	t.WriteByte('\n')
-		//	for _, col := range cols {
-		//		t.WriteString(fmt.Sprintf("col %v %v %v", col.ColRef, col.Name, col.DataTyp))
-		//		t.WriteByte('\n')
-		//	}
-		//	return t.String()
-		//}
 		if len(lo.Columns) > 0 {
 			//tree.AddMetaNode("columns", printColumns2(lo.Outputs))
 			tree.AddMetaNode("columns", printColumns(lo.ColName2Idx, lo.Types, lo.Columns))
 		} else {
 			panic("usp")
-			//catalogTable, err := tpchCatalog().Table(lo.Database, lo.Table)
-			//if err != nil {
-			//	panic("no table")
-			//}
-			//tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
 		}
 		node := tree.AddBranch("filters")
 		listExprsToTree(node, lo.Filters)
-		//printStats := func(columns []string) string {
-		//	sb := strings.Builder{}
-		//	sb.WriteString(fmt.Sprintf("rowcount %v\n", lo.Stats.RowCount))
-		//	for colIdx, colName := range lo.Columns {
-		//		originIdx := catalogTable.Column2Idx[colName]
-		//		sb.WriteString(fmt.Sprintf("col %v %v ", colIdx, colName))
-		//		sb.WriteString(lo.Stats.ColStats[originIdx].String())
-		//		sb.WriteByte('\n')
-		//	}
-		//	return sb.String()
-		//}
-		//if len(lo.Columns) > 0 {
-		//	tree.AddMetaNode("stats", printStats(lo.Columns))
-		//} else {
-		//	tree.AddMetaNode("stats", printStats(catalogTable.Columns))
-		//}
 
 	case LOT_JOIN:
 		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
@@ -1322,11 +1283,6 @@ func (po *PhysicalOperator) Print(tree treeprint.Tree) {
 				tree.AddMetaNode("columns", printColumns(po.Columns))
 			} else {
 				panic("usp")
-				//catalogTable, err := tpchCatalog().Table(po.Database, po.Table)
-				//if err != nil {
-				//	panic("no table")
-				//}
-				//tree.AddMetaNode("columns", printColumns(catalogTable.Columns))
 			}
 		}
 
@@ -1505,30 +1461,11 @@ type CatalogTable struct {
 	Stats      *Stats
 }
 
-func (catalog *CatalogTable) getStats(colId uint64) *BaseStats {
-	return catalog.Stats.ColStats[colId]
-}
-
 func splitExprByAnd(expr *Expr) []*Expr {
 	if expr.Typ == ET_Func {
 		if expr.SubTyp == ET_And {
 			return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
 		}
-		//else if expr.SubTyp == ET_In || expr.SubTyp == ET_NotIn {
-		//	//ret := make([]*Expr, 0)
-		//	//for i, child := range expr.Children {
-		//	//	if i == 0 {
-		//	//		continue
-		//	//	}
-		//	//	ret = append(ret, &Expr{
-		//	//		Typ:      expr.Typ,
-		//	//		SubTyp:   expr.SubTyp,
-		//	//		Svalue:   expr.SubTyp.String(),
-		//	//		FuncId:   expr.FuncId,
-		//	//		Children: []*Expr{expr.Children[0], child},
-		//	//	})
-		//	//}
-		//}
 	}
 	return []*Expr{expr.copy()}
 }

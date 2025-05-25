@@ -131,10 +131,6 @@ type FunctionData struct {
 	_boundTyp      common.LTypeId
 }
 
-func (fdata FunctionData) copy() *FunctionData {
-	return &FunctionData{}
-}
-
 type FunctionSet struct {
 	_name      string
 	_functions []*FunctionV2

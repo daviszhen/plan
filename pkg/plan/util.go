@@ -49,12 +49,6 @@ func (fc *FormatCtx) fillOffset() {
 	}
 }
 
-func (fc *FormatCtx) fillIndent() {
-	for i := 0; i < fc.indent.pad; i++ {
-		fc.buf.WriteByte(' ')
-	}
-}
-
 func (fc *FormatCtx) writeString(s string) {
 	for _, c := range s {
 		fc.line.WriteRune(c)
@@ -158,22 +152,6 @@ func (fc *Padding) RestorePad() {
 	}
 	fc.pad = fc.lastPads[len(fc.lastPads)-1]
 	fc.lastPads = util.Pop(fc.lastPads)
-}
-
-func listExprs(bb *strings.Builder, exprs []*Expr) *strings.Builder {
-	for i, expr := range exprs {
-		if expr == nil {
-			continue
-		}
-		bb.WriteString(fmt.Sprintf("\n  %d: ", i))
-		if len(expr.Alias) != 0 {
-			bb.WriteString(expr.Alias)
-			bb.WriteByte(' ')
-		}
-		bb.WriteString(expr.String())
-
-	}
-	return bb
 }
 
 func listExprsToTree(tree treeprint.Tree, exprs []*Expr) {

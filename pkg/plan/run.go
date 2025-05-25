@@ -1929,48 +1929,6 @@ func (run *Runner) scanInit() error {
 				}
 			}
 		}
-		{
-			//read schema
-			//cat, err := tpchCatalog().Table(run.op.Database, run.op.Table)
-			//if err != nil {
-			//	return err
-			//}
-			//run.colIndice = make([]int, 0)
-			//for _, col := range run.op.Columns {
-			//	if idx, has := cat.Column2Idx[col]; has {
-			//		run.colIndice = append(run.colIndice, idx)
-			//		run.readedColTyps = append(run.readedColTyps, cat.Types[idx])
-			//	} else {
-			//		return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
-			//	}
-			//}
-			//
-			////open data file
-			//switch run.cfg.Tpch1g.Data.Format {
-			//case "parquet":
-			//	run.pqFile, err = pqLocal.NewLocalFileReader(run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".parquet")
-			//	if err != nil {
-			//		return err
-			//	}
-			//
-			//	run.pqReader, err = pqReader.NewParquetColumnReader(run.pqFile, 1)
-			//	if err != nil {
-			//		return err
-			//	}
-			//case "csv":
-			//	run.tablePath = run.cfg.Tpch1g.Data.Path + "/" + run.op.Table + ".tbl"
-			//	run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
-			//	if err != nil {
-			//		return err
-			//	}
-			//
-			//	//init csv reader
-			//	run.reader = csv.NewReader(run.dataFile)
-			//	run.reader.Comma = '|'
-			//default:
-			//	panic("usp format")
-			//}
-		}
 
 	case ScanTypeValuesList:
 		run.colIndice = make([]int, 0)

@@ -25,8 +25,6 @@ type BooleanOp interface {
 	opWithNull(bool, bool, bool, bool) (bool, bool)
 }
 
-var gAndOp AndOp
-
 type AndOp struct {
 }
 

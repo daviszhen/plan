@@ -219,7 +219,6 @@ func Replay(path string) (bool, error) {
 	for {
 		walTyp := uint8(0)
 		err = util.Read[uint8](&walTyp, reader)
-		//fmt.Println("find ckp stage", cnt, walTyp, walType(walTyp), err)
 		cnt++
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -260,7 +259,6 @@ func Replay(path string) (bool, error) {
 	for {
 		walTyp := uint8(0)
 		err = util.Read[uint8](&walTyp, reader2)
-		//fmt.Println("replay wal", txn.String(), walTyp, walType(walTyp), err)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				//done

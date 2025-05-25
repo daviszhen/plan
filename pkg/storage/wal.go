@@ -9,23 +9,6 @@ import (
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-var defWalog *WriteAheadLog
-var defWalog2 *WriteAheadLog
-var defLogPath string = defaultDbPath + ".wal"
-var defLogPath2 string = defaultDbPath + "2.wal"
-
-func init() {
-	//var err error
-	//defWalog, err = NewWriteAheadLog(defLogPath)
-	//if err != nil {
-	//	panic(fmt.Sprintf("init default.wal failed"))
-	//}
-	//defWalog2, err = NewWriteAheadLog(defLogPath2)
-	//if err != nil {
-	//	panic(fmt.Sprintf("init default2.wal failed"))
-	//}
-}
-
 const (
 	WAL_CREATE_TABLE  uint8 = 1
 	WAL_CREATE_SCHEMA uint8 = 3

@@ -59,11 +59,9 @@ type Index struct {
 	_constraintType        uint8
 	_lock                  sync.Mutex
 	_serializedDataPointer BlockPointer
-	//_boundExprs []*common.Expr
-	//_executor
-	_btree   *btree.BTreeG[*IndexKey]
-	_blockId BlockID
-	_offset  uint32
+	_btree                 *btree.BTreeG[*IndexKey]
+	_blockId               BlockID
+	_offset                uint32
 }
 
 type IndexKey struct {

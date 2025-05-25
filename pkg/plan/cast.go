@@ -191,13 +191,6 @@ func tryCastVarcharToInterval(input *common.String, result *common.Interval, _ b
 	return true
 }
 
-func castExec(
-	source, result *chunk.Vector,
-	count int,
-) {
-	panic("usp")
-}
-
 func AddCastToType(expr *Expr, dstTyp common.LType, tryCast bool) (*Expr, error) {
 	var err error
 	var retExpr *Expr

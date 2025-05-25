@@ -689,42 +689,6 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 				TabEnt:    tabEnt,
 			}, err
 		}
-		//{
-		//	db = "tpch"
-		//	tpchDB := tpchCatalog()
-		//	cta, err := tpchDB.Table(db, tableName)
-		//	if err != nil {
-		//		return nil, err
-		//	}
-		//	alias := tableName
-		//	if tableAst.Alias != nil {
-		//		alias = tableAst.Alias.Aliasname
-		//	}
-		//	bind := &Binding{
-		//		typ:     BT_TABLE,
-		//		alias:   alias,
-		//		index:   uint64(b.GetTag()),
-		//		typs:    util.CopyTo(cta.Types),
-		//		names:   util.CopyTo(cta.Columns),
-		//		nameMap: make(map[string]int),
-		//	}
-		//	for idx, name := range bind.names {
-		//		bind.nameMap[name] = idx
-		//	}
-		//	err = ctx.AddBinding(alias, bind)
-		//	if err != nil {
-		//		return nil, err
-		//	}
-		//
-		//	return &Expr{
-		//		Typ:       ET_TABLE,
-		//		Index:     bind.index,
-		//		Database:  db,
-		//		Table:     tableName,
-		//		Alias:     alias,
-		//		BelongCtx: ctx,
-		//	}, err
-		//}
 	case *pg_query.Node_JoinExpr:
 		return b.buildJoinTable(rangeNode.JoinExpr, ctx, depth)
 	case *pg_query.Node_RangeSubselect:
@@ -1004,21 +968,6 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 				TableEnt:  tabEnt,
 			}, err
 		}
-		//{
-		//	catalogOfTable, err := tpchCatalog().Table(expr.Database, expr.Table)
-		//	if err != nil {
-		//		return nil, err
-		//	}
-		//	return &LogicalOperator{
-		//		Typ:       LOT_Scan,
-		//		Index:     expr.Index,
-		//		Database:  expr.Database,
-		//		Table:     expr.Table,
-		//		Alias:     expr.Alias,
-		//		BelongCtx: expr.BelongCtx,
-		//		Stats:     catalogOfTable.Stats.Copy(),
-		//	}, err
-		//}
 	case ET_Join:
 		left, err = b.createFrom(expr.Children[0], root)
 		if err != nil {

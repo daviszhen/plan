@@ -339,21 +339,9 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 					tabEnt = storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.Database, get.Table)
 				}
 			}
-			{
-				//if get != nil {
-				//	catalogTable, err = tpchCatalog().Table(get.Database, get.Table)
-				//	if err != nil {
-				//		return err
-				//	}
-				//} else {
-				//	catalogTable = nil
-				//}
-			}
-
 		}
 		if tabEnt != nil && est.relationColumnToOriginalColumn.find(key) {
 			actualBind := est.relationColumnToOriginalColumn.get(key)
-			//baseStats := catalogTable.getStats(actualBind[1])
 			sBaseStats := tabEnt.GetStats2(int(actualBind[1]))
 			baseStats := convertStats3(sBaseStats)
 			if baseStats != nil {
@@ -406,20 +394,6 @@ func (est *CardinalityEstimator) AddRelationColumnMapping(
 				est.AddRelationToColumnMapping(key, value)
 			}
 		}
-		//{
-		//	catalogTable, err := tpchCatalog().Table(get.Database, get.Table)
-		//	if err != nil {
-		//		return err
-		//	}
-		//
-		//	//TODO: refine
-		//	for i := range catalogTable.Columns {
-		//		key := ColumnBind{relId, uint64(i)}
-		//		value := ColumnBind{get.Index, uint64(i)}
-		//		est.AddRelationToColumnMapping(key, value)
-		//	}
-		//}
-
 	case ScanTypeValuesList:
 		for i := range get.Names {
 			key := ColumnBind{relId, uint64(i)}

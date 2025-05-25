@@ -401,13 +401,6 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 				}
 				columns = tabEnt.GetColumnNames()
 			}
-			//{
-			//	catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
-			//	if err != nil {
-			//		return nil, err
-			//	}
-			//	columns = catalogTable.Columns
-			//}
 		case ScanTypeValuesList:
 			columns = root.Names
 		case ScanTypeCopyFrom:
@@ -945,14 +938,6 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 				}
 				column2Idx = tabEnt.GetColumn2Idx()
 				columnTyps = tabEnt.GetTypes()
-			}
-			{
-				//catalogTable, err := tpchCatalog().Table(root.Database, root.Table)
-				//if err != nil {
-				//	return nil, err
-				//}
-				//column2Idx = catalogTable.Column2Idx
-				//columnTyps = catalogTable.Types
 			}
 		case ScanTypeValuesList:
 			column2Idx = root.ColName2Idx

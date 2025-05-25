@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/liyue201/gostl/ds/map"
+	treemap "github.com/liyue201/gostl/ds/map"
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
@@ -408,7 +408,6 @@ func (storage *StorageMgr) LoadDatabase() error {
 	var err error
 	walPath := storage._path + ".wal"
 	truncateWal := false
-	initInternalSchema := false
 	if !util.FileIsValid(storage._path) {
 		if storage._readOnly {
 			return fmt.Errorf("database not found")
@@ -430,7 +429,6 @@ func (storage *StorageMgr) LoadDatabase() error {
 		}
 		storage._blockMgr = fBlockMgr
 
-		initInternalSchema = true
 	} else {
 		//load existing database
 		fBlockMgr := NewFileBlockMgr(
@@ -469,14 +467,6 @@ func (storage *StorageMgr) LoadDatabase() error {
 				return err
 			}
 		}
-	}
-
-	if initInternalSchema {
-		//create internal schema
-		//err = CreateInternalSchemas()
-		//if err != nil {
-		//	return err
-		//}
 	}
 
 	return nil
