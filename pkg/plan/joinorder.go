@@ -839,15 +839,6 @@ func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *Jo
 	return root, nil
 }
 
-func pushFilter(node *LogicalOperator, expr *Expr) *LogicalOperator {
-	if node.Typ != LOT_Filter {
-		filter := &LogicalOperator{Typ: LOT_Filter, Children: []*LogicalOperator{node}}
-		node = filter
-	}
-	node.Filters = append(node.Filters, expr)
-	return node
-}
-
 func (joinOrder *JoinOrderOptimizer) solveJoinOrder() error {
 	return joinOrder.greedy()
 }
@@ -1293,30 +1284,4 @@ func getTableRefers(root *LogicalOperator, set UnorderedSet) {
 		panic("usp")
 	}
 
-}
-
-func collectTableRefersOfExprs(exprs []*Expr, set UnorderedSet) {
-	for _, expr := range exprs {
-		collectTableRefers(expr, set)
-	}
-}
-
-func collectTableRefers(e *Expr, set UnorderedSet) {
-	if e == nil {
-		return
-	}
-	switch e.Typ {
-	case ET_Column:
-		index := e.ColRef[0]
-		set.insert(index)
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
-
-	case ET_Func:
-
-	default:
-		panic("usp")
-	}
-	for _, child := range e.Children {
-		collectTableRefers(child, set)
-	}
 }
