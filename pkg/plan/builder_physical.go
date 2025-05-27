@@ -5,6 +5,26 @@ import (
 	"github.com/daviszhen/plan/pkg/storage"
 )
 
+func collectTags(root *LogicalOperator, set map[uint64]bool) {
+	if root.Index != 0 {
+		set[root.Index] = true
+	}
+	if root.Index2 != 0 {
+		set[root.Index2] = true
+	}
+	for _, child := range root.Children {
+		collectTags(child, set)
+	}
+}
+
+const (
+	NoneSide       = 0
+	LeftSide       = 1 << 1
+	RightSide      = 1 << 2
+	BothSide       = LeftSide | RightSide
+	CorrelatedSide = 1 << 3
+)
+
 //////////////////////////////////////////////
 // create physical plan
 //////////////////////////////////////////////
@@ -174,5 +194,14 @@ func (b *Builder) createPhyAgg(root *LogicalOperator, children []*PhysicalOperat
 		Aggs:     root.Aggs,
 		GroupBys: root.GroupBys,
 		Outputs:  root.Outputs,
+		Children: children}, nil
+}
+
+func (b *Builder) createPhyLimit(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	return &PhysicalOperator{
+		Typ:      POT_Limit,
+		Outputs:  root.Outputs,
+		Limit:    root.Limit,
+		Offset:   root.Offset,
 		Children: children}, nil
 }
