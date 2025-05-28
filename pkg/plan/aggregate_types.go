@@ -1,14 +1,10 @@
 package plan
 
 import (
-	"fmt"
 	"math"
 	"sort"
-	"unsafe"
 
-	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
-	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -341,93 +337,6 @@ func NewHashAggr(
 	}
 
 	return ha
-}
-
-type aggrHTEntry struct {
-	_salt       uint16
-	_pageOffset uint16
-	_pageNr     uint32
-}
-
-func (ent *aggrHTEntry) clean() {
-	ent._salt = 0
-	ent._pageOffset = 0
-	ent._pageNr = 0
-}
-
-func (ent *aggrHTEntry) String() string {
-	return fmt.Sprintf("salt:%d offset:%d nr:%d", ent._salt, ent._pageOffset, ent._pageNr)
-}
-
-var (
-	aggrEntrySize int
-)
-
-func init() {
-	aggrEntrySize = int(unsafe.Sizeof(aggrHTEntry{}))
-}
-
-type RadixPartitionedHashTable struct {
-	_groupingSet     GroupingSet
-	_nullGroups      []int
-	_groupedAggrData *GroupedAggrData
-	_groupTypes      []common.LType
-	_radixLimit      int
-	_groupingValues  []*chunk.Value
-	_finalizedHT     *GroupedAggrHashTable
-	_printHash       bool
-	_finalized       bool
-}
-
-func NewRadixPartitionedHashTable(
-	groupingSet GroupingSet,
-	aggrData *GroupedAggrData,
-) *RadixPartitionedHashTable {
-	ret := new(RadixPartitionedHashTable)
-	ret._groupingSet = groupingSet
-	ret._groupedAggrData = aggrData
-	ret._finalizedHT = nil
-
-	for i := 0; i < aggrData.GroupCount(); i++ {
-		if !ret._groupingSet.find(i) {
-			ret._nullGroups = append(ret._nullGroups, i)
-		}
-	}
-
-	ret._radixLimit = 10000
-
-	if ret._groupingSet.empty() {
-		ret._groupTypes = append(ret._groupTypes, common.TinyintType())
-	}
-
-	for ent := range ret._groupingSet.ordered() {
-		util.AssertFunc(ent < len(ret._groupedAggrData._groupTypes))
-		ret._groupTypes = append(ret._groupTypes,
-			ret._groupedAggrData._groupTypes[ent])
-	}
-	ret.SetGroupingValues()
-	return ret
-}
-
-type GroupedAggrHashTable struct {
-	_layout       *TupleDataLayout
-	_payloadTypes []common.LType
-
-	_capacity        int
-	_tupleSize       int
-	_tuplesPerBlock  int
-	_dataCollection  *TupleDataCollection
-	_pinState        *TupleDataPinState
-	_payloadHdsPtrs  []unsafe.Pointer
-	_hashesHdl       *storage.BufferHandle
-	_hashesHdlPtr    unsafe.Pointer
-	_hashOffset      int
-	_hashPrefixShift uint64
-	_bitmask         uint64
-	_finalized       bool
-	_predicates      []ET_SubTyp
-	_printHash       bool
-	_bufMgr          *storage.BufferManager
 }
 
 type AggrType int
