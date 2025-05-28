@@ -276,69 +276,6 @@ func NewDistinctAggrCollectionInfo(
 	return ret
 }
 
-type HashAggr struct {
-	_has                    HashAggrState
-	_types                  []common.LType
-	_groupedAggrData        *GroupedAggrData
-	_groupingSets           []GroupingSet
-	_groupings              []*HashAggrGroupingData
-	_distinctCollectionInfo *DistinctAggrCollectionInfo
-	_inputGroupTypes        []common.LType
-	_nonDistinctFilter      []int
-	_distinctFilter         []int
-	_printHash              bool
-}
-
-func NewHashAggr(
-	types []common.LType,
-	aggrExprs []*Expr,
-	groups []*Expr,
-	groupingSets []GroupingSet,
-	groupingFuncs [][]int,
-	refChildrenOutput []*Expr,
-) *HashAggr {
-	ha := &HashAggr{}
-	ha._types = types
-	ha._groupingSets = groupingSets
-
-	//prepare grouping sets
-	if len(ha._groupingSets) == 0 {
-		set := make(GroupingSet)
-		for i := 0; i < len(groups); i++ {
-			set.insert(i)
-		}
-		ha._groupingSets = append(ha._groupingSets, set)
-	}
-
-	//prepare input group types
-	ha._inputGroupTypes = createGroupChunkTypes(groups)
-
-	//prepare grouped aggr data
-	ha._groupedAggrData = &GroupedAggrData{}
-	ha._groupedAggrData.InitGroupby(groups, aggrExprs, groupingFuncs, refChildrenOutput)
-
-	//prepare distinct or non-distinct filter
-	for i, aggr := range ha._groupedAggrData._aggregates {
-		if aggr.AggrTyp == DISTINCT {
-			ha._distinctFilter = append(ha._distinctFilter, i)
-		} else if aggr.AggrTyp == NON_DISTINCT {
-			ha._nonDistinctFilter = append(ha._nonDistinctFilter, i)
-		}
-	}
-
-	ha._distinctCollectionInfo = CreateDistinctAggrCollectionInfo(ha._groupedAggrData._aggregates)
-
-	for i := 0; i < len(ha._groupingSets); i++ {
-		ha._groupings = append(ha._groupings,
-			NewHashAggrGroupingData(
-				ha._groupingSets[i],
-				ha._groupedAggrData,
-				ha._distinctCollectionInfo))
-	}
-
-	return ha
-}
-
 type AggrType int
 
 const (
