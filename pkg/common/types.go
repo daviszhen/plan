@@ -36,3 +36,18 @@ func init() {
 	f := float32(0)
 	Float32Size = int(unsafe.Sizeof(f))
 }
+
+type AggrType int
+
+const (
+	NON_DISTINCT AggrType = iota
+	DISTINCT
+)
+
+type SourceType int
+
+const (
+	ThisNode   SourceType = 0
+	LeftChild  SourceType = -1 //also for one child
+	RightChild SourceType = -2
+)
