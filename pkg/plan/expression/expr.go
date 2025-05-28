@@ -197,6 +197,8 @@ const (
 	ET_SubqueryTypeNotIn
 )
 
+var _ common.Expr = &Expr{}
+
 type Expr struct {
 	Typ     ET
 	SubTyp  ET_SubTyp
@@ -218,13 +220,13 @@ type Expr struct {
 	Desc        bool        // in orderby
 	JoinTyp     ET_JoinType // join
 	Alias       string
-	SubBuilder  *Builder     // builder for subquery
-	SubCtx      *BindContext // context for subquery
+	SubBuilder  common.Builder     // builder for subquery
+	SubCtx      common.BindContext // context for subquery
 	SubqueryTyp ET_SubqueryType
 	CTEIndex    uint64
 
-	BelongCtx   *BindContext // context for table and join
-	On          *Expr        //JoinOn
+	BelongCtx   common.BindContext // context for table and join
+	On          *Expr              //JoinOn
 	IsOperator  bool
 	BindInfo    *FunctionData
 	FunImpl     *FunctionV2
@@ -362,7 +364,7 @@ func (e *Expr) copy() *Expr {
 	return ret
 }
 
-func (e *Expr) Format(ctx *FormatCtx) {
+func (e *Expr) Format(ctx *util.FormatCtx) {
 	if e == nil {
 		ctx.Write("")
 		return
@@ -616,7 +618,7 @@ func findExpr(exprs []*Expr, fun func(expr *Expr) bool) []*Expr {
 	return ret
 }
 
-func checkExprIsValid(root *LogicalOperator) {
+func checkExprIsValid(root common.LogicalOperator) {
 	if root == nil {
 		return
 	}
@@ -654,7 +656,7 @@ func checkExprs(e ...*Expr) {
 	}
 }
 
-func collectFilterExprs(root *PhysicalOperator) []*Expr {
+func collectFilterExprs(root common.PhysicalOperator) []*Expr {
 	if root == nil {
 		return nil
 	}
@@ -796,7 +798,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 	}
 }
 
-func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
+func replaceColRef(e *Expr, bind, newBind util.ColumnBind) *Expr {
 	if e == nil {
 		return nil
 	}
@@ -906,7 +908,7 @@ func copyExpr(e *Expr) *Expr {
 	return clone.Clone(e).(*Expr)
 }
 
-func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr {
+func replaceColRef2(e *Expr, colRefToPos util.ColumnBindPosMap, st common.SourceType) *Expr {
 	if e == nil {
 		return nil
 	}
@@ -930,13 +932,13 @@ func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr 
 	return e
 }
 
-func replaceColRef3(es []*Expr, colRefToPos ColumnBindPosMap, st SourceType) {
+func replaceColRef3(es []*Expr, colRefToPos util.ColumnBindPosMap, st common.SourceType) {
 	for _, e := range es {
 		replaceColRef2(e, colRefToPos, st)
 	}
 }
 
-func collectColRefs(e *Expr, set ColumnBindSet) {
+func collectColRefs(e *Expr, set util.ColumnBindSet) {
 	if e == nil {
 		return
 	}
@@ -955,13 +957,13 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	}
 }
 
-func collectColRefs2(set ColumnBindSet, exprs ...*Expr) {
+func collectColRefs2(set util.ColumnBindSet, exprs ...*Expr) {
 	for _, expr := range exprs {
 		collectColRefs(expr, set)
 	}
 }
 
-func checkColRefPos(e *Expr, root *LogicalOperator) {
+func checkColRefPos(e *Expr, root common.LogicalOperator) {
 	if e == nil || root == nil {
 		return
 	}
@@ -1029,13 +1031,13 @@ func checkColRefPos(e *Expr, root *LogicalOperator) {
 	}
 }
 
-func checkColRefPosInExprs(es []*Expr, root *LogicalOperator) {
+func checkColRefPosInExprs(es []*Expr, root common.LogicalOperator) {
 	for _, e := range es {
 		checkColRefPos(e, root)
 	}
 }
 
-func checkColRefPosInNode(root *LogicalOperator) {
+func checkColRefPosInNode(root common.LogicalOperator) {
 	if root == nil {
 		return
 	}
@@ -1048,13 +1050,13 @@ func checkColRefPosInNode(root *LogicalOperator) {
 	checkColRefPosInExprs([]*Expr{root.Limit}, root)
 }
 
-func collectTableRefersOfExprs(exprs []*Expr, set UnorderedSet) {
+func collectTableRefersOfExprs(exprs []*Expr, set util.UnorderedSet) {
 	for _, expr := range exprs {
 		collectTableRefers(expr, set)
 	}
 }
 
-func collectTableRefers(e *Expr, set UnorderedSet) {
+func collectTableRefers(e *Expr, set util.UnorderedSet) {
 	if e == nil {
 		return
 	}

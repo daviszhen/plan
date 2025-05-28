@@ -16,6 +16,7 @@ package util
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/daviszhen/plan/pkg/common"
@@ -265,4 +266,208 @@ func (cmap ColumnBindMap) get(bind ColumnBind) ColumnBind {
 
 func (cmap ColumnBindMap) insert(key, value ColumnBind) {
 	cmap[key] = value
+}
+
+type ColumnBindCountMap map[ColumnBind]int
+
+func (ccount ColumnBindCountMap) addColumnBind(bind ColumnBind) {
+	if _, ok := ccount[bind]; !ok {
+		ccount[bind] = 0
+	}
+	ccount[bind]++
+}
+
+func (ccount ColumnBindCountMap) removeColumnBind(bind ColumnBind) {
+	zero := make([]ColumnBind, 0)
+	if _, ok := ccount[bind]; ok {
+		old := ccount[bind]
+		if old < 1 {
+			panic("negative bind count")
+		}
+		ccount[bind] = old - 1
+		if old == 1 {
+			zero = append(zero, bind)
+		}
+	}
+
+	for _, b := range zero {
+		delete(ccount, b)
+	}
+}
+
+func (ccount ColumnBindCountMap) removeNotIn(other ColumnBindCountMap) {
+	res := make([]ColumnBind, 0)
+	for bind := range ccount {
+		if _, has := other[bind]; !has {
+			res = append(res, bind)
+		}
+	}
+	for _, bind := range res {
+		delete(ccount, bind)
+	}
+}
+
+func (ccount ColumnBindCountMap) removeByTableIdx(tblIdx uint64, equal bool) {
+	res := make([]ColumnBind, 0)
+	for bind := range ccount {
+		if equal {
+			if bind.table() == tblIdx {
+				res = append(res, bind)
+			}
+		} else {
+			if bind.table() != tblIdx {
+				res = append(res, bind)
+			}
+		}
+	}
+	for _, bind := range res {
+		delete(ccount, bind)
+	}
+}
+
+func (ccount ColumnBindCountMap) splitByTableIdx(tblIdx uint64) ColumnBindCountMap {
+	res := make(ColumnBindCountMap, 0)
+	for bind, i := range ccount {
+		if bind.table() == tblIdx {
+			res[bind] = i
+		}
+	}
+	for bind := range res {
+		delete(ccount, bind)
+	}
+	return res
+}
+
+func (ccount ColumnBindCountMap) splitByTwoTableIdxes(tblIdx, tableIdx2 uint64) ColumnBindCountMap {
+	res := make(ColumnBindCountMap, 0)
+	for bind, i := range ccount {
+		if bind.table() == tblIdx || bind.table() == tableIdx2 {
+			res[bind] = i
+		}
+	}
+	for bind := range res {
+		delete(ccount, bind)
+	}
+	return res
+}
+
+func (ccount ColumnBindCountMap) merge(count ColumnBindCountMap) {
+	for bind, i := range count {
+		ccount[bind] += i
+	}
+}
+
+func (ccount ColumnBindCountMap) removeZeroCount() {
+	res := make([]ColumnBind, 0)
+	for bind, i := range ccount {
+		if i == 0 {
+			res = append(res, bind)
+		}
+	}
+	for _, bind := range res {
+		delete(ccount, bind)
+	}
+}
+
+func (ccount ColumnBindCountMap) refCount(bind ColumnBind) int {
+	if count, ok := ccount[bind]; ok {
+		return count
+	}
+	return 0
+}
+
+func (ccount ColumnBindCountMap) has(bind ColumnBind) (bool, int) {
+	if count, ok := ccount[bind]; ok {
+		return true, count
+	}
+	return false, 0
+}
+
+func (ccount ColumnBindCountMap) copy() ColumnBindCountMap {
+	res := make(ColumnBindCountMap)
+	for bind, i := range ccount {
+		res[bind] = i
+	}
+	return res
+}
+
+func (ccount ColumnBindCountMap) sortByColumnBind() ColumnBindPosMap {
+	posMap := make(ColumnBindPosMap)
+	binds := make([]ColumnBind, 0)
+	for bind := range ccount {
+		binds = append(binds, bind)
+	}
+	sort.Slice(binds, func(i, j int) bool {
+		return binds[i].less(binds[j])
+	})
+	ret := sort.SliceIsSorted(binds, func(i, j int) bool {
+		return binds[i].less(binds[j])
+	})
+	if !ret {
+		panic("unsorted")
+	}
+	for i, bind := range binds {
+		posMap.insert(bind, i)
+	}
+	return posMap
+}
+
+type ColumnBindPosMap map[ColumnBind]int
+
+func (posmap ColumnBindPosMap) insert(bind ColumnBind, pos int) {
+	posmap[bind] = pos
+}
+func (posmap ColumnBindPosMap) pos(bind ColumnBind) (bool, int) {
+	if pos, has := posmap[bind]; has {
+		return true, pos
+	}
+	return false, 0
+}
+func (posmap ColumnBindPosMap) sortByColumnBind() []ColumnBind {
+	res := make([]ColumnBind, 0)
+	for bind := range posmap {
+		res = append(res, bind)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].less(res[j])
+	})
+	return res
+}
+
+type UnorderedSet map[uint64]bool
+
+func (set UnorderedSet) orderedKeys() []uint64 {
+	keys := make([]uint64, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+func (set UnorderedSet) insert(keys ...uint64) {
+	for _, key := range keys {
+		set[key] = true
+	}
+}
+
+func (set UnorderedSet) find(key uint64) bool {
+	_, has := set[key]
+	return has
+}
+
+func (set UnorderedSet) clear() {
+	for key := range set {
+		delete(set, key)
+	}
+}
+
+func (set UnorderedSet) empty() bool {
+	return len(set) == 0
+}
+
+func (set UnorderedSet) size() int {
+	return len(set)
 }

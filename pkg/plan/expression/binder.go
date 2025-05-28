@@ -21,6 +21,7 @@ import (
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 
 	"github.com/daviszhen/plan/pkg/common"
+	util2 "github.com/daviszhen/plan/pkg/plan/util"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -34,9 +35,13 @@ func getTableColumn(expr *pg_query.ColumnRef) (string, string) {
 	panic(fmt.Sprintf("unexpected number of columns: %d %v", cnt, expr.String()))
 }
 
+var _ common.Builder = &Builder{}
+
+type Builder struct{}
+
 func (b *Builder) bindExpr(
-	ctx *BindContext,
-	iwc InWhichClause,
+	ctx common.BindContext,
+	iwc util2.InWhichClause,
 	expr *pg_query.Node, depth int) (ret *Expr, err error) {
 	//var child *Expr
 	switch realExpr := expr.GetNode().(type) {
@@ -45,16 +50,16 @@ func (b *Builder) bindExpr(
 	case *pg_query.Node_ColumnRef:
 		tableName, colName := getTableColumn(realExpr.ColumnRef)
 		switch iwc {
-		case IWC_WHERE:
-		case IWC_ORDER:
+		case util2.IWC_WHERE:
+		case util2.IWC_ORDER:
 			selIdx := b.isInSelectList(colName)
 			if selIdx >= 0 {
 				return b.bindToSelectList(nil, selIdx, colName), err
 			}
-		case IWC_GROUP:
-		case IWC_SELECT:
-		case IWC_HAVING:
-		case IWC_JOINON:
+		case util2.IWC_GROUP:
+		case util2.IWC_SELECT:
+		case util2.IWC_HAVING:
+		case util2.IWC_JOINON:
 		default:
 			panic(fmt.Sprintf("usp iwc %d", iwc))
 		}
@@ -64,20 +69,20 @@ func (b *Builder) bindExpr(
 		}
 		colIdx := bind.HasColumn(colName)
 
-		switch bind.typ {
-		case BT_TABLE:
+		switch bind.Type() {
+		case common.BT_TABLE:
 
-		case BT_Subquery:
+		case common.BT_Subquery:
 
 		default:
 		}
 
 		ret = &Expr{
 			Typ:     ET_Column,
-			DataTyp: bind.typs[colIdx],
-			Table:   bind.alias,
+			DataTyp: bind.Types()[colIdx],
+			Table:   bind.Alias(),
 			Name:    colName,
-			ColRef:  ColumnBind{bind.index, uint64(colIdx)},
+			ColRef:  util2.ColumnBind{bind.Index(), uint64(colIdx)},
 			Depth:   d,
 		}
 
@@ -107,7 +112,7 @@ func (b *Builder) bindExpr(
 	return ret, err
 }
 
-func (b *Builder) bindList(ctx *BindContext, iwc InWhichClause, expr *pg_query.List, depth int) (*Expr, error) {
+func (b *Builder) bindList(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.List, depth int) (*Expr, error) {
 	lExprs := make([]*Expr, 0)
 	for _, item := range expr.Items {
 		itemExpr, err := b.bindExpr(ctx, iwc, item, depth)
@@ -122,7 +127,7 @@ func (b *Builder) bindList(ctx *BindContext, iwc InWhichClause, expr *pg_query.L
 	}, nil
 }
 
-func (b *Builder) bindTypeCast(ctx *BindContext, iwc InWhichClause, expr *pg_query.TypeCast, depth int) (*Expr, error) {
+func (b *Builder) bindTypeCast(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.TypeCast, depth int) (*Expr, error) {
 	var retExpr *Expr
 	var err error
 	var resultTyp common.LType
@@ -157,7 +162,7 @@ func (b *Builder) bindTypeCast(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	return retExpr, nil
 }
 
-func (b *Builder) bindSortBy(ctx *BindContext, iwc InWhichClause, expr *pg_query.SortBy, depth int) (*Expr, error) {
+func (b *Builder) bindSortBy(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.SortBy, depth int) (*Expr, error) {
 	child, err := b.bindExpr(ctx, iwc, expr.Node, depth)
 	if err != nil {
 		return nil, err
@@ -194,7 +199,7 @@ func getFuncName(expr *pg_query.FuncCall) string {
 	panic("no function name")
 }
 
-func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_query.FuncCall, depth int) (*Expr, error) {
+func (b *Builder) bindFuncCall(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.FuncCall, depth int) (*Expr, error) {
 	var child *Expr
 	var ret *Expr
 	var err error
@@ -246,7 +251,7 @@ func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	return ret, nil
 }
 
-func (b *Builder) bindAConst(ctx *BindContext, iwc InWhichClause, expr *pg_query.A_Const, depth int) (*Expr, error) {
+func (b *Builder) bindAConst(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.A_Const, depth int) (*Expr, error) {
 	var ret *Expr
 	var fval float64
 	var err error
@@ -281,7 +286,7 @@ func (b *Builder) bindAConst(ctx *BindContext, iwc InWhichClause, expr *pg_query
 	return ret, err
 }
 
-func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.A_Expr, depth int) (*Expr, error) {
+func (b *Builder) bindAExpr(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.A_Expr, depth int) (*Expr, error) {
 	var left, right *Expr
 	var resultTyp common.LType
 	var err error
@@ -383,7 +388,7 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 	return bindFunc, nil
 }
 
-func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.BoolExpr, depth int) (*Expr, error) {
+func (b *Builder) bindBoolExpr(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.BoolExpr, depth int) (*Expr, error) {
 	var err error
 	var resultTyp common.LType
 	var left, cur *Expr
@@ -466,7 +471,7 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 	if IsAgg(name) {
 		ret := funBinder.BindAggrFunc(name, args, subTyp, false)
 		if distinct {
-			ret.AggrTyp = DISTINCT
+			ret.AggrTyp = common.DISTINCT
 		}
 		b.aggs = append(b.aggs, ret)
 		ret = &Expr{
@@ -474,7 +479,7 @@ func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []
 			DataTyp: ret.DataTyp,
 			Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
 			Name:    astStr,
-			ColRef:  ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
+			ColRef:  util2.ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
 			Depth:   0,
 		}
 		return ret, nil
@@ -517,7 +522,7 @@ func decideResultType(left common.LType, right common.LType) common.LType {
 
 }
 
-func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.A_Expr, depth int) (*Expr, error) {
+func (b *Builder) bindBetweenExpr(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.A_Expr, depth int) (*Expr, error) {
 	var betExpr *Expr
 	var listExppr *Expr
 	var left, right *Expr
@@ -582,7 +587,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	return ret, nil
 }
 
-func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_query.SubLink, depth int) (*Expr, error) {
+func (b *Builder) bindSubquery(ctx common.BindContext, iwc util2.InWhichClause, expr *pg_query.SubLink, depth int) (*Expr, error) {
 	var testExpr *Expr
 	var retExpr *Expr
 	var err error

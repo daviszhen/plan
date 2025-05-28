@@ -23,7 +23,7 @@ import (
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-func ScalarNopFunc(input *chunk.Chunk, state *ExprState, result *chunk.Vector) {
+func ScalarNopFunc(input *chunk.Chunk, state common.ExprState, result *chunk.Vector) {
 	util.AssertFunc(input.ColumnCount() >= 1)
 	result.Reference(input.Data[0])
 }

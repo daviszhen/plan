@@ -475,7 +475,7 @@ func (state *State[T]) GetValue() T {
 
 type StateOp[T any] interface {
 	Init(*State[T])
-	Combine(*State[T], *State[T], *AggrInputData, TypeOp[T])
+	Combine(*State[T], *State[T], common.AggrInputData, TypeOp[T])
 	AddValues(*State[T], int)
 }
 
@@ -495,10 +495,10 @@ type AddOp[ResultT any, InputT any] interface {
 
 type AggrOp[ResultT any, InputT any] interface {
 	Init(*State[ResultT], StateOp[ResultT])
-	Combine(*State[ResultT], *State[ResultT], *AggrInputData, StateOp[ResultT], TypeOp[ResultT])
-	Operation(*State[ResultT], *InputT, *AggrUnaryInput, StateOp[ResultT], AddOp[ResultT, InputT], TypeOp[ResultT])
-	ConstantOperation(*State[ResultT], *InputT, *AggrUnaryInput, int, StateOp[ResultT], AddOp[ResultT, InputT], TypeOp[ResultT])
-	Finalize(*State[ResultT], *ResultT, *AggrFinalizeData)
+	Combine(*State[ResultT], *State[ResultT], common.AggrInputData, StateOp[ResultT], TypeOp[ResultT])
+	Operation(*State[ResultT], *InputT, common.AggrUnaryInput, StateOp[ResultT], AddOp[ResultT, InputT], TypeOp[ResultT])
+	ConstantOperation(*State[ResultT], *InputT, common.AggrUnaryInput, int, StateOp[ResultT], AddOp[ResultT, InputT], TypeOp[ResultT])
+	Finalize(*State[ResultT], *ResultT, common.AggrFinalizeData)
 	IgnoreNull() bool
 }
 
@@ -512,7 +512,7 @@ func (SumStateOp[T]) Init(s *State[T]) {
 func (SumStateOp[T]) Combine(
 	src *State[T],
 	target *State[T],
-	_ *AggrInputData,
+	_ common.AggrInputData,
 	top TypeOp[T]) {
 	src.Combine(target, top)
 }
@@ -532,7 +532,7 @@ func (as *AvgStateOp[T]) Init(s *State[T]) {
 func (as *AvgStateOp[T]) Combine(
 	src *State[T],
 	target *State[T],
-	_ *AggrInputData,
+	_ common.AggrInputData,
 	top TypeOp[T]) {
 	src.Combine(target, top)
 }
@@ -552,7 +552,7 @@ func (as *CountStateOp[T]) Init(s *State[T]) {
 func (as *CountStateOp[T]) Combine(
 	src *State[T],
 	target *State[T],
-	_ *AggrInputData,
+	_ common.AggrInputData,
 	top TypeOp[T]) {
 	src.Combine(target, top)
 }
@@ -572,7 +572,7 @@ func (as *MaxStateOp[T]) Init(s *State[T]) {
 func (as *MaxStateOp[T]) Combine(
 	src *State[T],
 	target *State[T],
-	_ *AggrInputData,
+	_ common.AggrInputData,
 	top TypeOp[T]) {
 	if !src._isset {
 		return
@@ -600,7 +600,7 @@ func (as *MinStateOp[T]) Init(s *State[T]) {
 func (as *MinStateOp[T]) Combine(
 	src *State[T],
 	target *State[T],
-	_ *AggrInputData,
+	_ common.AggrInputData,
 	top TypeOp[T]) {
 	if !src._isset {
 		return
@@ -781,7 +781,7 @@ func (s SumOp[ResultT, InputT]) Init(
 func (s SumOp[ResultT, InputT]) Combine(
 	src *State[ResultT],
 	target *State[ResultT],
-	data *AggrInputData,
+	data common.AggrInputData,
 	sop StateOp[ResultT],
 	top TypeOp[ResultT]) {
 	sop.Combine(src, target, data, top)
@@ -790,7 +790,7 @@ func (s SumOp[ResultT, InputT]) Combine(
 func (s SumOp[ResultT, InputT]) Operation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
 	top TypeOp[ResultT]) {
@@ -801,7 +801,7 @@ func (s SumOp[ResultT, InputT]) Operation(
 func (s SumOp[ResultT, InputT]) ConstantOperation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	count int,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
@@ -813,7 +813,7 @@ func (s SumOp[ResultT, InputT]) ConstantOperation(
 func (s SumOp[ResultT, InputT]) Finalize(
 	s3 *State[ResultT],
 	target *ResultT,
-	data *AggrFinalizeData) {
+	data common.AggrFinalizeData) {
 
 	if !s3.GetIsset() {
 		data.ReturnNull()
@@ -840,7 +840,7 @@ func (AvgOp[ResultT, InputT]) Init(
 func (AvgOp[ResultT, InputT]) Combine(
 	src *State[ResultT],
 	target *State[ResultT],
-	data *AggrInputData,
+	data common.AggrInputData,
 	sop StateOp[ResultT],
 	top TypeOp[ResultT]) {
 	sop.Combine(src, target, data, top)
@@ -849,7 +849,7 @@ func (AvgOp[ResultT, InputT]) Combine(
 func (AvgOp[ResultT, InputT]) Operation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
 	top TypeOp[ResultT]) {
@@ -861,7 +861,7 @@ func (AvgOp[ResultT, InputT]) Operation(
 func (AvgOp[ResultT, InputT]) ConstantOperation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	count int,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
@@ -873,7 +873,7 @@ func (AvgOp[ResultT, InputT]) ConstantOperation(
 func (AvgOp[ResultT, InputT]) Finalize(
 	s3 *State[ResultT],
 	target *ResultT,
-	data *AggrFinalizeData) {
+	data common.AggrFinalizeData) {
 	if s3._count == 0 {
 		data.ReturnNull()
 	} else {
@@ -917,7 +917,7 @@ func (CountOp[ResultT, InputT]) Init(
 func (CountOp[ResultT, InputT]) Combine(
 	src *State[ResultT],
 	target *State[ResultT],
-	data *AggrInputData,
+	data common.AggrInputData,
 	sop StateOp[ResultT],
 	top TypeOp[ResultT]) {
 	sop.Combine(src, target, data, top)
@@ -926,7 +926,7 @@ func (CountOp[ResultT, InputT]) Combine(
 func (CountOp[ResultT, InputT]) Operation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
 	top TypeOp[ResultT]) {
@@ -938,7 +938,7 @@ func (CountOp[ResultT, InputT]) Operation(
 func (CountOp[ResultT, InputT]) ConstantOperation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	count int,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
@@ -950,7 +950,7 @@ func (CountOp[ResultT, InputT]) ConstantOperation(
 func (CountOp[ResultT, InputT]) Finalize(
 	s3 *State[ResultT],
 	target *ResultT,
-	data *AggrFinalizeData) {
+	data common.AggrFinalizeData) {
 	if s3._count == 0 {
 		data.ReturnNull()
 	} else {
@@ -979,7 +979,7 @@ func (MinMaxOp[ResultT, InputT]) Init(
 func (MinMaxOp[ResultT, InputT]) Combine(
 	src *State[ResultT],
 	target *State[ResultT],
-	data *AggrInputData,
+	data common.AggrInputData,
 	sop StateOp[ResultT],
 	top TypeOp[ResultT]) {
 	sop.Combine(src, target, data, top)
@@ -988,7 +988,7 @@ func (MinMaxOp[ResultT, InputT]) Combine(
 func (MinMaxOp[ResultT, InputT]) Operation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
 	top TypeOp[ResultT]) {
@@ -1003,7 +1003,7 @@ func (MinMaxOp[ResultT, InputT]) Operation(
 func (MinMaxOp[ResultT, InputT]) ConstantOperation(
 	s3 *State[ResultT],
 	input *InputT,
-	data *AggrUnaryInput,
+	data common.AggrUnaryInput,
 	count int,
 	sop StateOp[ResultT],
 	aop AddOp[ResultT, InputT],
@@ -1019,7 +1019,7 @@ func (MinMaxOp[ResultT, InputT]) ConstantOperation(
 func (MinMaxOp[ResultT, InputT]) Finalize(
 	s3 *State[ResultT],
 	target *ResultT,
-	data *AggrFinalizeData) {
+	data common.AggrFinalizeData) {
 	if !s3._isset {
 		data.ReturnNull()
 	} else {
@@ -1034,7 +1034,7 @@ func (MinMaxOp[ResultT, InputT]) IgnoreNull() bool {
 func UnaryScatter[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	input *chunk.Vector,
 	states *chunk.Vector,
-	data *AggrInputData,
+	data common.AggrInputData,
 	count int,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
@@ -1086,7 +1086,7 @@ func UnaryScatter[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Resul
 
 func UnaryFlatLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	inputSlice []InputT,
-	data *AggrInputData,
+	data common.AggrInputData,
 	statesPtrSlice []unsafe.Pointer,
 	mask *util.Bitmap,
 	count int,
@@ -1130,7 +1130,7 @@ func UnaryFlatLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Resu
 
 func UnaryScatterLoop[ResultT any, STATE State[ResultT], InputT any](
 	inputSlice []InputT,
-	data *AggrInputData,
+	data common.AggrInputData,
 	statesPtrSlice []unsafe.Pointer,
 	isel *chunk.SelectVector,
 	ssel *chunk.SelectVector,
@@ -1163,7 +1163,7 @@ func UnaryScatterLoop[ResultT any, STATE State[ResultT], InputT any](
 func Combine[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	source *chunk.Vector,
 	target *chunk.Vector,
-	data *AggrInputData,
+	data common.AggrInputData,
 	count int,
 	aop AggrOp[ResultT, InputT],
 	sop StateOp[ResultT],
@@ -1186,7 +1186,7 @@ func Combine[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, I
 
 func Finalize[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	states *chunk.Vector,
-	data *AggrInputData,
+	data common.AggrInputData,
 	result *chunk.Vector,
 	count int,
 	offset int,
@@ -1216,7 +1216,7 @@ func Finalize[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, 
 
 func UnaryUpdate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	input *chunk.Vector,
-	data *AggrInputData,
+	data common.AggrInputData,
 	statePtr unsafe.Pointer,
 	count int,
 	aop AggrOp[ResultT, InputT],
@@ -1265,7 +1265,7 @@ func UnaryUpdate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Result
 
 func UnaryFlatUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	inputSlice []InputT,
-	data *AggrInputData,
+	data common.AggrInputData,
 	statePtr unsafe.Pointer,
 	count int,
 	mask *util.Bitmap,
@@ -1301,7 +1301,7 @@ func UnaryFlatUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrO
 
 func UnaryUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[ResultT, InputT]](
 	inputSlice []InputT,
-	data *AggrInputData,
+	data common.AggrInputData,
 	statePtr unsafe.Pointer,
 	count int,
 	mask *util.Bitmap,
@@ -1328,7 +1328,7 @@ func UnaryUpdateLoop[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Re
 }
 
 func FinalizeStates(
-	layout *TupleDataLayout,
+	layout common.TupleDataLayout,
 	addresses *chunk.Vector,
 	result *chunk.Chunk,
 	aggrIdx int,

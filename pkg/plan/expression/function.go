@@ -105,16 +105,16 @@ func (fun *FunctionV2) Copy() *FunctionV2 {
 	return ret
 }
 
-type ScalarFunc func(*chunk.Chunk, *ExprState, *chunk.Vector)
+type ScalarFunc func(*chunk.Chunk, common.ExprState, *chunk.Vector)
 
 type aggrStateSize func() int
 type aggrInit func(pointer unsafe.Pointer)
-type aggrUpdate func([]*chunk.Vector, *AggrInputData, int, *chunk.Vector, int)
-type aggrCombine func(*chunk.Vector, *chunk.Vector, *AggrInputData, int)
-type aggrFinalize func(*chunk.Vector, *AggrInputData, *chunk.Vector, int, int)
+type aggrUpdate func([]*chunk.Vector, common.AggrInputData, int, *chunk.Vector, int)
+type aggrCombine func(*chunk.Vector, *chunk.Vector, common.AggrInputData, int)
+type aggrFinalize func(*chunk.Vector, common.AggrInputData, *chunk.Vector, int, int)
 
 // type aggrFunction func(*AggrFunc, []*Expr)
-type aggrSimpleUpdate func([]*chunk.Vector, *AggrInputData, int, unsafe.Pointer, int)
+type aggrSimpleUpdate func([]*chunk.Vector, common.AggrInputData, int, unsafe.Pointer, int)
 
 //type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
 

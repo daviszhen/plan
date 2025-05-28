@@ -8,45 +8,37 @@ import (
 	"github.com/xlab/treeprint"
 
 	"github.com/daviszhen/plan/pkg/common"
+	util2 "github.com/daviszhen/plan/pkg/plan/util"
 	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-type BindingType int
-
-const (
-	BT_BASE BindingType = iota
-	BT_TABLE
-	BT_DUMMY
-	BT_CATALOG_ENTRY
-	BT_Subquery
-)
-
-func (bt BindingType) String() string {
-	switch bt {
-	case BT_BASE:
-		return "base"
-	case BT_TABLE:
-		return "table"
-	case BT_DUMMY:
-		return "dummy"
-	case BT_CATALOG_ENTRY:
-		return "catalog_entry"
-	case BT_Subquery:
-		return "subquery"
-	default:
-		panic(fmt.Sprintf("usp binding type %d", bt))
-	}
-}
+var _ common.Binding = &Binding{}
 
 type Binding struct {
-	typ      BindingType
+	typ      common.BindingType
 	database string
 	alias    string
 	index    uint64
 	typs     []common.LType
 	names    []string
 	nameMap  map[string]int
+}
+
+func (b *Binding) Type() common.BindingType {
+	return b.typ
+}
+
+func (b *Binding) Types() []common.LType {
+	return b.typs
+}
+
+func (b *Binding) Alias() string {
+	return b.alias
+}
+
+func (b *Binding) Index() uint64 {
+	return b.index
 }
 
 func (b *Binding) Format(ctx *FormatCtx) {
@@ -214,7 +206,8 @@ func (bc *BindContext) GetCteBinding(name string) *Binding {
 	}
 }
 
-var _ Format = &Builder{}
+var _ util2.Format = &Builder{}
+var _ common.Builder = &Builder{}
 
 type Builder struct {
 	tag        *int // relation tag
@@ -229,15 +222,15 @@ type Builder struct {
 	//hash of select expr -> idx of select expr
 	projectMap map[string]int
 
-	projectExprs []*Expr
-	fromExpr     *Expr
-	whereExpr    *Expr
-	aggs         []*Expr
-	groupbyExprs []*Expr
-	havingExpr   *Expr
-	orderbyExprs []*Expr
-	limitCount   *Expr
-	limitOffset  *Expr
+	projectExprs []common.Expr
+	fromExpr     common.Expr
+	whereExpr    common.Expr
+	aggs         []common.Expr
+	groupbyExprs []common.Expr
+	havingExpr   common.Expr
+	orderbyExprs []common.Expr
+	limitCount   common.Expr
+	limitOffset  common.Expr
 
 	//for insert
 	expectedTypes []common.LType

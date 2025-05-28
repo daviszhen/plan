@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"unsafe"
 )
 
@@ -51,3 +52,50 @@ const (
 	LeftChild  SourceType = -1 //also for one child
 	RightChild SourceType = -2
 )
+
+type BindingType int
+
+const (
+	BT_BASE BindingType = iota
+	BT_TABLE
+	BT_DUMMY
+	BT_CATALOG_ENTRY
+	BT_Subquery
+)
+
+func (bt BindingType) String() string {
+	switch bt {
+	case BT_BASE:
+		return "base"
+	case BT_TABLE:
+		return "table"
+	case BT_DUMMY:
+		return "dummy"
+	case BT_CATALOG_ENTRY:
+		return "catalog_entry"
+	case BT_Subquery:
+		return "subquery"
+	default:
+		panic(fmt.Sprintf("usp binding type %d", bt))
+	}
+}
+
+type Expr interface{}
+type Builder interface{}
+type Binding interface {
+	HasColumn(column string) int
+	Type() BindingType
+	Types() []LType
+	Alias() string
+	Index() uint64
+}
+type BindContext interface {
+	GetMatchingBinding(table, column string) (Binding, int, error)
+}
+type ExprState interface{}
+type AggrInputData interface{}
+type AggrUnaryInput interface{}
+type AggrFinalizeData interface{}
+type LogicalOperator interface{}
+type PhysicalOperator interface{}
+type TupleDataLayout interface{}

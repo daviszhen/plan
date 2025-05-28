@@ -93,44 +93,6 @@ func (irs *JoinRelationSet) String() string {
 	return bb.String()
 }
 
-type UnorderedSet map[uint64]bool
-
-func (set UnorderedSet) orderedKeys() []uint64 {
-	keys := make([]uint64, 0, len(set))
-	for key := range set {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i] < keys[j]
-	})
-	return keys
-}
-
-func (set UnorderedSet) insert(keys ...uint64) {
-	for _, key := range keys {
-		set[key] = true
-	}
-}
-
-func (set UnorderedSet) find(key uint64) bool {
-	_, has := set[key]
-	return has
-}
-
-func (set UnorderedSet) clear() {
-	for key := range set {
-		delete(set, key)
-	}
-}
-
-func (set UnorderedSet) empty() bool {
-	return len(set) == 0
-}
-
-func (set UnorderedSet) size() int {
-	return len(set)
-}
-
 type treeNode struct {
 	relation *JoinRelationSet
 	children map[uint64]*treeNode
