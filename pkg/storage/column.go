@@ -617,7 +617,6 @@ func InitUpdateData[T any](
 		if !mask.RowIsValid(uint64(bIdx)) {
 			continue
 		}
-		//FIXME: for string
 		baseTupleSlice[i] = baseSlice[bIdx]
 	}
 }
@@ -1301,10 +1300,7 @@ func (seg *UpdateSegment) HasUncommittedUpdates(vecIdx IdxType) bool {
 	seg._lock.Lock()
 	defer seg._lock.Unlock()
 	info := seg._root._info[vecIdx]
-	if info._info._next != nil {
-		return true
-	}
-	return false
+	return info._info._next != nil
 }
 
 func (seg *UpdateSegment) RollbackUpdate(info *UpdateInfo) {

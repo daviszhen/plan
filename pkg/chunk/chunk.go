@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/jeroenrinzema/psql-wire"
+	wire "github.com/jeroenrinzema/psql-wire"
 	"go.uber.org/zap"
 
 	"github.com/daviszhen/plan/pkg/common"

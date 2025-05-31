@@ -12,7 +12,6 @@ import (
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
-	"github.com/daviszhen/plan/pkg/encode"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -59,11 +58,9 @@ type Index struct {
 	_constraintType        uint8
 	_lock                  sync.Mutex
 	_serializedDataPointer BlockPointer
-	//_boundExprs []*common.Expr
-	//_executor
-	_btree   *btree.BTreeG[*IndexKey]
-	_blockId BlockID
-	_offset  uint32
+	_btree                 *btree.BTreeG[*IndexKey]
+	_blockId               BlockID
+	_offset                uint32
 }
 
 type IndexKey struct {
@@ -249,7 +246,7 @@ func CreateKey(
 	switch pType {
 	case common.INT32:
 		val32 := int32(value.I64)
-		return CreateIndexKey2[int32](value.Typ, &val32, encode.Int32Encoder{})
+		return CreateIndexKey2[int32](value.Typ, &val32, util.Int32Encoder{})
 	default:
 		panic("usp")
 	}
@@ -274,7 +271,6 @@ func (idx *Index) Append2(
 	lock *IndexLock,
 	entries *chunk.Chunk,
 	rowIds *chunk.Vector) error {
-	//TODO:execute exprs
 	temp := &chunk.Chunk{}
 	temp.Init(idx._logicalTypes, STANDARD_VECTOR_SIZE)
 	for i, colIdx := range idx._columnIds {
@@ -342,17 +338,17 @@ func (idx *Index) GenerateKeys(
 		TemplatedGenerateKeys[int32](
 			input.Data[0],
 			input.Card(),
-			keys, encode.Int32Encoder{})
+			keys, util.Int32Encoder{})
 	case common.INT64:
 		TemplatedGenerateKeys[int64](
 			input.Data[0],
 			input.Card(),
-			keys, encode.Int64Encoder{})
+			keys, util.Int64Encoder{})
 	case common.UINT64:
 		TemplatedGenerateKeys[uint64](
 			input.Data[0],
 			input.Card(),
-			keys, encode.Uint64Encoder{})
+			keys, util.Uint64Encoder{})
 	case common.VARCHAR:
 		GenerateStringKeys(
 			input.Data[0],
@@ -369,12 +365,12 @@ func (idx *Index) GenerateKeys(
 			ConcatenateKeys[int32](
 				input.Data[i],
 				input.Card(),
-				keys, encode.Int32Encoder{})
+				keys, util.Int32Encoder{})
 		case common.UINT64:
 			ConcatenateKeys[uint64](
 				input.Data[i],
 				input.Card(),
-				keys, encode.Uint64Encoder{})
+				keys, util.Uint64Encoder{})
 		case common.VARCHAR:
 			ConcatenateStringKeys(
 				input.Data[i],
@@ -414,7 +410,7 @@ func TemplatedGenerateKeys[T any](
 	input *chunk.Vector,
 	count int,
 	keys []*IndexKey,
-	enc encode.Encoder[T],
+	enc util.Encoder[T],
 ) {
 	var idata chunk.UnifiedFormat
 	input.ToUnifiedFormat(count, &idata)
@@ -462,7 +458,7 @@ func CreateIndexKey[T any](
 	typ common.LType,
 	key *IndexKey,
 	val *T,
-	enc encode.Encoder[T],
+	enc util.Encoder[T],
 ) {
 	key._data = CreateData[T](typ, val, enc)
 	key._len = uint32(typ.GetInternalType().Size())
@@ -471,7 +467,7 @@ func CreateIndexKey[T any](
 func CreateIndexKey2[T any](
 	typ common.LType,
 	val *T,
-	enc encode.Encoder[T],
+	enc util.Encoder[T],
 ) *IndexKey {
 	key := &IndexKey{}
 	key._data = CreateData[T](typ, val, enc)
@@ -482,7 +478,7 @@ func CreateIndexKey2[T any](
 func CreateData[T any](
 	typ common.LType,
 	val *T,
-	enc encode.Encoder[T],
+	enc util.Encoder[T],
 ) unsafe.Pointer {
 	pSize := typ.GetInternalType().Size()
 	data := util.CMalloc(pSize)
@@ -494,7 +490,7 @@ func ConcatenateKeys[T any](
 	input *chunk.Vector,
 	count int,
 	keys []*IndexKey,
-	enc encode.Encoder[T],
+	enc util.Encoder[T],
 ) {
 	var idata chunk.UnifiedFormat
 	input.ToUnifiedFormat(count, &idata)
@@ -567,16 +563,12 @@ func (idx *Index) Delete2(
 	state *IndexLock,
 	input *chunk.Chunk,
 	rowIds *chunk.Vector) error {
-	//TODO:execute exprs
 	//one key for one row
 	keys := make([]*IndexKey, input.Card())
 	for i := 0; i < input.Card(); i++ {
 		keys[i] = &IndexKey{}
 	}
 	idx.GenerateKeys(input, keys)
-
-	//rowIds.Flatten(input.Card())
-	//rowIdsSlice := chunk.GetSliceInPhyFormatFlat[uint64](rowIds)
 
 	for i := 0; i < input.Card(); i++ {
 		if keys[i].Empty() {
@@ -677,10 +669,7 @@ func (idx *Index) SearchLess(
 	})
 	//reverse result ids
 	slices.Reverse(*resultIds)
-	if cnt < maxCount {
-		return true
-	}
-	return false
+	return cnt < maxCount
 }
 
 func (idx *Index) SearchCloseRange(
@@ -722,10 +711,7 @@ func (idx *Index) SearchCloseRange(
 		cnt++
 		return true
 	})
-	if cnt < maxCount {
-		return true
-	}
-	return false
+	return cnt < maxCount
 }
 
 func AppendToIndexes(

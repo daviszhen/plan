@@ -334,7 +334,6 @@ func (txn *Txn) Commit(commitId TxnType, ckp bool) error {
 		return err
 	}
 
-	//TODO: wrap it
 	if sCommitState != nil {
 		err = sCommitState.FlushCommit()
 	}

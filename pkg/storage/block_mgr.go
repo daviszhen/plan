@@ -102,7 +102,6 @@ func (impl *MemoryBlockMgr) Read(block *Block) error {
 func (impl *MemoryBlockMgr) Write2(buffer *FileBuffer, id BlockID) error {
 	//TODO implement me
 	panic("implement me")
-	return nil
 }
 
 func (impl *MemoryBlockMgr) Write(block *Block) error {
@@ -113,7 +112,6 @@ func (impl *MemoryBlockMgr) Write(block *Block) error {
 func (impl *MemoryBlockMgr) WriteHeader(header *DatabaseHeader) error {
 	//TODO implement me
 	panic("implement me")
-	return nil
 }
 
 func (impl *MemoryBlockMgr) TotalBlocks() uint64 {

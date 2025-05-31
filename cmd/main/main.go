@@ -23,7 +23,7 @@ import (
 	wire "github.com/jeroenrinzema/psql-wire"
 	"go.uber.org/zap"
 
-	"github.com/daviszhen/plan/pkg/plan"
+	"github.com/daviszhen/plan/pkg/compute"
 	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
@@ -73,7 +73,7 @@ func handler(ctx context.Context, query string) (wire.PreparedStatements, error)
 	storage.BeginQuery(txn)
 
 	//init runner
-	run, err := plan.InitRunner(&runCfg, txn, query)
+	run, err := compute.InitRunner(&runCfg, txn, query)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func handler(ctx context.Context, query string) (wire.PreparedStatements, error)
 
 type ExecCtx struct {
 	cfg *util.Config
-	run *plan.Runner
+	run *compute.Runner
 }
 
 func (exec *ExecCtx) handleX(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {

@@ -745,10 +745,7 @@ func (table *DataTable) RemoveFromIndexes2(
 	var err error
 	table._info._indexes.Scan(func(index *Index) bool {
 		err = index.Delete(data, rowIds)
-		if err != nil {
-			return true
-		}
-		return false
+		return err != nil
 	})
 	return err
 }
@@ -762,10 +759,7 @@ func (table *DataTable) VerifyAppendConstraints(
 				return false
 			}
 			violated = index.VerifyAppend(data)
-			if violated {
-				return true
-			}
-			return false
+			return violated
 		})
 		if violated {
 			return fmt.Errorf("violate unique")
