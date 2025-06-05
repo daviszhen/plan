@@ -484,25 +484,26 @@ func AddCastToType(expr *Expr, dstTyp common.LType, tryCast bool) (*Expr, error)
 		expr, //expr to be cast
 		//target type saved in DataTyp field
 		{
-			Typ:     ET_IConst,
-			DataTyp: dstTyp,
+			Typ:        ET_Const,
+			DataTyp:    dstTyp,
+			ConstValue: NewIntegerConst(0),
 		},
 	}
 
 	retExpr = &Expr{
 		Typ:        ET_Func,
-		SubTyp:     ET_SubFunc,
-		Svalue:     ET_Cast.String(),
+		ConstValue: NewStringConst(FuncCast),
 		DataTyp:    dstTyp,
 		Children:   args,
-		IsOperator: ET_Cast.isOperator(),
-		BindInfo:   nil,
-		FunImpl: &FunctionV2{
-			_name:          ET_Cast.String(),
-			_args:          []common.LType{expr.DataTyp, dstTyp},
-			_retType:       dstTyp,
-			_funcTyp:       ScalarFuncType,
-			_boundCastInfo: castInfo,
+		FunctionInfo: FunctionInfo{
+			BindInfo: nil,
+			FunImpl: &Function{
+				_name:          FuncCast,
+				_args:          []common.LType{expr.DataTyp, dstTyp},
+				_retType:       dstTyp,
+				_funcTyp:       ScalarFuncType,
+				_boundCastInfo: castInfo,
+			},
 		},
 	}
 

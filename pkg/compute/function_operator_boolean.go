@@ -390,9 +390,9 @@ func (e notLikeOp) operation(left, right *common.String) bool {
 	return !wildcardMatch(right.String(), left.String())
 }
 
-func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector, subTyp ET_SubTyp) int {
-	switch subTyp {
-	case ET_Equal:
+func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count int, trueSel, falseSel *chunk.SelectVector, name string) int {
+	switch name {
+	case FuncEqual:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, equalOp[int32]{})
@@ -405,7 +405,7 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_NotEqual, ET_NotIn:
+	case FuncNotEqual, FuncNotIn:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, notEqualOp[int32]{})
@@ -416,7 +416,7 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_In:
+	case FuncIn:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, inOp[int32]{})
@@ -427,7 +427,7 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_Greater:
+	case FuncGreater:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatInt32Op{})
@@ -444,7 +444,7 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_GreaterEqual:
+	case FuncGreaterEqual:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, greatEqualInt32Op{})
@@ -457,7 +457,7 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_Less:
+	case FuncLess:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessInt32Op{})
@@ -470,7 +470,7 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_LessEqual:
+	case FuncLessEqual:
 		switch left.Typ().GetInternalType() {
 		case common.INT32:
 			return selectBinary[int32](left, right, sel, count, trueSel, falseSel, lessEqualInt32Op{})
@@ -483,14 +483,14 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		default:
 			panic("usp")
 		}
-	case ET_Like:
+	case FuncLike:
 		switch left.Typ().GetInternalType() {
 		case common.VARCHAR:
 			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, likeOp{})
 		default:
 			panic("usp")
 		}
-	case ET_NotLike:
+	case FuncNotLike:
 		switch left.Typ().GetInternalType() {
 		case common.VARCHAR:
 			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, notLikeOp{})

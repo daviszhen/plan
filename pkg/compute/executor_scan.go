@@ -28,14 +28,14 @@ func (run *Runner) scanInit() error {
 			if tabEnt == nil {
 				return fmt.Errorf("no table %s in schema %s", run.op.Database, run.op.Table)
 			}
-			run.tabEnt = tabEnt
+			run.state.tabEnt = tabEnt
 			col2Idx := tabEnt.GetColumn2Idx()
 			typs := tabEnt.GetTypes()
-			run.colIndice = make([]int, 0)
+			run.state.colIndice = make([]int, 0)
 			for _, col := range run.op.Columns {
 				if idx, has := col2Idx[col]; has {
-					run.colIndice = append(run.colIndice, idx)
-					run.readedColTyps = append(run.readedColTyps, typs[idx])
+					run.state.colIndice = append(run.state.colIndice, idx)
+					run.state.readedColTyps = append(run.state.readedColTyps, typs[idx])
 				} else {
 					return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
 				}
@@ -43,34 +43,34 @@ func (run *Runner) scanInit() error {
 		}
 
 	case ScanTypeValuesList:
-		run.colIndice = make([]int, 0)
+		run.state.colIndice = make([]int, 0)
 		for _, col := range run.op.Columns {
 			if idx, has := run.op.ColName2Idx[col]; has {
-				run.colIndice = append(run.colIndice, idx)
-				run.readedColTyps = append(run.readedColTyps, run.op.Types[idx])
+				run.state.colIndice = append(run.state.colIndice, idx)
+				run.state.readedColTyps = append(run.state.readedColTyps, run.op.Types[idx])
 			} else {
 				return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
 			}
 		}
-		run.readedColTyps = run.op.Types
+		run.state.readedColTyps = run.op.Types
 	case ScanTypeCopyFrom:
-		run.colIndice = run.op.ScanInfo.ColumnIds
-		run.readedColTyps = run.op.ScanInfo.ReturnedTypes
+		run.state.colIndice = run.op.ScanInfo.ColumnIds
+		run.state.readedColTyps = run.op.ScanInfo.ReturnedTypes
 		//open data file
 		switch run.op.ScanInfo.Format {
 		case "parquet":
-			run.pqFile, err = pqLocal.NewLocalFileReader(run.op.ScanInfo.FilePath)
+			run.state.pqFile, err = pqLocal.NewLocalFileReader(run.op.ScanInfo.FilePath)
 			if err != nil {
 				return err
 			}
 
-			run.pqReader, err = pqReader.NewParquetColumnReader(run.pqFile, 1)
+			run.state.pqReader, err = pqReader.NewParquetColumnReader(run.state.pqFile, 1)
 			if err != nil {
 				return err
 			}
 		case "csv":
-			run.tablePath = run.op.ScanInfo.FilePath
-			run.dataFile, err = os.OpenFile(run.tablePath, os.O_RDONLY, 0755)
+			run.state.tablePath = run.op.ScanInfo.FilePath
+			run.state.dataFile, err = os.OpenFile(run.state.tablePath, os.O_RDONLY, 0755)
 			if err != nil {
 				return err
 			}
@@ -81,8 +81,8 @@ func (run *Runner) scanInit() error {
 			}
 
 			//init csv reader
-			run.reader = csv.NewReader(run.dataFile)
-			run.reader.Comma = comma
+			run.state.reader = csv.NewReader(run.state.dataFile)
+			run.state.reader.Comma = comma
 		default:
 			panic("usp format")
 		}
@@ -95,11 +95,9 @@ func (run *Runner) scanInit() error {
 		return err
 	}
 
-	run.state = &OperatorState{
-		filterExec: filterExec,
-		filterSel:  chunk.NewSelectVector(util.DefaultVectorSize),
-		showRaw:    run.cfg.Debug.ShowRaw,
-	}
+	run.state.filterExec = filterExec
+	run.state.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
+	run.state.showRaw = run.cfg.Debug.ShowRaw
 
 	return nil
 }
@@ -123,13 +121,13 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 		return false, nil
 	}
 	if run.cfg.Debug.EnableMaxScanRows {
-		if run.maxRows > run.cfg.Debug.MaxScanRows {
+		if run.state.maxRows > run.cfg.Debug.MaxScanRows {
 			return true, nil
 		}
 	}
 
 	readed := &chunk.Chunk{}
-	readed.Init(run.readedColTyps, maxCnt)
+	readed.Init(run.state.readedColTyps, maxCnt)
 	var err error
 
 	switch run.op.ScanTyp {
@@ -138,15 +136,15 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 			if run.state.tableScanState == nil {
 				run.state.tableScanState = storage.NewTableScanState()
 				colIds := make([]storage.IdxType, 0)
-				for _, colId := range run.colIndice {
+				for _, colId := range run.state.colIndice {
 					colIds = append(colIds, storage.IdxType(colId))
 				}
-				run.tabEnt.GetStorage().InitScan(
+				run.state.tabEnt.GetStorage().InitScan(
 					run.Txn,
 					run.state.tableScanState,
 					colIds)
 			}
-			run.tabEnt.GetStorage().Scan(run.Txn, readed, run.state.tableScanState)
+			run.state.tabEnt.GetStorage().Scan(run.Txn, readed, run.state.tableScanState)
 		}
 		{
 			//read table
@@ -195,7 +193,7 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 	}
 
 	if run.cfg.Debug.EnableMaxScanRows {
-		run.maxRows += readed.Card()
+		run.state.maxRows += readed.Card()
 	}
 
 	err = run.runFilterExec(readed, output, true)
@@ -229,11 +227,11 @@ func (run *Runner) scanClose() error {
 	case ScanTypeCopyFrom:
 		switch run.op.ScanInfo.Format {
 		case "csv":
-			run.reader = nil
-			return run.dataFile.Close()
+			run.state.reader = nil
+			return run.state.dataFile.Close()
 		case "parquet":
-			run.pqReader.ReadStop()
-			return run.pqFile.Close()
+			run.state.pqReader.ReadStop()
+			return run.state.pqFile.Close()
 		default:
 			panic("usp format")
 		}
@@ -248,8 +246,8 @@ func (run *Runner) readParquetTable(output *chunk.Chunk, state *OperatorState, m
 	var values []interface{}
 
 	//fill field into vector
-	for j, idx := range run.colIndice {
-		values, _, _, err = run.pqReader.ReadColumnByIndex(int64(idx), int64(maxCnt))
+	for j, idx := range run.state.colIndice {
+		values, _, _, err = run.state.pqReader.ReadColumnByIndex(int64(idx), int64(maxCnt))
 		if err != nil {
 			//EOF
 			if errors.Is(err, io.EOF) {
@@ -288,7 +286,7 @@ func (run *Runner) readCsvTable(output *chunk.Chunk, state *OperatorState, maxCn
 	rowCont := 0
 	for i := 0; i < maxCnt; i++ {
 		//read line
-		line, err := run.reader.Read()
+		line, err := run.state.reader.Read()
 		if err != nil {
 			//EOF
 			if errors.Is(err, io.EOF) {
@@ -297,7 +295,7 @@ func (run *Runner) readCsvTable(output *chunk.Chunk, state *OperatorState, maxCn
 			return err
 		}
 		//fill field into vector
-		for j, idx := range run.colIndice {
+		for j, idx := range run.state.colIndice {
 			if idx >= len(line) {
 				return errors.New("no enough fields in the line")
 			}

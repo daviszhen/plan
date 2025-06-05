@@ -27,7 +27,7 @@ func Match(
 	colData []*chunk.UnifiedFormat,
 	layout *TupleDataLayout,
 	rows *chunk.Vector,
-	predicates []ET_SubTyp,
+	predicates []string,
 	sel *chunk.SelectVector,
 	cnt int,
 	noMatch *chunk.SelectVector,
@@ -53,7 +53,7 @@ func TemplatedMatch(
 	colData []*chunk.UnifiedFormat,
 	layout *TupleDataLayout,
 	rows *chunk.Vector,
-	predicates []ET_SubTyp,
+	predicates []string,
 	sel *chunk.SelectVector,
 	cnt *int,
 	noMatch *chunk.SelectVector,
@@ -83,7 +83,7 @@ func TemplatedMatch(
 func TemplatedMatchOp(
 	vec *chunk.Vector,
 	col *chunk.UnifiedFormat,
-	predTyp ET_SubTyp,
+	predTyp string,
 	layout *TupleDataLayout,
 	rows *chunk.Vector,
 	sel *chunk.SelectVector,
@@ -99,7 +99,7 @@ func TemplatedMatchOp(
 	}
 	colOffset := layout.offsets()[colNo]
 	switch predTyp {
-	case ET_Equal, ET_In:
+	case FuncEqual, FuncIn:
 		pTyp := layout.types()[colNo].GetInternalType()
 		switch pTyp {
 		case common.INT32:
@@ -203,7 +203,7 @@ func TemplatedMatchOp(
 		default:
 			panic("usp")
 		}
-	case ET_NotEqual:
+	case FuncNotEqual:
 		pTyp := layout.types()[colNo].GetInternalType()
 		switch pTyp {
 		case common.INT32:

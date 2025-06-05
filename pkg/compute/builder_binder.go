@@ -75,10 +75,12 @@ func (b *Builder) bindExpr(
 		ret = &Expr{
 			Typ:     ET_Column,
 			DataTyp: bind.typs[colIdx],
-			Table:   bind.alias,
-			Name:    colName,
-			ColRef:  ColumnBind{bind.index, uint64(colIdx)},
-			Depth:   d,
+			BaseInfo: BaseInfo{
+				Table:  bind.alias,
+				Name:   colName,
+				ColRef: ColumnBind{bind.index, uint64(colIdx)},
+				Depth:  d,
+			},
 		}
 
 	case *pg_query.Node_BoolExpr:
@@ -175,9 +177,11 @@ func (b *Builder) bindSortBy(ctx *BindContext, iwc InWhichClause, expr *pg_query
 	}
 
 	ret := &Expr{
-		Typ:      ET_Orderby,
-		DataTyp:  child.DataTyp,
-		Desc:     desc,
+		Typ:     ET_Orderby,
+		DataTyp: child.DataTyp,
+		OrderByInfo: OrderByInfo{
+			Desc: desc,
+		},
 		Children: []*Expr{child},
 	}
 	return ret, nil
@@ -235,7 +239,6 @@ func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 	ret, err = b.bindFunc(
 		name,
-		ET_SubFunc,
 		expr.String(),
 		args,
 		argsTypes,
@@ -254,9 +257,9 @@ func (b *Builder) bindAConst(ctx *BindContext, iwc InWhichClause, expr *pg_query
 	switch realExpr := expr.GetVal().(type) {
 	case *pg_query.A_Const_Sval:
 		ret = &Expr{
-			Typ:     ET_SConst,
-			DataTyp: common.VarcharType(),
-			Svalue:  realExpr.Sval.Sval,
+			Typ:        ET_Const,
+			DataTyp:    common.VarcharType(),
+			ConstValue: NewStringConst(realExpr.Sval.Sval),
 		}
 	case *pg_query.A_Const_Fval:
 		fval, err = strconv.ParseFloat(realExpr.Fval.Fval, 64)
@@ -264,15 +267,15 @@ func (b *Builder) bindAConst(ctx *BindContext, iwc InWhichClause, expr *pg_query
 			return nil, err
 		}
 		ret = &Expr{
-			Typ:     ET_FConst,
-			DataTyp: common.FloatType(),
-			Fvalue:  fval,
+			Typ:        ET_Const,
+			DataTyp:    common.FloatType(),
+			ConstValue: NewFloatConst(fval),
 		}
 	case *pg_query.A_Const_Ival:
 		ret = &Expr{
-			Typ:     ET_IConst,
-			DataTyp: common.IntegerType(),
-			Ivalue:  int64(realExpr.Ival.Ival),
+			Typ:        ET_Const,
+			DataTyp:    common.IntegerType(),
+			ConstValue: NewIntegerConst(int64(realExpr.Ival.Ival)),
 		}
 
 	default:
@@ -305,15 +308,15 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		return nil, err
 	}
 
-	var et ET_SubTyp
+	var funcName string
 	switch expr.Kind {
 	case pg_query.A_Expr_Kind_AEXPR_LIKE:
 		opName := expr.Name[0].GetString_().GetSval()
 		switch opName {
 		case "~~":
-			et = ET_Like
+			funcName = FuncLike
 		case "!~~":
-			et = ET_NotLike
+			funcName = FuncNotLike
 		default:
 			panic(fmt.Errorf("bindExpr: unexpected operator %q", opName))
 		}
@@ -322,25 +325,25 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		opName := expr.Name[0].GetString_().GetSval()
 		switch opName {
 		case "=":
-			et = ET_Equal
+			funcName = FuncEqual
 		case "<>":
-			et = ET_NotEqual
+			funcName = FuncNotEqual
 		case "+":
-			et = ET_Add
+			funcName = FuncAdd
 		case "-":
-			et = ET_Sub
+			funcName = FuncSubtract
 		case "*":
-			et = ET_Mul
+			funcName = FuncMultiply
 		case "/":
-			et = ET_Div
+			funcName = FuncDivide
 		case ">":
-			et = ET_Greater
+			funcName = FuncGreater
 		case ">=":
-			et = ET_GreaterEqual
+			funcName = FuncGreaterEqual
 		case "<":
-			et = ET_Less
+			funcName = FuncLess
 		case "<=":
-			et = ET_LessEqual
+			funcName = FuncLessEqual
 		default:
 			panic(fmt.Errorf("bindAExpr: unexpected operator '%s'", expr.Name[0].GetString_().GetSval()))
 		}
@@ -348,20 +351,20 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		panic(fmt.Sprintf("bindExpr: unexpected kind %v", expr.Kind))
 	}
 
-	if et == ET_Add &&
+	if funcName == FuncAdd &&
 		(left.DataTyp.IsDate() && right.DataTyp.IsInterval() ||
 			left.DataTyp.IsInterval() && right.DataTyp.IsDate()) {
 		//date + interval or interval + date => date
-		et = ET_DateAdd
-	} else if et == ET_Sub &&
+		funcName = FuncDateAdd
+	} else if funcName == FuncSubtract &&
 		left.DataTyp.IsDate() &&
 		right.DataTyp.IsDate() {
 		//date - date => interval
-	} else if et == ET_Sub &&
+	} else if funcName == FuncSubtract &&
 		left.DataTyp.IsDate() &&
 		right.DataTyp.IsInterval() {
 		//date - interval => date
-		et = ET_DateSub
+		funcName = FuncDateSub
 	} else {
 		resultTyp = decideResultType(left.DataTyp, right.DataTyp)
 
@@ -376,7 +379,7 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		}
 	}
 
-	bindFunc, err := b.bindFunc(et.String(), et, expr.String(), []*Expr{left, right}, []common.LType{left.DataTyp, right.DataTyp}, false)
+	bindFunc, err := b.bindFunc(funcName, expr.String(), []*Expr{left, right}, []common.LType{left.DataTyp, right.DataTyp}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -387,15 +390,15 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	var err error
 	var resultTyp common.LType
 	var left, cur *Expr
-	var et ET_SubTyp
+	var funcName string
 
 	switch expr.Boolop {
 	case pg_query.BoolExprType_AND_EXPR:
-		et = ET_And
+		funcName = FuncAnd
 	case pg_query.BoolExprType_OR_EXPR:
-		et = ET_Or
+		funcName = FuncOr
 	case pg_query.BoolExprType_NOT_EXPR:
-		et = ET_Not
+		funcName = FuncNot
 	default:
 		panic(fmt.Sprintf("usp bool expr %v", expr.String()))
 	}
@@ -407,16 +410,16 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 	//special :
 	// not in
-	if et == ET_Not {
+	if funcName == FuncNot {
 		switch left.Typ {
 		case ET_Func:
-			switch left.SubTyp {
-			case ET_In:
+			switch left.FunImpl._name {
+			case FuncIn:
 				//convert it to 'not in'
-				left.SubTyp = ET_NotIn
+				left.FunImpl._name = FuncNotIn
 
 			default:
-				panic(fmt.Sprintf("usp not expr %v", left.SubTyp))
+				panic(fmt.Sprintf("usp not expr %v", left.FunImpl._name))
 			}
 		case ET_Subquery:
 			if left.SubqueryTyp == ET_SubqueryTypeExists {
@@ -448,8 +451,7 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 		//
 		left, err = b.bindFunc(
-			et.String(),
-			et,
+			funcName,
 			expr.String(),
 			[]*Expr{left, cur},
 			[]common.LType{left.DataTyp, cur.DataTyp},
@@ -461,25 +463,27 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	return left, nil
 }
 
-func (b *Builder) bindFunc(name string, subTyp ET_SubTyp, astStr string, args []*Expr, argsTypes []common.LType, distinct bool) (*Expr, error) {
+func (b *Builder) bindFunc(name string, astStr string, args []*Expr, argsTypes []common.LType, distinct bool) (*Expr, error) {
 	funBinder := FunctionBinder{}
 	if IsAgg(name) {
-		ret := funBinder.BindAggrFunc(name, args, subTyp, false)
+		ret := funBinder.BindAggrFunc(name, args, false)
 		if distinct {
-			ret.AggrTyp = DISTINCT
+			ret.FunctionInfo.FunImpl._aggrType = DISTINCT
 		}
 		b.aggs = append(b.aggs, ret)
 		ret = &Expr{
 			Typ:     ET_Column,
 			DataTyp: ret.DataTyp,
-			Table:   fmt.Sprintf("AggNode_%v", b.aggTag),
-			Name:    astStr,
-			ColRef:  ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
-			Depth:   0,
+			BaseInfo: BaseInfo{
+				Table:  fmt.Sprintf("AggNode_%v", b.aggTag),
+				Name:   astStr,
+				ColRef: ColumnBind{uint64(b.aggTag), uint64(len(b.aggs) - 1)},
+				Depth:  0,
+			},
 		}
 		return ret, nil
 	} else {
-		return funBinder.BindScalarFunc(name, args, subTyp, subTyp.isOperator()), nil
+		return funBinder.BindScalarFunc(name, args, IsOperator(name)), nil
 	}
 }
 
@@ -558,7 +562,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	//>=
 	params := []*Expr{betExpr, left}
 	paramsTypes := []common.LType{betExpr.DataTyp, left.DataTyp}
-	ret0, err := b.bindFunc(ET_GreaterEqual.String(), ET_GreaterEqual, expr.String(), params, paramsTypes, false)
+	ret0, err := b.bindFunc(FuncGreaterEqual, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +570,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	//<=
 	params = []*Expr{betExpr, right}
 	paramsTypes = []common.LType{betExpr.DataTyp, right.DataTyp}
-	ret1, err := b.bindFunc(ET_LessEqual.String(), ET_LessEqual, expr.String(), params, paramsTypes, false)
+	ret1, err := b.bindFunc(FuncLessEqual, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +579,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	params = []*Expr{ret0, ret1}
 	paramsTypes = []common.LType{ret0.DataTyp, ret1.DataTyp}
 
-	ret, err := b.bindFunc(ET_And.String(), ET_And, expr.String(), params, paramsTypes, false)
+	ret, err := b.bindFunc(FuncAnd, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -587,7 +591,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	var retExpr *Expr
 	var err error
 	var resultTyp common.LType
-	var et ET_SubTyp
+	var funcName string
 	if expr.Testexpr != nil {
 		testExpr, err = b.bindExpr(ctx, iwc, expr.Testexpr, depth)
 		if err != nil {
@@ -612,11 +616,13 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		util.AssertFunc(testExpr != nil)
 
 		subExpr := &Expr{
-			Typ:         ET_Subquery,
-			SubBuilder:  subBuilder,
-			DataTyp:     subBuilder.projectExprs[0].DataTyp,
-			SubCtx:      subBuilder.rootCtx,
-			SubqueryTyp: typ,
+			Typ:     ET_Subquery,
+			DataTyp: subBuilder.projectExprs[0].DataTyp,
+			SubqueryInfo: SubqueryInfo{
+				SubBuilder:  subBuilder,
+				SubCtx:      subBuilder.rootCtx,
+				SubqueryTyp: typ,
+			},
 		}
 
 		resultTyp = decideResultType(testExpr.DataTyp, subExpr.DataTyp)
@@ -631,11 +637,10 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 			return nil, err
 		}
 
-		et = ET_In
+		funcName = FuncIn
 
 		retExpr, err = b.bindFunc(
-			et.String(),
-			et,
+			funcName,
 			expr.String(),
 			[]*Expr{testExpr, subExpr},
 			[]common.LType{testExpr.DataTyp, subExpr.DataTyp},
@@ -650,11 +655,13 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		util.AssertFunc(testExpr == nil)
 
 		retExpr = &Expr{
-			Typ:         ET_Subquery,
-			SubBuilder:  subBuilder,
-			DataTyp:     subBuilder.projectExprs[0].DataTyp,
-			SubCtx:      subBuilder.rootCtx,
-			SubqueryTyp: typ,
+			Typ:     ET_Subquery,
+			DataTyp: subBuilder.projectExprs[0].DataTyp,
+			SubqueryInfo: SubqueryInfo{
+				SubBuilder:  subBuilder,
+				SubCtx:      subBuilder.rootCtx,
+				SubqueryTyp: typ,
+			},
 		}
 
 	case pg_query.SubLinkType_EXISTS_SUBLINK:
@@ -663,11 +670,13 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		util.AssertFunc(testExpr == nil)
 
 		retExpr = &Expr{
-			Typ:         ET_Subquery,
-			SubBuilder:  subBuilder,
-			DataTyp:     common.BooleanType(),
-			SubCtx:      subBuilder.rootCtx,
-			SubqueryTyp: typ,
+			Typ:     ET_Subquery,
+			DataTyp: common.BooleanType(),
+			SubqueryInfo: SubqueryInfo{
+				SubBuilder:  subBuilder,
+				SubCtx:      subBuilder.rootCtx,
+				SubqueryTyp: typ,
+			},
 		}
 	default:
 		panic(fmt.Sprintf("usp %v", expr.SubLinkType))
@@ -683,8 +692,10 @@ func (b *Builder) bindToSelectList(selectExprs []*pg_query.Node, idx int, alias 
 	return &Expr{
 		Typ:     ET_Column,
 		DataTyp: b.projectExprs[idx].DataTyp,
-		ColRef:  ColumnBind{uint64(b.projectTag), uint64(idx)},
-		Alias:   alias,
+		BaseInfo: BaseInfo{
+			ColRef: ColumnBind{uint64(b.projectTag), uint64(idx)},
+			Alias:  alias,
+		},
 	}
 }
 

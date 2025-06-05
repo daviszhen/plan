@@ -506,21 +506,26 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		//comparison operator => join predicate
 		switch filter.Typ {
 		case ET_Func:
-			switch filter.SubTyp {
-			case ET_In, ET_NotIn:
-				//in or not in has been splited
-				for j, child := range filter.Children {
-					if j == 0 {
-						continue
+			if filter.FunImpl.IsOperator() {
+				switch GetOperatorType(filter.FunImpl._name) {
+				case OpTypeCompare, OpTypeLike, OpTypeLogical:
+					switch filter.FunImpl._name {
+					case FuncIn, FuncNotIn:
+						//in or not in has been splited
+						for j, child := range filter.Children {
+							if j == 0 {
+								continue
+							}
+							joinOrder.createEdge(filter.Children[0], child, info)
+						}
+					default:
+						joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
 					}
-					joinOrder.createEdge(filter.Children[0], child, info)
+				default:
+					panic(fmt.Sprintf("usp %v", filter.FunImpl._name))
 				}
-			case ET_SubFunc:
-			case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_GreaterEqual, ET_Less, ET_Greater:
-				joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
-			default:
-				panic(fmt.Sprintf("usp %v", filter.SubTyp))
 			}
+
 		default:
 			panic(fmt.Sprintf("usp operator type %d", filter.Typ))
 		}
@@ -642,10 +647,10 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					return nil, errors.New("filter is nil")
 				}
 				condition := joinOrder.filters[filter.filterIndex]
-				if !(condition.SubTyp == ET_Equal || condition.SubTyp == ET_In) {
+				if !(condition.FunImpl._name == FuncEqual || condition.FunImpl._name == FuncIn) {
 					continue
 				}
-				util.AssertFunc(condition.SubTyp != ET_Less)
+				util.AssertFunc(condition.FunImpl._name != FuncLess)
 				check := isSubset(left.set, filter.leftSet) && isSubset(right.set, filter.rightSet) ||
 					isSubset(left.set, filter.rightSet) && isSubset(right.set, filter.leftSet)
 				if !check {
@@ -653,15 +658,16 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				}
 				cond := &Expr{
 					Typ:     condition.Typ,
-					SubTyp:  condition.SubTyp,
 					DataTyp: condition.DataTyp,
-					FunImpl: condition.FunImpl,
+					FunctionInfo: FunctionInfo{
+						FunImpl: condition.FunImpl,
+					},
 				}
 				invert := !isSubset(left.set, filter.leftSet)
-				if !(condition.SubTyp == ET_Equal || condition.SubTyp == ET_In) {
+				if !(condition.FunImpl._name == FuncEqual || condition.FunImpl._name == FuncIn) {
 					invert = false
 				}
-				if condition.SubTyp == ET_In || condition.SubTyp == ET_NotIn {
+				if condition.FunImpl._name == FuncIn || condition.FunImpl._name == FuncNotIn {
 					cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
 					//TODO: fixme
 					//if !invert {
@@ -719,7 +725,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 			//filter is subset of current relation
 			if info.set.count() > 0 && isSubset(resultRel, info.set) {
 				filter := joinOrder.filters[info.filterIndex]
-				if !(filter.SubTyp == ET_Equal || filter.SubTyp == ET_In) {
+				if !(filter.FunImpl._name == FuncEqual || filter.FunImpl._name == FuncIn) {
 					continue
 				}
 				if leftNode == nil || info.leftSet == nil {
@@ -740,15 +746,16 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
-				if !(filter.SubTyp == ET_Equal || filter.SubTyp == ET_In) {
+				if !(filter.FunImpl._name == FuncEqual || filter.FunImpl._name == FuncIn) {
 					invert = false
 				}
 				cond := &Expr{
 					Typ:      filter.Typ,
-					SubTyp:   filter.SubTyp,
 					DataTyp:  filter.DataTyp,
 					Children: []*Expr{nil, nil},
-					FunImpl:  filter.FunImpl,
+					FunctionInfo: FunctionInfo{
+						FunImpl: filter.FunImpl,
+					},
 				}
 				if !invert {
 					cond.Children[0], cond.Children[1] = filter.Children[0], filter.Children[1]
@@ -776,7 +783,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 						resultOp.Children[0] = next
 					}
 				} else {
-					if cond.SubTyp == ET_Equal || cond.SubTyp == ET_In {
+					if cond.FunImpl._name == FuncEqual || cond.FunImpl._name == FuncIn {
 						resultOp.OnConds = append(resultOp.OnConds, cond.copy())
 					} else {
 						next := &LogicalOperator{
@@ -1210,7 +1217,7 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 			//	panic("no such relation")
 			//}
 		}
-	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst, ET_BConst:
+	case ET_Const:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -1234,7 +1241,7 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 			cb[1] = e.ColRef[1]
 		}
 
-	case ET_SConst, ET_IConst, ET_FConst, ET_DecConst, ET_BConst:
+	case ET_Const:
 	case ET_Func:
 	default:
 		panic("usp")

@@ -256,16 +256,22 @@ func (b *Builder) buildValuesLists(
 	}
 
 	return &Expr{
-		Typ:         ET_ValuesList,
-		Index:       bind.index,
-		Database:    "",
-		Table:       alias,
-		Alias:       alias,
-		BelongCtx:   ctx,
-		Types:       resultTypes,
-		Names:       resultNames,
-		Values:      resultValues,
-		ColName2Idx: bind.nameMap,
+		Typ:   ET_ValuesList,
+		Index: bind.index,
+		BaseInfo: BaseInfo{
+			Database:  "",
+			Table:     alias,
+			Alias:     alias,
+			BelongCtx: ctx,
+		},
+		ValuesListInfo: ValuesListInfo{
+			Types:  resultTypes,
+			Names:  resultNames,
+			Values: resultValues,
+		},
+		TableInfo: TableInfo{
+			ColName2Idx: bind.nameMap,
+		},
 	}, err
 }
 
@@ -419,9 +425,11 @@ func (b *Builder) buildCopyFrom(
 		expr := &Expr{
 			Typ:     ET_Column,
 			DataTyp: scanInfo.ReturnedTypes[i],
-			Name:    scanInfo.Names[i],
-			Alias:   scanInfo.Names[i],
-			ColRef:  ColumnBind{scanOp.Index, uint64(i)},
+			BaseInfo: BaseInfo{
+				Name:   scanInfo.Names[i],
+				Alias:  scanInfo.Names[i],
+				ColRef: ColumnBind{scanOp.Index, uint64(i)},
+			},
 		}
 		projOp.Projects = append(projOp.Projects, expr)
 	}

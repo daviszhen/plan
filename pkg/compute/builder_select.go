@@ -307,13 +307,17 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 			}
 
 			return &Expr{
-				Typ:       ET_TABLE,
-				Index:     bind.index,
-				Database:  db,
-				Table:     tableName,
-				Alias:     alias,
-				BelongCtx: ctx,
-				TabEnt:    tabEnt,
+				Typ:   ET_TABLE,
+				Index: bind.index,
+				BaseInfo: BaseInfo{
+					Database:  db,
+					Table:     tableName,
+					Alias:     alias,
+					BelongCtx: ctx,
+				},
+				TableInfo: TableInfo{
+					TabEnt: tabEnt,
+				},
 			}, err
 		}
 	case *pg_query.Node_JoinExpr:
@@ -367,13 +371,17 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 		}
 
 		return &Expr{
-			Typ:        ET_Subquery,
-			Index:      bind.index,
-			Database:   "",
-			Table:      bind.alias,
-			SubBuilder: subBuilder,
-			SubCtx:     subBuilder.rootCtx,
-			BelongCtx:  ctx,
+			Typ:   ET_Subquery,
+			Index: bind.index,
+			BaseInfo: BaseInfo{
+				Database:  "",
+				Table:     bind.alias,
+				BelongCtx: ctx,
+			},
+			SubqueryInfo: SubqueryInfo{
+				SubBuilder: subBuilder,
+				SubCtx:     subBuilder.rootCtx,
+			},
 		}, err
 	default:
 		return nil, fmt.Errorf("usp table type %v", table.String())
@@ -458,11 +466,14 @@ func (b *Builder) mergeTwoTable(
 	}
 
 	ret := &Expr{
-		Typ:       ET_Join,
-		JoinTyp:   jt,
-		On:        nil,
-		BelongCtx: ctx,
-		Children:  []*Expr{left, right},
+		Typ:      ET_Join,
+		Children: []*Expr{left, right},
+		BaseInfo: BaseInfo{
+			BelongCtx: ctx,
+		},
+		JoinInfo: JoinInfo{
+			JoinTyp: jt,
+		},
 	}
 
 	return ret, err
@@ -514,11 +525,15 @@ func (b *Builder) buildJoinTable(join *pg_query.JoinExpr, ctx *BindContext, dept
 	}
 
 	ret := &Expr{
-		Typ:       ET_Join,
-		JoinTyp:   jt,
-		On:        onExpr,
-		BelongCtx: ctx,
-		Children:  []*Expr{left, right},
+		Typ:      ET_Join,
+		Children: []*Expr{left, right},
+		BaseInfo: BaseInfo{
+			BelongCtx: ctx,
+		},
+		JoinInfo: JoinInfo{
+			JoinTyp: jt,
+			On:      onExpr,
+		},
 	}
 
 	return ret, err

@@ -175,9 +175,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		return b.apply(expr, root, subRoot)
 
 	case ET_Func:
-		switch expr.SubTyp {
-		default:
-			//binary operator
+		if expr.FunImpl.IsFunction() {
 			var childExpr *Expr
 			args := make([]*Expr, 0)
 			for _, child := range expr.Children {
@@ -188,152 +186,163 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				args = append(args, childExpr)
 			}
 			return &Expr{
-				Typ:      expr.Typ,
-				SubTyp:   expr.SubTyp,
-				Svalue:   expr.SubTyp.String(),
-				DataTyp:  expr.DataTyp,
-				Alias:    expr.Alias,
-				Children: args,
-				FunImpl:  expr.FunImpl,
+				Typ:        expr.Typ,
+				ConstValue: NewStringConst(expr.ConstValue.String),
+				DataTyp:    expr.DataTyp,
+				Children:   args,
+				FunctionInfo: FunctionInfo{
+					FunImpl: expr.FunImpl,
+				},
+				BaseInfo: BaseInfo{
+					Alias: expr.Alias,
+				},
 			}, root, nil
-		case ET_In:
-			var childExpr *Expr
-			args := make([]*Expr, 0)
-			for _, child := range expr.Children {
-				childExpr, root, err = b.createSubquery(child, root)
-				if err != nil {
-					return nil, nil, err
+		} else {
+			switch expr.FunImpl._name {
+			default:
+				//binary operator
+				var childExpr *Expr
+				args := make([]*Expr, 0)
+				for _, child := range expr.Children {
+					childExpr, root, err = b.createSubquery(child, root)
+					if err != nil {
+						return nil, nil, err
+					}
+					args = append(args, childExpr)
 				}
-				args = append(args, childExpr)
-			}
-
-			//FIXME:
-			//add join conds to 'A in subquery'
-			if root.Typ == LOT_JOIN &&
-				root.JoinTyp == LOT_JoinTypeSEMI &&
-				len(root.OnConds) == 0 {
-				fbinder := FunctionBinder{}
-				e1 := fbinder.BindScalarFunc(
-					ET_Equal.String(),
-					copyExprs(args...),
-					ET_Equal,
-					ET_Equal.isOperator())
-				root.OnConds = append(root.OnConds, e1)
-
-				bExpr := &Expr{
-					Typ:     ET_BConst,
-					DataTyp: common.BooleanType(),
-					Bvalue:  true,
-				}
-
-				retExpr := fbinder.BindScalarFunc(ET_Equal.String(),
-					[]*Expr{
-						bExpr,
-						copyExpr(bExpr),
+				return &Expr{
+					Typ:        expr.Typ,
+					ConstValue: NewStringConst(expr.FunImpl._name),
+					DataTyp:    expr.DataTyp,
+					Children:   args,
+					FunctionInfo: FunctionInfo{
+						FunImpl: expr.FunImpl,
 					},
-					ET_Equal,
-					ET_Equal.isOperator(),
-				)
-
-				return retExpr, root, nil
-			}
-			return &Expr{
-				Typ:     expr.Typ,
-				SubTyp:  expr.SubTyp,
-				DataTyp: expr.DataTyp,
-				Alias:   expr.Alias,
-
-				Children: args,
-				FunImpl:  expr.FunImpl,
-			}, root, nil
-		case ET_NotIn:
-			var childExpr *Expr
-			args := make([]*Expr, 0)
-			for _, child := range expr.Children {
-				childExpr, root, err = b.createSubquery(child, root)
-				if err != nil {
-					return nil, nil, err
-				}
-				args = append(args, childExpr)
-			}
-
-			//FIXME:
-			//convert semi to anti
-			if root.Typ == LOT_JOIN &&
-				root.JoinTyp == LOT_JoinTypeSEMI {
-				root.JoinTyp = LOT_JoinTypeANTI
-			}
-
-			//FIXME:
-			//add join conds to 'A not in subquery'
-			if root.Typ == LOT_JOIN &&
-				root.JoinTyp == LOT_JoinTypeANTI &&
-				len(root.OnConds) == 0 {
-				fbinder := FunctionBinder{}
-				e1 := fbinder.BindScalarFunc(
-					ET_Equal.String(),
-					copyExprs(args...),
-					ET_Equal,
-					ET_Equal.isOperator())
-				root.OnConds = append(root.OnConds, e1)
-
-				bExpr := &Expr{
-					Typ:     ET_BConst,
-					DataTyp: common.BooleanType(),
-					Bvalue:  true,
-				}
-
-				retExpr := fbinder.BindScalarFunc(
-					ET_Equal.String(),
-					[]*Expr{
-						bExpr,
-						copyExpr(bExpr),
+					BaseInfo: BaseInfo{
+						Alias: expr.Alias,
 					},
-					ET_Equal, ET_Equal.isOperator())
+				}, root, nil
+			case FuncIn:
+				var childExpr *Expr
+				args := make([]*Expr, 0)
+				for _, child := range expr.Children {
+					childExpr, root, err = b.createSubquery(child, root)
+					if err != nil {
+						return nil, nil, err
+					}
+					args = append(args, childExpr)
+				}
 
-				return retExpr, root, nil
-			}
+				//FIXME:
+				//add join conds to 'A in subquery'
+				if root.Typ == LOT_JOIN &&
+					root.JoinTyp == LOT_JoinTypeSEMI &&
+					len(root.OnConds) == 0 {
+					fbinder := FunctionBinder{}
+					e1 := fbinder.BindScalarFunc(
+						FuncEqual,
+						copyExprs(args...),
+						IsOperator(FuncEqual))
+					root.OnConds = append(root.OnConds, e1)
 
-			return &Expr{
-				Typ:      expr.Typ,
-				SubTyp:   expr.SubTyp,
-				DataTyp:  expr.DataTyp,
-				Alias:    expr.Alias,
-				Children: args,
-				FunImpl:  expr.FunImpl,
-			}, root, nil
-		case ET_Exists, ET_NotExists:
-			var childExpr *Expr
-			childExpr, root, err = b.createSubquery(expr.Children[0], root)
-			if err != nil {
-				return nil, nil, err
-			}
+					bExpr := &Expr{
+						Typ:        ET_Const,
+						DataTyp:    common.BooleanType(),
+						ConstValue: NewBooleanConst(true),
+					}
 
-			return childExpr, root, nil
+					retExpr := fbinder.BindScalarFunc(FuncEqual,
+						[]*Expr{
+							bExpr,
+							copyExpr(bExpr),
+						},
+						IsOperator(FuncEqual),
+					)
 
-		case ET_SubFunc:
-			var childExpr *Expr
-			args := make([]*Expr, 0)
-			for _, child := range expr.Children {
-				childExpr, root, err = b.createSubquery(child, root)
+					return retExpr, root, nil
+				}
+				return &Expr{
+					Typ:      expr.Typ,
+					DataTyp:  expr.DataTyp,
+					Children: args,
+					FunctionInfo: FunctionInfo{
+						FunImpl: expr.FunImpl,
+					},
+					BaseInfo: BaseInfo{
+						Alias: expr.Alias,
+					},
+				}, root, nil
+			case FuncNotIn:
+				var childExpr *Expr
+				args := make([]*Expr, 0)
+				for _, child := range expr.Children {
+					childExpr, root, err = b.createSubquery(child, root)
+					if err != nil {
+						return nil, nil, err
+					}
+					args = append(args, childExpr)
+				}
+
+				//FIXME:
+				//convert semi to anti
+				if root.Typ == LOT_JOIN &&
+					root.JoinTyp == LOT_JoinTypeSEMI {
+					root.JoinTyp = LOT_JoinTypeANTI
+				}
+
+				//FIXME:
+				//add join conds to 'A not in subquery'
+				if root.Typ == LOT_JOIN &&
+					root.JoinTyp == LOT_JoinTypeANTI &&
+					len(root.OnConds) == 0 {
+					fbinder := FunctionBinder{}
+					e1 := fbinder.BindScalarFunc(
+						FuncEqual,
+						copyExprs(args...),
+						IsOperator(FuncEqual))
+					root.OnConds = append(root.OnConds, e1)
+
+					bExpr := &Expr{
+						Typ:        ET_Const,
+						DataTyp:    common.BooleanType(),
+						ConstValue: NewBooleanConst(true),
+					}
+
+					retExpr := fbinder.BindScalarFunc(
+						FuncEqual,
+						[]*Expr{
+							bExpr,
+							copyExpr(bExpr),
+						},
+						IsOperator(FuncEqual))
+
+					return retExpr, root, nil
+				}
+
+				return &Expr{
+					Typ:      expr.Typ,
+					DataTyp:  expr.DataTyp,
+					Children: args,
+					FunctionInfo: FunctionInfo{
+						FunImpl: expr.FunImpl,
+					},
+					BaseInfo: BaseInfo{
+						Alias: expr.Alias,
+					},
+				}, root, nil
+			case FuncExists, FuncNotExists:
+				var childExpr *Expr
+				childExpr, root, err = b.createSubquery(expr.Children[0], root)
 				if err != nil {
 					return nil, nil, err
 				}
-				args = append(args, childExpr)
+
+				return childExpr, root, nil
 			}
-			return &Expr{
-				Typ:      expr.Typ,
-				SubTyp:   expr.SubTyp,
-				Svalue:   expr.Svalue,
-				DataTyp:  expr.DataTyp,
-				Alias:    expr.Alias,
-				Children: args,
-				FunImpl:  expr.FunImpl,
-			}, root, nil
 		}
 	case ET_Column:
 		return expr, root, nil
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_DecConst, ET_NConst:
+	case ET_Const:
 		return expr, root, nil
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
@@ -371,21 +380,22 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			mCond := &Expr{
 				Typ:     ET_Column,
 				DataTyp: nonCorrExprs[0].DataTyp,
-				ColRef:  ColumnBind{idx, uint64(0)},
+				BaseInfo: BaseInfo{
+					ColRef: ColumnBind{idx, uint64(0)},
+				},
 			}
 
 			left := mCond
 			right := &Expr{
-				Typ:     ET_BConst,
-				DataTyp: common.BooleanType(),
-				Bvalue:  exists,
+				Typ:        ET_Const,
+				DataTyp:    common.BooleanType(),
+				ConstValue: NewBooleanConst(exists),
 			}
 			fbinder := FunctionBinder{}
 			return fbinder.BindScalarFunc(
-				ET_Equal.String(),
+				FuncEqual,
 				[]*Expr{left, right},
-				ET_Equal,
-				ET_Equal.isOperator())
+				IsOperator(FuncEqual))
 		}
 
 		switch expr.SubqueryTyp {
@@ -441,11 +451,13 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			colRef := &Expr{
 				Typ:     ET_Column,
 				DataTyp: proj0.DataTyp,
-				Table:   proj0.Table,
-				Name:    proj0.Name,
-				ColRef: ColumnBind{
-					uint64(subBuilder.projectTag),
-					0,
+				BaseInfo: BaseInfo{
+					Table: proj0.Table,
+					Name:  proj0.Name,
+					ColRef: ColumnBind{
+						uint64(subBuilder.projectTag),
+						0,
+					},
 				},
 			}
 			return colRef, newSub, nil
@@ -506,11 +518,13 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		colRef = &Expr{
 			Typ:     ET_Column,
 			DataTyp: proj0.DataTyp,
-			Table:   proj0.Table,
-			Name:    proj0.Name,
-			ColRef: ColumnBind{
-				uint64(subBuilder.projectTag),
-				0,
+			BaseInfo: BaseInfo{
+				Table: proj0.Table,
+				Name:  proj0.Name,
+				ColRef: ColumnBind{
+					uint64(subBuilder.projectTag),
+					0,
+				},
 			},
 		}
 		return colRef, newRoot, nil
@@ -565,8 +579,10 @@ func (b *Builder) replaceCorrFiltersInProject(subRoot *LogicalOperator, filter *
 		subRoot.Projects = append(subRoot.Projects, filter)
 		return &Expr{
 			Typ:     ET_Column,
-			ColRef:  ColumnBind{subRoot.Index, uint64(idx)},
 			DataTyp: filter.DataTyp,
+			BaseInfo: BaseInfo{
+				ColRef: ColumnBind{subRoot.Index, uint64(idx)},
+			},
 		}
 	}
 
@@ -589,8 +605,10 @@ func (b *Builder) replaceCorrFiltersInAggr(subRoot *LogicalOperator, filter *Exp
 		subRoot.GroupBys = append(subRoot.GroupBys, filter)
 		return &Expr{
 			Typ:     ET_Column,
-			ColRef:  ColumnBind{subRoot.Index, uint64(idx)},
 			DataTyp: filter.DataTyp,
+			BaseInfo: BaseInfo{
+				ColRef: ColumnBind{subRoot.Index, uint64(idx)},
+			},
 		}
 	}
 
@@ -669,7 +687,7 @@ func hasCorrCol(expr *Expr) bool {
 			ret = ret || hasCorrCol(child)
 		}
 		return ret
-	case ET_IConst, ET_SConst, ET_DateConst, ET_IntervalConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 		return false
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
@@ -802,7 +820,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case BothSide:
 				if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeLeft {
 					//only equal or in can be used in On conds
-					if nd.SubTyp == ET_Equal || nd.SubTyp == ET_In {
+					if nd.FunImpl._name == FuncEqual || nd.FunImpl._name == FuncIn {
 						root.OnConds = append(root.OnConds, nd)
 						break
 					}

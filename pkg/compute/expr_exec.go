@@ -130,12 +130,12 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *chunk.SelectVe
 	case ET_Column:
 		return exec.executeColumnRef(expr, eState, sel, count, result)
 	case ET_Func:
-		if expr.SubTyp == ET_Case {
+		if expr.FunImpl._name == FuncCase {
 			return exec.executeCase(expr, eState, sel, count, result)
 		} else {
 			return exec.executeFunc(expr, eState, sel, count, result)
 		}
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 		return exec.executeConst(expr, eState, sel, count, result)
 	default:
 		panic(fmt.Sprintf("%d", expr.Typ))
@@ -265,36 +265,50 @@ func (exec *ExprExec) executeColumnRef(expr *Expr, eState *ExprState, sel *chunk
 }
 func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *chunk.SelectVector, count int, result *chunk.Vector) error {
 	switch expr.Typ {
-	case ET_IConst, ET_SConst, ET_FConst, ET_BConst, ET_NConst, ET_DecConst:
-		val := &chunk.Value{
-			Typ:  expr.DataTyp,
-			I64:  expr.Ivalue,
-			F64:  expr.Fvalue,
-			Str:  expr.Svalue,
-			Bool: expr.Bvalue,
+	case ET_Const:
+		switch expr.ConstValue.Type {
+		case ConstTypeInteger,
+			ConstTypeFloat,
+			ConstTypeString,
+			ConstTypeBoolean,
+			ConstTypeNull:
+			val := &chunk.Value{
+				Typ:  expr.DataTyp,
+				I64:  expr.ConstValue.Integer,
+				F64:  expr.ConstValue.Float,
+				Str:  expr.ConstValue.String,
+				Bool: expr.ConstValue.Boolean,
+			}
+			result.ReferenceValue(val)
+		case ConstTypeDecimal:
+			val := &chunk.Value{
+				Typ: expr.DataTyp,
+				Str: expr.ConstValue.Decimal,
+			}
+			result.ReferenceValue(val)
+		case ConstTypeDate:
+			d, err := time.Parse(time.DateOnly, expr.ConstValue.Date)
+			if err != nil {
+				return err
+			}
+			//TODO: to date
+			val := &chunk.Value{
+				Typ:   expr.DataTyp,
+				I64:   int64(d.Year()),
+				I64_1: int64(d.Month()),
+				I64_2: int64(d.Day()),
+			}
+			result.ReferenceValue(val)
+		case ConstTypeInterval:
+			val := &chunk.Value{
+				Typ: expr.DataTyp,
+				I64: expr.ConstValue.Interval.Value,
+				Str: expr.ConstValue.Interval.Unit,
+			}
+			result.ReferenceValue(val)
+		default:
+			panic("usp")
 		}
-		result.ReferenceValue(val)
-	case ET_DateConst:
-		d, err := time.Parse(time.DateOnly, expr.Svalue)
-		if err != nil {
-			return err
-		}
-		//TODO: to date
-		val := &chunk.Value{
-			Typ:   expr.DataTyp,
-			I64:   int64(d.Year()),
-			I64_1: int64(d.Month()),
-			I64_2: int64(d.Day()),
-		}
-		result.ReferenceValue(val)
-	case ET_IntervalConst:
-		val := &chunk.Value{
-			Typ: expr.DataTyp,
-			I64: expr.Ivalue,
-			F64: expr.Fvalue,
-			Str: expr.Svalue,
-		}
-		result.ReferenceValue(val)
 	default:
 		panic("usp")
 	}
@@ -355,22 +369,19 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *chunk.S
 	}
 	switch expr.Typ {
 	case ET_Func:
-		switch expr.SubTyp {
-		case ET_Equal,
-			ET_NotEqual,
-			ET_NotIn,
-			ET_Greater,
-			ET_GreaterEqual,
-			ET_Less,
-			ET_LessEqual,
-			ET_Like,
-			ET_NotLike,
-			ET_In:
+		switch GetOperatorType(expr.FunImpl._name) {
+		case OpTypeCompare,
+			OpTypeLike:
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
-		case ET_And:
-			return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
-		case ET_Or:
-			return exec.execSelectOr(expr, eState, sel, count, trueSel, falseSel)
+		case OpTypeLogical:
+			switch expr.FunImpl._name {
+			case FuncAnd:
+				return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
+			case FuncOr:
+				return exec.execSelectOr(expr, eState, sel, count, trueSel, falseSel)
+			default:
+				panic("usp")
+			}
 		default:
 			panic("usp")
 		}
@@ -396,17 +407,8 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 
 	switch expr.Typ {
 	case ET_Func:
-		switch expr.SubTyp {
-		case ET_Equal,
-			ET_NotEqual,
-			ET_NotIn,
-			ET_Greater,
-			ET_GreaterEqual,
-			ET_Less,
-			ET_LessEqual,
-			ET_Like,
-			ET_NotLike,
-			ET_In:
+		switch GetOperatorType(expr.FunImpl._name) {
+		case OpTypeCompare, OpTypeLike:
 			return selectOperation(
 				eState._interChunk.Data[0],
 				eState._interChunk.Data[1],
@@ -414,7 +416,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 				count,
 				trueSel,
 				falseSel,
-				expr.SubTyp,
+				expr.FunImpl._name,
 			), nil
 		default:
 			panic("usp")
@@ -523,11 +525,11 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 		for _, child := range expr.Children {
 			ret.addChild(child)
 		}
-		if expr.SubTyp == ET_Case {
+		if expr.FunImpl._name == FuncCase {
 			ret._trueSel = chunk.NewSelectVector(util.DefaultVectorSize)
 			ret._falseSel = chunk.NewSelectVector(util.DefaultVectorSize)
 		}
-	case ET_IConst, ET_SConst, ET_FConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 		ret = NewExprState(expr, eeState)
 	case ET_Orderby:
 		//TODO: asc or desc
@@ -587,4 +589,8 @@ func TemplatedFillLoop[T any](
 			resBitmap.Set(uint64(resIdx), vdata.Mask.RowIsValid(uint64(srcIdx)))
 		}
 	}
+}
+
+func (e *Expr) IsNull() bool {
+	return e.Typ == ET_Const && e.ConstValue.Type == ConstTypeNull
 }

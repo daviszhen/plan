@@ -7,8 +7,8 @@ import (
 )
 
 func (run *Runner) insertInit() error {
-	run.insertChunk = &chunk.Chunk{}
-	run.insertChunk.Init(run.op.InsertTypes, storage.STANDARD_VECTOR_SIZE)
+	run.state.insertChunk = &chunk.Chunk{}
+	run.state.insertChunk.Init(run.op.InsertTypes, storage.STANDARD_VECTOR_SIZE)
 	return nil
 }
 
@@ -80,12 +80,12 @@ func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (Operat
 			run.op.TableEnt,
 			childChunk,
 			run.op.ColumnIndexMap,
-			run.insertChunk)
+			run.state.insertChunk)
 
 		err = table.LocalAppend(
 			run.Txn,
 			lAState,
-			run.insertChunk,
+			run.state.insertChunk,
 			false)
 		if err != nil {
 			return InvalidOpResult, err

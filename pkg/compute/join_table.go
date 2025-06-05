@@ -18,7 +18,7 @@ type JoinHashTable struct {
 
 	_buildTypes []common.LType
 
-	_predTypes []ET_SubTyp
+	_predTypes []string
 
 	_layout *TupleDataLayout
 
@@ -55,11 +55,11 @@ func NewJoinHashTable(conds []*Expr,
 	}
 	for _, cond := range conds {
 		typ := cond.Children[0].DataTyp
-		if cond.SubTyp == ET_Equal || cond.SubTyp == ET_In {
+		if cond.FunImpl._name == FuncEqual || cond.FunImpl._name == FuncIn {
 			util.AssertFunc(len(ht._equalTypes) == len(ht._keyTypes))
 			ht._equalTypes = append(ht._equalTypes, typ)
 		}
-		ht._predTypes = append(ht._predTypes, cond.SubTyp)
+		ht._predTypes = append(ht._predTypes, cond.FunImpl._name)
 		ht._keyTypes = append(ht._keyTypes, typ)
 	}
 	util.AssertFunc(len(ht._equalTypes) != 0)

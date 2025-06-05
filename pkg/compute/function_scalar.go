@@ -28,13 +28,13 @@ func ScalarNopFunc(input *chunk.Chunk, state *ExprState, result *chunk.Vector) {
 	result.Reference(input.Data[0])
 }
 
-func NopDecimalBind(fun *FunctionV2, args []*Expr) *FunctionData {
+func NopDecimalBind(fun *Function, args []*Expr) *FunctionData {
 	fun._retType = args[0].DataTyp
 	fun._args[0] = args[0].DataTyp
 	return nil
 }
 
-func BindDecimalAddSubstract(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalAddSubstract(fun *Function, args []*Expr) *FunctionData {
 	maxWidth := 0
 	maxScale := 0
 	maxWidthOverScale := 0
@@ -86,10 +86,10 @@ func BindDecimalAddSubstract(fun *FunctionV2, args []*Expr) *FunctionData {
 type AddFunc struct {
 }
 
-func (add AddFunc) Func(typ common.LType) *FunctionV2 {
+func (add AddFunc) Func(typ common.LType) *Function {
 	util.AssertFunc(typ.IsNumeric())
 	if typ.Id == common.LTID_DECIMAL {
-		return &FunctionV2{
+		return &Function{
 			_name:    "+",
 			_args:    []common.LType{typ},
 			_retType: typ,
@@ -98,7 +98,7 @@ func (add AddFunc) Func(typ common.LType) *FunctionV2 {
 			_bind:    NopDecimalBind,
 		}
 	} else {
-		return &FunctionV2{
+		return &Function{
 			_name:    "+",
 			_args:    []common.LType{typ},
 			_retType: typ,
@@ -108,10 +108,10 @@ func (add AddFunc) Func(typ common.LType) *FunctionV2 {
 	}
 }
 
-func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
+func (add AddFunc) Func2(lTyp, rTyp common.LType) *Function {
 	if lTyp.IsNumeric() && lTyp.Id == rTyp.Id {
 		if lTyp.Id == common.LTID_DECIMAL {
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: lTyp,
@@ -120,7 +120,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_bind:    BindDecimalAddSubstract,
 			}
 		} else if lTyp.IsIntegral() && lTyp.Id != common.LTID_HUGEINT {
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: lTyp,
@@ -129,7 +129,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_bind:    nil,
 			}
 		} else {
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: lTyp,
@@ -142,7 +142,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 	switch lTyp.Id {
 	case common.LTID_DATE:
 		if rTyp.Id == common.LTID_INTEGER {
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.DateType(),
@@ -150,7 +150,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_scalar:  BinaryFunction[common.Date, int32, common.Date](binDateInt32AddOp),
 			}
 		} else if rTyp.Id == common.LTID_INTERVAL {
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.DateType(),
@@ -162,7 +162,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 		}
 	case common.LTID_INTEGER:
 		if rTyp.Id == common.LTID_DATE {
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.DateType(),
@@ -173,7 +173,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 	case common.LTID_INTERVAL:
 		switch rTyp.Id {
 		case common.LTID_INTERVAL:
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.IntervalType(),
@@ -181,7 +181,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_scalar:  BinaryFunction[common.Interval, common.Interval, common.Interval](binIntervalIntervalAddOp),
 			}
 		case common.LTID_DATE:
-			return &FunctionV2{
+			return &Function{
 				_name:    "+",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.DateType(),
@@ -202,7 +202,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 }
 
 func (add AddFunc) Register(funcList FunctionList) {
-	funcs := NewFunctionSet(ET_Add.String(), ScalarFuncType)
+	funcs := NewFunctionSet(FuncAdd, ScalarFuncType)
 	for _, typ := range common.Numeric() {
 		//unary add
 		funcs.Add(add.Func(typ))
@@ -228,7 +228,7 @@ func (add AddFunc) Register(funcList FunctionList) {
 	////time + date, date + time
 	//funcs.Add(add.Func2(timeLTyp(), dateLTyp()))
 	//funcs.Add(add.Func2(dateLTyp(), timeLTyp()))
-	funcList.Add(ET_Add.String(), funcs)
+	funcList.Add(FuncAdd, funcs)
 }
 
 type SubFunc struct {
@@ -240,7 +240,7 @@ func negateInterval(input *common.Interval, result *common.Interval) {
 	negateInt32(&input.Year, &result.Year)
 }
 
-func DecimalNegateBind(fun *FunctionV2, args []*Expr) *FunctionData {
+func DecimalNegateBind(fun *Function, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
 	fun._scalar = GetScalarUnaryFunction(decTyp, "-")
 	fun._args[0] = decTyp
@@ -248,9 +248,9 @@ func DecimalNegateBind(fun *FunctionV2, args []*Expr) *FunctionData {
 	return nil
 }
 
-func (sub SubFunc) Func(typ common.LType) *FunctionV2 {
+func (sub SubFunc) Func(typ common.LType) *Function {
 	if typ.Id == common.LTID_INTERVAL {
-		return &FunctionV2{
+		return &Function{
 			_name:    "-",
 			_args:    []common.LType{typ},
 			_retType: typ,
@@ -258,7 +258,7 @@ func (sub SubFunc) Func(typ common.LType) *FunctionV2 {
 			_scalar:  UnaryFunction[common.Interval, common.Interval](negateInterval),
 		}
 	} else if typ.Id == common.LTID_DECIMAL {
-		return &FunctionV2{
+		return &Function{
 			_name:    "-",
 			_args:    []common.LType{typ},
 			_retType: typ,
@@ -267,7 +267,7 @@ func (sub SubFunc) Func(typ common.LType) *FunctionV2 {
 		}
 	} else {
 		util.AssertFunc(typ.IsNumeric())
-		return &FunctionV2{
+		return &Function{
 			_name:    "-",
 			_args:    []common.LType{typ},
 			_retType: typ,
@@ -277,10 +277,10 @@ func (sub SubFunc) Func(typ common.LType) *FunctionV2 {
 	}
 }
 
-func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
+func (sub SubFunc) Func2(lTyp, rTyp common.LType) *Function {
 	if lTyp.IsNumeric() && lTyp.Id == rTyp.Id {
 		if lTyp.Id == common.LTID_DECIMAL {
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: lTyp,
@@ -289,7 +289,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_bind:    BindDecimalAddSubstract,
 			}
 		} else if lTyp.IsIntegral() && lTyp.Id != common.LTID_HUGEINT {
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: lTyp,
@@ -298,7 +298,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_bind:    nil,
 			}
 		} else {
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: lTyp,
@@ -311,7 +311,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 	switch lTyp.Id {
 	case common.LTID_DATE:
 		if rTyp.Id == common.LTID_DATE {
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.BigintType(),
@@ -319,7 +319,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_scalar:  BinaryFunction[common.Date, common.Date, int64](nil),
 			}
 		} else if rTyp.Id == common.LTID_INTEGER {
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.DateType(),
@@ -327,7 +327,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 				_scalar:  BinaryFunction[common.Date, int32, common.Date](nil),
 			}
 		} else if rTyp.Id == common.LTID_INTERVAL {
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.DateType(),
@@ -338,7 +338,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 	case common.LTID_INTERVAL:
 		switch rTyp.Id {
 		case common.LTID_INTERVAL:
-			return &FunctionV2{
+			return &Function{
 				_name:    "-",
 				_args:    []common.LType{lTyp, rTyp},
 				_retType: common.IntervalType(),
@@ -359,7 +359,7 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *FunctionV2 {
 }
 
 func (sub SubFunc) Register(funcList FunctionList) {
-	subs := NewFunctionSet(ET_Sub.String(), ScalarFuncType)
+	subs := NewFunctionSet(FuncSubtract, ScalarFuncType)
 
 	for _, typ := range common.Numeric() {
 		//unary
@@ -378,18 +378,18 @@ func (sub SubFunc) Register(funcList FunctionList) {
 	subs.Add(sub.Func2(common.DateType(), common.IntervalType()))
 	//-interval
 	subs.Add(sub.Func(common.IntervalType()))
-	funcList.Add(ET_Sub.String(), subs)
+	funcList.Add(FuncSubtract, subs)
 }
 
 type MultiplyFunc struct {
 }
 
 func (MultiplyFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Mul.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncMultiply, ScalarFuncType)
 
 	for _, typ := range common.Numeric() {
 		if typ.Id == common.LTID_DECIMAL {
-			fun := &FunctionV2{
+			fun := &Function{
 				_name:    "*",
 				_args:    []common.LType{typ, typ},
 				_retType: typ,
@@ -399,7 +399,7 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 			}
 			set.Add(fun)
 		} else if typ.IsIntegral() && typ.Id != common.LTID_HUGEINT {
-			fun := &FunctionV2{
+			fun := &Function{
 				_name:    "*",
 				_args:    []common.LType{typ, typ},
 				_retType: typ,
@@ -408,7 +408,7 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 			}
 			set.Add(fun)
 		} else {
-			fun := &FunctionV2{
+			fun := &Function{
 				_name:    "*",
 				_args:    []common.LType{typ, typ},
 				_retType: typ,
@@ -419,10 +419,10 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 		}
 	}
 
-	funcList.Add(ET_Mul.String(), set)
+	funcList.Add(FuncMultiply, set)
 }
 
-func BindDecimalMultiply(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalMultiply(fun *Function, args []*Expr) *FunctionData {
 	bindData := &FunctionData{
 		_funDataTyp: DecimalBindData,
 	}
@@ -474,18 +474,18 @@ type DevideFunc struct {
 }
 
 func (DevideFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Div.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncDivide, ScalarFuncType)
 
-	divFloat := &FunctionV2{
-		_name:    ET_Div.String(),
+	divFloat := &Function{
+		_name:    FuncDivide,
 		_args:    []common.LType{common.FloatType(), common.FloatType()},
 		_retType: common.FloatType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  BinaryFunction[float32, float32, float32](binFloat32DivOp),
 	}
 
-	divDec := &FunctionV2{
-		_name:    ET_Div.String(),
+	divDec := &Function{
+		_name:    FuncDivide,
 		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0), common.DecimalType(common.DecimalMaxWidthInt64, 0)},
 		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
 		_funcTyp: ScalarFuncType,
@@ -495,10 +495,10 @@ func (DevideFunc) Register(funcList FunctionList) {
 	set.Add(divFloat)
 	set.Add(divDec)
 
-	funcList.Add(ET_Div.String(), set)
+	funcList.Add(FuncDivide, set)
 }
 
-func BindDecimalDivide(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalDivide(fun *Function, args []*Expr) *FunctionData {
 	fun._retType = args[0].DataTyp
 	for i, arg := range args {
 		fun._args[i] = arg.DataTyp
@@ -511,32 +511,32 @@ type LikeFunc struct {
 }
 
 func (like LikeFunc) Register(funcList FunctionList) {
-	likeFunc := &FunctionV2{
-		_name:    ET_Like.String(),
+	likeFunc := &Function{
+		_name:    FuncLike,
 		_args:    []common.LType{common.VarcharType(), common.VarcharType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  BinaryFunction[common.String, common.String, bool](binStringLikeOp),
 	}
-	set := NewFunctionSet(ET_Like.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncLike, ScalarFuncType)
 	set.Add(likeFunc)
-	funcList.Add(ET_Like.String(), set)
+	funcList.Add(FuncLike, set)
 }
 
 type NotLikeFunc struct {
 }
 
 func (like NotLikeFunc) Register(funcList FunctionList) {
-	likeFunc := &FunctionV2{
-		_name:    ET_NotLike.String(),
+	likeFunc := &Function{
+		_name:    FuncNotLike,
 		_args:    []common.LType{common.VarcharType(), common.VarcharType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		//_scalar:  BinaryFunction[String, String, bool](binStringLikeOp),
 	}
-	set := NewFunctionSet(ET_NotLike.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncNotLike, ScalarFuncType)
 	set.Add(likeFunc)
-	funcList.Add(ET_NotLike.String(), set)
+	funcList.Add(FuncNotLike, set)
 }
 
 func GetScalarIntegerFunction(ptyp common.PhyType, opKind string, checkOverflow bool) ScalarFunc {
@@ -1151,51 +1151,51 @@ type InFunc struct {
 }
 
 func (in InFunc) Register(funcList FunctionList) {
-	inInt := &FunctionV2{
-		_name:    ET_In.String(),
+	inInt := &Function{
+		_name:    FuncIn,
 		_args:    []common.LType{common.IntegerType(), common.IntegerType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  BinaryFunction[int32, int32, bool](binInt32EqualOp),
 	}
 
-	inVarchar := &FunctionV2{
-		_name:    ET_In.String(),
+	inVarchar := &Function{
+		_name:    FuncIn,
 		_args:    []common.LType{common.VarcharType(), common.VarcharType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  BinaryFunction[common.String, common.String, bool](binStringEqualOp),
 	}
 
-	set := NewFunctionSet(ET_In.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncIn, ScalarFuncType)
 	set.Add(inInt)
 	set.Add(inVarchar)
-	funcList.Add(ET_In.String(), set)
+	funcList.Add(FuncIn, set)
 }
 
 type EqualFunc struct {
 }
 
 func (equal EqualFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Equal.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncEqual, ScalarFuncType)
 
-	equalFunc1 := &FunctionV2{
-		_name:    ET_Equal.String(),
+	equalFunc1 := &Function{
+		_name:    FuncEqual,
 		_args:    []common.LType{common.IntegerType(), common.IntegerType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  BinaryFunction[int32, int32, bool](binInt32EqualOp),
 	}
 
-	equalStr := &FunctionV2{
-		_name:    ET_Equal.String(),
+	equalStr := &Function{
+		_name:    FuncEqual,
 		_args:    []common.LType{common.VarcharType(), common.VarcharType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
 
-	equalBool := &FunctionV2{
-		_name:    ET_Equal.String(),
+	equalBool := &Function{
+		_name:    FuncEqual,
 		_args:    []common.LType{common.BooleanType(), common.BooleanType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1206,24 +1206,24 @@ func (equal EqualFunc) Register(funcList FunctionList) {
 	set.Add(equalStr)
 	set.Add(equalBool)
 
-	funcList.Add(ET_Equal.String(), set)
+	funcList.Add(FuncEqual, set)
 }
 
 type NotEqualFunc struct {
 }
 
 func (equal NotEqualFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_NotEqual.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncNotEqual, ScalarFuncType)
 
-	notEqualFunc1 := &FunctionV2{
-		_name:    ET_NotEqual.String(),
+	notEqualFunc1 := &Function{
+		_name:    FuncNotEqual,
 		_args:    []common.LType{common.IntegerType(), common.IntegerType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
 
-	notEqualStr := &FunctionV2{
-		_name:    ET_NotEqual.String(),
+	notEqualStr := &Function{
+		_name:    FuncNotEqual,
 		_args:    []common.LType{common.VarcharType(), common.VarcharType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1232,16 +1232,16 @@ func (equal NotEqualFunc) Register(funcList FunctionList) {
 	set.Add(notEqualFunc1)
 	set.Add(notEqualStr)
 
-	funcList.Add(ET_NotEqual.String(), set)
+	funcList.Add(FuncNotEqual, set)
 }
 
 type BoolFunc struct {
 }
 
 func (BoolFunc) Register(funcList FunctionList) {
-	set1 := NewFunctionSet(ET_And.String(), ScalarFuncType)
-	andFunc := &FunctionV2{
-		_name:    ET_And.String(),
+	set1 := NewFunctionSet(FuncAnd, ScalarFuncType)
+	andFunc := &Function{
+		_name:    FuncAnd,
 		_args:    []common.LType{common.BooleanType(), common.BooleanType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1249,9 +1249,9 @@ func (BoolFunc) Register(funcList FunctionList) {
 	}
 	set1.Add(andFunc)
 
-	set2 := NewFunctionSet(ET_Or.String(), ScalarFuncType)
-	orFunc := &FunctionV2{
-		_name:    ET_Or.String(),
+	set2 := NewFunctionSet(FuncOr, ScalarFuncType)
+	orFunc := &Function{
+		_name:    FuncOr,
 		_args:    []common.LType{common.BooleanType(), common.BooleanType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1259,9 +1259,9 @@ func (BoolFunc) Register(funcList FunctionList) {
 	}
 	set2.Add(orFunc)
 
-	set3 := NewFunctionSet(ET_Not.String(), ScalarFuncType)
-	notFunc := &FunctionV2{
-		_name:    ET_And.String(),
+	set3 := NewFunctionSet(FuncNot, ScalarFuncType)
+	notFunc := &Function{
+		_name:    FuncAnd,
 		_args:    []common.LType{common.BooleanType(), common.BooleanType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1269,26 +1269,26 @@ func (BoolFunc) Register(funcList FunctionList) {
 	}
 	set3.Add(notFunc)
 
-	funcList.Add(ET_And.String(), set1)
-	funcList.Add(ET_Or.String(), set2)
-	funcList.Add(ET_Not.String(), set3)
+	funcList.Add(FuncAnd, set1)
+	funcList.Add(FuncOr, set2)
+	funcList.Add(FuncNot, set3)
 }
 
 type Greater struct {
 }
 
 func (Greater) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Greater.String(), ScalarFuncType)
-	gt1 := &FunctionV2{
-		_name:    ET_Greater.String(),
+	set := NewFunctionSet(FuncGreater, ScalarFuncType)
+	gt1 := &Function{
+		_name:    FuncGreater,
 		_args:    []common.LType{common.FloatType(), common.FloatType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  BinaryFunction[float32, float32, bool](binFloat32GreatOp),
 	}
 
-	gt2 := &FunctionV2{
-		_name: ET_Greater.String(),
+	gt2 := &Function{
+		_name: FuncGreater,
 		_args: []common.LType{
 			common.DecimalType(common.DecimalMaxWidthInt64, 0),
 			common.DecimalType(common.DecimalMaxWidthInt64, 0)},
@@ -1296,8 +1296,8 @@ func (Greater) Register(funcList FunctionList) {
 		_funcTyp: ScalarFuncType,
 	}
 
-	gt3 := &FunctionV2{
-		_name: ET_Greater.String(),
+	gt3 := &Function{
+		_name: FuncGreater,
 		_args: []common.LType{
 			common.DateType(),
 			common.DateType()},
@@ -1305,8 +1305,8 @@ func (Greater) Register(funcList FunctionList) {
 		_funcTyp: ScalarFuncType,
 	}
 
-	gt4 := &FunctionV2{
-		_name: ET_Greater.String(),
+	gt4 := &Function{
+		_name: FuncGreater,
 		_args: []common.LType{
 			common.IntegerType(),
 			common.IntegerType()},
@@ -1320,31 +1320,31 @@ func (Greater) Register(funcList FunctionList) {
 	set.Add(gt3)
 	set.Add(gt4)
 
-	funcList.Add(ET_Greater.String(), set)
+	funcList.Add(FuncGreater, set)
 }
 
 type GreaterThan struct {
 }
 
 func (GreaterThan) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_GreaterEqual.String(), ScalarFuncType)
-	gtInteger := &FunctionV2{
-		_name:    ET_GreaterEqual.String(),
+	set := NewFunctionSet(FuncGreaterEqual, ScalarFuncType)
+	gtInteger := &Function{
+		_name:    FuncGreaterEqual,
 		_args:    []common.LType{common.IntegerType(), common.IntegerType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  nil,
 	}
-	gtDate := &FunctionV2{
-		_name:    ET_GreaterEqual.String(),
+	gtDate := &Function{
+		_name:    FuncGreaterEqual,
 		_args:    []common.LType{common.DateType(), common.DateType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 		_scalar:  nil,
 	}
 
-	gtFloat := &FunctionV2{
-		_name:    ET_GreaterEqual.String(),
+	gtFloat := &Function{
+		_name:    FuncGreaterEqual,
 		_args:    []common.LType{common.FloatType(), common.FloatType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1355,16 +1355,16 @@ func (GreaterThan) Register(funcList FunctionList) {
 	set.Add(gtDate)
 	set.Add(gtFloat)
 
-	funcList.Add(ET_GreaterEqual.String(), set)
+	funcList.Add(FuncGreaterEqual, set)
 }
 
 type DateAdd struct {
 }
 
 func (DateAdd) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_DateAdd.String(), ScalarFuncType)
-	f := &FunctionV2{
-		_name:    ET_DateAdd.String(),
+	set := NewFunctionSet(FuncDateAdd, ScalarFuncType)
+	f := &Function{
+		_name:    FuncDateAdd,
 		_args:    []common.LType{common.DateType(), common.IntervalType()},
 		_retType: common.DateType(),
 		_funcTyp: ScalarFuncType,
@@ -1373,16 +1373,16 @@ func (DateAdd) Register(funcList FunctionList) {
 
 	set.Add(f)
 
-	funcList.Add(ET_DateAdd.String(), set)
+	funcList.Add(FuncDateAdd, set)
 }
 
 type DateSub struct {
 }
 
 func (DateSub) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_DateSub.String(), ScalarFuncType)
-	f := &FunctionV2{
-		_name:    ET_DateSub.String(),
+	set := NewFunctionSet(FuncDateSub, ScalarFuncType)
+	f := &Function{
+		_name:    FuncDateSub,
 		_args:    []common.LType{common.DateType(), common.IntervalType()},
 		_retType: common.DateType(),
 		_funcTyp: ScalarFuncType,
@@ -1391,37 +1391,37 @@ func (DateSub) Register(funcList FunctionList) {
 
 	set.Add(f)
 
-	funcList.Add(ET_DateSub.String(), set)
+	funcList.Add(FuncDateSub, set)
 }
 
 type LessFunc struct {
 }
 
 func (LessFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Less.String(), ScalarFuncType)
-	l := &FunctionV2{
-		_name:    ET_Less.String(),
+	set := NewFunctionSet(FuncLess, ScalarFuncType)
+	l := &Function{
+		_name:    FuncLess,
 		_args:    []common.LType{common.DateType(), common.DateType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
 
-	lInt := &FunctionV2{
-		_name:    ET_Less.String(),
+	lInt := &Function{
+		_name:    FuncLess,
 		_args:    []common.LType{common.IntegerType(), common.IntegerType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
 
-	lFloat := &FunctionV2{
-		_name:    ET_Less.String(),
+	lFloat := &Function{
+		_name:    FuncLess,
 		_args:    []common.LType{common.FloatType(), common.FloatType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
 
-	lDouble := &FunctionV2{
-		_name:    ET_Less.String(),
+	lDouble := &Function{
+		_name:    FuncLess,
 		_args:    []common.LType{common.DoubleType(), common.DoubleType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1431,28 +1431,28 @@ func (LessFunc) Register(funcList FunctionList) {
 	set.Add(lInt)
 	set.Add(lFloat)
 	set.Add(lDouble)
-	funcList.Add(ET_Less.String(), set)
+	funcList.Add(FuncLess, set)
 }
 
 type LessEqualFunc struct {
 }
 
 func (LessEqualFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_LessEqual.String(), ScalarFuncType)
-	leDate := &FunctionV2{
-		_name:    ET_LessEqual.String(),
+	set := NewFunctionSet(FuncLessEqual, ScalarFuncType)
+	leDate := &Function{
+		_name:    FuncLessEqual,
 		_args:    []common.LType{common.DateType(), common.DateType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
-	leInt := &FunctionV2{
-		_name:    ET_LessEqual.String(),
+	leInt := &Function{
+		_name:    FuncLessEqual,
 		_args:    []common.LType{common.IntegerType(), common.IntegerType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
 	}
-	leFloat := &FunctionV2{
-		_name:    ET_LessEqual.String(),
+	leFloat := &Function{
+		_name:    FuncLessEqual,
 		_args:    []common.LType{common.FloatType(), common.FloatType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1460,17 +1460,17 @@ func (LessEqualFunc) Register(funcList FunctionList) {
 	set.Add(leDate)
 	set.Add(leInt)
 	set.Add(leFloat)
-	funcList.Add(ET_LessEqual.String(), set)
+	funcList.Add(FuncLessEqual, set)
 }
 
 type CaseFunc struct {
 }
 
 func (CaseFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Case.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncCase, ScalarFuncType)
 
-	caseDec := &FunctionV2{
-		_name: ET_Case.String(),
+	caseDec := &Function{
+		_name: FuncCase,
 		_args: []common.LType{
 			common.DecimalType(common.DecimalMaxWidthInt64, 0),
 			common.BooleanType(),
@@ -1480,8 +1480,8 @@ func (CaseFunc) Register(funcList FunctionList) {
 		_bind:    BindDecimalCaseWhen,
 	}
 
-	divInt := &FunctionV2{
-		_name:    ET_Case.String(),
+	divInt := &Function{
+		_name:    FuncCase,
 		_args:    []common.LType{common.IntegerType(), common.BooleanType(), common.IntegerType()},
 		_retType: common.IntegerType(),
 		_funcTyp: ScalarFuncType,
@@ -1490,10 +1490,10 @@ func (CaseFunc) Register(funcList FunctionList) {
 	set.Add(caseDec)
 	set.Add(divInt)
 
-	funcList.Add(ET_Case.String(), set)
+	funcList.Add(FuncCase, set)
 }
 
-func BindDecimalCaseWhen(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalCaseWhen(fun *Function, args []*Expr) *FunctionData {
 	//type of else
 	fun._retType = args[0].DataTyp
 	return nil
@@ -1503,10 +1503,10 @@ type ExtractFunc struct {
 }
 
 func (ExtractFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Extract.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncExtract, ScalarFuncType)
 
-	extract := &FunctionV2{
-		_name: ET_Extract.String(),
+	extract := &Function{
+		_name: FuncExtract,
 		_args: []common.LType{
 			common.VarcharType(),
 			common.DateType()},
@@ -1517,17 +1517,17 @@ func (ExtractFunc) Register(funcList FunctionList) {
 
 	set.Add(extract)
 
-	funcList.Add(ET_Extract.String(), set)
+	funcList.Add(FuncExtract, set)
 }
 
 type SubstringFunc struct {
 }
 
 func (SubstringFunc) Register(funcList FunctionList) {
-	set := NewFunctionSet(ET_Substring.String(), ScalarFuncType)
+	set := NewFunctionSet(FuncSubstring, ScalarFuncType)
 
-	substr1 := &FunctionV2{
-		_name: ET_Substring.String(),
+	substr1 := &Function{
+		_name: FuncSubstring,
 		_args: []common.LType{
 			common.VarcharType(),
 			common.IntegerType(),
@@ -1538,8 +1538,8 @@ func (SubstringFunc) Register(funcList FunctionList) {
 		_scalar:  TernaryFunction[common.String, int64, int64, common.String](substringFunc),
 	}
 
-	substr2 := &FunctionV2{
-		_name: ET_Substring.String(),
+	substr2 := &Function{
+		_name: FuncSubstring,
 		_args: []common.LType{
 			common.VarcharType(),
 			common.IntegerType(),
@@ -1552,5 +1552,5 @@ func (SubstringFunc) Register(funcList FunctionList) {
 	set.Add(substr1)
 	set.Add(substr2)
 
-	funcList.Add(ET_Substring.String(), set)
+	funcList.Add(FuncSubstring, set)
 }

@@ -16,7 +16,6 @@ package compute
 
 import (
 	"context"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"os"
@@ -28,8 +27,6 @@ import (
 	wire "github.com/jeroenrinzema/psql-wire"
 	"github.com/lib/pq/oid"
 	pg_query "github.com/pganalyze/pg_query_go/v5"
-	pqReader "github.com/xitongsys/parquet-go/reader"
-	"github.com/xitongsys/parquet-go/source"
 	"go.uber.org/zap"
 
 	"github.com/daviszhen/plan/pkg/chunk"
@@ -445,46 +442,9 @@ type Runner struct {
 	Txn   *storage.Txn
 	op    *PhysicalOperator
 	state *OperatorState
-	//for stub
-	deserial   util.Deserialize
-	maxRowCnt  int
-	rowReadCnt int
-
-	//for limit
-	limit *Limit
-
-	//for order
-	localSort *LocalSort
-
-	//for hash aggr
-	hAggr *HashAggr
-
-	//for cross product
-	cross *CrossProduct
-	//for hash join
-	hjoin *HashJoin
-
-	//for scan
-	pqFile        source.ParquetFile
-	pqReader      *pqReader.ParquetReader
-	dataFile      *os.File
-	reader        *csv.Reader
-	colIndice     []int
-	readedColTyps []common.LType
-	tablePath     string
-	//for test cross product
-	maxRows int
 
 	//common
-	outputTypes  []common.LType
-	outputIndice []int
-	children     []*Runner
-
-	//for insert
-	insertChunk *chunk.Chunk
-
-	//for table scan
-	tabEnt *storage.CatalogEntry
+	children []*Runner
 }
 
 func (run *Runner) Columns() wire.Columns {
@@ -549,8 +509,8 @@ func (run *Runner) initChildren() error {
 
 func (run *Runner) initOutput() {
 	for _, output := range run.op.Outputs {
-		run.outputTypes = append(run.outputTypes, output.DataTyp)
-		run.outputIndice = append(run.outputIndice, int(output.ColRef.column()))
+		run.state.outputTypes = append(run.state.outputTypes, output.DataTyp)
+		run.state.outputIndice = append(run.state.outputIndice, int(output.ColRef.column()))
 	}
 }
 
@@ -589,7 +549,7 @@ func (run *Runner) Init() error {
 }
 
 func (run *Runner) Execute(input, output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	output.Init(run.outputTypes, util.DefaultVectorSize)
+	output.Init(run.state.outputTypes, util.DefaultVectorSize)
 	defer func(start time.Time) {
 		run.op.ExecStats._totalTime += time.Since(start)
 	}(time.Now())
@@ -682,28 +642,28 @@ func (run *Runner) stubInit() error {
 	if err != nil {
 		return err
 	}
-	run.deserial = deserial
-	run.maxRowCnt = run.op.ChunkCount
+	run.state.deserial = deserial
+	run.state.maxRowCnt = run.op.ChunkCount
 	return nil
 }
 
 func (run *Runner) stubExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	if run.maxRowCnt != 0 && run.rowReadCnt >= run.maxRowCnt {
+	if run.state.maxRowCnt != 0 && run.state.rowReadCnt >= run.state.maxRowCnt {
 		return Done, nil
 	}
-	err := output.Deserialize(run.deserial)
+	err := output.Deserialize(run.state.deserial)
 	if err != nil {
 		return InvalidOpResult, err
 	}
 	if output.Card() == 0 {
 		return Done, nil
 	}
-	run.rowReadCnt += output.Card()
+	run.state.rowReadCnt += output.Card()
 	return haveMoreOutput, nil
 }
 
 func (run *Runner) stubClose() error {
-	return run.deserial.Close()
+	return run.state.deserial.Close()
 }
 
 func (run *Runner) projInit() error {
@@ -711,11 +671,10 @@ func (run *Runner) projInit() error {
 	for _, proj := range run.op.Projects {
 		projTypes = append(projTypes, proj.DataTyp)
 	}
-	run.state = &OperatorState{
-		projTypes:  projTypes,
-		projExec:   NewExprExec(run.op.Projects...),
-		outputExec: NewExprExec(run.op.Outputs...),
-	}
+
+	run.state.projTypes = projTypes
+	run.state.projExec = NewExprExec(run.op.Projects...)
+	run.state.outputExec = NewExprExec(run.op.Outputs...)
 	return nil
 }
 
