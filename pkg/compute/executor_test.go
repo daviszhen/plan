@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -57,7 +58,8 @@ func runOps(
 	t *testing.T,
 	conf *util.Config,
 	serial util.Serialize,
-	ops []*PhysicalOperator) {
+	ops []*PhysicalOperator,
+	txn *storage.Txn) {
 
 	for _, op := range ops {
 
@@ -69,6 +71,7 @@ func runOps(
 			op:    op,
 			state: &OperatorState{},
 			cfg:   conf,
+			Txn:   txn,
 		}
 		err := run.Init()
 		assert.NoError(t, err)
@@ -109,28 +112,44 @@ func runOps(
 	}
 }
 
-func preparePhyPlan(t *testing.T, id int) (*util.Config, *PhysicalOperator) {
+func preparePhyPlan(t *testing.T, id int, txn *storage.Txn) (*util.Config, *PhysicalOperator) {
 	conf := loadTestConfig()
 	stmts, err := genStmts(conf, id)
 	require.NoError(t, err)
-	phyPlan, err := genPhyPlan(nil, stmts[0].GetStmt().GetSelectStmt())
+	phyPlan, err := genPhyPlan(txn, stmts[0].GetStmt().GetSelectStmt())
 	require.NoError(t, err)
 	return conf, phyPlan
 }
 
+func runQueryInTxn(t *testing.T, fun func(txn *storage.Txn)) {
+	txn, err := storage.GTxnMgr.NewTxn("run query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage.BeginQuery(txn)
+	defer func() {
+		if err != nil {
+			storage.GTxnMgr.Rollback(txn)
+		} else {
+			err = storage.GTxnMgr.Commit(txn)
+		}
+	}()
+	fun(txn)
+}
+
 func Test_1g_q20_order(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 20)
+	conf, pplan := preparePhyPlan(t, 20, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantOp(root, POT_Order)
 		},
 	)
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q19_aggr(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 19)
+	conf, pplan := preparePhyPlan(t, 19, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -138,11 +157,11 @@ func Test_1g_q19_aggr(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q18_proj_aggr_filter(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 18)
+	conf, pplan := preparePhyPlan(t, 18, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -150,11 +169,11 @@ func Test_1g_q18_proj_aggr_filter(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_prepare_q18(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 18)
+	conf, pplan := preparePhyPlan(t, 18, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -166,11 +185,11 @@ func Test_prepare_q18(t *testing.T) {
 	assert.NoError(t, err, fname)
 	assert.NotNil(t, serial)
 	defer serial.Close()
-	runOps(t, conf, serial, ops)
+	runOps(t, conf, serial, ops, nil)
 }
 
 func Test_q18_with_stub(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 18)
+	conf, pplan := preparePhyPlan(t, 18, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -187,11 +206,11 @@ func Test_q18_with_stub(t *testing.T) {
 		Table:   "./test/q18_out",
 	}
 	ops[0].Children[0] = stubOp
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q17_proj_aggr(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 17)
+	conf, pplan := preparePhyPlan(t, 17, nil)
 
 	ops := findOperator(
 		pplan,
@@ -203,11 +222,11 @@ func Test_1g_q17_proj_aggr(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q16(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 16)
+	conf, pplan := preparePhyPlan(t, 16, nil)
 
 	ops := findOperator(
 		pplan,
@@ -218,11 +237,11 @@ func Test_1g_q16(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q15(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 15)
+	conf, pplan := preparePhyPlan(t, 15, nil)
 
 	ops := findOperator(
 		pplan,
@@ -234,11 +253,11 @@ func Test_1g_q15(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q14(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 14)
+	conf, pplan := preparePhyPlan(t, 14, nil)
 
 	ops := findOperator(
 		pplan,
@@ -249,11 +268,11 @@ func Test_1g_q14(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q12(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 12)
+	conf, pplan := preparePhyPlan(t, 12, nil)
 
 	ops := findOperator(
 		pplan,
@@ -263,11 +282,11 @@ func Test_1g_q12(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q11(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 11)
+	conf, pplan := preparePhyPlan(t, 11, nil)
 
 	ops := findOperator(
 		pplan,
@@ -277,11 +296,11 @@ func Test_1g_q11(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q10(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 10)
+	conf, pplan := preparePhyPlan(t, 10, nil)
 
 	ops := findOperator(
 		pplan,
@@ -292,11 +311,11 @@ func Test_1g_q10(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q9(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 9)
+	conf, pplan := preparePhyPlan(t, 9, nil)
 
 	ops := findOperator(
 		pplan,
@@ -306,25 +325,28 @@ func Test_1g_q9(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q8(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 8)
+	runQueryInTxn(t,
+		func(txn *storage.Txn) {
+			conf, pplan := preparePhyPlan(t, 8, txn)
 
-	ops := findOperator(
-		pplan,
-		func(root *PhysicalOperator) bool {
-			return wantOp(root, POT_Order)
+			ops := findOperator(
+				pplan,
+				func(root *PhysicalOperator) bool {
+					return wantOp(root, POT_Order)
 
-		},
-	)
+				},
+			)
 
-	runOps(t, conf, nil, ops)
+			runOps(t, conf, nil, ops, txn)
+		})
 }
 
 func Test_1g_q7(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 7)
+	conf, pplan := preparePhyPlan(t, 7, nil)
 
 	ops := findOperator(
 		pplan,
@@ -334,19 +356,19 @@ func Test_1g_q7(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q6(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 6)
+	conf, pplan := preparePhyPlan(t, 6, nil)
 	ops := []*PhysicalOperator{
 		pplan,
 	}
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q5(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 5)
+	conf, pplan := preparePhyPlan(t, 5, nil)
 
 	ops := findOperator(
 		pplan,
@@ -356,11 +378,11 @@ func Test_1g_q5(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q4(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 4)
+	conf, pplan := preparePhyPlan(t, 4, nil)
 
 	ops := findOperator(
 		pplan,
@@ -370,64 +392,64 @@ func Test_1g_q4(t *testing.T) {
 		},
 	)
 
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q3(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 3)
+	conf, pplan := preparePhyPlan(t, 3, nil)
 	ops := []*PhysicalOperator{
 		pplan,
 	}
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q2(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 2)
+	conf, pplan := preparePhyPlan(t, 2, nil)
 	ops := []*PhysicalOperator{
 		pplan,
 	}
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q1(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 1)
+	conf, pplan := preparePhyPlan(t, 1, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantOp(root, POT_Order)
 		},
 	)
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q21(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 21)
+	conf, pplan := preparePhyPlan(t, 21, nil)
 	ops := []*PhysicalOperator{
 		pplan,
 	}
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q22(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 22)
+	conf, pplan := preparePhyPlan(t, 22, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantOp(root, POT_Order)
 		},
 	)
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func Test_1g_q13(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 13)
+	conf, pplan := preparePhyPlan(t, 13, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
 			return wantOp(root, POT_Order)
 		},
 	)
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
 
 func TestName(t *testing.T) {

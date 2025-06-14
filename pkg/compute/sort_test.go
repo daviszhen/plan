@@ -423,7 +423,7 @@ func Test_rand(t *testing.T) {
 }
 
 func Test_prepareLocalsort(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 9)
+	conf, pplan := preparePhyPlan(t, 9, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -436,11 +436,11 @@ func Test_prepareLocalsort(t *testing.T) {
 	assert.NoError(t, err, fname)
 	assert.NotNil(t, serial)
 	defer serial.Close()
-	runOps(t, conf, serial, ops)
+	runOps(t, conf, serial, ops, nil)
 }
 
 func Test_localsort(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 9)
+	conf, pplan := preparePhyPlan(t, 9, nil)
 	ops := findOperator(
 		pplan,
 		func(root *PhysicalOperator) bool {
@@ -458,5 +458,5 @@ func Test_localsort(t *testing.T) {
 		ChunkCount: 30, //23
 	}
 	ops[0].Children[0] = stubOp
-	runOps(t, conf, nil, ops)
+	runOps(t, conf, nil, ops, nil)
 }
