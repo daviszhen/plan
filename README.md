@@ -114,7 +114,7 @@ tester tpch1gddl --ddl 'sql'
 
 ```sql
 
-tester tpch1gddl --ddl "
+./tester tpch1gddl --ddl "
 CREATE TABLE NATION  ( N_NATIONKEY  INTEGER NOT NULL,
 	N_NAME       VARCHAR(25) /*CHAR(25)*/ NOT NULL,
 	N_REGIONKEY  INTEGER NOT NULL,
@@ -199,6 +199,9 @@ CREATE TABLE LINEITEM ( L_ORDERKEY    BIGINT NOT NULL,
 		 L_COMMENT      VARCHAR(44) NOT NULL,
 	 PRIMARY KEY (L_ORDERKEY, L_LINENUMBER)
 	);
+"
+
+./tester tpch1gddl --ddl "
 copy nation
 from '/home/pengzhen/Documents/tpch-parquet/nation.parquet'
 with (FORMAT 'parquet');

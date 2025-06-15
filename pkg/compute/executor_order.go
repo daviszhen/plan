@@ -24,17 +24,15 @@ func (run *Runner) orderInit() error {
 			output.DataTyp)
 	}
 
-	run.localSort = NewLocalSort(
+	run.state.localSort = NewLocalSort(
 		NewSortLayout(run.op.OrderBys),
 		NewRowLayout(payLoadTypes, nil),
 	)
 
-	run.state = &OperatorState{
-		keyTypes:     keyTypes,
-		payloadTypes: payLoadTypes,
-		orderKeyExec: NewExprExec(realOrderByExprs...),
-		outputExec:   NewExprExec(run.op.Outputs...),
-	}
+	run.state.keyTypes = keyTypes
+	run.state.payloadTypes = payLoadTypes
+	run.state.orderKeyExec = NewExprExec(realOrderByExprs...)
+	run.state.outputExec = NewExprExec(run.op.Outputs...)
 
 	return nil
 }
@@ -42,7 +40,7 @@ func (run *Runner) orderInit() error {
 func (run *Runner) orderExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
-	if run.localSort._sortState == SS_INIT {
+	if run.state.localSort._sortState == SS_INIT {
 		cnt := 0
 		for {
 			childChunk := &chunk.Chunk{}
@@ -91,33 +89,33 @@ func (run *Runner) orderExec(output *chunk.Chunk, state *OperatorState) (Operato
 			cnt += key.Card()
 			util.AssertFunc(key.Card() == payload.Card())
 
-			run.localSort.SinkChunk(key, payload)
+			run.state.localSort.SinkChunk(key, payload)
 		}
 		fmt.Println("total count", cnt)
-		run.localSort._sortState = SS_SORT
+		run.state.localSort._sortState = SS_SORT
 	}
 
-	if run.localSort._sortState == SS_SORT {
+	if run.state.localSort._sortState == SS_SORT {
 		//get all chunks from child
-		run.localSort.Sort(true)
-		run.localSort._sortState = SS_SCAN
+		run.state.localSort.Sort(true)
+		run.state.localSort._sortState = SS_SCAN
 	}
 
-	if run.localSort._sortState == SS_SCAN {
-		if run.localSort._scanner != nil &&
-			run.localSort._scanner.Remaining() == 0 {
-			run.localSort._scanner = nil
+	if run.state.localSort._sortState == SS_SCAN {
+		if run.state.localSort._scanner != nil &&
+			run.state.localSort._scanner.Remaining() == 0 {
+			run.state.localSort._scanner = nil
 		}
 
-		if run.localSort._scanner == nil {
-			run.localSort._scanner = NewPayloadScanner(
-				run.localSort._sortedBlocks[0]._payloadData,
-				run.localSort,
+		if run.state.localSort._scanner == nil {
+			run.state.localSort._scanner = NewPayloadScanner(
+				run.state.localSort._sortedBlocks[0]._payloadData,
+				run.state.localSort,
 				true,
 			)
 		}
 
-		run.localSort._scanner.Scan(output)
+		run.state.localSort._scanner.Scan(output)
 	}
 
 	if output.Card() == 0 {
@@ -127,6 +125,6 @@ func (run *Runner) orderExec(output *chunk.Chunk, state *OperatorState) (Operato
 }
 
 func (run *Runner) orderClose() error {
-	run.localSort = nil
+	run.state.localSort = nil
 	return nil
 }

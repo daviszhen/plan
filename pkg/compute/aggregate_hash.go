@@ -93,7 +93,7 @@ type GroupedAggrHashTable struct {
 	_hashPrefixShift uint64
 	_bitmask         uint64
 	_finalized       bool
-	_predicates      []ET_SubTyp
+	_predicates      []string
 	_printHash       bool
 	_bufMgr          *storage.BufferManager
 }
@@ -126,9 +126,9 @@ func NewGroupedAggrHashTable(
 	ret._hashesHdlPtr = ret._hashesHdl.Ptr()
 	ret._hashPrefixShift = (HASH_WIDTH - 2) * 8
 	ret.Resize(initCap)
-	ret._predicates = make([]ET_SubTyp, ret._layout.columnCount()-1)
+	ret._predicates = make([]string, ret._layout.columnCount()-1)
 	for i := 0; i < len(ret._predicates); i++ {
-		ret._predicates[i] = ET_Equal
+		ret._predicates[i] = FuncEqual
 	}
 	return ret
 }

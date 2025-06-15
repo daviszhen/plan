@@ -77,20 +77,6 @@ func hasExpr(expr *Expr, exprList []*Expr) bool {
 		if expr.equal(e) {
 			return true
 		}
-		//else {
-		//	exprJs, err := json.Marshal(expr)
-		//	if err != nil {
-		//		panic(err)
-		//	}
-		//	eJs, err := json.Marshal(e)
-		//	if err != nil {
-		//		panic(err)
-		//	}
-		//	fmt.Println("expr:", expr)
-		//	fmt.Println("e:", e)
-		//	fmt.Println("exprJs:", string(exprJs))
-		//	fmt.Println("   eJs:", string(eJs))
-		//}
 	}
 	return false
 }

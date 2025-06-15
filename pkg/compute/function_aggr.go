@@ -32,7 +32,7 @@ func (SumFunc) Register(funcList FunctionList) {
 	sumInt := GetSumAggr(common.IntegerType().GetInternalType())
 	sumInt._name = "sum"
 
-	sumDec := &FunctionV2{
+	sumDec := &Function{
 		_name:    "sum",
 		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
 		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
@@ -45,7 +45,7 @@ func (SumFunc) Register(funcList FunctionList) {
 	funcList.Add("sum", set)
 }
 
-func BindDecimalSum(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalSum(fun *Function, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
 	*fun = *GetSumAggr(decTyp.GetInternalType())
 	fun._name = "sum"
@@ -63,7 +63,7 @@ func (AvgFunc) Register(funcList FunctionList) {
 	avgInt := GetAvgAggr(common.DoubleType().GetInternalType(), common.IntegerType().GetInternalType())
 	avgInt._name = "avg"
 
-	avgDec := &FunctionV2{
+	avgDec := &Function{
 		_name:    "avg",
 		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
 		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
@@ -76,7 +76,7 @@ func (AvgFunc) Register(funcList FunctionList) {
 	funcList.Add("avg", set)
 }
 
-func BindDecimalAvg(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalAvg(fun *Function, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
 	*fun = *GetAvgAggr(decTyp.GetInternalType(), decTyp.GetInternalType())
 	fun._name = "avg"
@@ -120,7 +120,7 @@ type MaxFunc struct {
 func (MaxFunc) Register(funcList FunctionList) {
 	set := NewFunctionSet("max", AggregateFuncType)
 
-	maxDec := &FunctionV2{
+	maxDec := &Function{
 		_name:    "max",
 		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
 		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
@@ -132,7 +132,7 @@ func (MaxFunc) Register(funcList FunctionList) {
 	funcList.Add("max", set)
 }
 
-func BindDecimalMinMax(fun *FunctionV2, args []*Expr) *FunctionData {
+func BindDecimalMinMax(fun *Function, args []*Expr) *FunctionData {
 	decTyp := args[0].DataTyp
 	name := fun._name
 	if name == "max" {
@@ -152,7 +152,7 @@ type MinFunc struct {
 func (MinFunc) Register(funcList FunctionList) {
 	set := NewFunctionSet("min", AggregateFuncType)
 
-	minDec := &FunctionV2{
+	minDec := &Function{
 		_name:    "min",
 		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0)},
 		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
@@ -178,7 +178,7 @@ func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Res
 	sop StateOp[ResultT],
 	addOp AddOp[ResultT, InputT],
 	top TypeOp[ResultT],
-) *FunctionV2 {
+) *Function {
 	var size aggrStateSize
 	var init aggrInit
 	var update aggrUpdate
@@ -206,7 +206,7 @@ func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Res
 		util.AssertFunc(inputCount == 1)
 		UnaryUpdate[ResultT, STATE, InputT, OP](inputs[0], data, state, count, aop, sop, addOp, top)
 	}
-	return &FunctionV2{
+	return &Function{
 		_funcTyp:      AggregateFuncType,
 		_args:         []common.LType{inputTyp},
 		_retType:      retTyp,
@@ -220,7 +220,7 @@ func UnaryAggregate[ResultT any, STATE State[ResultT], InputT any, OP AggrOp[Res
 	}
 }
 
-func GetSumAggr(pTyp common.PhyType) *FunctionV2 {
+func GetSumAggr(pTyp common.PhyType) *Function {
 	switch pTyp {
 	case common.INT32:
 		fun := UnaryAggregate[common.Hugeint, State[common.Hugeint], int32, SumOp[common.Hugeint, int32]](
@@ -249,7 +249,7 @@ func GetSumAggr(pTyp common.PhyType) *FunctionV2 {
 	}
 }
 
-func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
+func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function {
 	switch inputPhyTyp {
 	case common.INT32:
 		switch retPhyTyp {
@@ -306,7 +306,7 @@ func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV
 	}
 }
 
-func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
+func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function {
 	switch inputPhyTyp {
 	case common.INT32:
 		switch retPhyTyp {
@@ -361,7 +361,7 @@ func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Functio
 	}
 }
 
-func GetMaxAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
+func GetMaxAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function {
 	switch inputPhyTyp {
 	case common.DECIMAL:
 		switch retPhyTyp {
@@ -384,7 +384,7 @@ func GetMaxAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV
 	}
 }
 
-func GetMinAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *FunctionV2 {
+func GetMinAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function {
 	switch inputPhyTyp {
 	case common.DECIMAL:
 		switch retPhyTyp {

@@ -16,10 +16,9 @@ func (run *Runner) limitInit() error {
 		childTypes = append(childTypes, outputExpr.DataTyp)
 	}
 
-	run.limit = NewLimit(childTypes, run.op.Limit, run.op.Offset)
-	run.state = &OperatorState{
-		outputExec: NewExprExec(run.op.Outputs...),
-	}
+	run.state.limit = NewLimit(childTypes, run.op.Limit, run.op.Offset)
+
+	run.state.outputExec = NewExprExec(run.op.Outputs...)
 
 	return nil
 }
@@ -27,7 +26,7 @@ func (run *Runner) limitInit() error {
 func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
-	if run.limit._state == LIMIT_INIT {
+	if run.state.limit._state == LIMIT_INIT {
 		cnt := 0
 		for {
 			childChunk := &chunk.Chunk{}
@@ -47,21 +46,21 @@ func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (Operato
 
 			//childChunk.print()
 
-			ret := run.limit.Sink(childChunk)
+			ret := run.state.limit.Sink(childChunk)
 			if ret == SinkResDone {
 				break
 			}
 		}
 		fmt.Println("limit total children count", cnt)
-		run.limit._state = LIMIT_SCAN
+		run.state.limit._state = LIMIT_SCAN
 	}
 
-	if run.limit._state == LIMIT_SCAN {
+	if run.state.limit._state == LIMIT_SCAN {
 		//get data from collection
 		for {
 			read := &chunk.Chunk{}
-			read.Init(run.limit._childTypes, util.DefaultVectorSize)
-			getRet := run.limit.GetData(read)
+			read.Init(run.state.limit._childTypes, util.DefaultVectorSize)
+			getRet := run.state.limit.GetData(read)
 			if getRet == SrcResDone {
 				break
 			}
@@ -86,7 +85,7 @@ func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (Operato
 }
 
 func (run *Runner) limitClose() error {
-	run.limit = nil
+	run.state.limit = nil
 	return nil
 }
 
@@ -221,12 +220,12 @@ func NewLimit(typs []common.LType, limitExpr, offsetExpr *Expr) *Limit {
 	if limitExpr == nil {
 		ret._limit = math.MaxUint64
 	} else {
-		ret._limit = uint64(limitExpr.Ivalue)
+		ret._limit = uint64(limitExpr.ConstValue.Integer)
 	}
 	if offsetExpr == nil {
 		ret._offset = 0
 	} else {
-		ret._offset = uint64(offsetExpr.Ivalue)
+		ret._offset = uint64(offsetExpr.ConstValue.Integer)
 	}
 	ret._data = NewColumnDataCollection(typs)
 	return ret

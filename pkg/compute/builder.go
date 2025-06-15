@@ -69,10 +69,12 @@ func (b *Binding) Bind(table, column string, depth int) (*Expr, error) {
 		exp := &Expr{
 			Typ:     ET_Column,
 			DataTyp: b.typs[idx],
-			Table:   table,
-			Name:    column,
-			ColRef:  ColumnBind{b.index, uint64(idx)},
-			Depth:   depth,
+			BaseInfo: BaseInfo{
+				Table:  table,
+				Name:   column,
+				ColRef: ColumnBind{b.index, uint64(idx)},
+				Depth:  depth,
+			},
 		}
 		return exp, nil
 	}

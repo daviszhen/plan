@@ -61,13 +61,147 @@ const (
 	TableFuncType     FuncType = 2
 )
 
-type FunctionV2 struct {
+const (
+	// 算术运算符
+	FuncAdd      = "+"
+	FuncSubtract = "-"
+	FuncMultiply = "*"
+	FuncDivide   = "/"
+
+	// 比较运算符
+	FuncEqual        = "="
+	FuncNotEqual     = "<>"
+	FuncGreater      = ">"
+	FuncGreaterEqual = ">="
+	FuncLess         = "<"
+	FuncLessEqual    = "<="
+
+	// 逻辑运算符
+	FuncAnd = "and"
+	FuncOr  = "or"
+	FuncNot = "not"
+
+	// 字符串运算符
+	FuncLike    = "like"
+	FuncNotLike = "not like"
+
+	// 其它运算符
+	FuncBetween   = "between"
+	FuncCase      = "case"
+	FuncCaseWhen  = "case when"
+	FuncIn        = "in"
+	FuncNotIn     = "not in"
+	FuncExists    = "exists"
+	FuncNotExists = "not exists"
+
+	// 函数
+	FuncDateAdd   = "date_add"
+	FuncDateSub   = "date_sub"
+	FuncCast      = "cast"
+	FuncExtract   = "extract"
+	FuncSubstring = "substring"
+)
+
+var operatorNames = map[string]bool{
+	FuncAdd:          true,
+	FuncSubtract:     true,
+	FuncMultiply:     true,
+	FuncDivide:       true,
+	FuncEqual:        true,
+	FuncNotEqual:     true,
+	FuncGreater:      true,
+	FuncGreaterEqual: true,
+	FuncLess:         true,
+	FuncLessEqual:    true,
+	FuncAnd:          true,
+	FuncOr:           true,
+	FuncNot:          true,
+	FuncLike:         true,
+	FuncNotLike:      true,
+	FuncBetween:      true,
+	FuncCase:         true,
+	FuncCaseWhen:     true,
+	FuncIn:           true,
+	FuncNotIn:        true,
+	FuncExists:       true,
+	FuncNotExists:    true,
+}
+
+func IsOperator(name string) bool {
+	if _, ok := operatorNames[name]; ok {
+		return true
+	}
+	return false
+}
+
+// 运算符类型
+type OperatorType int
+
+const (
+	// 比较运算符
+	OpTypeCompare OperatorType = iota
+	// 逻辑运算符
+	OpTypeLogical
+	// 算术运算符
+	OpTypeArithmetic
+	// 字符串运算符
+	OpTypeLike
+	// 特殊运算符
+	OpTypeSpecial
+	// 其它运算符
+	OpTypeUnknown
+)
+
+// 运算符分类映射
+var operatorTypeMap = map[string]OperatorType{
+	// 比较运算符
+	FuncEqual:        OpTypeCompare,
+	FuncNotEqual:     OpTypeCompare,
+	FuncGreater:      OpTypeCompare,
+	FuncGreaterEqual: OpTypeCompare,
+	FuncLess:         OpTypeCompare,
+	FuncLessEqual:    OpTypeCompare,
+	FuncIn:           OpTypeCompare,
+	FuncNotIn:        OpTypeCompare,
+
+	// 逻辑运算符
+	FuncAnd: OpTypeLogical,
+	FuncOr:  OpTypeLogical,
+	FuncNot: OpTypeLogical,
+
+	// 算术运算符
+	FuncAdd:      OpTypeArithmetic,
+	FuncSubtract: OpTypeArithmetic,
+	FuncMultiply: OpTypeArithmetic,
+	FuncDivide:   OpTypeArithmetic,
+
+	// 字符串运算符
+	FuncLike:    OpTypeLike,
+	FuncNotLike: OpTypeLike,
+
+	// 特殊运算符
+	FuncBetween:   OpTypeSpecial,
+	FuncCase:      OpTypeSpecial,
+	FuncCaseWhen:  OpTypeSpecial,
+	FuncExists:    OpTypeSpecial,
+	FuncNotExists: OpTypeSpecial,
+}
+
+func GetOperatorType(name string) OperatorType {
+	if typ, ok := operatorTypeMap[name]; ok {
+		return typ
+	}
+	return OpTypeUnknown
+}
+
+type Function struct {
 	_name         string
 	_args         []common.LType
 	_retType      common.LType
 	_funcTyp      FuncType
 	_sideEffects  FuncSideEffects
 	_nullHandling FuncNullHandling
+	_aggrType     AggrType
 
 	_scalar        ScalarFunc
 	_bind          bindScalarFunc
@@ -83,8 +217,16 @@ type FunctionV2 struct {
 	//_window       aggrWindow
 }
 
-func (fun *FunctionV2) Copy() *FunctionV2 {
-	ret := &FunctionV2{
+func (fun *Function) IsOperator() bool {
+	return IsOperator(fun._name)
+}
+
+func (fun *Function) IsFunction() bool {
+	return !fun.IsOperator()
+}
+
+func (fun *Function) Copy() *Function {
+	ret := &Function{
 		_name:         fun._name,
 		_args:         util.CopyTo(fun._args),
 		_retType:      fun._retType,
@@ -118,7 +260,7 @@ type aggrSimpleUpdate func([]*chunk.Vector, *AggrInputData, int, unsafe.Pointer,
 
 //type aggrWindow func([]*Vector, *Bitmap, *AggrInputData)
 
-type bindScalarFunc func(fun *FunctionV2, args []*Expr) *FunctionData
+type bindScalarFunc func(fun *Function, args []*Expr) *FunctionData
 
 const (
 	DecimalBindData    = "decimal"
@@ -133,7 +275,7 @@ type FunctionData struct {
 
 type FunctionSet struct {
 	_name      string
-	_functions []*FunctionV2
+	_functions []*Function
 	_funcTyp   FuncType
 }
 
@@ -145,17 +287,17 @@ func NewFunctionSet(name string, ftyp FuncType) *FunctionSet {
 	return ret
 }
 
-func (set *FunctionSet) Add(fun *FunctionV2) {
+func (set *FunctionSet) Add(fun *Function) {
 	set._functions = append(set._functions, fun)
 }
 
-func (set *FunctionSet) GetFunc(offset int) *FunctionV2 {
+func (set *FunctionSet) GetFunc(offset int) *Function {
 	util.AssertFunc(offset < len(set._functions))
 	//!!!note copy instead of referring directly
 	return set._functions[offset].Copy()
 }
 
-func (set *FunctionSet) GetFuncByArgs(args []common.LType) *FunctionV2 {
+func (set *FunctionSet) GetFuncByArgs(args []common.LType) *Function {
 	idx := gFuncBinder.BindFunc(set._name, set, args)
 	if idx == -1 {
 		panic(fmt.Sprintf("function %s impl not found", set._name))
@@ -171,7 +313,6 @@ type FunctionBinder struct {
 func (binder *FunctionBinder) BindScalarFunc(
 	name string,
 	args []*Expr,
-	subTyp ET_SubTyp,
 	isOperator bool,
 ) *Expr {
 	fset := scalarFuncs[name]
@@ -184,13 +325,12 @@ func (binder *FunctionBinder) BindScalarFunc(
 	}
 
 	fun := fset.GetFunc(best)
-	return binder.BindScalarFunc2(fun, args, subTyp, isOperator)
+	return binder.BindScalarFunc2(fun, args, isOperator)
 }
 
 func (binder *FunctionBinder) BindScalarFunc2(
-	fun *FunctionV2,
+	fun *Function,
 	args []*Expr,
-	subTyp ET_SubTyp,
 	isOperator bool,
 ) *Expr {
 	var bindInfo *FunctionData
@@ -199,18 +339,21 @@ func (binder *FunctionBinder) BindScalarFunc2(
 	}
 
 	return &Expr{
-		Typ:        ET_Func,
-		SubTyp:     subTyp,
-		Svalue:     fun._name,
-		DataTyp:    fun._retType,
-		Children:   args,
-		IsOperator: isOperator,
-		BindInfo:   bindInfo,
-		FunImpl:    fun,
+		Typ: ET_Func,
+		ConstValue: ConstValue{
+			Type:   ConstTypeString,
+			String: fun._name,
+		},
+		DataTyp:  fun._retType,
+		Children: args,
+		FunctionInfo: FunctionInfo{
+			BindInfo: bindInfo,
+			FunImpl:  fun,
+		},
 	}
 }
 
-func (binder *FunctionBinder) CastToFuncArgs(fun *FunctionV2, args []*Expr) {
+func (binder *FunctionBinder) CastToFuncArgs(fun *Function, args []*Expr) {
 	var err error
 	for i := 0; i < len(args); i++ {
 		targetType := fun._args[i]
@@ -230,7 +373,6 @@ func (binder *FunctionBinder) CastToFuncArgs(fun *FunctionV2, args []*Expr) {
 func (binder *FunctionBinder) BindAggrFunc(
 	name string,
 	args []*Expr,
-	subTyp ET_SubTyp,
 	isOperator bool,
 ) *Expr {
 	fset := aggrFuncs[name]
@@ -243,13 +385,12 @@ func (binder *FunctionBinder) BindAggrFunc(
 	}
 
 	fun := fset.GetFunc(best)
-	return binder.BindAggrFunc2(fun, args, subTyp, isOperator)
+	return binder.BindAggrFunc2(fun, args, isOperator)
 }
 
 func (binder *FunctionBinder) BindAggrFunc2(
-	fun *FunctionV2,
+	fun *Function,
 	args []*Expr,
-	subTyp ET_SubTyp,
 	isOperator bool,
 ) *Expr {
 	var bindInfo *FunctionData
@@ -258,14 +399,17 @@ func (binder *FunctionBinder) BindAggrFunc2(
 	}
 	binder.CastToFuncArgs(fun, args)
 	return &Expr{
-		Typ:        ET_Func,
-		SubTyp:     subTyp,
-		Svalue:     fun._name,
-		DataTyp:    fun._retType,
-		Children:   args,
-		IsOperator: isOperator,
-		BindInfo:   bindInfo,
-		FunImpl:    fun,
+		Typ: ET_Func,
+		ConstValue: ConstValue{
+			Type:   ConstTypeString,
+			String: fun._name,
+		},
+		DataTyp:  fun._retType,
+		Children: args,
+		FunctionInfo: FunctionInfo{
+			BindInfo: bindInfo,
+			FunImpl:  fun,
+		},
 	}
 }
 
@@ -354,7 +498,7 @@ func (binder *FunctionBinder) BindFuncByArgs2(
 }
 
 func (binder *FunctionBinder) BindFuncCost(
-	fun *FunctionV2,
+	fun *Function,
 	args []common.LType,
 ) int64 {
 	if len(fun._args) != len(args) {

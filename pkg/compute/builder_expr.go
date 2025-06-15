@@ -19,7 +19,6 @@ func (b *Builder) bindCaseWhen(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	}
 	ret := &Expr{
 		Typ:      ET_Func,
-		SubTyp:   ET_CaseWhen,
 		Children: []*Expr{kase, when},
 	}
 	return ret, nil
@@ -62,8 +61,9 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		}
 	} else {
 		els = &Expr{
-			Typ:     ET_NConst,
-			DataTyp: common.Null(),
+			Typ:        ET_Const,
+			ConstValue: NewNullConst(),
+			DataTyp:    common.Null(),
 		}
 	}
 
@@ -108,7 +108,7 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		paramsTypes = append(paramsTypes, when[i].DataTyp)
 	}
 
-	ret, err := b.bindFunc(ET_Case.String(), ET_Case, expr.String(), params, paramsTypes, false)
+	ret, err := b.bindFunc(FuncCase, expr.String(), params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -172,12 +172,12 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 		paramTypes = append(paramTypes, castChild.DataTyp)
 	}
 
-	var et ET_SubTyp
+	var funcName string
 	switch expr.Name[0].GetString_().GetSval() {
 	case "=":
-		et = ET_In
+		funcName = FuncIn
 	//case AstExprSubTypeNotIn:
-	//	et = ET_NotIn
+	//	funcName = FuncNameIn
 	default:
 		panic("unhandled default case")
 	}
@@ -189,7 +189,7 @@ func (b *Builder) bindInExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query
 		}
 		equalParams := []*Expr{params[0], param}
 		equalTypes := []common.LType{paramTypes[0], paramTypes[i]}
-		ret0, err := b.bindFunc(et.String(), et, expr.String(), equalParams, equalTypes, false)
+		ret0, err := b.bindFunc(funcName, expr.String(), equalParams, equalTypes, false)
 		if err != nil {
 			return nil, err
 		}

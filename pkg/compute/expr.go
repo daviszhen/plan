@@ -21,162 +21,11 @@ const (
 	ET_Func
 	ET_Subquery
 
-	ET_IConst    //integer
-	ET_DecConst  //decimal
-	ET_SConst    //string
-	ET_FConst    //float
-	ET_DateConst //date
-	ET_IntervalConst
-	ET_BConst // bool
-	ET_NConst // null
+	ET_Const // 新增统一的常量类型
 
 	ET_Orderby
 	ET_List
 )
-
-type ET_SubTyp int
-
-const (
-	//real function
-	ET_Invalid ET_SubTyp = iota
-	ET_SubFunc
-	//operator
-	ET_Add
-	ET_Sub
-	ET_Mul
-	ET_Div
-	ET_Equal
-	ET_NotEqual
-	ET_Greater
-	ET_GreaterEqual
-	ET_Less
-	ET_LessEqual
-	ET_And
-	ET_Or
-	ET_Not
-	ET_Like
-	ET_NotLike
-	ET_Between
-	ET_Case
-	ET_CaseWhen
-	ET_In
-	ET_NotIn
-	ET_Exists
-	ET_NotExists
-	ET_DateAdd
-	ET_DateSub
-	ET_Cast
-	ET_Extract
-	ET_Substring
-)
-
-func (et ET_SubTyp) String() string {
-	switch et {
-	case ET_Add:
-		return "+"
-	case ET_Sub:
-		return "-"
-	case ET_Mul:
-		return "*"
-	case ET_Div:
-		return "/"
-	case ET_Equal:
-		return "="
-	case ET_NotEqual:
-		return "<>"
-	case ET_Greater:
-		return ">"
-	case ET_GreaterEqual:
-		return ">="
-	case ET_Less:
-		return "<"
-	case ET_LessEqual:
-		return "<="
-	case ET_And:
-		return "and"
-	case ET_Or:
-		return "or"
-	case ET_Not:
-		return "not"
-	case ET_Like:
-		return "like"
-	case ET_NotLike:
-		return "not like"
-	case ET_Between:
-		return "between"
-	case ET_Case:
-		return "case"
-	case ET_In:
-		return "in"
-	case ET_NotIn:
-		return "not in"
-	case ET_Exists:
-		return "exists"
-	case ET_NotExists:
-		return "not exists"
-	case ET_DateAdd:
-		return "date_add"
-	case ET_DateSub:
-		return "date_sub"
-	case ET_Cast:
-		return "cast"
-	case ET_Extract:
-		return "extract"
-	case ET_Substring:
-		return "substring"
-	default:
-		panic(fmt.Sprintf("usp %v", int(et)))
-	}
-}
-
-func (et ET_SubTyp) isOperator() bool {
-	switch et {
-	case ET_Add:
-		return true
-	case ET_Sub:
-		return true
-	case ET_Mul:
-		return true
-	case ET_Div:
-		return true
-	case ET_Equal:
-		return true
-	case ET_NotEqual:
-		return true
-	case ET_Greater:
-		return true
-	case ET_GreaterEqual:
-		return true
-	case ET_Less:
-		return true
-	case ET_LessEqual:
-		return true
-	case ET_And:
-		return true
-	case ET_Or:
-		return true
-	case ET_Not:
-		return true
-	case ET_Like:
-		return true
-	case ET_NotLike:
-		return true
-	case ET_Between:
-		return true
-	case ET_Case:
-		return true
-	case ET_In:
-		return true
-	case ET_NotIn:
-		return true
-	case ET_Exists:
-		return true
-	case ET_NotExists:
-		return true
-	default:
-		return false
-	}
-}
 
 type ET_JoinType int
 
@@ -197,43 +46,150 @@ const (
 )
 
 type Expr struct {
-	Typ     ET
-	SubTyp  ET_SubTyp
-	DataTyp common.LType
-	AggrTyp AggrType
+	BaseInfo
+	FunctionInfo
+	SubqueryInfo
+	JoinInfo
+	TableInfo
+	ValuesListInfo
+	ConstValue ConstValue // 常量值
+	OrderByInfo
+	CTEInfo
 
+	Typ      ET
+	DataTyp  common.LType
+	Index    uint64
 	Children []*Expr
+}
 
-	Index       uint64
-	Database    string
-	Table       string     // table
-	Name        string     // column
-	ColRef      ColumnBind // relationTag, columnPos
-	Depth       int        // > 0, correlated column
-	Svalue      string
-	Ivalue      int64
-	Fvalue      float64
-	Bvalue      bool
-	Desc        bool        // in orderby
-	JoinTyp     ET_JoinType // join
-	Alias       string
-	SubBuilder  *Builder     // builder for subquery
-	SubCtx      *BindContext // context for subquery
-	SubqueryTyp ET_SubqueryType
-	CTEIndex    uint64
+// 列信息 - 用于列引用表达式
+type BaseInfo struct {
+	Database string // 数据库名
+	Table    string // 表名
+	Name     string // 列名
+	Alias    string
 
-	BelongCtx   *BindContext // context for table and join
-	On          *Expr        //JoinOn
-	IsOperator  bool
-	BindInfo    *FunctionData
-	FunImpl     *FunctionV2
-	Constraints []*storage.Constraint //for column def of create table
-	//for insert ... values
-	Types       []common.LType
-	Names       []string
-	Values      [][]*Expr
-	ColName2Idx map[string]int
-	TabEnt      *storage.CatalogEntry
+	ColRef    ColumnBind   // 列引用(relationTag, columnPos)
+	Depth     int          // 相关子查询深度(>0表示相关列)
+	BelongCtx *BindContext // 所属的绑定上下文
+}
+
+func (b *BaseInfo) copy() BaseInfo {
+	return BaseInfo{
+		Database:  b.Database,
+		Table:     b.Table,
+		Name:      b.Name,
+		Alias:     b.Alias,
+		ColRef:    b.ColRef,
+		Depth:     b.Depth,
+		BelongCtx: b.BelongCtx,
+	}
+}
+
+// 函数信息 - 用于函数和运算符表达式
+type FunctionInfo struct {
+	FunImpl  *Function     // 函数实现
+	BindInfo *FunctionData // 函数绑定信息
+}
+
+func (f *FunctionInfo) copy() FunctionInfo {
+	return FunctionInfo{
+		FunImpl:  f.FunImpl,
+		BindInfo: f.BindInfo,
+	}
+}
+
+// 子查询信息 - 用于子查询表达式
+type SubqueryInfo struct {
+	// 子查询构建和执行
+	SubBuilder  *Builder        // 子查询的构建器
+	SubCtx      *BindContext    // 子查询的绑定上下文
+	SubqueryTyp ET_SubqueryType // 子查询类型(标量/EXISTS/IN等)
+}
+
+func (s *SubqueryInfo) copy() SubqueryInfo {
+	return SubqueryInfo{
+		SubBuilder:  s.SubBuilder,
+		SubCtx:      s.SubCtx,
+		SubqueryTyp: s.SubqueryTyp,
+	}
+}
+
+// 连接信息 - 用于连接表达式
+type JoinInfo struct {
+	// 连接相关
+	JoinTyp ET_JoinType // 连接类型(交叉/左连接/内连接)
+	On      *Expr       // 连接条件
+}
+
+func (j *JoinInfo) copy() JoinInfo {
+	return JoinInfo{
+		JoinTyp: j.JoinTyp,
+		On:      j.On.copy(),
+	}
+}
+
+// 表信息 - 用于表表达式
+type TableInfo struct {
+	// 表定义和约束
+	TabEnt      *storage.CatalogEntry // 表目录条目
+	ColName2Idx map[string]int        // 列名到索引的映射
+	Constraints []*storage.Constraint // 表约束
+}
+
+func (t *TableInfo) copy() TableInfo {
+	return TableInfo{
+		TabEnt:      t.TabEnt,
+		ColName2Idx: t.ColName2Idx,
+		Constraints: t.Constraints,
+	}
+}
+
+// 值列表信息 - 用于INSERT VALUES语句
+type ValuesListInfo struct {
+	// 值列表定义
+	Types  []common.LType // 列类型
+	Names  []string       // 列名
+	Values [][]*Expr      // 值列表
+}
+
+func (v *ValuesListInfo) copy() ValuesListInfo {
+	values := make([][]*Expr, len(v.Values))
+	for i, value := range v.Values {
+		values[i] = make([]*Expr, len(value))
+		for j, expr := range value {
+			values[i][j] = expr.copy()
+		}
+	}
+	return ValuesListInfo{
+		Types:  v.Types,
+		Names:  v.Names,
+		Values: values,
+	}
+}
+
+// 排序信息 - 用于ORDER BY表达式
+type OrderByInfo struct {
+	// 排序相关
+	Desc bool // 是否降序
+}
+
+func (o *OrderByInfo) copy() OrderByInfo {
+	return OrderByInfo{
+		Desc: o.Desc,
+	}
+}
+
+// CTE信息 - 用于CTE表达式
+type CTEInfo struct {
+	// CTE相关
+	CTEIndex uint64 // CTE索引
+}
+
+func (c *CTEInfo) copy() CTEInfo {
+	return CTEInfo{
+		CTEIndex: c.CTEIndex,
+	}
 }
 
 func (e *Expr) equal(o *Expr) bool {
@@ -243,13 +199,17 @@ func (e *Expr) equal(o *Expr) bool {
 		if e.Typ != o.Typ {
 			return false
 		}
-		if e.SubTyp != o.SubTyp {
-			return false
+		if e.Typ == ET_Func {
+			if e.FunImpl._name != o.FunImpl._name {
+				return false
+			}
+			if e.FunctionInfo.FunImpl._aggrType !=
+				o.FunctionInfo.FunImpl._aggrType {
+				return false
+			}
 		}
+
 		if e.DataTyp != o.DataTyp {
-			return false
-		}
-		if e.AggrTyp != o.AggrTyp {
 			return false
 		}
 		if e.Index != o.Index {
@@ -270,16 +230,7 @@ func (e *Expr) equal(o *Expr) bool {
 		if e.Depth != o.Depth {
 			return false
 		}
-		if e.Svalue != o.Svalue {
-			return false
-		}
-		if e.Ivalue != o.Ivalue {
-			return false
-		}
-		if e.Fvalue != o.Fvalue {
-			return false
-		}
-		if e.Bvalue != o.Bvalue {
+		if !e.ConstValue.equal(o.ConstValue) {
 			return false
 		}
 		if e.Desc != o.Desc {
@@ -295,9 +246,6 @@ func (e *Expr) equal(o *Expr) bool {
 			return false
 		}
 		if e.CTEIndex != o.CTEIndex {
-			return false
-		}
-		if e.IsOperator != o.IsOperator {
 			return false
 		}
 		if !e.On.equal(o.On) {
@@ -328,32 +276,18 @@ func (e *Expr) copy() *Expr {
 	}
 
 	ret := &Expr{
-		Typ:         e.Typ,
-		SubTyp:      e.SubTyp,
-		DataTyp:     e.DataTyp,
-		AggrTyp:     e.AggrTyp,
-		Index:       e.Index,
-		Database:    e.Database,
-		Table:       e.Table,
-		Name:        e.Name,
-		ColRef:      e.ColRef,
-		Depth:       e.Depth,
-		Svalue:      e.Svalue,
-		Ivalue:      e.Ivalue,
-		Fvalue:      e.Fvalue,
-		Bvalue:      e.Bvalue,
-		Desc:        e.Desc,
-		JoinTyp:     e.JoinTyp,
-		Alias:       e.Alias,
-		SubBuilder:  e.SubBuilder,
-		SubCtx:      e.SubCtx,
-		SubqueryTyp: e.SubqueryTyp,
-		CTEIndex:    e.CTEIndex,
-		BelongCtx:   e.BelongCtx,
-		On:          e.On.copy(),
-		IsOperator:  e.IsOperator,
-		BindInfo:    e.BindInfo,
-		FunImpl:     e.FunImpl,
+		BaseInfo:       e.BaseInfo.copy(),
+		FunctionInfo:   e.FunctionInfo.copy(),
+		SubqueryInfo:   e.SubqueryInfo.copy(),
+		JoinInfo:       e.JoinInfo.copy(),
+		TableInfo:      e.TableInfo.copy(),
+		ValuesListInfo: e.ValuesListInfo.copy(),
+		Typ:            e.Typ,
+		DataTyp:        e.DataTyp,
+		Index:          e.Index,
+		ConstValue:     e.ConstValue.copy(),
+		OrderByInfo:    e.OrderByInfo.copy(),
+		CTEInfo:        e.CTEInfo.copy(),
 	}
 	for _, child := range e.Children {
 		ret.Children = append(ret.Children, child.copy())
@@ -372,20 +306,26 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		ctx.Writef("(%s.%s,%s,%v,%d)", e.Table, e.Name,
 			e.DataTyp,
 			e.ColRef, e.Depth)
-	case ET_SConst:
-		ctx.Writef("(%s,%s)", e.Svalue, e.DataTyp)
-	case ET_IConst:
-		ctx.Writef("(%d,%s)", e.Ivalue, e.DataTyp)
-	case ET_DateConst:
-		ctx.Writef("(%s,%s)", e.Svalue, e.DataTyp)
-	case ET_IntervalConst:
-		ctx.Writef("(%d %s,%s)", e.Ivalue, e.Svalue, e.DataTyp)
-	case ET_BConst:
-		ctx.Writef("(%v,%s)", e.Bvalue, e.DataTyp)
-	case ET_FConst:
-		ctx.Writef("(%v,%s)", e.Fvalue, e.DataTyp)
-	case ET_DecConst:
-		ctx.Writef("(%v,%s)", e.Svalue, e.DataTyp)
+	case ET_Const:
+		switch e.ConstValue.Type {
+		case ConstTypeString:
+			ctx.Writef("(%s,%s)", e.ConstValue.String, e.DataTyp)
+		case ConstTypeInteger:
+			ctx.Writef("(%d,%s)", e.ConstValue.Integer, e.DataTyp)
+		case ConstTypeDate:
+			ctx.Writef("(%s,%s)", e.ConstValue.Date, e.DataTyp)
+		case ConstTypeInterval:
+			ctx.Writef("(%d %s,%s)", e.ConstValue.Interval.Value, e.ConstValue.Interval.Unit, e.DataTyp)
+		case ConstTypeBoolean:
+			ctx.Writef("(%v,%s)", e.ConstValue.Boolean, e.DataTyp)
+		case ConstTypeFloat:
+			ctx.Writef("(%v,%s)", e.ConstValue.Float, e.DataTyp)
+		case ConstTypeDecimal:
+			ctx.Writef("(%v,%s)",
+				e.ConstValue.Decimal, e.DataTyp)
+		case ConstTypeNull:
+			ctx.Writef("(NULL,%s)", e.DataTyp)
+		}
 	case ET_TABLE:
 		ctx.Writef("%s.%s", e.Database, e.Table)
 	case ET_Join:
@@ -403,57 +343,8 @@ func (e *Expr) Format(ctx *FormatCtx) {
 		e.Children[1].Format(ctx)
 
 	case ET_Func:
-		switch e.SubTyp {
-		case ET_Invalid:
-			panic("usp invalid expr")
-		case ET_Between:
-			e.Children[0].Format(ctx)
-			ctx.Write(" between ")
-			e.Children[1].Format(ctx)
-			ctx.Write(" and ")
-			e.Children[2].Format(ctx)
-		case ET_Case:
-			ctx.Write("case ")
-			if e.Children[0] != nil {
-				e.Children[0].Format(ctx)
-				ctx.Writeln()
-			}
-			for i := 2; i < len(e.Children); i += 2 {
-				ctx.Write(" when")
-				e.Children[i].Format(ctx)
-				ctx.Write(" then ")
-				e.Children[i+1].Format(ctx)
-				ctx.Writeln()
-			}
-			if e.Children[1] != nil {
-				ctx.Write(" else ")
-				e.Children[1].Format(ctx)
-				ctx.Writeln()
-			}
-			ctx.Write("end")
-		case ET_In, ET_NotIn:
-			e.Children[0].Format(ctx)
-			if e.SubTyp == ET_NotIn {
-				ctx.Write(" not in ")
-			} else {
-				ctx.Write(" in ")
-			}
-
-			ctx.Write("(")
-			for i := 1; i < len(e.Children); i++ {
-				if i > 1 {
-					ctx.Write(",")
-				}
-				e.Children[i].Format(ctx)
-			}
-			ctx.Write(")")
-		case ET_Exists:
-			ctx.Writef("exists(")
-			e.Children[0].Format(ctx)
-			ctx.Write(")")
-
-		case ET_SubFunc:
-			ctx.Writef("%s(", e.Svalue)
+		if e.FunImpl.IsFunction() {
+			ctx.Writef("%s(", e.ConstValue.String)
 			for idx, child := range e.Children {
 				if idx > 0 {
 					ctx.Write(", ")
@@ -463,12 +354,60 @@ func (e *Expr) Format(ctx *FormatCtx) {
 			ctx.Write(")")
 			ctx.Write("->")
 			ctx.Writef("%s", e.DataTyp)
-		default:
-			//binary operator
-			e.Children[0].Format(ctx)
-			op := e.SubTyp.String()
-			ctx.Writef(" %s ", op)
-			e.Children[1].Format(ctx)
+		} else {
+			switch e.FunImpl._name {
+			case FuncBetween:
+				e.Children[0].Format(ctx)
+				ctx.Write(" between ")
+				e.Children[1].Format(ctx)
+				ctx.Write(" and ")
+				e.Children[2].Format(ctx)
+			case FuncCase:
+				ctx.Write("case ")
+				if e.Children[0] != nil {
+					e.Children[0].Format(ctx)
+					ctx.Writeln()
+				}
+				for i := 2; i < len(e.Children); i += 2 {
+					ctx.Write(" when")
+					e.Children[i].Format(ctx)
+					ctx.Write(" then ")
+					e.Children[i+1].Format(ctx)
+					ctx.Writeln()
+				}
+				if e.Children[1] != nil {
+					ctx.Write(" else ")
+					e.Children[1].Format(ctx)
+					ctx.Writeln()
+				}
+				ctx.Write("end")
+			case FuncIn, FuncNotIn:
+				e.Children[0].Format(ctx)
+				if e.FunImpl._name == FuncNotIn {
+					ctx.Write(" not in ")
+				} else {
+					ctx.Write(" in ")
+				}
+
+				ctx.Write("(")
+				for i := 1; i < len(e.Children); i++ {
+					if i > 1 {
+						ctx.Write(",")
+					}
+					e.Children[i].Format(ctx)
+				}
+				ctx.Write(")")
+			case FuncExists:
+				ctx.Writef("exists(")
+				e.Children[0].Format(ctx)
+				ctx.Write(")")
+			default:
+				//binary operator
+				e.Children[0].Format(ctx)
+				op := e.FunImpl._name
+				ctx.Writef(" %s ", op)
+				e.Children[1].Format(ctx)
+			}
 		}
 	case ET_Subquery:
 		ctx.Write("subquery(")
@@ -504,21 +443,30 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 				e.Table, e.Name,
 				e.ColRef))
 		}
-
-	case ET_SConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s)", e.Svalue))
-	case ET_IConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%d)", e.Ivalue))
-	case ET_DateConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s)", e.Svalue))
-	case ET_IntervalConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%d %s)", e.Ivalue, e.Svalue))
-	case ET_BConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Bvalue))
-	case ET_FConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%v)", e.Fvalue))
-	case ET_DecConst:
-		tree.AddMetaNode(head, fmt.Sprintf("(%s %d %d)", e.Svalue, e.DataTyp.Width, e.DataTyp.Scale))
+	case ET_Const:
+		var value string
+		switch e.ConstValue.Type {
+		case ConstTypeString:
+			value = fmt.Sprintf("'%s'", e.ConstValue.String)
+		case ConstTypeInteger:
+			value = fmt.Sprintf("%d", e.ConstValue.Integer)
+		case ConstTypeDate:
+			value = fmt.Sprintf("'%s'", e.ConstValue.Date)
+		case ConstTypeInterval:
+			value = fmt.Sprintf("INTERVAL %d %s", e.ConstValue.Interval.Value, e.ConstValue.Interval.Unit)
+		case ConstTypeBoolean:
+			value = fmt.Sprintf("%v", e.ConstValue.Boolean)
+		case ConstTypeFloat:
+			value = fmt.Sprintf("%f", e.ConstValue.Float)
+		case ConstTypeDecimal:
+			value = fmt.Sprintf("(%s %d %d)",
+				e.ConstValue.Decimal,
+				e.DataTyp.Width,
+				e.DataTyp.Scale)
+		case ConstTypeNull:
+			value = "NULL"
+		}
+		tree.AddMetaNode(head, fmt.Sprintf("(%s)", value))
 	case ET_TABLE:
 		tree.AddNode(fmt.Sprintf("%s.%s", e.Database, e.Table))
 	case ET_Join:
@@ -536,50 +484,51 @@ func (e *Expr) Print(tree treeprint.Tree, meta string) {
 		e.Children[1].Print(branch, "")
 	case ET_Func:
 		var branch treeprint.Tree
-		switch e.SubTyp {
-		case ET_Invalid:
-			panic("usp invalid expr")
-		case ET_Between:
-			branch = tree.AddMetaBranch(head, e.SubTyp.String())
-			e.Children[0].Print(branch, "")
-			e.Children[1].Print(branch, "")
-			e.Children[2].Print(branch, "")
-		case ET_Case:
-			branch = tree.AddMetaBranch(head, e.SubTyp.String())
-			if e.Children[0] != nil {
-				e.Children[0].Print(branch, "")
-			}
-			when := branch.AddBranch("when")
-			for i := 1; i < len(e.Children); i += 2 {
-				e.Children[i].Print(when, "")
-				e.Children[i+1].Print(when, "")
-			}
-			if e.Children[0] != nil {
-				e.Children[0].Print(branch, "")
-			}
-		case ET_In, ET_NotIn:
-			branch = tree.AddMetaBranch(head, e.SubTyp)
-			for _, child := range e.Children {
-				child.Print(branch, "")
-			}
-		case ET_Exists:
-			branch = tree.AddMetaBranch(head, e.SubTyp)
-			e.Children[0].Print(branch, "")
-		case ET_SubFunc:
+		if e.FunImpl.IsFunction() {
 			dist := ""
-			if e.AggrTyp == DISTINCT {
+			if e.FunctionInfo.FunImpl._aggrType == DISTINCT {
 				dist = "(distinct)"
 			}
-			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s %s", e.Svalue, dist))
+			branch = tree.AddMetaBranch(head, fmt.Sprintf("%s %s", e.ConstValue.String, dist))
 			for _, child := range e.Children {
 				child.Print(branch, "")
 			}
-		default:
-			//binary operator
-			branch = tree.AddMetaBranch(head, e.SubTyp)
-			e.Children[0].Print(branch, "")
-			e.Children[1].Print(branch, "")
+		} else {
+			switch e.FunImpl._name {
+			case FuncBetween:
+				branch = tree.AddMetaBranch(head, e.FunImpl._name)
+				e.Children[0].Print(branch, "")
+				e.Children[1].Print(branch, "")
+				e.Children[2].Print(branch, "")
+			case FuncCase:
+				branch = tree.AddMetaBranch(head, e.FunImpl._name)
+				if e.Children[0] != nil {
+					e.Children[0].Print(branch, "")
+				}
+				when := branch.AddBranch("when")
+				for i := 1; i < len(e.Children); i += 2 {
+					e.Children[i].Print(when, "")
+					e.Children[i+1].Print(when, "")
+				}
+				if e.Children[0] != nil {
+					e.Children[0].Print(branch, "")
+				}
+			case FuncIn, FuncNotIn:
+				branch = tree.AddMetaBranch(head, e.FunImpl._name)
+				for _, child := range e.Children {
+					child.Print(branch, "")
+				}
+			case FuncExists:
+				branch = tree.AddMetaBranch(head, e.FunImpl._name)
+				e.Children[0].Print(branch, "")
+			default:
+				//binary operator
+				branch = tree.AddMetaBranch(head, e.FunImpl._name)
+				e.Children[0].Print(branch, "")
+				e.Children[1].Print(branch, "")
+			}
 		}
+
 	case ET_Subquery:
 		branch := tree.AddBranch("subquery(")
 		e.SubBuilder.Print(branch)
@@ -636,10 +585,10 @@ func checkExprs(e ...*Expr) {
 		if expr == nil {
 			continue
 		}
-		if expr.Typ == ET_Func && expr.SubTyp == ET_Invalid {
+		if expr.Typ == ET_Func && expr.FunImpl._name == "" {
 			panic("xxx")
 		}
-		if expr.Typ == ET_Func && expr.SubTyp == ET_Between {
+		if expr.Typ == ET_Func && expr.FunImpl._name == FuncBetween {
 			if len(expr.Children) != 3 {
 				panic("invalid between")
 			}
@@ -668,7 +617,7 @@ func collectFilterExprs(root *PhysicalOperator) []*Expr {
 
 func splitExprByAnd(expr *Expr) []*Expr {
 	if expr.Typ == ET_Func {
-		if expr.SubTyp == ET_And {
+		if expr.FunImpl._name == FuncAnd {
 			return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
 		}
 	}
@@ -688,7 +637,7 @@ func splitExprsByAnd(exprs []*Expr) []*Expr {
 
 func splitExprByOr(expr *Expr) []*Expr {
 	if expr.Typ == ET_Func {
-		if expr.SubTyp == ET_Or {
+		if expr.FunImpl._name == FuncOr {
 			return append(splitExprByOr(expr.Children[0]), splitExprByOr(expr.Children[1])...)
 		}
 	}
@@ -697,7 +646,7 @@ func splitExprByOr(expr *Expr) []*Expr {
 
 func andExpr(a, b *Expr) *Expr {
 	binder := FunctionBinder{}
-	return binder.BindScalarFunc(ET_And.String(), []*Expr{a, b}, ET_And, ET_And.isOperator())
+	return binder.BindScalarFunc(FuncAnd, []*Expr{a, b}, IsOperator(FuncAnd))
 }
 
 func combineExprsByAnd(exprs ...*Expr) *Expr {
@@ -714,7 +663,7 @@ func combineExprsByAnd(exprs ...*Expr) *Expr {
 
 func orExpr(a, b *Expr) *Expr {
 	binder := FunctionBinder{}
-	return binder.BindScalarFunc(ET_Or.String(), []*Expr{a, b}, ET_Or, ET_Or.isOperator())
+	return binder.BindScalarFunc(FuncOr, []*Expr{a, b}, IsOperator(FuncOr))
 }
 
 func combineExprsByOr(exprs ...*Expr) *Expr {
@@ -758,21 +707,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 		return expr, false
 
 	case ET_Func:
-		switch expr.SubTyp {
-		case ET_And, ET_Equal, ET_Like, ET_GreaterEqual, ET_Less, ET_NotEqual:
-			left, leftHasCorr := deceaseDepth(expr.Children[0])
-			hasCorCol = hasCorCol || leftHasCorr
-			right, rightHasCorr := deceaseDepth(expr.Children[1])
-			hasCorCol = hasCorCol || rightHasCorr
-			return &Expr{
-				Typ:      expr.Typ,
-				SubTyp:   expr.SubTyp,
-				Svalue:   expr.SubTyp.String(),
-				DataTyp:  expr.DataTyp,
-				Children: []*Expr{left, right},
-				FunImpl:  expr.FunImpl,
-			}, hasCorCol
-		case ET_SubFunc:
+		if expr.FunImpl.IsFunction() {
 			args := make([]*Expr, 0, len(expr.Children))
 			for _, child := range expr.Children {
 				newChild, yes := deceaseDepth(child)
@@ -780,15 +715,33 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				args = append(args, newChild)
 			}
 			return &Expr{
-				Typ:      expr.Typ,
-				SubTyp:   expr.SubTyp,
-				Svalue:   expr.Svalue,
-				DataTyp:  expr.DataTyp,
-				Children: args,
-				FunImpl:  expr.FunImpl,
+				Typ:        expr.Typ,
+				ConstValue: NewStringConst(expr.ConstValue.String),
+				DataTyp:    expr.DataTyp,
+				Children:   args,
+				FunctionInfo: FunctionInfo{
+					FunImpl: expr.FunImpl,
+				},
 			}, hasCorCol
-		default:
-			panic(fmt.Sprintf("usp %v", expr.SubTyp))
+		} else {
+			switch GetOperatorType(expr.FunImpl._name) {
+			case OpTypeCompare, OpTypeLike, OpTypeLogical:
+				left, leftHasCorr := deceaseDepth(expr.Children[0])
+				hasCorCol = hasCorCol || leftHasCorr
+				right, rightHasCorr := deceaseDepth(expr.Children[1])
+				hasCorCol = hasCorCol || rightHasCorr
+				return &Expr{
+					Typ:        expr.Typ,
+					ConstValue: NewStringConst(expr.FunImpl._name),
+					DataTyp:    expr.DataTyp,
+					Children:   []*Expr{left, right},
+					FunctionInfo: FunctionInfo{
+						FunImpl: expr.FunImpl,
+					},
+				}, hasCorCol
+			default:
+				panic(fmt.Sprintf("usp %v", expr.FunImpl._name))
+			}
 		}
 	default:
 		panic(fmt.Sprintf("usp %v", expr.Typ))
@@ -805,7 +758,7 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 			e.ColRef = newBind
 		}
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 	case ET_Func:
 	case ET_Orderby:
 	default:
@@ -826,7 +779,7 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 		if index == e.ColRef[0] {
 			e = realExprs[e.ColRef[1]]
 		}
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -844,7 +797,7 @@ func referTo(e *Expr, index uint64) bool {
 	switch e.Typ {
 	case ET_Column:
 		return index == e.ColRef[0]
-	case ET_SConst, ET_IConst, ET_DateConst, ET_FConst, ET_DecConst, ET_NConst, ET_BConst:
+	case ET_Const:
 
 	case ET_Func:
 	default:
@@ -866,7 +819,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 	case ET_Column:
 		return index == e.ColRef[0]
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 		return true
 	case ET_Func:
 	default:
@@ -890,7 +843,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 		if _, has := rightTags[e.ColRef[0]]; has {
 			ret |= RightSide
 		}
-	case ET_SConst, ET_DateConst, ET_IConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 	case ET_Func:
 	default:
 		panic("usp")
@@ -917,7 +870,7 @@ func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr 
 			e.ColRef[1] = uint64(pos)
 		}
 
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 	case ET_Func:
 	case ET_Orderby:
 	default:
@@ -944,7 +897,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 		set.insert(e.ColRef)
 
 	case ET_Func:
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 	case ET_Orderby:
 	default:
 		panic("usp")
@@ -1061,7 +1014,7 @@ func collectTableRefers(e *Expr, set UnorderedSet) {
 	case ET_Column:
 		index := e.ColRef[0]
 		set.insert(index)
-	case ET_SConst, ET_IConst, ET_DateConst, ET_IntervalConst, ET_BConst, ET_FConst, ET_NConst, ET_DecConst:
+	case ET_Const:
 
 	case ET_Func:
 

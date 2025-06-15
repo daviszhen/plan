@@ -292,7 +292,12 @@ func addRefCountOnFirstProject(colRefs ReferredColumnBindMap, root *LogicalOpera
 	if root != nil && root.Typ == LOT_Project {
 		for i := 0; i < len(root.Projects); i++ {
 			bind := ColumnBind{root.Index, uint64(i)}
-			colRefs.addExpr(&Expr{Typ: ET_Column, ColRef: bind})
+			colRefs.addExpr(&Expr{
+				Typ: ET_Column,
+				BaseInfo: BaseInfo{
+					ColRef: bind,
+				},
+			})
 		}
 	} else {
 		panic("no project")
@@ -665,12 +670,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 			childExpr := root.Children[0].Outputs[childPos]
 			root.Outputs = append(root.Outputs, &Expr{
-				Typ:      ET_Column,
-				DataTyp:  childExpr.DataTyp,
-				Database: childExpr.Database,
-				Table:    childExpr.Table,
-				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				Typ:     ET_Column,
+				DataTyp: childExpr.DataTyp,
+				BaseInfo: BaseInfo{
+					Database: childExpr.Database,
+					Table:    childExpr.Table,
+					Name:     childExpr.Name,
+					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				},
 			})
 		}
 	case LOT_Order:
@@ -700,12 +707,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 			childExpr := root.Children[0].Outputs[childPos]
 			root.Outputs = append(root.Outputs, &Expr{
-				Typ:      ET_Column,
-				DataTyp:  childExpr.DataTyp,
-				Database: childExpr.Database,
-				Table:    childExpr.Table,
-				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				Typ:     ET_Column,
+				DataTyp: childExpr.DataTyp,
+				BaseInfo: BaseInfo{
+					Database: childExpr.Database,
+					Table:    childExpr.Table,
+					Name:     childExpr.Name,
+					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				},
 			})
 		}
 
@@ -722,12 +731,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			if bind.table() == root.Index {
 				proj := root.Projects[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
-					Typ:      ET_Column,
-					DataTyp:  proj.DataTyp,
-					Database: proj.Database,
-					Table:    proj.Table,
-					Name:     proj.Name,
-					ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+					Typ:     ET_Column,
+					DataTyp: proj.DataTyp,
+					BaseInfo: BaseInfo{
+						Database: proj.Database,
+						Table:    proj.Table,
+						Name:     proj.Name,
+						ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+					},
 				})
 				continue
 			}
@@ -748,12 +759,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 			childExpr := root.Children[0].Outputs[childPos]
 			root.Outputs = append(root.Outputs, &Expr{
-				Typ:      ET_Column,
-				DataTyp:  childExpr.DataTyp,
-				Database: childExpr.Database,
-				Table:    childExpr.Table,
-				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				Typ:     ET_Column,
+				DataTyp: childExpr.DataTyp,
+				BaseInfo: BaseInfo{
+					Database: childExpr.Database,
+					Table:    childExpr.Table,
+					Name:     childExpr.Name,
+					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				},
 			})
 		}
 
@@ -773,12 +786,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			if bind.table() == root.Index {
 				groupby := root.GroupBys[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
-					Typ:      ET_Column,
-					DataTyp:  groupby.DataTyp,
-					Database: groupby.Database,
-					Table:    groupby.Table,
-					Name:     groupby.Name,
-					ColRef:   ColumnBind{uint64(ThisNode), uint64(colIdx)},
+					Typ:     ET_Column,
+					DataTyp: groupby.DataTyp,
+					BaseInfo: BaseInfo{
+						Database: groupby.Database,
+						Table:    groupby.Table,
+						Name:     groupby.Name,
+						ColRef:   ColumnBind{uint64(ThisNode), uint64(colIdx)},
+					},
 				})
 				continue
 			}
@@ -790,12 +805,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 				rIdx++
 				agg := root.Aggs[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
-					Typ:      ET_Column,
-					DataTyp:  agg.DataTyp,
-					Database: agg.Database,
-					Table:    agg.Table,
-					Name:     agg.Name,
-					ColRef:   ColumnBind{uint64(ThisNode), uint64(colIdx)},
+					Typ:     ET_Column,
+					DataTyp: agg.DataTyp,
+					BaseInfo: BaseInfo{
+						Database: agg.Database,
+						Table:    agg.Table,
+						Name:     agg.Name,
+						ColRef:   ColumnBind{uint64(ThisNode), uint64(colIdx)},
+					},
 				})
 				continue
 			}
@@ -821,12 +838,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 			childExpr := root.Children[0].Outputs[childPos]
 			root.Outputs = append(root.Outputs, &Expr{
-				Typ:      ET_Column,
-				DataTyp:  childExpr.DataTyp,
-				Database: childExpr.Database,
-				Table:    childExpr.Table,
-				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				Typ:     ET_Column,
+				DataTyp: childExpr.DataTyp,
+				BaseInfo: BaseInfo{
+					Database: childExpr.Database,
+					Table:    childExpr.Table,
+					Name:     childExpr.Name,
+					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				},
 			})
 		}
 
@@ -845,16 +864,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			rset := make(ColumnBindSet)
 			switch cond.Typ {
 			case ET_Func:
-				switch cond.SubTyp {
-				case ET_In, ET_NotIn:
-					collectColRefs(cond.Children[0], lset)
-					collectColRefs(cond.Children[1], rset)
-				case ET_SubFunc:
-				case ET_And, ET_Or, ET_Equal, ET_NotEqual, ET_Like, ET_NotLike, ET_GreaterEqual, ET_Less, ET_Greater:
-					collectColRefs(cond.Children[0], lset)
-					collectColRefs(cond.Children[1], rset)
-				default:
-					panic(fmt.Sprintf("usp %v", cond.SubTyp))
+				if cond.FunImpl.IsOperator() {
+					switch GetOperatorType(cond.FunImpl._name) {
+					case OpTypeCompare, OpTypeLike, OpTypeLogical:
+						collectColRefs(cond.Children[0], lset)
+						collectColRefs(cond.Children[1], rset)
+					default:
+						panic(fmt.Sprintf("usp %v", cond.FunImpl._name))
+					}
 				}
 			default:
 				panic(fmt.Sprintf("usp operator type %d", cond.Typ))
@@ -904,24 +921,28 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			}
 
 			root.Outputs = append(root.Outputs, &Expr{
-				Typ:      ET_Column,
-				DataTyp:  childExpr.DataTyp,
-				Database: childExpr.Database,
-				Table:    childExpr.Table,
-				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				Typ:     ET_Column,
+				DataTyp: childExpr.DataTyp,
+				BaseInfo: BaseInfo{
+					Database: childExpr.Database,
+					Table:    childExpr.Table,
+					Name:     childExpr.Name,
+					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				},
 			})
 		}
 		for _, bind := range binds {
 			if bind.table() == root.Index {
 				cond := root.OnConds[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
-					Typ:      ET_Column,
-					DataTyp:  cond.DataTyp,
-					Database: cond.Database,
-					Table:    cond.Table,
-					Name:     cond.Name,
-					ColRef:   ColumnBind{uint64(ThisNode), bind.column()},
+					Typ:     ET_Column,
+					DataTyp: cond.DataTyp,
+					BaseInfo: BaseInfo{
+						Database: cond.Database,
+						Table:    cond.Table,
+						Name:     cond.Name,
+						ColRef:   ColumnBind{uint64(ThisNode), bind.column()},
+					},
 				})
 				continue
 			}
@@ -955,12 +976,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			colName := root.Columns[bind.column()]
 			idx := column2Idx[colName]
 			e := &Expr{
-				Typ:      ET_Column,
-				DataTyp:  columnTyps[idx],
-				Database: root.Database,
-				Table:    root.Table,
-				Name:     colName,
-				ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+				Typ:     ET_Column,
+				DataTyp: columnTyps[idx],
+				BaseInfo: BaseInfo{
+					Database: root.Database,
+					Table:    root.Table,
+					Name:     colName,
+					ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
+				},
 			}
 			outputs = append(outputs, e)
 		}
@@ -993,12 +1016,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 			childExpr := root.Children[0].Outputs[childPos]
 			root.Outputs = append(root.Outputs, &Expr{
-				Typ:      ET_Column,
-				DataTyp:  childExpr.DataTyp,
-				Database: childExpr.Database,
-				Table:    childExpr.Table,
-				Name:     childExpr.Name,
-				ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				Typ:     ET_Column,
+				DataTyp: childExpr.DataTyp,
+				BaseInfo: BaseInfo{
+					Database: childExpr.Database,
+					Table:    childExpr.Table,
+					Name:     childExpr.Name,
+					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
+				},
 			})
 		}
 	default:

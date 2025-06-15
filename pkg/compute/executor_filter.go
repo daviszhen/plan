@@ -15,10 +15,10 @@ func (run *Runner) filterInit() error {
 	if err != nil {
 		return err
 	}
-	run.state = &OperatorState{
-		filterExec: filterExec,
-		filterSel:  chunk.NewSelectVector(util.DefaultVectorSize),
-	}
+
+	run.state.filterExec = filterExec
+	run.state.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
+
 	return nil
 }
 
@@ -38,13 +38,12 @@ func initFilterExec(filters []*Expr) (*ExprExec, error) {
 				}
 				binder := FunctionBinder{}
 				andFilter = binder.BindScalarFunc(
-					ET_And.String(),
+					FuncAnd,
 					[]*Expr{
 						andFilter,
 						filter,
 					},
-					ET_And,
-					ET_And.isOperator(),
+					IsOperator(FuncAnd),
 				)
 			}
 		}
@@ -73,10 +72,10 @@ func (run *Runner) runFilterExec(input *chunk.Chunk, output *chunk.Chunk, filter
 
 	if count == input.Card() {
 		//reference
-		output.ReferenceIndice(input, run.outputIndice)
+		output.ReferenceIndice(input, run.state.outputIndice)
 	} else {
 		//slice
-		output.SliceIndice(input, run.state.filterSel, count, 0, run.outputIndice)
+		output.SliceIndice(input, run.state.filterSel, count, 0, run.state.outputIndice)
 	}
 	//if !filterOnLocal {
 	//	//fmt.Println("filter read child 5", output.card())

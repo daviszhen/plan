@@ -10,7 +10,6 @@ import (
 )
 
 func (run *Runner) aggrInit() error {
-	run.state = &OperatorState{}
 	//if len(run.op.GroupBys) == 0 /*&& groupingSet*/ {
 	//	run.hAggr = NewHashAggr(
 	//		run.outputTypes,
@@ -25,9 +24,9 @@ func (run *Runner) aggrInit() error {
 		if len(run.op.GroupBys) == 0 {
 			//group by 1
 			constExpr := &Expr{
-				Typ:     ET_IConst,
-				DataTyp: common.IntegerType(),
-				Ivalue:  1,
+				Typ:        ET_Const,
+				DataTyp:    common.IntegerType(),
+				ConstValue: NewIntegerConst(1),
 			}
 			run.op.GroupBys = append(run.op.GroupBys, constExpr)
 
@@ -41,15 +40,17 @@ func (run *Runner) aggrInit() error {
 			refChildrenOutput = append(refChildrenOutput, &Expr{
 				Typ:     ET_Column,
 				DataTyp: ref.DataTyp,
-				ColRef: ColumnBind{
-					math.MaxUint64,
-					uint64(i),
+				BaseInfo: BaseInfo{
+					ColRef: ColumnBind{
+						math.MaxUint64,
+						uint64(i),
+					},
 				},
 			})
 		}
 
-		run.hAggr = NewHashAggr(
-			run.outputTypes,
+		run.state.hAggr = NewHashAggr(
+			run.state.outputTypes,
 			run.op.Aggs,
 			run.op.GroupBys,
 			nil,
@@ -57,15 +58,15 @@ func (run *Runner) aggrInit() error {
 			refChildrenOutput,
 		)
 		if run.op.Children[0].Typ == POT_Filter {
-			run.hAggr._printHash = true
+			run.state.hAggr._printHash = true
 		}
 		//groupby exprs + param exprs of aggr functions + reference to the output exprs of children
 		groupExprs := make([]*Expr, 0)
-		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._groups...)
-		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._paramExprs...)
-		groupExprs = append(groupExprs, run.hAggr._groupedAggrData._refChildrenOutput...)
+		groupExprs = append(groupExprs, run.state.hAggr._groupedAggrData._groups...)
+		groupExprs = append(groupExprs, run.state.hAggr._groupedAggrData._paramExprs...)
+		groupExprs = append(groupExprs, run.state.hAggr._groupedAggrData._refChildrenOutput...)
 		run.state.groupbyWithParamsExec = NewExprExec(groupExprs...)
-		run.state.groupbyExec = NewExprExec(run.hAggr._groupedAggrData._groups...)
+		run.state.groupbyExec = NewExprExec(run.state.hAggr._groupedAggrData._groups...)
 		run.state.filterExec = NewExprExec(run.op.Filters...)
 		run.state.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
 		run.state.outputExec = NewExprExec(run.op.Outputs...)
@@ -89,7 +90,7 @@ func (run *Runner) aggrInit() error {
 func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var err error
 	var res OperatorResult
-	if run.hAggr._has == HAS_INIT {
+	if run.state.hAggr._has == HAS_INIT {
 		cnt := 0
 		for {
 			childChunk := &chunk.Chunk{}
@@ -116,9 +117,9 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 			cnt += childChunk.Card()
 
 			typs := make([]common.LType, 0)
-			typs = append(typs, run.hAggr._groupedAggrData._groupTypes...)
-			typs = append(typs, run.hAggr._groupedAggrData._payloadTypes...)
-			typs = append(typs, run.hAggr._groupedAggrData._childrenOutputTypes...)
+			typs = append(typs, run.state.hAggr._groupedAggrData._groupTypes...)
+			typs = append(typs, run.state.hAggr._groupedAggrData._payloadTypes...)
+			typs = append(typs, run.state.hAggr._groupedAggrData._childrenOutputTypes...)
 			groupChunk := &chunk.Chunk{}
 			groupChunk.Init(typs, util.DefaultVectorSize)
 			err = run.state.groupbyWithParamsExec.executeExprs([]*chunk.Chunk{childChunk, nil, nil}, groupChunk)
@@ -127,15 +128,15 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 			}
 
 			//groupChunk.print()
-			run.hAggr.Sink(groupChunk)
+			run.state.hAggr.Sink(groupChunk)
 
 		}
-		run.hAggr.Finalize()
-		run.hAggr._has = HAS_SCAN
+		run.state.hAggr.Finalize()
+		run.state.hAggr._has = HAS_SCAN
 		fmt.Println("get build child cnt", cnt)
-		fmt.Println("tuple collection size", run.hAggr._groupings[0]._tableData._finalizedHT._dataCollection._count)
+		fmt.Println("tuple collection size", run.state.hAggr._groupings[0]._tableData._finalizedHT._dataCollection._count)
 	}
-	if run.hAggr._has == HAS_SCAN {
+	if run.state.hAggr._has == HAS_SCAN {
 		if run.state.haScanState == nil {
 			run.state.haScanState = NewHashAggrScanState()
 			err = run.initChildren()
@@ -154,14 +155,14 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 			}
 
 			groupAddAggrTypes := make([]common.LType, 0)
-			groupAddAggrTypes = append(groupAddAggrTypes, run.hAggr._groupedAggrData._groupTypes...)
-			groupAddAggrTypes = append(groupAddAggrTypes, run.hAggr._groupedAggrData._aggrReturnTypes...)
+			groupAddAggrTypes = append(groupAddAggrTypes, run.state.hAggr._groupedAggrData._groupTypes...)
+			groupAddAggrTypes = append(groupAddAggrTypes, run.state.hAggr._groupedAggrData._aggrReturnTypes...)
 			groupAndAggrChunk := &chunk.Chunk{}
 			groupAndAggrChunk.Init(groupAddAggrTypes, util.DefaultVectorSize)
-			util.AssertFunc(len(run.hAggr._groupedAggrData._groupingFuncs) == 0)
+			util.AssertFunc(len(run.state.hAggr._groupedAggrData._groupingFuncs) == 0)
 			childChunk := &chunk.Chunk{}
-			childChunk.Init(run.hAggr._groupedAggrData._childrenOutputTypes, util.DefaultVectorSize)
-			res = run.hAggr.GetData(run.state.haScanState, groupAndAggrChunk, childChunk)
+			childChunk.Init(run.state.hAggr._groupedAggrData._childrenOutputTypes, util.DefaultVectorSize)
+			res = run.state.hAggr.GetData(run.state.haScanState, groupAndAggrChunk, childChunk)
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil
 			}
@@ -181,11 +182,11 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 
 			//aggrStatesChunk.print()
 			filterInputTypes := make([]common.LType, 0)
-			filterInputTypes = append(filterInputTypes, run.hAggr._groupedAggrData._aggrReturnTypes...)
+			filterInputTypes = append(filterInputTypes, run.state.hAggr._groupedAggrData._aggrReturnTypes...)
 			filterInputChunk := &chunk.Chunk{}
 			filterInputChunk.Init(filterInputTypes, util.DefaultVectorSize)
-			for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
-				filterInputChunk.Data[i].Reference(groupAndAggrChunk.Data[run.hAggr._groupedAggrData.GroupCount()+i])
+			for i := 0; i < len(run.state.hAggr._groupedAggrData._aggregates); i++ {
+				filterInputChunk.Data[i].Reference(groupAndAggrChunk.Data[run.state.hAggr._groupedAggrData.GroupCount()+i])
 			}
 			filterInputChunk.SetCard(groupAndAggrChunk.Card())
 			var count int
@@ -222,7 +223,7 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 					aggrStatesChunkIndice = append(aggrStatesChunkIndice, i)
 				}
 				childChunk2 = &chunk.Chunk{}
-				childChunk2.Init(run.children[0].outputTypes, util.DefaultVectorSize)
+				childChunk2.Init(run.children[0].state.outputTypes, util.DefaultVectorSize)
 				aggrStatesChunk2 = &chunk.Chunk{}
 				aggrStatesChunk2.Init(groupAddAggrTypes, util.DefaultVectorSize)
 
@@ -239,12 +240,12 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 			if run.state.ungroupAggr {
 				//remove const groupby expr
 				aggrStatesTyps := make([]common.LType, 0)
-				aggrStatesTyps = append(aggrStatesTyps, run.hAggr._groupedAggrData._aggrReturnTypes...)
+				aggrStatesTyps = append(aggrStatesTyps, run.state.hAggr._groupedAggrData._aggrReturnTypes...)
 				aggrStatesChunk3 = &chunk.Chunk{}
 				aggrStatesChunk3.Init(aggrStatesTyps, util.DefaultVectorSize)
 
-				for i := 0; i < len(run.hAggr._groupedAggrData._aggregates); i++ {
-					aggrStatesChunk3.Data[i].Reference(aggrStatesChunk2.Data[run.hAggr._groupedAggrData.GroupCount()+i])
+				for i := 0; i < len(run.state.hAggr._groupedAggrData._aggregates); i++ {
+					aggrStatesChunk3.Data[i].Reference(aggrStatesChunk2.Data[run.state.hAggr._groupedAggrData.GroupCount()+i])
 				}
 				aggrStatesChunk3.SetCard(aggrStatesChunk2.Card())
 			} else {
@@ -293,6 +294,6 @@ func (run *Runner) aggrExec(output *chunk.Chunk, state *OperatorState) (Operator
 }
 
 func (run *Runner) aggrClose() error {
-	run.hAggr = nil
+	run.state.hAggr = nil
 	return nil
 }

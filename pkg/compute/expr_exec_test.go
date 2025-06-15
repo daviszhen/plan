@@ -222,7 +222,7 @@ import (
 //}
 
 func Test_testExecute2(t *testing.T) {
-	_, pplan := preparePhyPlan(t, 20)
+	_, pplan := preparePhyPlan(t, 20, nil)
 	exprs := collectFilterExprs(pplan)
 	compExprs := findExpr(exprs, func(expr *Expr) bool {
 		if expr == nil {
