@@ -55,7 +55,7 @@ func (bind ColumnBind) less(other ColumnBind) bool {
 }
 
 func (bind ColumnBind) String() string {
-	return fmt.Sprintf("[%d %d]", int64(bind.table()), int64(bind.column()))
+	return fmt.Sprintf("#[%d,%d]", int64(bind.table()), int64(bind.column()))
 }
 
 func (set ColumnBindSet) find(bind ColumnBind) bool {
