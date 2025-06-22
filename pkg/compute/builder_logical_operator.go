@@ -16,11 +16,9 @@ package compute
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage"
-	"github.com/xlab/treeprint"
 )
 
 type LOT int
@@ -194,138 +192,12 @@ func (lo *LogicalOperator) EstimatedCard(txn *storage.Txn) uint64 {
 	return lo.estimatedCard
 }
 
-func (lo *LogicalOperator) Print(tree treeprint.Tree) {
-	if lo == nil {
-		return
-	}
-	switch lo.Typ {
-	case LOT_Project:
-		tree = tree.AddBranch("Project:")
-		printOutputs(tree, lo)
-		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
-		node := tree.AddMetaBranch("exprs", "")
-		listExprsToTree(node, lo.Projects)
-	case LOT_Filter:
-		tree = tree.AddBranch("Filter:")
-		printOutputs(tree, lo)
-		node := tree.AddMetaBranch("exprs", "")
-		listExprsToTree(node, lo.Filters)
-	case LOT_Scan:
-		tree = tree.AddBranch("Scan:")
-		printOutputs(tree, lo)
-		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
-		tableInfo := ""
-		if len(lo.Alias) != 0 && lo.Alias != lo.Table {
-			tableInfo = fmt.Sprintf("%v.%v %v", lo.Database, lo.Table, lo.Alias)
-		} else {
-			tableInfo = fmt.Sprintf("%v.%v", lo.Database, lo.Table)
-		}
-		tree.AddMetaNode("table", tableInfo)
-
-		printColumns := func(col2Idx map[string]int, typs []common.LType, cols []string) string {
-			t := strings.Builder{}
-			t.WriteByte('\n')
-			for i, col := range cols {
-				idx := col2Idx[col]
-				t.WriteString(fmt.Sprintf("col %d %v %v", i, col, typs[idx]))
-				t.WriteByte('\n')
-			}
-			return t.String()
-		}
-		if len(lo.Columns) > 0 {
-			tree.AddMetaNode("columns", printColumns(lo.ColName2Idx, lo.Types, lo.Columns))
-		} else {
-			panic("usp")
-		}
-		node := tree.AddBranch("filters")
-		listExprsToTree(node, lo.Filters)
-
-	case LOT_JOIN:
-		tree = tree.AddBranch(fmt.Sprintf("Join (%v):", lo.JoinTyp))
-		printOutputs(tree, lo)
-		tree.AddMetaNode("index", fmt.Sprintf("%d", lo.Index))
-		if len(lo.OnConds) > 0 {
-			node := tree.AddMetaBranch("On", "")
-			listExprsToTree(node, lo.OnConds)
-		}
-		if lo.Stats != nil {
-			tree.AddMetaNode("Stats", lo.Stats.String())
-		}
-	case LOT_AggGroup:
-		tree = tree.AddBranch("Aggregate:")
-		printOutputs(tree, lo)
-		if len(lo.GroupBys) > 0 {
-			node := tree.AddBranch(fmt.Sprintf("groupExprs, index %d", lo.Index))
-			listExprsToTree(node, lo.GroupBys)
-		}
-		if len(lo.Aggs) > 0 {
-			node := tree.AddBranch(fmt.Sprintf("aggExprs, index %d", lo.Index2))
-			listExprsToTree(node, lo.Aggs)
-		}
-		if len(lo.Filters) > 0 {
-			node := tree.AddBranch("filters")
-			listExprsToTree(node, lo.Filters)
-		}
-
-	case LOT_Order:
-		tree = tree.AddBranch("Order:")
-		printOutputs(tree, lo)
-		node := tree.AddMetaBranch("exprs", "")
-		listExprsToTree(node, lo.OrderBys)
-	case LOT_Limit:
-		tree = tree.AddBranch(fmt.Sprintf("Limit: %v", lo.Limit.String()))
-		printOutputs(tree, lo)
-	case LOT_CreateSchema:
-		tree = tree.AddBranch(fmt.Sprintf("CreateSchema: %v %v", lo.Database, lo.IfNotExists))
-	case LOT_CreateTable:
-		tree = tree.AddBranch(fmt.Sprintf("CreateTable: %v %v %v",
-			lo.Database, lo.Table, lo.IfNotExists))
-		node := tree.AddMetaBranch("colDefs", "")
-		listColDefsToTree(node, lo.ColDefs)
-		consStr := make([]string, 0)
-		for _, cons := range lo.Constraints {
-			consStr = append(consStr, cons.String())
-		}
-		tree.AddMetaNode("constraints", strings.Join(consStr, ","))
-	default:
-		panic(fmt.Sprintf("usp %v", lo.Typ))
-	}
-
-	for _, child := range lo.Children {
-		child.Print(tree)
-	}
-}
-
-func printOutputs(tree treeprint.Tree, root *LogicalOperator) {
-	if len(root.Outputs) != 0 {
-		node := tree.AddMetaBranch("outputs", "")
-		listExprsToTree(node, root.Outputs)
-	}
-
-	if len(root.Counts) != 0 {
-		node := tree.AddMetaBranch("counts", "")
-		for bind, i := range root.Counts {
-			node.AddNode(fmt.Sprintf("%v %v", bind, i))
-		}
-	}
-
-	if len(root.ColRefToPos) != 0 {
-		node := tree.AddMetaBranch("colRefToPos", "")
-		binds := root.ColRefToPos.sortByColumnBind()
-		for i, bind := range binds {
-			node.AddNode(fmt.Sprintf("%v %v", bind, i))
-		}
-	}
-}
-
 func (lo *LogicalOperator) String() string {
-	tree := treeprint.NewWithRoot("LogicalPlan:")
-	lo.Print(tree)
-	return tree.String()
-}
-
-func appendMeta(meta, s string) string {
-	return fmt.Sprintf("%s %s", meta, s)
+	ret, err := ExplainLogicalPlan(lo)
+	if err != nil {
+		panic(err)
+	}
+	return ret
 }
 
 func pushFilter(node *LogicalOperator, expr *Expr) *LogicalOperator {

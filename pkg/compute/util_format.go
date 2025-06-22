@@ -89,14 +89,12 @@ func WriteMap[K comparable, V any](ctx *FormatCtx, m map[K]V) {
 
 func WriteExprs(ctx *FormatCtx, exprs []*Expr) {
 	for _, e := range exprs {
-		e.Format(ctx)
-		ctx.Writeln()
+		ctx.Write(e.String())
 	}
 }
 
 func WriteExpr(ctx *FormatCtx, expr *Expr) {
-	expr.Format(ctx)
-	ctx.Writeln()
+	ctx.Write(expr.String())
 }
 
 type Format interface {

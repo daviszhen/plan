@@ -336,7 +336,7 @@ func genPhyPlan(txn *storage.Txn, ast *pg_query.SelectStmt) (*PhysicalOperator, 
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("Logical Plan:\n"+planStr)
+		fmt.Println("Logical Plan:\n" + planStr)
 	}
 	pp, err := builder.CreatePhyPlan(lp)
 	if err != nil {
