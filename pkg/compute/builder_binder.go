@@ -239,7 +239,7 @@ func (b *Builder) bindFuncCall(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 	ret, err = b.bindFunc(
 		name,
-		expr.String(),
+		name,
 		args,
 		argsTypes,
 		expr.AggDistinct)
@@ -379,7 +379,7 @@ func (b *Builder) bindAExpr(ctx *BindContext, iwc InWhichClause, expr *pg_query.
 		}
 	}
 
-	bindFunc, err := b.bindFunc(funcName, expr.String(), []*Expr{left, right}, []common.LType{left.DataTyp, right.DataTyp}, false)
+	bindFunc, err := b.bindFunc(funcName, funcName, []*Expr{left, right}, []common.LType{left.DataTyp, right.DataTyp}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +452,7 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		//
 		left, err = b.bindFunc(
 			funcName,
-			expr.String(),
+			funcName,
 			[]*Expr{left, cur},
 			[]common.LType{left.DataTyp, cur.DataTyp},
 			false)
@@ -562,7 +562,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	//>=
 	params := []*Expr{betExpr, left}
 	paramsTypes := []common.LType{betExpr.DataTyp, left.DataTyp}
-	ret0, err := b.bindFunc(FuncGreaterEqual, expr.String(), params, paramsTypes, false)
+	ret0, err := b.bindFunc(FuncGreaterEqual, FuncGreaterEqual, params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +570,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	//<=
 	params = []*Expr{betExpr, right}
 	paramsTypes = []common.LType{betExpr.DataTyp, right.DataTyp}
-	ret1, err := b.bindFunc(FuncLessEqual, expr.String(), params, paramsTypes, false)
+	ret1, err := b.bindFunc(FuncLessEqual, FuncLessEqual, params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +579,7 @@ func (b *Builder) bindBetweenExpr(ctx *BindContext, iwc InWhichClause, expr *pg_
 	params = []*Expr{ret0, ret1}
 	paramsTypes = []common.LType{ret0.DataTyp, ret1.DataTyp}
 
-	ret, err := b.bindFunc(FuncAnd, expr.String(), params, paramsTypes, false)
+	ret, err := b.bindFunc(FuncAnd, FuncAnd, params, paramsTypes, false)
 	if err != nil {
 		return nil, err
 	}
@@ -641,7 +641,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 
 		retExpr, err = b.bindFunc(
 			funcName,
-			expr.String(),
+			funcName,
 			[]*Expr{testExpr, subExpr},
 			[]common.LType{testExpr.DataTyp, subExpr.DataTyp},
 			false)

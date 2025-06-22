@@ -64,7 +64,9 @@ func runOps(
 	for _, op := range ops {
 
 		if conf.Debug.PrintPlan {
-			fmt.Println(op.String())
+			planStr, err := ExplainPhysicalPlan(op)
+			assert.NoError(t, err)
+			fmt.Println(planStr)
 		}
 
 		run := &Runner{
@@ -413,14 +415,16 @@ func Test_1g_q2(t *testing.T) {
 }
 
 func Test_1g_q1(t *testing.T) {
-	conf, pplan := preparePhyPlan(t, 1, nil)
-	ops := findOperator(
-		pplan,
-		func(root *PhysicalOperator) bool {
-			return wantOp(root, POT_Order)
-		},
-	)
-	runOps(t, conf, nil, ops, nil)
+	runQueryInTxn(t, func(txn *storage.Txn) {
+		conf, pplan := preparePhyPlan(t, 1, txn)
+		ops := findOperator(
+			pplan,
+			func(root *PhysicalOperator) bool {
+				return wantOp(root, POT_Order)
+			},
+		)
+		runOps(t, conf, nil, ops, txn)
+	})
 }
 
 func Test_1g_q21(t *testing.T) {

@@ -331,6 +331,13 @@ func genPhyPlan(txn *storage.Txn, ast *pg_query.SelectStmt) (*PhysicalOperator, 
 		return nil, errors.New("nil plan")
 	}
 	checkExprIsValid(lp)
+	if true {
+		planStr, err := ExplainLogicalPlan(lp)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println("Logical Plan:\n" + planStr)
+	}
 	pp, err := builder.CreatePhyPlan(lp)
 	if err != nil {
 		return nil, err
@@ -351,7 +358,11 @@ func execOps(
 
 	for _, op := range ops {
 		if conf.Debug.PrintPlan {
-			fmt.Println(op.String())
+			planStr, err := ExplainPhysicalPlan(op)
+			if err != nil {
+				return err
+			}
+			fmt.Println(planStr)
 		}
 
 		run := &Runner{
@@ -403,7 +414,11 @@ func execOps(
 			}
 		}
 		if conf.Debug.PrintPlan {
-			fmt.Println(op.String())
+			planStr, err := ExplainPhysicalPlan(op)
+			if err != nil {
+				return err
+			}
+			fmt.Println(planStr)
 		}
 		run.Close()
 	}
@@ -464,7 +479,11 @@ func (run *Runner) Run(
 	ctx context.Context,
 	writer wire.DataWriter) error {
 	if run.cfg.Debug.PrintPlan {
-		fmt.Println(run.op.String())
+		planStr, err := ExplainPhysicalPlan(run.op)
+		if err != nil {
+			return err
+		}
+		fmt.Println(planStr)
 	}
 
 	for {
