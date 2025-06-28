@@ -49,6 +49,7 @@ type DebugOptions struct {
 	PrintResult       bool `tag:"printResult"`
 	PrintPlan         bool `tag:"printPlan"`
 	Count             int  `tag:"count"`
+	CpuProfile        bool `tag:"cpuProfile"`
 }
 
 type Config struct {

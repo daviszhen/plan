@@ -56,6 +56,7 @@ func initDebugOptions() {
 	testerCfg.Debug.PrintResult = viper.GetBool("debug.printResult")
 	testerCfg.Debug.PrintPlan = viper.GetBool("debug.printPlan")
 	testerCfg.Debug.Count = viper.GetInt("debug.count")
+	testerCfg.Debug.CpuProfile = viper.GetBool("debug.cpuProfile")
 }
 
 //tpch1g cmd

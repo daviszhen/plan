@@ -38,7 +38,7 @@ CREATE TABLE NATION  ( N_NATIONKEY  INTEGER NOT NULL,
 
 ```
 copy nation
-from '/home/pengzhen/Documents/tpch-parquet/nation.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/nation.parquet'
 with (FORMAT 'parquet');
 ```
 
@@ -203,28 +203,28 @@ CREATE TABLE LINEITEM ( L_ORDERKEY    BIGINT NOT NULL,
 
 ./tester tpch1gddl --ddl "
 copy nation
-from '/home/pengzhen/Documents/tpch-parquet/nation.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/nation.parquet'
 with (FORMAT 'parquet');
 copy region
-from '/home/pengzhen/Documents/tpch-parquet/region.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/region.parquet'
 with (FORMAT 'parquet');
 copy part
-from '/home/pengzhen/Documents/tpch-parquet/part.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/part.parquet'
 with (FORMAT 'parquet');
 copy supplier
-from '/home/pengzhen/Documents/tpch-parquet/supplier.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/supplier.parquet'
 with (FORMAT 'parquet');
 copy partsupp
-from '/home/pengzhen/Documents/tpch-parquet/partsupp.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/partsupp.parquet'
 with (FORMAT 'parquet');
 copy customer
-from '/home/pengzhen/Documents/tpch-parquet/customer.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/customer.parquet'
 with (FORMAT 'parquet');
 copy orders
-from '/home/pengzhen/Documents/tpch-parquet/orders.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/orders.parquet'
 with (FORMAT 'parquet');
 copy lineitem
-from '/home/pengzhen/Documents/tpch-parquet/lineitem.parquet'
+from '/Users/pengzhen/Documents/GitHub/tpch-parquet/lineitem.parquet'
 with (FORMAT 'parquet');
 "
 

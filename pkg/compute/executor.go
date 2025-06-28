@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -258,7 +259,7 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 			err = errors.Join(err, util.ConvertPanicError(rErr))
 		}
 	}()
-	txn, err := storage.GTxnMgr.NewTxn("runDDL")
+	txn, err := storage.GTxnMgr.NewTxn("runQuery")
 	if err != nil {
 		return err
 	}
@@ -305,6 +306,15 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 		}
 	}
 
+	if cfg.Debug.CpuProfile {
+		cpuProfileFile, err := os.OpenFile(fmt.Sprintf("./q%d_cpu.prof", id), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			return err
+		}
+		defer cpuProfileFile.Close()
+		pprof.StartCPUProfile(cpuProfileFile)
+		defer pprof.StopCPUProfile()
+	}
 	return execOps(cfg, txn, nil, resFile, []*PhysicalOperator{root})
 }
 

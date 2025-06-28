@@ -531,6 +531,7 @@ func (po *PhysicalOperator) getBasicInfo(options *ExplainOptions) string {
 		buf.WriteString(fmt.Sprintf(" (Id %d ", po.Id))
 		buf.WriteString(fmt.Sprintf("estCard %d)", po.estimatedCard))
 		//TODO: costs info
+		buf.WriteString(fmt.Sprintf(" costs: %v", po.ExecStats))
 	}
 
 	return buf.String()
