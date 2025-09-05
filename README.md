@@ -73,6 +73,27 @@ order by
 ;
 ```
 
+## 编译
+
+```
+➜  plan:✗ make
+# github.com/pganalyze/pg_query_go/v5/parser
+src_port_snprintf.c:374:1: error: static declaration of 'strchrnul' follows non-static declaration
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_string.h:198:9: note: previous declaration is here
+src_port_snprintf.c:438:27: warning: 'strchrnul' is only available on macOS 15.4 or newer [-Wunguarded-availability-new]
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_string.h:198:9: note: 'strchrnul' has been marked as being introduced in macOS 15.4 here, but the deployment target is macOS 15.0.0
+src_port_snprintf.c:438:27: note: enclose 'strchrnul' in a __builtin_available check to silence this warning
+make: *** [plandb] Error 1
+```
+
+解决办法：
+
+```
+export CGO_CFLAGS="-DHAVE_STRCHRNUL -mmacosx-version-min=15.4"
+export MACOSX_DEPLOYMENT_TARGET="15.4"
+```
+
+
 ## plandb
 
 使用psql连接交互执行。

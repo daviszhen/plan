@@ -114,7 +114,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalOp[int32]{},
+				EqualOpInt32,
 			)
 		case common.INT64:
 			TemplatedMatchType[int64](
@@ -128,7 +128,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalOp[int64]{},
+				EqualOpInt64,
 			)
 		case common.INT8:
 			TemplatedMatchType[int8](
@@ -142,7 +142,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalOp[int8]{},
+				EqualOpInt8,
 			)
 		case common.VARCHAR:
 			TemplatedMatchType[common.String](
@@ -156,7 +156,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalStrOp{},
+				EqualOpString,
 			)
 		case common.DATE:
 			TemplatedMatchType[common.Date](
@@ -170,7 +170,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalDateOp{},
+				EqualOpDate,
 			)
 		case common.DECIMAL:
 			TemplatedMatchType[common.Decimal](
@@ -184,7 +184,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalDecimalOp{},
+				EqualOpDecimal,
 			)
 		case common.INT128:
 			TemplatedMatchType[common.Hugeint](
@@ -198,7 +198,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				equalHugeintOp{},
+				EqualOpHugeint,
 			)
 		default:
 			panic("usp")
@@ -218,7 +218,7 @@ func TemplatedMatchOp(
 				noMatch,
 				noMatchCnt,
 				noMatchSel,
-				notEqualOp[int32]{},
+				NotEqualOpInt32,
 			)
 		default:
 			panic("usp")
