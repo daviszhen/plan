@@ -57,6 +57,9 @@ func CheckRowVisiable(
 	mgr *TxnMgr,
 	txn *Txn,
 	rowInfo *ChunkInfo) (bool, bool) {
+	if rowInfo._inserted.Load() == nil {
+		panic("insert txn id is nil")
+	}
 	insertTxnId := *rowInfo._inserted.Load()
 	deleteTxnId := TxnIdInvalid
 	if rowInfo._deleted.Load() != nil {
@@ -66,6 +69,10 @@ func CheckRowVisiable(
 	insertTxnStatus := mgr.TxnState(insertTxnId)
 	//case 1: insert txn id is aborted.
 	if insertTxnStatus == TxnStateAborted {
+		if deleteTxnId != TxnIdInvalid &&
+			deleteTxnId != insertTxnId {
+			panic("delete txn id is valid and not the same as insert txn id")
+		}
 		//插入的事务已经回滚，看不见
 		return false, false
 	} else if insertTxnStatus == TxnStateActive {
@@ -76,6 +83,9 @@ func CheckRowVisiable(
 				//没有删除，可见
 				return true, false
 			} else {
+				if deleteTxnId != txn.Id() {
+					panic("delete txn id is valid and not the same as insert txn id 2")
+				}
 				//有删除，不可见
 				return false, false
 			}

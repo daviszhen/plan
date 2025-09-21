@@ -6,6 +6,9 @@ toolchain go1.24.4
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
+	github.com/axiomhq/hyperloglog v0.2.3
+	github.com/cockroachdb/cockroachdb-parser v0.25.2
+	github.com/google/uuid v1.6.0
 	github.com/govalues/decimal v0.1.28
 	github.com/huandu/go-clone v1.7.2
 	github.com/jeroenrinzema/psql-wire v0.12.1
@@ -15,7 +18,7 @@ require (
 	github.com/pganalyze/pg_query_go/v5 v5.1.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/btree v1.8.1
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20200817004010-026bad9b25d0
@@ -27,12 +30,9 @@ require (
 require (
 	github.com/apache/arrow/go/arrow v0.0.0-20200730104253-651201b0f516 // indirect
 	github.com/apache/thrift v0.14.2 // indirect
-	github.com/axiomhq/hyperloglog v0.2.3 // indirect
 	github.com/bazelbuild/rules_go v0.46.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
 	github.com/cockroachdb/apd/v3 v3.1.0 // indirect
-	github.com/cockroachdb/cockroach v20.1.17+incompatible // indirect
-	github.com/cockroachdb/cockroachdb-parser v0.25.2 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506 // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
@@ -48,7 +48,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

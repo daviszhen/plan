@@ -76,22 +76,37 @@ func (snapshot *Snapshot) String() string {
 }
 
 func (snapshot *Snapshot) IsActiveInSnapshot(txnId TxnId) bool {
-	return true
+	if txnId == TxnIdInvalid {
+		panic("txn id is invalid")
+	}
+	//case 1: txn id is less than min txn id
+	if txnId.Less(snapshot._minTxnId) {
+		return false
+	}
+	//case 2: txn id is greater than max txn id
+	if snapshot._maxTxnId.LessEq(txnId) {
+		return true
+	}
+	//case 3: txn id is in active txn ids
+	_, ok := snapshot._activeTxnIds.Get(txnId)
+	return ok
 }
 
 type Txn struct {
 	_name string
 	_id   TxnId //also the start ts
 
+	_lock     sync.RWMutex
+	_state    atomic.Uint32
 	_commitTs atomic.Pointer[TxnId]
 	_abortTs  atomic.Pointer[TxnId]
 
 	_minActiveId    TxnId //lowest active id at txn start
-	_state          atomic.Uint32
 	_snapshot       Snapshot
 	_isolationLevel TxnIsolationLevel
 
 	_undoBuffer UndoBuffer
+	_txnMgr     *TxnMgr
 }
 
 func txnLess(a *Txn, b *Txn) bool {
@@ -102,13 +117,15 @@ func NewTxn(name string,
 	id TxnId,
 	minActiveId TxnId,
 	snapshot *Snapshot,
-	isolationLevel TxnIsolationLevel) *Txn {
+	isolationLevel TxnIsolationLevel,
+	txnMgr *TxnMgr) *Txn {
 	ret := &Txn{
 		_name:           name,
 		_id:             id,
 		_minActiveId:    minActiveId,
 		_snapshot:       *snapshot,
 		_isolationLevel: isolationLevel,
+		_txnMgr:         txnMgr,
 	}
 	return ret
 }
@@ -130,6 +147,8 @@ func (txn *Txn) Id() TxnId {
 }
 
 func (txn *Txn) CommitTs() TxnId {
+	txn._lock.RLock()
+	defer txn._lock.RUnlock()
 	if txn._commitTs.Load() == nil {
 		return TxnId{}
 	}
@@ -137,6 +156,8 @@ func (txn *Txn) CommitTs() TxnId {
 }
 
 func (txn *Txn) AbortTs() TxnId {
+	txn._lock.RLock()
+	defer txn._lock.RUnlock()
 	if txn._abortTs.Load() == nil {
 		return TxnId{}
 	}
@@ -144,10 +165,14 @@ func (txn *Txn) AbortTs() TxnId {
 }
 
 func (txn *Txn) IsCommitted() bool {
+	txn._lock.RLock()
+	defer txn._lock.RUnlock()
 	return txn._state.Load() == uint32(TxnStateCommitted)
 }
 
 func (txn *Txn) IsAborted() bool {
+	txn._lock.RLock()
+	defer txn._lock.RUnlock()
 	return txn._state.Load() == uint32(TxnStateAborted)
 }
 
@@ -156,11 +181,21 @@ func (txn *Txn) Commit(commitTs TxnId) {
 	//step 2: write wal
 	//step 3: flush wal
 	//step 4: update ts
+	util.ScopeLock(&txn._lock, func() {
+		txn._commitTs.Store(&commitTs)
+		txn._state.Store(uint32(TxnStateCommitted))
+	})
+	txn._txnMgr.Commit(txn)
 }
 
 func (txn *Txn) Rollback(abortTs TxnId) {
 	//step 1: cleanup
 	//step 2: update ts
+	util.ScopeLock(&txn._lock, func() {
+		txn._abortTs.Store(&abortTs)
+		txn._state.Store(uint32(TxnStateAborted))
+	})
+	txn._txnMgr.Rollback(txn)
 }
 
 type TxnMgr struct {
@@ -190,16 +225,14 @@ func (mgr *TxnMgr) NewTxn(name string, isolationLevel TxnIsolationLevel) *Txn {
 	//calculate minActiveId
 	minActiveId := mgr.genMinActiveIdUnLock()
 
-	//calculate snapshot for SI
-	var snapshot *Snapshot
-	if isolationLevel == TxnIsolationLevelSnapshotIsolation {
-		snapshot = mgr.genSnapshotUnLock()
-	}
+	//calculate snapshot
+	snapshot := mgr.genSnapshotUnLock()
 	txn := NewTxn(name,
 		id,
 		minActiveId,
 		snapshot,
-		isolationLevel)
+		isolationLevel,
+		mgr)
 	mgr._activeTxns.Set(txn)
 	return txn
 }
@@ -274,22 +307,18 @@ func (mgr *TxnMgr) genSnapshotUnLock() *Snapshot {
 func (mgr *TxnMgr) Commit(txn *Txn) {
 	mgr._lock.Lock()
 	defer mgr._lock.Unlock()
-	fmt.Println("commit txn", txn._name)
+	txn._txnMgr._activeTxns.Delete(txn)
+	txn._txnMgr._recentlyCommittedTxns.Set(txn)
 }
 
 func (mgr *TxnMgr) Rollback(txn *Txn) {
 	mgr._lock.Lock()
 	defer mgr._lock.Unlock()
-	fmt.Println("rollback txn", txn._name)
+	txn._txnMgr._activeTxns.Delete(txn)
+	txn._txnMgr._oldTxns.Set(txn)
 }
 
 func (mgr *TxnMgr) Close() {
-	mgr._lock.Lock()
-	defer mgr._lock.Unlock()
-	mgr._activeTxns.Scan(func(item *Txn) bool {
-		item.Rollback(TxnId(mgr._clock.Now()))
-		return true
-	})
 }
 
 func (mgr *TxnMgr) TxnState(txnId TxnId) TxnState {
@@ -318,5 +347,3 @@ func (mgr *TxnMgr) TxnState(txnId TxnId) TxnState {
 		return TxnState(rawTxn._state.Load())
 	}
 }
-
-
