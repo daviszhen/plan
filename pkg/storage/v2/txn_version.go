@@ -129,6 +129,9 @@ func CheckRowVisiable(
 }
 
 func CheckUpdateVisiable(mgr *TxnMgr, txn *Txn, updateInfo *UpdateInfo) (bool, bool) {
+	if updateInfo._version.Load() == nil {
+		panic("version is nil")
+	}
 	rowInfo := &ChunkInfo{}
 	rowInfo._inserted.Store(updateInfo._version.Load())
 	rowInfo._deleted.Store(nil)
@@ -186,6 +189,9 @@ func MVCCRead(
 	updates *UpdateList,
 	colData *T_COL,
 ) {
+	if updates == nil {
+		return
+	}
 	visible := false
 	util.ScopeLock(
 		&updates._lock,
