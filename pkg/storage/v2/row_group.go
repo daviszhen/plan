@@ -79,7 +79,7 @@ func (rg *RowGroup) Insert(
 		util.ScopeLock(&rg._rowsLock, func() {
 			iter := rg._rows.Iter()
 			defer iter.Release()
-			has := false
+			// has := false
 			var item *RowGroupItem
 			if iter.Seek(tmpItem) {
 				item = iter.Item()
@@ -115,6 +115,9 @@ func (rg *RowGroup) Insert(
 				itemToChange._rowVersion = &ChunkInfo{}
 				itemToChange._rowVersion._inserted.Store(&txnId)
 				itemToChange._colUpdates = make([]*UpdateList, rg._schema.ColumnCount())
+				for i := 0; i < rg._schema.ColumnCount(); i++ {
+					itemToChange._colUpdates[i] = &UpdateList{_info: nil}
+				}
 				rg._rows.Set(itemToChange)
 			}
 
