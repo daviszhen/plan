@@ -66,6 +66,76 @@ func (rg *RowGroup) Scan(
 	return nil
 }
 
+func (rg *RowGroup) Find(
+	runCtx *RunContext,
+	txn *Txn,
+	pks []T_COL,
+	resultExists *[]bool,
+	resultRows *[][]*T_COL,
+) {
+	colIds := make([]int, rg._schema.ColumnCount())
+	for i := 0; i < rg._schema.ColumnCount(); i++ {
+		colIds[i] = i
+	}
+	rg.find(runCtx, txn, pks, colIds, resultExists, resultRows)
+}
+
+func (rg *RowGroup) find(
+	runCtx *RunContext,
+	txn *Txn,
+	pks []T_COL,
+	colIds []int,
+	resultExists *[]bool,
+	resultRows *[][]*T_COL,
+) {
+	if len(pks) == 0 || len(colIds) == 0 {
+		return
+	}
+	util.AssertFunc(resultExists != nil)
+	util.AssertFunc(resultRows != nil)
+	util.AssertFunc(len(*resultExists) == len(pks))
+	util.AssertFunc(len(*resultRows) == len(pks) &&
+		len((*resultRows)[0]) == len(colIds))
+	tmpItem := &RowGroupItem{}
+	has := false
+	for rowIdx, pk := range pks {
+		tmpItem._pk = pk
+		util.ScopeLock(&rg._rowsLock, func() {
+			item, ok := rg._rows.Get(tmpItem)
+			if !ok {
+				(*resultExists)[rowIdx] = false
+				return
+			}
+			if item == nil {
+				panic("oldItem is nil")
+			}
+			//check if the row is visible and get the right version
+			has, _ = CheckRowVisiable(
+				runCtx.TxnMgr(),
+				txn,
+				item._rowVersion)
+			if has {
+				(*resultExists)[rowIdx] = true
+				//visible,mvcc read
+				for idx, colId := range colIds {
+					colData := (*resultRows)[rowIdx][idx]
+					//lastest version
+					*colData = item._colsData[colId]
+					MVCCRead(
+						runCtx.TxnMgr(),
+						txn,
+						item._colUpdates[colId],
+						colData,
+					)
+				}
+			} else {
+				//invisible, no exist
+				(*resultExists)[rowIdx] = false
+			}
+		})
+	}
+}
+
 func (rg *RowGroup) Insert(
 	runCtx *RunContext,
 	txn *Txn,
@@ -79,7 +149,6 @@ func (rg *RowGroup) Insert(
 		util.ScopeLock(&rg._rowsLock, func() {
 			iter := rg._rows.Iter()
 			defer iter.Release()
-			// has := false
 			var item *RowGroupItem
 			if iter.Seek(tmpItem) {
 				item = iter.Item()

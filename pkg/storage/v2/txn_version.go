@@ -179,3 +179,29 @@ func CheckUpdatesForConflicts(
 		})
 	return wwConflictsOnChange
 }
+
+func MVCCRead(
+	mgr *TxnMgr,
+	txn *Txn,
+	updates *UpdateList,
+	colData *T_COL,
+) {
+	visible := false
+	util.ScopeLock(
+		&updates._lock,
+		func() {
+			ptr := updates._info
+			for ptr != nil {
+				visible, _ = CheckUpdateVisiable(
+					mgr,
+					txn,
+					ptr)
+				if !visible {
+					*colData = ptr._colData
+				} else {
+					break
+				}
+				ptr = ptr._next
+			}
+		})
+}
