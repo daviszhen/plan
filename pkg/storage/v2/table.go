@@ -32,6 +32,14 @@ func NewSchema(colDefs []*ColumnDef) *Schema {
 	}
 }
 
+func (schema *Schema) Columns() []*ColumnDef {
+	return schema._colDefs
+}
+
+func (schema *Schema) ColumnCount() int {
+	return len(schema._colDefs)
+}
+
 type ColumnDef struct {
 	_id   string
 	_name string

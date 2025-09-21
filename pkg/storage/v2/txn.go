@@ -19,6 +19,12 @@ func (id TxnId) Less(other TxnId) bool {
 	return a.Less(b)
 }
 
+func (id TxnId) LessEq(other TxnId) bool {
+	a := hlc.Timestamp(id)
+	b := hlc.Timestamp(other)
+	return a.LessEq(b)
+}
+
 func (id TxnId) IsValid() bool {
 	return id != TxnIdInvalid && id != TxnIdMax
 }
@@ -52,9 +58,14 @@ const (
 
 // Snapshot is a snapshot of the database at txn start
 type Snapshot struct {
-	_minTxnId     TxnId                // all txn id <= _minTxnId are visible
-	_maxTxnId     TxnId                // all txn id >= _maxTxnId are invisible
-	_activeTxnIds *btree.BTreeG[TxnId] // all txn id are active [_minTxnId, _maxTxnId) when txn start
+	// minimal txnid that is still active
+	// all txn ids <= _minTxnId are committed (visible) or aborted (invisible)
+	_minTxnId TxnId
+	// first txnid that has not been assigned
+	// all txn ids >= _maxTxnId are invisible
+	_maxTxnId TxnId
+	// all txn ids are active when txn start, s.t. [_minTxnId, _maxTxnId)
+	_activeTxnIds *btree.BTreeG[TxnId]
 }
 
 func (snapshot *Snapshot) String() string {
@@ -81,7 +92,6 @@ type Txn struct {
 	_isolationLevel TxnIsolationLevel
 
 	_undoBuffer UndoBuffer
-	_storage    *TxnStorage
 }
 
 func txnLess(a *Txn, b *Txn) bool {
@@ -100,7 +110,6 @@ func NewTxn(name string,
 		_snapshot:       *snapshot,
 		_isolationLevel: isolationLevel,
 	}
-	ret._storage = NewTxnStorage(ret)
 	return ret
 }
 
@@ -199,9 +208,39 @@ func (mgr *TxnMgr) genMinActiveIdUnLock() TxnId {
 	minActiveId := TxnIdMax
 	mgr._activeTxns.Scan(
 		func(item *Txn) bool {
-			if item.Id().IsValid() &&
-				item.Id().Less(minActiveId) {
-				minActiveId = item.Id()
+			if item.Id().IsValid() {
+				if item.Id().Less(minActiveId) {
+					minActiveId = item.Id()
+				}
+			} else {
+				panic("active txn has invalid id 1")
+			}
+			return true
+		})
+
+	//if no valid txn, set minActiveId to TxnIdInvalid
+	if minActiveId == TxnIdMax {
+		minActiveId = TxnIdInvalid
+	}
+	return minActiveId
+}
+
+func (mgr *TxnMgr) genActiveTxnsUnLock(
+	upbound TxnId,
+	activeTxnIds *btree.BTreeG[TxnId],
+) TxnId {
+	minActiveId := TxnIdMax
+	mgr._activeTxns.Scan(
+		func(item *Txn) bool {
+			if item.Id().IsValid() {
+				if item.Id().Less(minActiveId) {
+					minActiveId = item.Id()
+				}
+				if item.Id().Less(upbound) {
+					activeTxnIds.Set(item.Id())
+				}
+			} else {
+				panic("active txn has invalid id 2")
 			}
 			return true
 		})
@@ -220,21 +259,15 @@ func (mgr *TxnMgr) GenSnapshot() *Snapshot {
 }
 
 func (mgr *TxnMgr) genSnapshotUnLock() *Snapshot {
-	minActiveId := mgr.genMinActiveIdUnLock()
+	//max txn id that has not been assigned
 	maxTxnId := TxnId(mgr._clock.Now())
 	snapshot := &Snapshot{
-		_minTxnId:     minActiveId,
 		_maxTxnId:     maxTxnId,
 		_activeTxnIds: btree.NewBTreeG[TxnId](txnIdLess),
 	}
-	//collect active txnid
-	mgr._activeTxns.Scan(
-		func(item *Txn) bool {
-			if item.Id().IsValid() {
-				snapshot._activeTxnIds.Set(item.Id())
-			}
-			return true
-		})
+	snapshot._minTxnId = mgr.genActiveTxnsUnLock(
+		maxTxnId,
+		snapshot._activeTxnIds)
 	return snapshot
 }
 
@@ -286,70 +319,4 @@ func (mgr *TxnMgr) TxnState(txnId TxnId) TxnState {
 	}
 }
 
-func (mgr *TxnMgr) CheckRowVisiable(txn *Txn, rowInfo *ChunkInfo) bool {
-	insertTxnId := *rowInfo._inserted.Load()
-	deleteTxnId := TxnIdInvalid
-	if rowInfo._deleted.Load() != nil {
-		deleteTxnId = *rowInfo._deleted.Load()
-	}
 
-	insertTxnStatus := mgr.TxnState(insertTxnId)
-	//case 1: insert txn id is aborted.
-	if insertTxnStatus == TxnStateAborted {
-		//插入的事务已经回滚，看不见
-		return false
-	} else if insertTxnStatus == TxnStateActive {
-		//case 2: insert txn id is active.
-		if insertTxnId == txn.Id() {
-			//自己事务插入的。
-			if deleteTxnId == TxnIdInvalid {
-				//没有删除，可见
-				return true
-			} else {
-				//有删除，不可见
-				return false
-			}
-		} else { //其它事务插入的，看不见
-			return false
-		}
-	} else if insertTxnStatus == TxnStateCommitted {
-		//case 3: insert txn id is committed.
-		insertTxnInSS := txn._snapshot.IsActiveInSnapshot(insertTxnId)
-		deleteTxnStatus := TxnStateAborted
-		if deleteTxnId != TxnIdInvalid {
-			deleteTxnStatus = mgr.TxnState(deleteTxnId)
-		}
-		if insertTxnInSS {
-			//插入的事务在快照active事务中，不可见
-			return false
-		} else if deleteTxnId == TxnIdInvalid || deleteTxnStatus == TxnStateAborted {
-			//没有删除，或者删除的事务已经回滚，可见
-			return true
-		} else if deleteTxnStatus == TxnStateActive {
-			if deleteTxnId == txn.Id() {
-				//删除的事务是自己，不可见
-				return false
-			} else {
-				//删除的事务是其它事务，可见
-				return true
-			}
-		} else if deleteTxnStatus == TxnStateCommitted {
-			deleteTxnInSS := txn._snapshot.IsActiveInSnapshot(deleteTxnId)
-			if deleteTxnInSS {
-				//删除的事务在快照active事务中，可见
-				return true
-			} else {
-				//删除的事务不在快照active事务中，不可见
-				return false
-			}
-		}
-	}
-	panic("unreachable")
-}
-
-func (mgr *TxnMgr) CheckUpdateVisiable(txn *Txn, updateInfo *UpdateInfo) bool {
-	rowInfo := &ChunkInfo{}
-	rowInfo._inserted.Store(updateInfo._version.Load())
-	rowInfo._deleted.Store(nil)
-	return mgr.CheckRowVisiable(txn, rowInfo)
-}

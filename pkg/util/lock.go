@@ -59,3 +59,9 @@ func (lock *ReentryLock) Unlock() {
 }
 
 var _ sync.Locker = (*ReentryLock)(nil)
+
+func ScopeLock(lock sync.Locker, fn func()) {
+	lock.Lock()
+	defer lock.Unlock()
+	fn()
+}

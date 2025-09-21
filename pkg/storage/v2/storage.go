@@ -24,22 +24,6 @@ func (mgr *StorageMgr) Close() {
 	mgr._wal.Close()
 }
 
-// txn storage for every txn
-type TxnStorage struct {
-	_txn    *Txn
-	_tables *treemap.Map[*TableDef, *TableStorage]
-}
-
-func NewTxnStorage(txn *Txn) *TxnStorage {
-	cmp := func(a, b *TableDef) int {
-		return strings.Compare(a._id, b._id)
-	}
-	return &TxnStorage{
-		_txn:    txn,
-		_tables: treemap.New[*TableDef, *TableStorage](cmp),
-	}
-}
-
 // main storage for all txns
 type MainStorage struct {
 	_tables *treemap.Map[*TableDef, *TableStorage]
@@ -79,22 +63,20 @@ func NewTableStorage(table *TableDef) *TableStorage {
 	return ret
 }
 
-func (table *TableStorage) KeyExists(txn *Txn, pks []T_PK, result []bool) error {
-	return table._memRg.KeyExists(txn, pks, result)
-}
-
 func (table *TableStorage) Scan(txn *Txn, result *[]T_ROW) error {
 	return nil
 }
 
-func (table *TableStorage) Append(txn *Txn, data []T_ROW) error {
+func (table *TableStorage) Insert(txn *Txn, data []T_ROW) error {
+	//step1 : check it existed in memRg
+	//step2 : check is existed in deltaRg
 	return nil
 }
 
-func (table *TableStorage) Update(txn *Txn, pks []T_PK, colIds []int, updates []T_ROW) error {
+func (table *TableStorage) Update(txn *Txn, pks []T_COL, colIds []int, updates []T_ROW) error {
 	return nil
 }
 
-func (table *TableStorage) Delete(txn *Txn, pks []T_PK) error {
+func (table *TableStorage) Delete(txn *Txn, pks []T_COL) error {
 	return nil
 }

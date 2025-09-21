@@ -20,23 +20,30 @@ func CloseRunContext() {
 }
 
 type RunContext struct {
-	_clock       *hlc.Clock
-	_storageMgr  *StorageMgr
-	_txnMgr      *TxnMgr
-	_mainStorage *MainStorage
+	_clock        *hlc.Clock
+	_storageMgr   *StorageMgr
+	_txnMgr       *TxnMgr
+	_mainStorage  *MainStorage
+	_deltaStorage *DeltaStorage
 }
 
 func NewRunContext(storagePath string) *RunContext {
 	clock := hlc.NewClockForTesting(nil)
 	return &RunContext{
-		_clock:       clock,
-		_storageMgr:  NewStorageMgr(storagePath),
-		_txnMgr:      NewTxnMgr(clock),
-		_mainStorage: NewMainStorage(),
+		_clock:        clock,
+		_storageMgr:   NewStorageMgr(storagePath),
+		_txnMgr:       NewTxnMgr(clock),
+		_mainStorage:  NewMainStorage(),
+		_deltaStorage: NewDeltaStorage(),
 	}
+}
+
+func (ctx *RunContext) TxnMgr() *TxnMgr {
+	return ctx._txnMgr
 }
 
 func (ctx *RunContext) Close() {
 	ctx._storageMgr.Close()
 	ctx._txnMgr.Close()
+	//TODO: close main storage and delta storage
 }

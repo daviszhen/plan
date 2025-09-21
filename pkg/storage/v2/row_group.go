@@ -17,7 +17,7 @@ const (
 )
 
 type RowGroupItem struct {
-	_pk T_PK
+	_pk T_COL
 	//column data
 	_colsData []T_COL
 	//txn version
@@ -33,68 +33,142 @@ type RowGroup struct {
 	_lock   sync.Mutex
 	_schema *Schema
 	//data
-	_rows *btree.BTreeG[*RowGroupItem]
+	_rows     *btree.BTreeG[*RowGroupItem]
+	_rowsLock sync.RWMutex
 }
 
 func NewRowGroup(schema *Schema) *RowGroup {
 	ret := &RowGroup{
 		_schema: schema,
 	}
-	ret._rows = btree.NewBTreeG(RowGroupItemLess)
+	ret._rows = btree.NewBTreeGOptions(
+		RowGroupItemLess,
+		btree.Options{
+			NoLocks: true,
+		})
 	return ret
 }
 
-func (rg *RowGroup) KeyExists(txn *Txn, pks []T_PK, result []bool) error {
-	tmpItem := RowGroupItem{}
-	for i, pk := range pks {
-		tmpItem._pk = pk
-		rowItem, ok := rg._rows.Get(&tmpItem)
-		if !ok {
-			result[i] = false
-			continue
-		}
-		if rowItem == nil {
-			return fmt.Errorf("row item is nil")
-		}
-		//version check
-		if rowItem._rowVersion.UseInsertedVersion(txn) &&
-			rowItem._rowVersion.UseDeletedVersion(txn) {
-			result[i] = true
-		} else {
-			result[i] = false
-		}
-	}
+func (rg *RowGroup) Scan(
+	runCtx *RunContext,
+	txn *Txn,
+	resultPks *[]T_COL,
+	resultRows *[]T_ROW) error {
+	util.ScopeLock(&rg._rowsLock, func() {
+		rg._rows.Ascend(nil,
+			func(item *RowGroupItem) bool {
+				//FIXME:
+				*resultPks = append(*resultPks, item._pk)
+				*resultRows = append(*resultRows, item._colsData)
+				return true
+			})
+	})
 	return nil
 }
 
-func (rg *RowGroup) Scan(txn *Txn, result *[]T_ROW) error {
-	return nil
-}
-
-func (rg *RowGroup) Append(txn *Txn, pks []T_PK, data []T_ROW) error {
-	for i, pk := range pks {
-		tmpItem := &RowGroupItem{}
+func (rg *RowGroup) Insert(
+	runCtx *RunContext,
+	txn *Txn,
+	pks []T_COL,
+	rows []T_ROW) error {
+	txnId := txn.Id()
+	has, wwConflictsOnChange := false, false
+	tmpItem := &RowGroupItem{}
+	for rowIdx, pk := range pks {
 		tmpItem._pk = pk
-		rowItem, ok := rg._rows.Get(tmpItem)
-		if !ok {
-			//no such key
-		} else {
-			//key exists
-			if rowItem == nil {
-				return fmt.Errorf("row item is nil 2")
+		util.ScopeLock(&rg._rowsLock, func() {
+			iter := rg._rows.Iter()
+			defer iter.Release()
+			has := false
+			var item *RowGroupItem
+			if iter.Seek(tmpItem) {
+				item = iter.Item()
+				//want tmpItem == item
+				if !item._pk.Less(tmpItem._pk) {
+					//must be equal
+					has = true
+				}
 			}
-			//version check
-			//TODO:
-		}
+			var itemToChange *RowGroupItem
+			if has {
+				//find the key, check it visible or not
+				has, wwConflictsOnChange = CheckRowVisiable(
+					runCtx.TxnMgr(),
+					txn,
+					item._rowVersion)
+				if has || wwConflictsOnChange {
+					return
+				}
+				//possible cases:
+				//case 1: txn of insertion aborted, invisible
+				// data is invalid, can be overwritten
+				//case 2: current txn makes insertion and deletion, invisible
+				// data of current txn is invalid, can be overwritten
+				//case 3: current txn makes deletion, invisible
+				// need to generate old version, then insert new data
+				itemToChange = item
+			} else {
+				//add the new key
+				itemToChange = &RowGroupItem{}
+				itemToChange._pk = pk
+				itemToChange._colsData = make([]T_COL, rg._schema.ColumnCount())
+				itemToChange._rowVersion = &ChunkInfo{}
+				itemToChange._rowVersion._inserted.Store(&txnId)
+				itemToChange._colUpdates = make([]*UpdateList, rg._schema.ColumnCount())
+				rg._rows.Set(itemToChange)
+			}
 
+			//generate column version
+			colIds := make([]int, rg._schema.ColumnCount())
+			for i := 0; i < rg._schema.ColumnCount(); i++ {
+				colIds[i] = i
+			}
+			if ChangeOnColumns(runCtx, txn, itemToChange, colIds, rows[rowIdx]) {
+				wwConflictsOnChange = true
+				return
+			}
+		})
+
+		if has {
+			return fmt.Errorf("duplicated key")
+		}
+		if wwConflictsOnChange {
+			return fmt.Errorf("ww-conflicts")
+		}
 	}
 	return nil
 }
 
-func (rg *RowGroup) Update(txn *Txn, pks []T_PK, colIds []int, updates []T_ROW) error {
+func ChangeOnColumns(
+	runCtx *RunContext,
+	txn *Txn,
+	item *RowGroupItem,
+	updateColIds []int,
+	newColData T_ROW,
+) bool {
+	for idx, colIdx := range updateColIds {
+		oldCol := item._colsData[colIdx]
+		newCol := newColData[idx]
+		txnId := txn.Id()
+		newInfo := &UpdateInfo{
+			_colIdx:  colIdx,
+			_colData: oldCol,
+		}
+		newInfo._version.Store(&txnId)
+		if CheckUpdatesForConflicts(runCtx.TxnMgr(), txn, item._colUpdates[colIdx], newInfo) {
+			return true
+		}
+		//no conflict, update the column data in place
+		item._colsData[colIdx] = newCol
+		//TODO: generate wal
+	}
+	return false
+}
+
+func (rg *RowGroup) Update(txn *Txn, pks []T_COL, colIds []int, updates []T_ROW) error {
 	return nil
 }
 
-func (rg *RowGroup) Delete(txn *Txn, pks []T_PK) error {
+func (rg *RowGroup) Delete(txn *Txn, pks []T_COL) error {
 	return nil
 }
