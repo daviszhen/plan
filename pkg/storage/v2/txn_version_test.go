@@ -801,3 +801,333 @@ func TestTxnMgrTxnStateWithRollback(t *testing.T) {
 	state = txnMgr.TxnState(txn1Id)
 	assert.Equal(t, TxnStateAborted, state, "Expected TxnStateAborted")
 }
+
+// TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDeleteNotInSnapshot tests case 3: insert txn committed, old txn not in snapshot, with committed delete not in snapshot
+func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDeleteNotInSnapshot(t *testing.T) {
+	rctx := InitRunContext("test")
+	defer rctx.Close()
+
+	txnMgr := rctx._txnMgr
+	clock := rctx._clock
+
+	// Create an old transaction with a very small timestamp
+	oldTxnId := TxnId(hlc.Timestamp{WallTime: 1000, Logical: 0})
+	
+	// Create current transaction and another transaction to commit
+	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelReadCommitted)
+	txn2 := txnMgr.NewTxn("txn2", TxnIsolationLevelReadCommitted)
+	
+	// Commit txn2
+	txn2.Commit(TxnId(clock.Now()))
+
+	// Create row info with old txn as insert txn and committed txn as delete txn
+	rowInfo := &ChunkInfo{}
+	txn2Id := txn2.Id()
+	rowInfo._inserted.Store(&oldTxnId)
+	rowInfo._deleted.Store(&txn2Id)
+
+	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+
+	// Based on the new IsActiveInSnapshot implementation:
+	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
+	// - deleteTxnStatus = TxnStateCommitted, deleteTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
+	// - So result should be visible=true, wwConflict=true
+	assert.True(t, visible, "Expected visible=true for old committed txn with committed delete in snapshot")
+	assert.True(t, wwConflict, "Expected wwConflict=true for old committed txn with committed delete in snapshot")
+}
+
+// TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDeleteInSnapshot tests case 3: insert txn committed, old txn not in snapshot, with committed delete in snapshot
+func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDeleteInSnapshot(t *testing.T) {
+	rctx := InitRunContext("test")
+	defer rctx.Close()
+
+	txnMgr := rctx._txnMgr
+	clock := rctx._clock
+
+	// Create an old transaction with a very small timestamp
+	oldTxnId := TxnId(hlc.Timestamp{WallTime: 1000, Logical: 0})
+	
+	// Create snapshot isolation transaction and another transaction to commit
+	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelSnapshotIsolation)
+	txn2 := txnMgr.NewTxn("txn2", TxnIsolationLevelReadCommitted)
+	
+	// Commit txn2
+	txn2.Commit(TxnId(clock.Now()))
+
+	// Create row info with old txn as insert txn and committed txn as delete txn
+	rowInfo := &ChunkInfo{}
+	txn2Id := txn2.Id()
+	rowInfo._inserted.Store(&oldTxnId)
+	rowInfo._deleted.Store(&txn2Id)
+
+	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+
+	// Based on the new IsActiveInSnapshot implementation:
+	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
+	// - deleteTxnStatus = TxnStateCommitted, deleteTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
+	// - So result should be visible=true, wwConflict=true
+	assert.True(t, visible, "Expected visible=true for old committed txn with committed delete in snapshot")
+	assert.True(t, wwConflict, "Expected wwConflict=true for old committed txn with committed delete in snapshot")
+}
+
+// TestCheckUpdatesForConflicts_WithExistingUpdates tests CheckUpdatesForConflicts with existing updates
+func TestCheckUpdatesForConflicts_WithExistingUpdates(t *testing.T) {
+	rctx := InitRunContext("test")
+	defer rctx.Close()
+
+	txnMgr := rctx._txnMgr
+	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelReadCommitted)
+	txn1Id := txn1.Id()
+
+	// Create UpdateList with existing updates
+	updates := &UpdateList{
+		_info: nil,
+	}
+
+	// Create existing UpdateInfo
+	existingInfo := &UpdateInfo{
+		_colIdx:  0,
+		_colData: nil,
+		_prev:    nil,
+		_next:    nil,
+	}
+	existingInfo._version.Store(&txn1Id)
+	updates._info = existingInfo
+
+	// Create new UpdateInfo with same version
+	newInfo := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("new data"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	newInfo._version.Store(&txn1Id)
+
+	// Test CheckUpdatesForConflicts
+	wwConflicts := CheckUpdatesForConflicts(txnMgr, txn1, updates, newInfo)
+
+	assert.False(t, wwConflicts, "Expected wwConflicts=false")
+
+	// Verify that existingInfo was updated with new data
+	assert.Equal(t, T_COL("new data"), existingInfo._colData, "Expected existingInfo._colData to be updated")
+}
+
+// TestCheckUpdatesForConflicts_WithConflicts tests CheckUpdatesForConflicts with conflicts
+func TestCheckUpdatesForConflicts_WithConflicts(t *testing.T) {
+	rctx := InitRunContext("test")
+	defer rctx.Close()
+
+	txnMgr := rctx._txnMgr
+	clock := rctx._clock
+
+	// Create test transactions
+	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelReadCommitted)
+	txn2 := txnMgr.NewTxn("txn2", TxnIsolationLevelReadCommitted)
+
+	// Commit txn2
+	txn2.Commit(TxnId(clock.Now()))
+
+	// Create UpdateList with existing updates
+	updates := &UpdateList{
+		_info: nil,
+	}
+
+	// Create existing UpdateInfo with committed txn
+	existingInfo := &UpdateInfo{
+		_colIdx:  0,
+		_colData: nil,
+		_prev:    nil,
+		_next:    nil,
+	}
+	txn2Id := txn2.Id()
+	existingInfo._version.Store(&txn2Id)
+	updates._info = existingInfo
+
+	// Create new UpdateInfo
+	newInfo := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("new data"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	txn1Id := txn1.Id()
+	newInfo._version.Store(&txn1Id)
+
+	// Test CheckUpdatesForConflicts
+	wwConflicts := CheckUpdatesForConflicts(txnMgr, txn1, updates, newInfo)
+
+	// Should have conflicts because existing update is from committed txn not in snapshot
+	assert.True(t, wwConflicts, "Expected wwConflicts=true")
+}
+
+// TestCheckUpdatesForConflicts_MultipleUpdates tests CheckUpdatesForConflicts with multiple updates (same column)
+func TestCheckUpdatesForConflicts_MultipleUpdates(t *testing.T) {
+	rctx := InitRunContext("test")
+	defer rctx.Close()
+
+	txnMgr := rctx._txnMgr
+	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelReadCommitted)
+	txn1Id := txn1.Id()
+
+	// Create UpdateList
+	updates := &UpdateList{
+		_info: nil,
+	}
+
+	// Create first UpdateInfo
+	info1 := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("data1"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	info1._version.Store(&txn1Id)
+
+	// Create second UpdateInfo with same column (will update existing)
+	info2 := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("data2"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	info2._version.Store(&txn1Id)
+
+	// Add first update
+	wwConflicts1 := CheckUpdatesForConflicts(txnMgr, txn1, updates, info1)
+	assert.False(t, wwConflicts1, "Expected wwConflicts=false for first update")
+
+	// Add second update (should update existing)
+	wwConflicts2 := CheckUpdatesForConflicts(txnMgr, txn1, updates, info2)
+	assert.False(t, wwConflicts2, "Expected wwConflicts=false for second update")
+
+	// Verify that info1 was updated with info2's data
+	assert.NotNil(t, updates._info, "Expected updates._info to be set")
+	assert.Equal(t, info1, updates._info, "Expected updates._info to be info1")
+	assert.Equal(t, T_COL("data2"), info1._colData, "Expected info1._colData to be updated to 'data2'")
+	assert.Nil(t, info1._next, "Expected info1._next to be nil")
+	assert.Nil(t, info1._prev, "Expected info1._prev to be nil")
+}// TestCheckUpdatesForConflicts_DuplicateVersionPanic tests CheckUpdatesForConflicts with duplicate version and different column should panic
+func TestCheckUpdatesForConflicts_DuplicateVersionPanic(t *testing.T) {
+	rctx := InitRunContext("test")
+	defer rctx.Close()
+
+	txnMgr := rctx._txnMgr
+	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelReadCommitted)
+	txn1Id := txn1.Id()
+
+	// Create UpdateList with existing updates
+	updates := &UpdateList{
+		_info: nil,
+	}
+
+	// Create existing UpdateInfo
+	existingInfo := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("existing"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	existingInfo._version.Store(&txn1Id)
+	updates._info = existingInfo
+
+	// Create another UpdateInfo with same version but different column (this should cause panic)
+	duplicateInfo := &UpdateInfo{
+		_colIdx:  1,
+		_colData: T_COL("duplicate"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	duplicateInfo._version.Store(&txn1Id)
+
+	// This should panic because there are two updates with the same version but different columns
+	assert.Panics(t, func() {
+		CheckUpdatesForConflicts(txnMgr, txn1, updates, duplicateInfo)
+	}, "Expected panic when there are duplicate versions with different columns")
+}
+// TestUndoLogOperations tests UndoLog operations
+func TestUndoLogOperations(t *testing.T) {
+	// Test UndoFlags constants
+	assert.Equal(t, UndoFlags(0), EMPTY_ENTRY, "Expected EMPTY_ENTRY to be 0")
+	assert.Equal(t, UndoFlags(1), INSERT_TUPLE, "Expected INSERT_TUPLE to be 1")
+	assert.Equal(t, UndoFlags(2), DELETE_TUPLE, "Expected DELETE_TUPLE to be 2")
+	assert.Equal(t, UndoFlags(3), UPDATE_TUPLE, "Expected UPDATE_TUPLE to be 3")
+	assert.Equal(t, UndoFlags(4), CATALOG_ENTRY, "Expected CATALOG_ENTRY to be 4")
+
+	// Test UndoLog creation
+	undoLog := UndoLog{
+		_typ:  INSERT_TUPLE,
+		_data: []byte("test data"),
+	}
+	assert.Equal(t, INSERT_TUPLE, undoLog._typ, "Expected _typ to be INSERT_TUPLE")
+	assert.Equal(t, []byte("test data"), undoLog._data, "Expected _data to be 'test data'")
+}
+
+// TestUndoBufferOperations tests UndoBuffer operations
+func TestUndoBufferOperations(t *testing.T) {
+	// Test UndoBuffer creation
+	undoBuffer := &UndoBuffer{
+		_logs: make([]UndoLog, 0),
+	}
+	assert.NotNil(t, undoBuffer._logs, "Expected _logs to be initialized")
+	assert.Equal(t, 0, len(undoBuffer._logs), "Expected _logs to be empty initially")
+
+	// Test adding logs
+	undoLog1 := UndoLog{_typ: INSERT_TUPLE, _data: []byte("data1")}
+	undoLog2 := UndoLog{_typ: DELETE_TUPLE, _data: []byte("data2")}
+	
+	undoBuffer._logs = append(undoBuffer._logs, undoLog1, undoLog2)
+	
+	assert.Equal(t, 2, len(undoBuffer._logs), "Expected _logs to have 2 items")
+	assert.Equal(t, undoLog1, undoBuffer._logs[0], "Expected first log to be undoLog1")
+	assert.Equal(t, undoLog2, undoBuffer._logs[1], "Expected second log to be undoLog2")
+}
+
+// TestUpdateListOperations tests UpdateList operations
+func TestUpdateListOperations(t *testing.T) {
+	// Test UpdateList creation
+	updateList := &UpdateList{
+		_info: nil,
+	}
+	assert.Nil(t, updateList._info, "Expected _info to be nil initially")
+
+	// Test adding updates
+	updateInfo1 := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("data1"),
+		_prev:    nil,
+		_next:    nil,
+	}
+	updateInfo2 := &UpdateInfo{
+		_colIdx:  0,
+		_colData: T_COL("data2"),
+		_prev:    nil,
+		_next:    nil,
+	}
+
+	// Link updates
+	updateInfo1._next = updateInfo2
+	updateInfo2._prev = updateInfo1
+	updateList._info = updateInfo1
+
+	assert.Equal(t, updateInfo1, updateList._info, "Expected _info to be updateInfo1")
+	assert.Equal(t, updateInfo2, updateInfo1._next, "Expected updateInfo1._next to be updateInfo2")
+	assert.Equal(t, updateInfo1, updateInfo2._prev, "Expected updateInfo2._prev to be updateInfo1")
+}
+
+// TestTxnIdInvalid tests TxnIdInvalid constant
+func TestTxnIdInvalid(t *testing.T) {
+	assert.Equal(t, TxnId(hlc.Timestamp{WallTime: 0, Logical: 0}), TxnIdInvalid, "Expected TxnIdInvalid to be zero timestamp")
+}
+
+// TestTxnStateConstants tests TxnState constants
+func TestTxnStateConstants(t *testing.T) {
+	assert.Equal(t, TxnState(2), TxnStateAborted, "Expected TxnStateAborted to be 2")
+	assert.Equal(t, TxnState(1), TxnStateCommitted, "Expected TxnStateCommitted to be 1")
+	assert.Equal(t, TxnState(0), TxnStateActive, "Expected TxnStateActive to be 0")
+}
+
+// TestTxnIsolationLevelConstants tests TxnIsolationLevel constants
+func TestTxnIsolationLevelConstants(t *testing.T) {
+	assert.Equal(t, TxnIsolationLevel(0), TxnIsolationLevelReadCommitted, "Expected TxnIsolationLevelReadCommitted to be 0")
+	assert.Equal(t, TxnIsolationLevel(1), TxnIsolationLevelSnapshotIsolation, "Expected TxnIsolationLevelSnapshotIsolation to be 1")
+}
