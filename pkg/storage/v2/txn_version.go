@@ -53,7 +53,7 @@ type UpdateInfo struct {
 //
 //	visible (yes/no)
 //	ww-conflicts if change the row(insert/delete/update) (yes/no)
-func CheckRowVisiable(
+func CheckRowVisible(
 	mgr *TxnMgr,
 	txn *Txn,
 	rowInfo *ChunkInfo) (bool, bool) {
@@ -128,14 +128,14 @@ func CheckRowVisiable(
 	panic("unreachable")
 }
 
-func CheckUpdateVisiable(mgr *TxnMgr, txn *Txn, updateInfo *UpdateInfo) (bool, bool) {
+func CheckUpdateVisible(mgr *TxnMgr, txn *Txn, updateInfo *UpdateInfo) (bool, bool) {
 	if updateInfo._version.Load() == nil {
 		panic("version is nil")
 	}
 	rowInfo := &ChunkInfo{}
 	rowInfo._inserted.Store(updateInfo._version.Load())
 	rowInfo._deleted.Store(nil)
-	return CheckRowVisiable(mgr, txn, rowInfo)
+	return CheckRowVisible(mgr, txn, rowInfo)
 }
 
 func CheckUpdatesForConflicts(
@@ -158,7 +158,7 @@ func CheckUpdatesForConflicts(
 						panic("txn has more than one update info")
 					}
 				}
-				_, wwConflictsOnChange = CheckUpdateVisiable(
+				_, wwConflictsOnChange = CheckUpdateVisible(
 					mgr,
 					txn,
 					ptr)
@@ -198,7 +198,7 @@ func MVCCRead(
 		func() {
 			ptr := updates._info
 			for ptr != nil {
-				visible, _ = CheckUpdateVisiable(
+				visible, _ = CheckUpdateVisible(
 					mgr,
 					txn,
 					ptr)

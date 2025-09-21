@@ -110,7 +110,7 @@ func (rg *RowGroup) find(
 				panic("oldItem is nil")
 			}
 			//check if the row is visible and get the right version
-			has, _ = CheckRowVisiable(
+			has, _ = CheckRowVisible(
 				runCtx.TxnMgr(),
 				txn,
 				item._rowVersion)
@@ -161,7 +161,7 @@ func (rg *RowGroup) Insert(
 			var itemToChange *RowGroupItem
 			if has {
 				//find the key, check it visible or not
-				has, wwConflictsOnChange = CheckRowVisiable(
+				has, wwConflictsOnChange = CheckRowVisible(
 					runCtx.TxnMgr(),
 					txn,
 					item._rowVersion)

@@ -27,7 +27,7 @@ func TestCheckRowVisiable_InsertTxnAborted(t *testing.T) {
 	txn2Id := txn2.Id()
 	rowInfo._inserted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	assert.False(t, visible, "Expected visible=false")
 	assert.False(t, wwConflict, "Expected wwConflict=false")
@@ -54,7 +54,7 @@ func TestCheckRowVisiable_InsertTxnAbortedWithSameDeleteTxn(t *testing.T) {
 	rowInfo._inserted.Store(&txn2Id)
 	rowInfo._deleted.Store(&txn2Id) // Same txn as insert
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	assert.False(t, visible, "Expected visible=false")
 	assert.False(t, wwConflict, "Expected wwConflict=false")
@@ -85,7 +85,7 @@ func TestCheckRowVisiable_InsertTxnAbortedWithDifferentDeleteTxn(t *testing.T) {
 
 	// This should panic because insert txn is aborted and delete txn is different
 	assert.Panics(t, func() {
-		CheckRowVisiable(txnMgr, txn1, rowInfo)
+		CheckRowVisible(txnMgr, txn1, rowInfo)
 	}, "Expected panic when insert txn is aborted and delete txn is different")
 }
 
@@ -104,7 +104,7 @@ func TestCheckRowVisiable_InsertTxnActiveSameTxnNoDelete(t *testing.T) {
 	txn1Id := txn1.Id()
 	rowInfo._inserted.Store(&txn1Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	assert.True(t, visible, "Expected visible=true")
 	assert.False(t, wwConflict, "Expected wwConflict=false")
@@ -126,7 +126,7 @@ func TestCheckRowVisiable_InsertTxnActiveSameTxnWithSameDeleteTxn(t *testing.T) 
 	rowInfo._inserted.Store(&txn1Id)
 	rowInfo._deleted.Store(&txn1Id) // Same txn as insert
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	assert.False(t, visible, "Expected visible=false")
 	assert.False(t, wwConflict, "Expected wwConflict=false")
@@ -152,7 +152,7 @@ func TestCheckRowVisiable_InsertTxnActiveSameTxnWithDifferentDeleteTxn(t *testin
 
 	// This should panic because insert txn is active same txn and delete txn is different
 	assert.Panics(t, func() {
-		CheckRowVisiable(txnMgr, txn1, rowInfo)
+		CheckRowVisible(txnMgr, txn1, rowInfo)
 	}, "Expected panic when insert txn is active same txn and delete txn is different")
 }
 
@@ -172,7 +172,7 @@ func TestCheckRowVisiable_InsertTxnActiveDifferentTxn(t *testing.T) {
 	txn2Id := txn2.Id()
 	rowInfo._inserted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	assert.False(t, visible, "Expected visible=false")
 	assert.True(t, wwConflict, "Expected wwConflict=true")
@@ -198,7 +198,7 @@ func TestCheckRowVisiable_InsertTxnCommittedInSnapshot(t *testing.T) {
 	txn2Id := txn2.Id()
 	rowInfo._inserted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -227,7 +227,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshotNoDelete(t *testing.T) 
 	txn2Id := txn2.Id()
 	rowInfo._inserted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -260,7 +260,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshotDeleteAborted(t *testin
 	rowInfo._inserted.Store(&txn2Id)
 	rowInfo._deleted.Store(&txn3Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -291,7 +291,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshotDeleteActiveSameTxn(t *
 	rowInfo._inserted.Store(&txn2Id)
 	rowInfo._deleted.Store(&txn1Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -323,7 +323,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshotDeleteActiveDifferentTx
 	rowInfo._inserted.Store(&txn2Id)
 	rowInfo._deleted.Store(&txn3Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -356,7 +356,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshotDeleteCommittedInSnapsh
 	rowInfo._inserted.Store(&txn2Id)
 	rowInfo._deleted.Store(&txn3Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -390,7 +390,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshotDeleteCommittedNotInSna
 	rowInfo._inserted.Store(&txn2Id)
 	rowInfo._deleted.Store(&txn3Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = true (txn2 id > txn1's snapshot._maxTxnId)
@@ -417,7 +417,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxn(t *testing.T) {
 	rowInfo := &ChunkInfo{}
 	rowInfo._inserted.Store(&oldTxnId)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
@@ -446,7 +446,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithDelete(t *te
 	rowInfo._inserted.Store(&oldTxnId)
 	rowInfo._deleted.Store(&txn1Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
@@ -475,7 +475,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithOldDelete(t 
 	rowInfo._inserted.Store(&oldInsertTxnId)
 	rowInfo._deleted.Store(&oldDeleteTxnId)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldInsertTxnId < txn1's snapshot._minTxnId)
@@ -505,7 +505,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithActiveDelete
 	rowInfo._inserted.Store(&oldTxnId)
 	rowInfo._deleted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
@@ -537,7 +537,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithAbortedDelet
 	rowInfo._inserted.Store(&oldTxnId)
 	rowInfo._deleted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
@@ -561,7 +561,7 @@ func TestCheckRowVisiable_NilInsertTxnId(t *testing.T) {
 
 	// This should panic
 	assert.Panics(t, func() {
-		CheckRowVisiable(txnMgr, txn1, rowInfo)
+		CheckRowVisible(txnMgr, txn1, rowInfo)
 	}, "Expected panic when insert txn id is nil")
 }
 
@@ -584,7 +584,7 @@ func TestCheckUpdateVisiable(t *testing.T) {
 	updateInfo._version.Store(&txn1Id)
 
 	// Test CheckUpdateVisiable
-	visible, wwConflict := CheckUpdateVisiable(txnMgr, txn1, updateInfo)
+	visible, wwConflict := CheckUpdateVisible(txnMgr, txn1, updateInfo)
 
 	// The result should be the same as CheckRowVisiable with the same insert txn
 	assert.True(t, visible, "Expected visible=true")
@@ -610,7 +610,7 @@ func TestCheckUpdateVisiable_NilVersion(t *testing.T) {
 
 	// This should panic
 	assert.Panics(t, func() {
-		CheckUpdateVisiable(txnMgr, txn1, updateInfo)
+		CheckUpdateVisible(txnMgr, txn1, updateInfo)
 	}, "Expected panic when version is nil")
 }
 
@@ -812,11 +812,11 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDel
 
 	// Create an old transaction with a very small timestamp
 	oldTxnId := TxnId(hlc.Timestamp{WallTime: 1000, Logical: 0})
-	
+
 	// Create current transaction and another transaction to commit
 	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelReadCommitted)
 	txn2 := txnMgr.NewTxn("txn2", TxnIsolationLevelReadCommitted)
-	
+
 	// Commit txn2
 	txn2.Commit(TxnId(clock.Now()))
 
@@ -826,7 +826,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDel
 	rowInfo._inserted.Store(&oldTxnId)
 	rowInfo._deleted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
@@ -846,11 +846,11 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDel
 
 	// Create an old transaction with a very small timestamp
 	oldTxnId := TxnId(hlc.Timestamp{WallTime: 1000, Logical: 0})
-	
+
 	// Create snapshot isolation transaction and another transaction to commit
 	txn1 := txnMgr.NewTxn("txn1", TxnIsolationLevelSnapshotIsolation)
 	txn2 := txnMgr.NewTxn("txn2", TxnIsolationLevelReadCommitted)
-	
+
 	// Commit txn2
 	txn2.Commit(TxnId(clock.Now()))
 
@@ -860,7 +860,7 @@ func TestCheckRowVisiable_InsertTxnCommittedNotInSnapshot_OldTxnWithCommittedDel
 	rowInfo._inserted.Store(&oldTxnId)
 	rowInfo._deleted.Store(&txn2Id)
 
-	visible, wwConflict := CheckRowVisiable(txnMgr, txn1, rowInfo)
+	visible, wwConflict := CheckRowVisible(txnMgr, txn1, rowInfo)
 
 	// Based on the new IsActiveInSnapshot implementation:
 	// - insertTxnInSS = false (oldTxnId < txn1's snapshot._minTxnId)
@@ -912,7 +912,6 @@ func TestCheckUpdatesForConflicts_WithExistingUpdates(t *testing.T) {
 	assert.Equal(t, T_COL("new data"), existingInfo._colData, "Expected existingInfo._colData to be updated")
 }
 
-
 // TestCheckUpdatesForConflicts_MultipleUpdates tests CheckUpdatesForConflicts with multiple updates (same column)
 func TestCheckUpdatesForConflicts_MultipleUpdates(t *testing.T) {
 	rctx := InitRunContext("test")
@@ -959,7 +958,7 @@ func TestCheckUpdatesForConflicts_MultipleUpdates(t *testing.T) {
 	assert.Equal(t, T_COL("data2"), info1._colData, "Expected info1._colData to be updated to 'data2'")
 	assert.Nil(t, info1._next, "Expected info1._next to be nil")
 	assert.Nil(t, info1._prev, "Expected info1._prev to be nil")
-}// TestCheckUpdatesForConflicts_DuplicateVersionPanic tests CheckUpdatesForConflicts with duplicate version and different column should panic
+} // TestCheckUpdatesForConflicts_DuplicateVersionPanic tests CheckUpdatesForConflicts with duplicate version and different column should panic
 func TestCheckUpdatesForConflicts_DuplicateVersionPanic(t *testing.T) {
 	rctx := InitRunContext("test")
 	defer rctx.Close()
@@ -997,6 +996,7 @@ func TestCheckUpdatesForConflicts_DuplicateVersionPanic(t *testing.T) {
 		CheckUpdatesForConflicts(txnMgr, txn1, updates, duplicateInfo)
 	}, "Expected panic when there are duplicate versions with different columns")
 }
+
 // TestUndoLogOperations tests UndoLog operations
 func TestUndoLogOperations(t *testing.T) {
 	// Test UndoFlags constants
@@ -1027,9 +1027,9 @@ func TestUndoBufferOperations(t *testing.T) {
 	// Test adding logs
 	undoLog1 := UndoLog{_typ: INSERT_TUPLE, _data: []byte("data1")}
 	undoLog2 := UndoLog{_typ: DELETE_TUPLE, _data: []byte("data2")}
-	
+
 	undoBuffer._logs = append(undoBuffer._logs, undoLog1, undoLog2)
-	
+
 	assert.Equal(t, 2, len(undoBuffer._logs), "Expected _logs to have 2 items")
 	assert.Equal(t, undoLog1, undoBuffer._logs[0], "Expected first log to be undoLog1")
 	assert.Equal(t, undoLog2, undoBuffer._logs[1], "Expected second log to be undoLog2")
@@ -1138,6 +1138,7 @@ func TestCheckUpdatesForConflicts_EmptyListWithExistingInfo(t *testing.T) {
 	assert.Equal(t, info2, info1._prev, "Expected info1._prev to be info2")
 	assert.Nil(t, info2._prev, "Expected info2._prev to be nil")
 }
+
 // TestCheckUpdatesForConflicts_MultipleNodesInList tests traversing multiple nodes in the list
 func TestCheckUpdatesForConflicts_MultipleNodesInList(t *testing.T) {
 	rctx := InitRunContext("test")
@@ -1189,7 +1190,7 @@ func TestCheckUpdatesForConflicts_MultipleNodesInList(t *testing.T) {
 	// Verify prev pointers
 	assert.Nil(t, info2._prev, "Expected info2._prev to be nil")
 	assert.Equal(t, info2, info1._prev, "Expected info1._prev to be info2")
-}// TestCheckUpdatesForConflicts_SameVersionDifferentColumn tests same version but different column should panic
+} // TestCheckUpdatesForConflicts_SameVersionDifferentColumn tests same version but different column should panic
 func TestCheckUpdatesForConflicts_SameVersionDifferentColumn(t *testing.T) {
 	rctx := InitRunContext("test")
 	defer rctx.Close()
@@ -1227,6 +1228,7 @@ func TestCheckUpdatesForConflicts_SameVersionDifferentColumn(t *testing.T) {
 		CheckUpdatesForConflicts(txnMgr, txn1, updates, info2)
 	}, "Expected panic when same version but different column")
 }
+
 // TestCheckUpdatesForConflicts_DifferentVersionSameColumn tests different version but same column (should add new)
 func TestCheckUpdatesForConflicts_DifferentVersionSameColumn(t *testing.T) {
 	rctx := InitRunContext("test")
@@ -1280,9 +1282,6 @@ func TestCheckUpdatesForConflicts_DifferentVersionSameColumn(t *testing.T) {
 	assert.Equal(t, info2, info1._prev, "Expected info1._prev to be info2")
 	assert.Nil(t, info2._prev, "Expected info2._prev to be nil")
 }
-
-
-
 
 // TestCheckUpdatesForConflicts_EmptyListAddFirst tests adding first element to empty list
 func TestCheckUpdatesForConflicts_EmptyListAddFirst(t *testing.T) {
