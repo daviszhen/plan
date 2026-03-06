@@ -43,6 +43,21 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildManifestAppendFromManifestTest(t *testing.T) {
+	m := NewManifest(1)
+	m.Fragments = []*DataFragment{NewDataFragment(0, []*DataFile{NewDataFile("a.parquet", []int32{0}, 1, 0)})}
+	maxZero := uint32(0)
+	m.MaxFragmentId = &maxZero
+	txn := NewTransactionAppend(1, "u", []*DataFragment{NewDataFragment(0, []*DataFile{NewDataFile("b.parquet", []int32{0}, 1, 0)})})
+	next, err := BuildManifest(m, txn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Version != 2 || len(next.Fragments) != 2 || next.Fragments[1].Id != 1 {
+		t.Errorf("BuildManifest Append: version=%d nfrag=%d", next.Version, len(next.Fragments))
+	}
+}
+
 func TestUnmarshalManifestNil(t *testing.T) {
 	_, err := MarshalManifest(nil)
 	if err == nil {
