@@ -217,6 +217,8 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 | T.5 | 冲突与 Rebase：按冲突矩阵构造 (A,B) 用例，验证冲突时返回、兼容时 Rebase 后结果正确 | 冲突/Rebase 对比单测 | 4.3, 4.4 |
 | T.6 | 差异文档：在 doc.go 或本文档中列出与 Lance 的已知差异（若有） | 已知差异说明 | 全 Phase |
 
+**对比测试已实现**：testdata/ 与 TestGenerateFixtures；comparison_test.go 中 T.2 格式对比（LoadManifestFixture、LoadTransactionFixture、ManifestRoundTripViaFixture）、T.3 路径约定（TestPathConvention）、T.4 操作行为（TestOperationBehaviorAppend/Overwrite/Delete）、T.5 冲突与 Rebase（TestConflictAppendAppendCompatible、TestConflictAppendOverwriteConflict、TestRebaseResultMatchesOrder）；doc.go 中已知差异说明。
+
 ### 6.7 任务依赖关系简图
 
 ```
