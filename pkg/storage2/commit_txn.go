@@ -53,6 +53,8 @@ func CommitTransaction(ctx context.Context, basePath string, handler CommitHandl
 	}
 	// Record which transaction produced this version (for LoadTransactionsAfter).
 	next.TransactionFile = fmt.Sprintf("%d-%s.%s", rebased.ReadVersion, rebased.Uuid, TransactionExtension)
-
+	if rebased.Tag != "" {
+		next.Tag = rebased.Tag
+	}
 	return handler.Commit(ctx, basePath, next.Version, next)
 }

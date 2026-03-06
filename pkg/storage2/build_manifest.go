@@ -101,12 +101,16 @@ func buildManifestOverwrite(current *Manifest, overwriteOp *storage2pb.Transacti
 	if next.Config == nil {
 		next.Config = make(map[string]string)
 	}
-	// Copy schema_metadata if present.
 	if overwriteOp.SchemaMetadata != nil {
 		next.SchemaMetadata = make(map[string][]byte)
 		for k, v := range overwriteOp.SchemaMetadata {
 			next.SchemaMetadata[k] = append([]byte(nil), v...)
 		}
+	}
+	if len(overwriteOp.GetInitialBases()) > 0 {
+		next.BasePaths = append([]*storage2pb.BasePath{}, overwriteOp.GetInitialBases()...)
+	} else if current != nil && len(current.BasePaths) > 0 {
+		next.BasePaths = append([]*storage2pb.BasePath{}, current.BasePaths...)
 	}
 
 	frags := overwriteOp.GetFragments()

@@ -149,6 +149,8 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 - 与 ObjectStore 抽象对接（本地、S3、GCS 等），统一 IO 接口。
 - 性能：Manifest 缓存、fragment 偏移索引（类似 Lance 的 fragment_offsets）以加速按范围查找。
 
+**Phase 5 已实现**：`fragment_offsets.go`（ComputeFragmentOffsets、FragmentsByOffsetRange）；BuildManifest Overwrite 支持 InitialBases → next.BasePaths，Commit 时保留 Transaction.Tag → next.Tag；`fragment.go` 中 NewBasePath、NewDeletionFile、NewDataFragmentWithRows；`io.go` 中 ObjectStore 接口与 LocalObjectStore 实现；单测覆盖上述逻辑及 LocalObjectStore。
+
 ---
 
 ## 六、开发任务拆解

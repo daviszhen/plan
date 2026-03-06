@@ -40,6 +40,31 @@ func TestCommitTransactionFirstCommit(t *testing.T) {
 	}
 }
 
+func TestCommitTransactionPreservesTag(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	handler := NewLocalRenameCommitHandler()
+	m0 := NewManifest(0)
+	m0.Version = 0
+	m0.Fragments = []*DataFragment{}
+	_ = handler.Commit(ctx, dir, 0, m0)
+
+	txn := NewTransactionAppend(0, "tagged", []*DataFragment{
+		NewDataFragment(0, []*DataFile{NewDataFile("d.parquet", []int32{0}, 1, 0)}),
+	})
+	txn.Tag = "release-1.0"
+	if err := CommitTransaction(ctx, dir, handler, txn); err != nil {
+		t.Fatal(err)
+	}
+	m1, err := LoadManifest(ctx, dir, handler, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m1.Tag != "release-1.0" {
+		t.Errorf("manifest Tag: got %q want release-1.0", m1.Tag)
+	}
+}
+
 func TestCommitTransactionRebase(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

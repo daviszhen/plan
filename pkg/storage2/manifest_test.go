@@ -2,6 +2,8 @@ package storage2
 
 import (
 	"testing"
+
+	"github.com/daviszhen/plan/pkg/storage2/proto"
 )
 
 func TestManifestRoundTrip(t *testing.T) {
@@ -62,5 +64,22 @@ func TestUnmarshalManifestNil(t *testing.T) {
 	_, err := MarshalManifest(nil)
 	if err == nil {
 		t.Fatal("expected error when marshaling nil manifest")
+	}
+}
+
+func TestBuildManifestOverwriteWithInitialBases(t *testing.T) {
+	current := NewManifest(1)
+	current.Fragments = []*DataFragment{NewDataFragment(0, nil)}
+	base := NewBasePath(1, "base/path", nil, true)
+	txn := NewTransactionOverwrite(1, "ow", nil, nil, nil)
+	if ow, ok := txn.Operation.(*storage2pb.Transaction_Overwrite_); ok && ow.Overwrite != nil {
+		ow.Overwrite.InitialBases = []*storage2pb.BasePath{base}
+	}
+	next, err := BuildManifest(current, txn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.BasePaths) != 1 || next.BasePaths[0].Id != 1 || next.BasePaths[0].Path != "base/path" {
+		t.Errorf("BasePaths: got %v", next.BasePaths)
 	}
 }
