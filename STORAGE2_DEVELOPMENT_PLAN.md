@@ -281,7 +281,7 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 
 - **语言与仓库**：Go，位于 `plan` 仓库 `pkg/storage2`。
 - **依赖**：除 Go 标准库外，序列化采用 **Proto**：**直接使用 Lance 的 proto 文件**（如 `table.proto`、`transaction.proto`），通过 `protoc` 生成 Go 代码；不依赖 `pkg/storage`、`pkg/common`、`pkg/chunk`、`pkg/compute` 等 pkg 内其它模块。
-- **与 Lance 的差异**：Lance 为 Arrow 列式与 Rust 生态。Storage2 **元数据**（Manifest、Fragment、DataFile、Transaction）与 Lance 使用同一套 Proto；**数据文件**不采用 Arrow，采用**与 pkg/chunk 兼容的列存格式**（见 4.1），便于后续与 plan 对接，不实现 Lance 的 file2/Arrow 列存。
+- **与 Lance 的差异**：Lance 为 Arrow 列式与 Rust 生态。Storage2 **元数据**（Manifest、Fragment、DataFile、Transaction）与 Lance 使用同一套 Proto；**数据文件**不采用 Arrow，采用**与 pkg/chunk 兼容的列存格式**（见 4.1），便于git后续与 plan 对接，不实现 Lance 的 file2/Arrow 列存。
 
 ---
 
