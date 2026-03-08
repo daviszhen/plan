@@ -52,9 +52,10 @@ func CommitTransaction(ctx context.Context, basePath string, handler CommitHandl
 		return fmt.Errorf("build manifest: %w", err)
 	}
 	// Record which transaction produced this version (for LoadTransactionsAfter).
-	next.TransactionFile = fmt.Sprintf("%d-%s.%s", rebased.ReadVersion, rebased.Uuid, TransactionExtension)
-	if rebased.Tag != "" {
-		next.Tag = rebased.Tag
+	// Use original txn.ReadVersion and txn.Uuid (not rebased) to match the file written by WriteTransactionFile.
+	next.TransactionFile = fmt.Sprintf("%d-%s.%s", txn.ReadVersion, txn.Uuid, TransactionExtension)
+	if txn.Tag != "" {
+		next.Tag = txn.Tag
 	}
 	return handler.Commit(ctx, basePath, next.Version, next)
 }
