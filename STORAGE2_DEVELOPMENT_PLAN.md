@@ -151,6 +151,13 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 
 **Phase 5 已实现**：`fragment_offsets.go`（ComputeFragmentOffsets、FragmentsByOffsetRange）；BuildManifest Overwrite 支持 InitialBases → next.BasePaths，Commit 时保留 Transaction.Tag → next.Tag；`fragment.go` 中 NewBasePath、NewDeletionFile、NewDataFragmentWithRows；`io.go` 中 ObjectStore 接口与 LocalObjectStore 实现；单测覆盖上述逻辑及 LocalObjectStore。
 
+### Phase 6：数据文件格式（与 pkg/chunk 兼容列存）
+
+- **目标**：实现列存数据文件读写，格式与 pkg/chunk 可对接，实现期不依赖 pkg/chunk。
+- **产出**：`data_format.go`（S2DF 格式：magic、version、header/footer、ColumnTypeID 与 common.LTypeId 对齐）；`data_writer.go`（CreateDataFile、WriteColumn、Close）；`data_reader.go`（OpenDataFile、NumRows/NumColumns、ReadColumn、FileSize）；单测覆盖往返与边界。
+
+**Phase 6 已实现**：S2DF 列存格式（header 18 字节、footer 列长度 + num_columns）；ColumnTypeID 子集（Int32/Int64/Float64/Bytes）与 common.LTypeId 数值一致；DataFileWriter/DataFileReader；单测 data_format_test.go、data_writer_reader_test.go。
+
 ---
 
 ## 六、开发任务拆解
@@ -238,7 +245,18 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 4.1 → 4.2 → 4.3 → 4.4 → 4.5(可选)
               ↑
 T.1 → T.2   T.3  T.4   T.5   T.6
+
+6.x Phase 6（数据文件）：6.1 格式定义 → 6.2 Writer → 6.3 Reader → 6.4 单测
 ```
+
+### 6.8 Phase 6：数据文件格式（可选）
+
+| 任务 ID | 任务描述 | 产出 | 依赖 |
+|---------|----------|------|------|
+| 6.1 | 定义列存格式 S2DF：magic、version、header（num_rows/num_columns）、按列数据、footer（列长度）；ColumnTypeID 与 common.LTypeId 数值对齐 | data_format.go：常量、Header/Footer 读写、ColumnTypeID | - |
+| 6.2 | 实现 DataFileWriter：CreateDataFile、WriteColumn、Close（写 header + 列数据 + footer） | data_writer.go | 6.1 |
+| 6.3 | 实现 DataFileReader：OpenDataFile、NumRows/NumColumns、ReadColumn、FileSize | data_reader.go | 6.1 |
+| 6.4 | 单测：header/footer 往返、整文件写入后读取校验、列越界与缺失文件 | data_*_test.go | 6.2, 6.3 |
 
 ---
 
