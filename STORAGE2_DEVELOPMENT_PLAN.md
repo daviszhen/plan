@@ -58,10 +58,11 @@ Dataset (表/数据集)
 
 ## 三、独立性说明
 
-**Storage2 独立于 pkg/storage 及 pkg 内其他模块。**
+**Storage2 元数据层独立于 pkg/storage 等模块；数据文件列存使用 pkg/chunk。**
 
-- 不依赖 `pkg/storage`、`pkg/catalog`、`pkg/chunk`、`pkg/compute` 等现有包；实现时仅使用 Go 标准库及本包内类型。
-- 暂不考虑与其它模块的对接、桥接或集成；后续若有对接需求再单独规划。
+- **元数据层**（Manifest、Fragment、Transaction、CommitHandler、冲突检测等）：不依赖 `pkg/storage`、`pkg/catalog`、`pkg/compute` 等，仅使用 Go 标准库及本包（含 proto 生成代码）。
+- **数据文件列存**：**直接使用 pkg/chunk**（及 pkg/common 类型体系），数据文件的读写、类型、序列化与 `chunk.Chunk`、`chunk.Vector`、`common.LType` 等一致，便于与 plan 执行器、算子统一。
+- 暂不考虑与 pkg/storage、pkg/catalog 的对接；与 pkg/chunk 的对接通过“列存使用 pkg/chunk”完成。
 
 ---
 
@@ -84,26 +85,25 @@ pkg/storage2/
 
 - **采用 Proto**，**直接使用 Lance 的 proto 定义**（如 `table.proto`、`transaction.proto` 等）。将 Lance 仓库中的 proto 文件引入 plan 项目（复制到 `pkg/storage2/proto` 或通过 submodule 引用），用 `protoc` 生成 Go 结构体；Manifest、Fragment、DataFile、Transaction 的读写与 Lance 使用同一套消息格式，便于后续与 Lance 的对比测试（格式一致可直接做字节级或反序列化后逐字段比对）。
 
-### 4.1 数据文件格式（不采用 Arrow，与 pkg/chunk 兼容）
+### 4.1 数据文件格式（不采用 Arrow，使用 pkg/chunk）
 
-Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch、列式编码等）。Storage2 **不采用 Arrow**，仅在**元数据层**与 Lance 对齐（Manifest/Fragment/DataFile 的 Proto）；**数据文件本体**采用列存，且**与 pkg/chunk 兼容**，便于后续与 plan 的 compute、catalog 等模块对接。
+Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch、列式编码等）。Storage2 **不采用 Arrow**，仅在**元数据层**与 Lance 对齐（Manifest/Fragment/DataFile 的 Proto）；**数据文件本体**采用列存，且**直接使用 pkg/chunk** 的类型与序列化，与 plan 的 compute、catalog 等模块统一。
 
 **建议**：
 
 1. **明确分工**  
    - **元数据**：Manifest、Fragment、DataFile、Transaction 继续使用 Lance 的 Proto，DataFile 只描述“路径、字段 id、大小、版本”等，**不约定**文件内部布局。  
-   - **数据文件**：列存格式由 Storage2 定义，**与 pkg/chunk 兼容**（类型、列/向量、Chunk 等可互转或布局一致），实现期可不依赖 pkg/chunk，仅遵守格式约定，便于后续对接。
+   - **数据文件**：列存格式**使用 pkg/chunk**：类型采用 `pkg/common` 的 LType/LTypeId，读写采用 `chunk.Chunk`、`chunk.Vector` 及 chunk 的物理格式/序列化（如 `vector_serialize`、`UnifiedFormat` 等），数据文件即“持久化后的 Chunk”，无需额外转换层。
 
 2. **数据文件格式**  
-   - **列存**，且与 **pkg/chunk** 兼容：如列式布局、类型与 `pkg/chunk` / `pkg/common` 中的类型一致或可映射，读写结果可填充为 `chunk.Chunk`、`chunk.Vector` 等，便于后续与 plan 执行器、算子对接。  
-   - 具体可：按列写入二进制（列 A 长度 + 数据，列 B…），footer 记录列偏移、行数、类型（与 plan 类型体系一致）；或与 chunk 的物理格式/序列化方式对齐，保证“存储 ↔ chunk”可无损或简单转换。
+   - **列存**，且**使用 pkg/chunk**：列式布局、类型与 `pkg/chunk` / `pkg/common` 一致，写入时由 Chunk 序列化到文件，读取时反序列化为 Chunk，与执行器、算子直接对接。
 
 3. **与对比测试的关系**  
    - 对比测试只针对**元数据与操作行为**（Manifest、Transaction、Append/Delete/Overwrite 等结果）。  
    - **数据文件内容**不参与与 Lance 的字节级对比；仅保证 DataFile 的 path/fields/size 等与 Manifest 一致。
 
 4. **文档化**  
-   - 在“与 Lance 的已知差异”中写明：**数据文件内部格式：Lance 使用 Arrow 列存，Storage2 使用与 pkg/chunk 兼容的列存格式（非 Arrow）**，避免与 Lance 数据文件混用或误判为兼容。
+   - 在“与 Lance 的已知差异”中写明：**数据文件内部格式：Lance 使用 Arrow 列存，Storage2 使用 pkg/chunk 列存格式（非 Arrow）**，避免与 Lance 数据文件混用或误判为兼容。
 
 ---
 
@@ -151,12 +151,12 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 
 **Phase 5 已实现**：`fragment_offsets.go`（ComputeFragmentOffsets、FragmentsByOffsetRange）；BuildManifest Overwrite 支持 InitialBases → next.BasePaths，Commit 时保留 Transaction.Tag → next.Tag；`fragment.go` 中 NewBasePath、NewDeletionFile、NewDataFragmentWithRows；`io.go` 中 ObjectStore 接口与 LocalObjectStore 实现；单测覆盖上述逻辑及 LocalObjectStore。
 
-### Phase 6：数据文件格式（与 pkg/chunk 兼容列存）
+### Phase 6：数据文件格式（使用 pkg/chunk）
 
-- **目标**：实现列存数据文件读写，格式与 pkg/chunk 可对接，实现期不依赖 pkg/chunk。
-- **产出**：`data_format.go`（S2DF 格式：magic、version、header/footer、ColumnTypeID 与 common.LTypeId 对齐）；`data_writer.go`（CreateDataFile、WriteColumn、Close）；`data_reader.go`（OpenDataFile、NumRows/NumColumns、ReadColumn、FileSize）；单测覆盖往返与边界。
+- **目标**：实现列存数据文件读写，**使用 pkg/chunk** 的类型与序列化（Chunk/Vector、LType、chunk 的物理格式或序列化接口），数据文件即持久化的 Chunk。
+- **产出**：数据文件读写层依赖 `pkg/chunk`、`pkg/common`；Writer 接收 `chunk.Chunk` 或按列写入时使用 chunk 的序列化；Reader 返回 `chunk.Chunk` 或可填充 Chunk 的列数据；类型与 `common.LTypeId` 一致，无需自建 ColumnTypeID。
 
-**Phase 6 已实现**：S2DF 列存格式（header 18 字节、footer 列长度 + num_columns）；ColumnTypeID 子集（Int32/Int64/Float64/Bytes）与 common.LTypeId 数值一致；DataFileWriter/DataFileReader；单测 data_format_test.go、data_writer_reader_test.go。
+**Phase 6 当前实现**：S2DF 为过渡实现（独立于 pkg/chunk 的格式与 Writer/Reader）。按本计划，列存应改为**使用 pkg/chunk** 后，可逐步替换为基于 Chunk 的读写与 chunk 的序列化格式。
 
 ---
 
@@ -171,7 +171,7 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 | 0.1 | 从 Lance 仓库定位并列出所需 proto 文件（如 table.proto、transaction.proto 及依赖） | 文档：proto 文件清单及路径 | - |
 | 0.2 | 在 plan 中创建 `pkg/storage2/proto`，引入 Lance 的 proto 文件（复制或 submodule） | 目录下存在与 Lance 一致的 .proto 文件 | 0.1 |
 | 0.3 | 配置 protoc 与 Go 插件，编写生成脚本/Makefile，生成 Go 代码到 `pkg/storage2/proto` 或子包 | 可执行脚本；生成的 .pb.go 可编译通过 | 0.2 |
-| 0.4 | 初始化 `pkg/storage2` 包骨架：doc.go、go.mod 中 module 或 replace（若需），确保不依赖 pkg 内其它模块 | 可 `go build ./pkg/storage2/...` | 0.3 |
+| 0.4 | 初始化 `pkg/storage2` 包骨架：doc.go、go.mod；元数据层不依赖其它 pkg，数据文件列存可依赖 pkg/chunk、pkg/common | 可 `go build ./pkg/storage2/...` | 0.3 |
 
 ### 6.2 Phase 1：Manifest 与 Fragment 模型
 
@@ -249,14 +249,14 @@ T.1 → T.2   T.3  T.4   T.5   T.6
 6.x Phase 6（数据文件）：6.1 格式定义 → 6.2 Writer → 6.3 Reader → 6.4 单测
 ```
 
-### 6.8 Phase 6：数据文件格式（可选）
+### 6.8 Phase 6：数据文件格式（使用 pkg/chunk）
 
 | 任务 ID | 任务描述 | 产出 | 依赖 |
 |---------|----------|------|------|
-| 6.1 | 定义列存格式 S2DF：magic、version、header（num_rows/num_columns）、按列数据、footer（列长度）；ColumnTypeID 与 common.LTypeId 数值对齐 | data_format.go：常量、Header/Footer 读写、ColumnTypeID | - |
-| 6.2 | 实现 DataFileWriter：CreateDataFile、WriteColumn、Close（写 header + 列数据 + footer） | data_writer.go | 6.1 |
-| 6.3 | 实现 DataFileReader：OpenDataFile、NumRows/NumColumns、ReadColumn、FileSize | data_reader.go | 6.1 |
-| 6.4 | 单测：header/footer 往返、整文件写入后读取校验、列越界与缺失文件 | data_*_test.go | 6.2, 6.3 |
+| 6.1 | 列存格式使用 pkg/chunk：类型采用 common.LTypeId；文件布局与 chunk 的物理格式/序列化一致（或封装 chunk 的 Serialize/反序列化） | 数据文件格式约定；可选 data_format.go 仅描述与 chunk 的对应关系 | pkg/chunk, pkg/common |
+| 6.2 | 实现 DataFileWriter：接收 chunk.Chunk 或按列写入，使用 pkg/chunk 的序列化接口写至文件 | data_writer.go（依赖 pkg/chunk） | 6.1 |
+| 6.3 | 实现 DataFileReader：从文件读入并反序列化为 chunk.Chunk 或可填充 Chunk 的结构 | data_reader.go（依赖 pkg/chunk） | 6.1 |
+| 6.4 | 单测：Chunk 写入后读回校验、类型与列边界 | data_*_test.go | 6.2, 6.3 |
 
 ---
 
@@ -295,15 +295,15 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 - **Fixture 与 Golden**：在 `pkg/storage2` 或独立测试目录下提供 `testdata/`，存放最小 Manifest/Fragment/Transaction 的 **Proto 二进制快照**（.manifest、.txn），可直接使用 Lance 生成的文件或由 Storage2 生成后与 Lance 交叉验证，用于回归。
 - **单测**：每个 Phase 的验收测试中，对核心结构（Manifest、Fragment、Transaction）增加“与 Lance 语义对齐”的断言（字段存在性、取值范围、关系不变量）。
 - **行为测试**：实现 CommitHandler 与 BuildManifest 后，按 6.2 表格逐项写用例：给定输入状态 + 操作，对比输出 Manifest（或导出结构）与预期。
-- **差异文档**：若某处有意与 Lance 不同（如字段省略、命名、路径），在本文档或 `doc.go` 中单独列出“与 Lance 的已知差异”，避免误判为缺陷。必列项：**数据文件内部格式**（Lance 使用 Arrow 列存，Storage2 使用与 pkg/chunk 兼容的列存格式，见 4.1）。
+- **差异文档**：若某处有意与 Lance 不同（如字段省略、命名、路径），在本文档或 `doc.go` 中单独列出“与 Lance 的已知差异”，避免误判为缺陷。必列项：**数据文件内部格式**（Lance 使用 Arrow 列存，Storage2 使用 pkg/chunk 列存格式，见 4.1）。
 
 ---
 
 ## 八、依赖与约束
 
 - **语言与仓库**：Go，位于 `plan` 仓库 `pkg/storage2`。
-- **依赖**：除 Go 标准库外，序列化采用 **Proto**：**直接使用 Lance 的 proto 文件**（如 `table.proto`、`transaction.proto`），通过 `protoc` 生成 Go 代码；不依赖 `pkg/storage`、`pkg/common`、`pkg/chunk`、`pkg/compute` 等 pkg 内其它模块。
-- **与 Lance 的差异**：Lance 为 Arrow 列式与 Rust 生态。Storage2 **元数据**（Manifest、Fragment、DataFile、Transaction）与 Lance 使用同一套 Proto；**数据文件**不采用 Arrow，采用**与 pkg/chunk 兼容的列存格式**（见 4.1），便于git后续与 plan 对接，不实现 Lance 的 file2/Arrow 列存。
+- **依赖**：**元数据层**：除 Go 标准库外，序列化采用 **Proto**（Lance 的 `table.proto`、`transaction.proto` 等），不依赖 `pkg/storage`、`pkg/compute` 等。**数据文件列存**：**使用 pkg/chunk**（及 pkg/common），类型与序列化与 chunk 一致。
+- **与 Lance 的差异**：Lance 为 Arrow 列式与 Rust 生态。Storage2 **元数据**与 Lance 使用同一套 Proto；**数据文件**不采用 Arrow，**使用 pkg/chunk 列存格式**（见 4.1），与 plan 执行器、算子统一。
 
 ---
 
