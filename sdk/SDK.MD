@@ -183,9 +183,9 @@ if err != nil {
 
 ## 数据文件操作
 
-数据文件列存**使用 pkg/chunk**：类型与序列化与 `chunk.Chunk`、`pkg/common.LType` 一致，写入时由 Chunk 序列化到文件，读取时反序列化为 Chunk，便于与执行器、算子直接对接。
+数据文件列存统一**使用 pkg/chunk**：类型与序列化与 `chunk.Chunk`、`pkg/common.LType` 一致；写入用 `WriteChunkToFile(path, c)`，读取用 `ReadChunkFromFile(path)` 得到 `*chunk.Chunk`，便于与执行器、算子直接对接。
 
-### 写入数据文件（推荐：pkg/chunk）
+### 写入数据文件
 
 ```go
 import (
@@ -207,7 +207,7 @@ c.SetCard(numRows)
 err := storage2.WriteChunkToFile(path, c)
 ```
 
-### 读取数据文件（推荐：pkg/chunk）
+### 读取数据文件
 
 ```go
 // 从文件读回为 Chunk
@@ -845,8 +845,8 @@ func (s *scannerImpl) GetRow() (*Record, error) {
 }
 
 func (s *scannerImpl) loadNextBatch() error {
-    // 从数据文件加载下一批数据
-    // 实现细节：读取 Fragment，应用过滤条件，转换为 Record
+    // 从数据文件加载下一批：使用 storage2.ReadChunkFromFile(path) 读入 *chunk.Chunk，再转换为 Record
+    // 实现细节：遍历当前 Fragment 的 DataFile 路径，ReadChunkFromFile，应用过滤条件，填充 currentBatch
     return nil
 }
 ```
@@ -1012,11 +1012,9 @@ func (d *datasetImpl) Take(ctx context.Context, indices []uint64, columns []stri
 }
 
 func (d *datasetImpl) readFragmentRows(ctx context.Context, frag *DataFragment, indices []uint64, columns []string) ([]*Record, error) {
-    // 从 Fragment 的数据文件读取指定行的数据
-    // 实现细节：
-    // 1. 打开数据文件
-    // 2. 根据列类型和索引计算偏移量
-    // 3. 读取数据并转换为 Record
+    // 从 Fragment 的数据文件读取指定行：使用 pkg/chunk
+    // 1. 对 frag 中每个 DataFile，用 storage2.ReadChunkFromFile(basePath+path) 得到 *chunk.Chunk
+    // 2. 根据 indices、columns 从 Chunk 中取对应列与行（c.Data[j].GetValue(i)），转换为 Record
     return nil, nil
 }
 ```
