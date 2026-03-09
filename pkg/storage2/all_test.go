@@ -2,132 +2,118 @@ package storage2
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"testing"
+
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/util"
 )
 
 func TestAll(t *testing.T) {
-    basePath := t.TempDir()
-    ctx := context.Background()
-    handler := NewLocalRenameCommitHandler()
+	basePath := t.TempDir()
+	ctx := context.Background()
+	handler := NewLocalRenameCommitHandler()
 
-    // 1. 创建初始 manifest（版本 0）
-    m0 := NewManifest(0)
-    m0.Fragments = []*DataFragment{}
-    m0.NextRowId = 1
-    if err := handler.Commit(ctx, basePath, 0, m0); err != nil {
-        panic(err)
-    }
+	// 1. 创建初始 manifest（版本 0）
+	m0 := NewManifest(0)
+	m0.Fragments = []*DataFragment{}
+	m0.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, m0); err != nil {
+		panic(err)
+	}
 
-    // 2. 写入数据文件
-    dataPath := filepath.Join(basePath, "data", "0.dat")
-    numRows := uint64(100)
-    numCols := uint32(2)
+	// 2. 写入数据文件（使用 pkg/chunk）
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	numRows := 100
 
-    writer, err := CreateDataFile(dataPath, numRows, numCols)
-    if err != nil {
-        panic(err)
-    }
+	typs := []common.LType{
+		common.MakeLType(common.LTID_INTEGER),
+		common.MakeLType(common.LTID_BIGINT),
+	}
+	c := &chunk.Chunk{}
+	c.Init(typs, util.DefaultVectorSize)
+	c.SetCard(numRows)
+	for i := 0; i < numRows; i++ {
+		c.Data[0].SetValue(i, &chunk.Value{Typ: typs[0], I64: int64(i)})
+		c.Data[1].SetValue(i, &chunk.Value{Typ: typs[1], I64: int64(i * 100)})
+	}
+	if err := WriteChunkToFile(dataPath, c); err != nil {
+		panic(err)
+	}
 
-    // 写入列数据
-    col0 := make([]byte, 100*4) // int32 列
-    col1 := make([]byte, 100*8) // int64 列
-    for i := 0; i < 100; i++ {
-        binary.LittleEndian.PutUint32(col0[i*4:(i+1)*4], uint32(i))
-        binary.LittleEndian.PutUint64(col1[i*8:(i+1)*8], uint64(i*100))
-    }
+	// 3. 创建数据文件元数据
+	dataFile := NewDataFile(
+		"data/0.dat",
+		[]int32{0, 1},
+		1, 0,
+	)
 
-    writer.WriteColumn(col0)
-    writer.WriteColumn(col1)
-    writer.Close()
+	// 4. 创建片段
+	fragment := NewDataFragmentWithRows(0, uint64(numRows), []*DataFile{dataFile})
 
-    // 3. 创建数据文件元数据
-    dataFile := NewDataFile(
-        "data/0.dat",
-        []int32{0, 1},
-        1, 0,
-    )
+	// 5. 创建并提交 Append 事务
+	txn := NewTransactionAppend(0, "first-append", []*DataFragment{fragment})
+	if err := CommitTransaction(ctx, basePath, handler, txn); err != nil {
+		panic(err)
+	}
 
-    // 4. 创建片段
-    fragment := NewDataFragmentWithRows(0, numRows, []*DataFile{dataFile})
+	// 6. 验证结果
+	latest, _ := handler.ResolveLatestVersion(ctx, basePath)
+	fmt.Printf("Latest version: %d\n", latest)
 
-    // 5. 创建并提交 Append 事务
-    txn := NewTransactionAppend(0, "first-append", []*DataFragment{fragment})
-    if err := CommitTransaction(ctx, basePath, handler, txn); err != nil {
-        panic(err)
-    }
+	m1, _ := LoadManifest(ctx, basePath, handler, 1)
+	fmt.Printf("Fragments in v1: %d\n", len(m1.Fragments))
 
-    // 6. 验证结果
-    latest, _ := handler.ResolveLatestVersion(ctx, basePath)
-    fmt.Printf("Latest version: %d\n", latest)
+	// 7. 读取并验证写入的数据（使用 pkg/chunk）
+	got, err := ReadChunkFromFile(dataPath)
+	if err != nil {
+		t.Fatalf("Failed to open data file: %v", err)
+	}
 
-    m1, _ := LoadManifest(ctx, basePath, handler, 1)
-    fmt.Printf("Fragments in v1: %d\n", len(m1.Fragments))
+	fmt.Printf("\n=== 数据文件信息 ===\n")
+	fmt.Printf("行数: %d\n", got.Card())
+	fmt.Printf("列数: %d\n", got.ColumnCount())
 
-    // 7. 读取并验证写入的数据
-    reader, err := OpenDataFile(dataPath)
-    if err != nil {
-        t.Fatalf("Failed to open data file: %v", err)
-    }
-    defer func() {
-        // DataFileReader 不需要显式关闭，但我们可以输出文件信息
-    }()
+	fmt.Printf("\n=== 第一列数据 (int32) ===\n")
+	fmt.Printf("前 10 个值: ")
+	for i := 0; i < 10 && i < numRows; i++ {
+		val := got.Data[0].GetValue(i)
+		fmt.Printf("%d ", val.I64)
+	}
+	fmt.Printf("\n后 10 个值: ")
+	for i := 90; i < numRows; i++ {
+		val := got.Data[0].GetValue(i)
+		fmt.Printf("%d ", val.I64)
+	}
+	fmt.Printf("\n")
 
-    fmt.Printf("\n=== 数据文件信息 ===\n")
-    fmt.Printf("行数: %d\n", reader.NumRows())
-    fmt.Printf("列数: %d\n", reader.NumColumns())
-    fmt.Printf("文件大小: %d 字节\n", reader.FileSize())
+	fmt.Printf("\n=== 第二列数据 (int64) ===\n")
+	fmt.Printf("前 10 个值: ")
+	for i := 0; i < 10 && i < numRows; i++ {
+		val := got.Data[1].GetValue(i)
+		fmt.Printf("%d ", val.I64)
+	}
+	fmt.Printf("\n后 10 个值: ")
+	for i := 90; i < numRows; i++ {
+		val := got.Data[1].GetValue(i)
+		fmt.Printf("%d ", val.I64)
+	}
+	fmt.Printf("\n")
 
-    // 读取第一列（int32）
-    col0Data, err := reader.ReadColumn(0)
-    if err != nil {
-        t.Fatalf("Failed to read column 0: %v", err)
-    }
-    fmt.Printf("\n=== 第一列数据 (int32) ===\n")
-    fmt.Printf("前 10 个值: ")
-    for i := 0; i < 10 && i < 100; i++ {
-        val := binary.LittleEndian.Uint32(col0Data[i*4 : (i+1)*4])
-        fmt.Printf("%d ", val)
-    }
-    fmt.Printf("\n后 10 个值: ")
-    for i := 90; i < 100; i++ {
-        val := binary.LittleEndian.Uint32(col0Data[i*4 : (i+1)*4])
-        fmt.Printf("%d ", val)
-    }
-    fmt.Printf("\n")
-
-    // 读取第二列（int64）
-    col1Data, err := reader.ReadColumn(1)
-    if err != nil {
-        t.Fatalf("Failed to read column 1: %v", err)
-    }
-    fmt.Printf("\n=== 第二列数据 (int64) ===\n")
-    fmt.Printf("前 10 个值: ")
-    for i := 0; i < 10 && i < 100; i++ {
-        val := binary.LittleEndian.Uint64(col1Data[i*8 : (i+1)*8])
-        fmt.Printf("%d ", val)
-    }
-    fmt.Printf("\n后 10 个值: ")
-    for i := 90; i < 100; i++ {
-        val := binary.LittleEndian.Uint64(col1Data[i*8 : (i+1)*8])
-        fmt.Printf("%d ", val)
-    }
-    fmt.Printf("\n")
-
-    // 验证数据正确性
-    fmt.Printf("\n=== 数据验证 ===\n")
-    allCorrect := true
-    for i := 0; i < 100; i++ {
-        val0 := binary.LittleEndian.Uint32(col0Data[i*4 : (i+1)*4])
-        val1 := binary.LittleEndian.Uint64(col1Data[i*8 : (i+1)*8])
-        if val0 != uint32(i) || val1 != uint64(i*100) {
-            fmt.Printf("数据不匹配: row %d, col0=%d (期望 %d), col1=%d (期望 %d)\n", i, val0, i, val1, i*100)
-            allCorrect = false
-        }
-    }
-    if allCorrect {
-        fmt.Printf("✓ 所有数据验证通过！\n")
-    }
+	// 验证数据正确性
+	fmt.Printf("\n=== 数据验证 ===\n")
+	allCorrect := true
+	for i := 0; i < numRows; i++ {
+		v0 := got.Data[0].GetValue(i)
+		v1 := got.Data[1].GetValue(i)
+		if v0.I64 != int64(i) || v1.I64 != int64(i*100) {
+			fmt.Printf("数据不匹配: row %d, col0=%d (期望 %d), col1=%d (期望 %d)\n", i, v0.I64, i, v1.I64, i*100)
+			allCorrect = false
+		}
+	}
+	if allCorrect {
+		fmt.Printf("✓ 所有数据验证通过！\n")
+	}
 }

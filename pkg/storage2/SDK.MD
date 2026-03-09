@@ -16,7 +16,7 @@ Storage2 Golang SDK 是一个高级 API 封装，为 storage2 存储引擎提供
 
 - **Dataset（数据集）**：版本化的表，包含多个 Fragment（片段）
 - **Fragment（片段）**：逻辑数据块，包含一个或多个 DataFile（数据文件）
-- **DataFile（数据文件）**：物理存储文件，使用 S2DF 列式格式
+- **DataFile（数据文件）**：物理存储文件，使用 **pkg/chunk** 列式格式（`chunk.Chunk` 序列化），与 plan 执行器、算子统一
 - **Manifest（清单）**：版本快照，记录 Schema、Fragments、配置等
 - **Transaction（事务）**：原子操作，支持 Append、Delete、Overwrite
 - **Version（版本）**：每次提交创建新版本，支持时间旅行查询
@@ -183,53 +183,45 @@ if err != nil {
 
 ## 数据文件操作
 
-### 写入数据文件
+数据文件列存**使用 pkg/chunk**：类型与序列化与 `chunk.Chunk`、`pkg/common.LType` 一致，写入时由 Chunk 序列化到文件，读取时反序列化为 Chunk，便于与执行器、算子直接对接。
 
-SDK 提供高级封装，简化数据文件写入：
+### 写入数据文件（推荐：pkg/chunk）
 
 ```go
-// 方式1：直接写入列数据
-writer, err := CreateDataFileWriter(path, numRows, numCols)
-if err != nil {
-    return err
-}
-defer writer.Close()
+import (
+    "github.com/daviszhen/plan/pkg/chunk"
+    "github.com/daviszhen/plan/pkg/common"
+    "github.com/daviszhen/plan/pkg/storage2"
+    "github.com/daviszhen/plan/pkg/util"
+)
 
-// 写入各列数据
-for i := 0; i < numCols; i++ {
-    colData := prepareColumnData(i) // 准备列数据
-    if err := writer.WriteColumn(colData); err != nil {
-        return err
-    }
+// 使用 chunk 写入：构造 Chunk 后直接写文件
+typs := []common.LType{
+    common.MakeLType(common.LTID_INTEGER),
+    common.MakeLType(common.LTID_BIGINT),
 }
-
-// 方式2：使用高级 API（未来扩展）
-// writer := NewColumnWriter(path, schema)
-// writer.WriteBatch(batch)
-// writer.Close()
+c := &chunk.Chunk{}
+c.Init(typs, util.DefaultVectorSize)
+c.SetCard(numRows)
+// 填充 c.Data[i].SetValue(...) 后：
+err := storage2.WriteChunkToFile(path, c)
 ```
 
-### 读取数据文件
+### 读取数据文件（推荐：pkg/chunk）
 
 ```go
-// 打开数据文件
-reader, err := OpenDataFile(path)
+// 从文件读回为 Chunk
+c, err := storage2.ReadChunkFromFile(path)
 if err != nil {
     return err
 }
-
-// 获取元数据
-numRows := reader.NumRows()
-numCols := reader.NumColumns()
-
-// 读取列数据
-for i := uint32(0); i < numCols; i++ {
-    colData, err := reader.ReadColumn(i)
-    if err != nil {
-        return err
+numRows := c.Card()
+numCols := c.ColumnCount()
+for i := 0; i < numRows; i++ {
+    for j := 0; j < numCols; j++ {
+        val := c.Data[j].GetValue(i)
+        // 使用 val.I64, val.F64, val.Str 等
     }
-    // 处理列数据
-    processColumn(colData)
 }
 ```
 
@@ -242,11 +234,14 @@ package main
 
 import (
     "context"
-    "encoding/binary"
     "fmt"
     "log"
-    
+    "path/filepath"
+
+    "github.com/daviszhen/plan/pkg/chunk"
+    "github.com/daviszhen/plan/pkg/common"
     "github.com/daviszhen/plan/pkg/storage2"
+    "github.com/daviszhen/plan/pkg/util"
 )
 
 func main() {
@@ -263,42 +258,34 @@ func main() {
     }
     defer dataset.Close()
     
-    // 2. 准备数据文件
-    dataPath := "data/0.dat"
-    numRows := uint64(100)
-    numCols := uint32(2)
-    
-    writer, err := storage2.CreateDataFile(
-        storage2.JoinPath(basePath, dataPath),
-        numRows,
-        numCols,
-    )
-    if err != nil {
+    // 2. 准备数据文件（使用 pkg/chunk 写入）
+    dataPath := filepath.Join(basePath, "data", "0.dat")
+    numRows := 100
+
+    typs := []common.LType{
+        common.MakeLType(common.LTID_INTEGER),
+        common.MakeLType(common.LTID_BIGINT),
+    }
+    c := &chunk.Chunk{}
+    c.Init(typs, util.DefaultVectorSize)
+    c.SetCard(numRows)
+    for i := 0; i < numRows; i++ {
+        c.Data[0].SetValue(i, &chunk.Value{Typ: typs[0], I64: int64(i)})
+        c.Data[1].SetValue(i, &chunk.Value{Typ: typs[1], I64: int64(i * 100)})
+    }
+    if err := storage2.WriteChunkToFile(dataPath, c); err != nil {
         log.Fatal(err)
     }
     
-    // 写入列数据
-    col0 := make([]byte, 100*4) // int32 列
-    col1 := make([]byte, 100*8) // int64 列
-    for i := 0; i < 100; i++ {
-        binary.LittleEndian.PutUint32(col0[i*4:(i+1)*4], uint32(i))
-        binary.LittleEndian.PutUint64(col1[i*8:(i+1)*8], uint64(i*100))
-    }
-    
-    writer.WriteColumn(col0)
-    writer.WriteColumn(col1)
-    writer.Close()
-    
     // 3. 创建 Fragment 并追加
     dataFile := storage2.NewDataFile(
-        dataPath,
+        "data/0.dat",   // 相对路径（与 basePath 拼接后的相对部分）
         []int32{0, 1},
         1, 0,
     )
-    
     fragment := storage2.NewDataFragmentWithRows(
         0,
-        numRows,
+        uint64(numRows),
         []*storage2.DataFile{dataFile},
     )
     
@@ -334,8 +321,8 @@ func readDataset() {
     count, _ := dataset.CountRows()
     fmt.Printf("Version: %d, Rows: %d\n", version, count)
     
-    // 读取数据文件（通过 Manifest 获取 Fragment 信息）
-    // 未来扩展：提供 Scanner API 直接读取数据
+    // 读取数据文件：从 Manifest 获取 Fragment/DataFile 路径后，使用 ReadChunkFromFile(path) 得到 *chunk.Chunk
+    // 未来扩展：提供 Scanner API 直接按行/按批读取
 }
 ```
 
@@ -1326,7 +1313,7 @@ dataset, err := OpenDataset(ctx, "s3://bucket/path").
 
 SDK 是对底层 `storage2` 包的封装：
 
-- **底层 API**：提供基础功能（`CommitTransaction`, `LoadManifest`, `DataFileWriter/Reader` 等）
+- **底层 API**：提供基础功能（`CommitTransaction`, `LoadManifest`；数据文件使用 **pkg/chunk**：`WriteChunkToFile`, `ReadChunkFromFile`）
 - **SDK API**：提供高级抽象（`Dataset`, `Scanner`, `Builder` 等）
 
 SDK 内部调用底层 API，但提供更友好的接口和更好的错误处理。

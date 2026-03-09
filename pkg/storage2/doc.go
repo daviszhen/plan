@@ -6,8 +6,7 @@
 // uses the same Proto as Lance (table.proto, transaction.proto). Data file
 // columnar format uses pkg/chunk: WriteChunkToFile and ReadChunkFromFile use
 // chunk.Chunk.Serialize/Deserialize, so files are persisted Chunks (pkg/common
-// types, chunk layout). S2DF in data_format.go/data_writer.go/data_reader.go
-// remains a legacy format for transition.
+// types, chunk layout).
 //
 // See STORAGE2_DEVELOPMENT_PLAN.md for the full design and task breakdown.
 //

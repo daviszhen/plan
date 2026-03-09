@@ -156,7 +156,7 @@ Lance 的**数据文件**（.lance）内部使用 **Arrow 列存**（RecordBatch
 - **目标**：实现列存数据文件读写，**使用 pkg/chunk** 的类型与序列化（Chunk/Vector、LType、chunk 的物理格式或序列化接口），数据文件即持久化的 Chunk。
 - **产出**：数据文件读写层依赖 `pkg/chunk`、`pkg/common`；Writer 接收 `chunk.Chunk` 或按列写入时使用 chunk 的序列化；Reader 返回 `chunk.Chunk` 或可填充 Chunk 的列数据；类型与 `common.LTypeId` 一致，无需自建 ColumnTypeID。
 
-**Phase 6 当前实现**：S2DF 为过渡实现（独立于 pkg/chunk 的格式与 Writer/Reader）。按本计划，列存应改为**使用 pkg/chunk** 后，可逐步替换为基于 Chunk 的读写与 chunk 的序列化格式。
+**Phase 6 当前实现**：数据文件仅使用 pkg/chunk。`data_chunk.go` 提供 `WriteChunkToFile`、`ReadChunkFromFile`，基于 `chunk.Chunk` 的序列化/反序列化（util.Serialize/Deserialize），无独立 S2DF 格式。
 
 ---
 
@@ -253,10 +253,10 @@ T.1 → T.2   T.3  T.4   T.5   T.6
 
 | 任务 ID | 任务描述 | 产出 | 依赖 |
 |---------|----------|------|------|
-| 6.1 | 列存格式使用 pkg/chunk：类型采用 common.LTypeId；文件布局与 chunk 的物理格式/序列化一致（或封装 chunk 的 Serialize/反序列化） | 数据文件格式约定；可选 data_format.go 仅描述与 chunk 的对应关系 | pkg/chunk, pkg/common |
-| 6.2 | 实现 DataFileWriter：接收 chunk.Chunk 或按列写入，使用 pkg/chunk 的序列化接口写至文件 | data_writer.go（依赖 pkg/chunk） | 6.1 |
-| 6.3 | 实现 DataFileReader：从文件读入并反序列化为 chunk.Chunk 或可填充 Chunk 的结构 | data_reader.go（依赖 pkg/chunk） | 6.1 |
-| 6.4 | 单测：Chunk 写入后读回校验、类型与列边界 | data_*_test.go | 6.2, 6.3 |
+| 6.1 | 列存格式使用 pkg/chunk：类型 common.LType；文件为 chunk 序列化（util.Serialize/Deserialize） | 数据文件即持久化 Chunk，无独立格式定义 | pkg/chunk, pkg/common, pkg/util |
+| 6.2 | 实现 WriteChunkToFile：将 chunk.Chunk 序列化写至文件 | data_chunk.go | 6.1 |
+| 6.3 | 实现 ReadChunkFromFile：从文件反序列化为 chunk.Chunk | data_chunk.go | 6.1 |
+| 6.4 | 单测：Chunk 写入后读回校验、空 Chunk、缺失文件 | data_chunk_test.go | 6.2, 6.3 |
 
 ---
 
