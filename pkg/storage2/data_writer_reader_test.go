@@ -1,3 +1,6 @@
+// Tests for legacy S2DF format (CreateDataFile, WriteColumn, OpenDataFile, ReadColumn).
+// Canonical data file tests using pkg/chunk are in data_chunk_test.go.
+
 package storage2
 
 import (

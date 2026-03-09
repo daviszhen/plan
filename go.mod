@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
+	github.com/axiomhq/hyperloglog v0.2.3
 	github.com/govalues/decimal v0.1.28
 	github.com/huandu/go-clone v1.7.2
 	github.com/jeroenrinzema/psql-wire v0.12.1
@@ -20,12 +21,12 @@ require (
 	github.com/xlab/treeprint v1.2.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.8.0
+	google.golang.org/protobuf v1.34.2
 )
 
 require (
 	github.com/apache/arrow/go/arrow v0.0.0-20200730104253-651201b0f516 // indirect
 	github.com/apache/thrift v0.14.2 // indirect
-	github.com/axiomhq/hyperloglog v0.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-metro v0.0.0-20250106013310-edb8663e5e33 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
@@ -52,7 +53,6 @@ require (
 	golang.org/x/sys v0.23.0 // indirect
 	golang.org/x/text v0.17.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
-	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

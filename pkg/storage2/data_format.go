@@ -1,5 +1,7 @@
-// Package storage2 data file format: columnar, chunk-compatible layout.
-// No dependency on pkg/chunk; type IDs are chosen to match plan's common.LTypeId for future integration.
+// Data file format: canonical columnar format is pkg/chunk (see data_chunk.go:
+// WriteChunkToFile/ReadChunkFromFile use chunk.Serialize/Deserialize).
+// The types and layout below (S2DF) are a legacy/transition format; type IDs
+// match common.LTypeId for compatibility.
 
 package storage2
 

@@ -2,17 +2,20 @@
 // Lance's metadata model (Manifest, Fragment, DataFile, Transaction) for
 // comparison testing and future integration.
 //
-// It is independent of pkg/storage and other plan packages. Serialization
-// uses the same Proto definitions as Lance (table.proto, transaction.proto);
-// data files use a columnar format compatible with pkg/chunk, not Arrow.
+// The metadata layer is independent of pkg/storage and pkg/compute; serialization
+// uses the same Proto as Lance (table.proto, transaction.proto). Data file
+// columnar format uses pkg/chunk: WriteChunkToFile and ReadChunkFromFile use
+// chunk.Chunk.Serialize/Deserialize, so files are persisted Chunks (pkg/common
+// types, chunk layout). S2DF in data_format.go/data_writer.go/data_reader.go
+// remains a legacy format for transition.
 //
 // See STORAGE2_DEVELOPMENT_PLAN.md for the full design and task breakdown.
 //
 // Known differences from Lance:
-//   - Data file format: Lance uses Arrow columnar (e.g. file2); Storage2 does not
-//     implement Arrow and targets a columnar format compatible with plan's pkg/chunk.
+//   - Data file format: Lance uses Arrow columnar; Storage2 uses pkg/chunk
+//     columnar format (chunk.Serialize/Deserialize).
 //   - Metadata (Manifest, Fragment, Transaction) uses the same Proto as Lance;
-//     path convention matches: _versions/{v}.manifest, _transactions/{rv}-{uuid}.txn.
+//     path convention: _versions/{v}.manifest, _transactions/{rv}-{uuid}.txn.
 //   - Not all Lance operations are implemented (e.g. CreateIndex, Rewrite, Merge,
 //     UpdateConfig); Append, Delete, Overwrite and conflict/rebase semantics are aligned.
 package storage2
