@@ -22,6 +22,8 @@ type Dataset interface {
 	// Take returns rows at the given logical indices for the current version.
 	// This is a minimal random-access API built on top of storage2.TakeRows.
 	Take(ctx context.Context, indices []uint64) (*chunk.Chunk, error)
+	// Scanner creates a ScannerBuilder for streaming reads.
+	Scanner() *ScannerBuilder
 }
 
 type datasetImpl struct {

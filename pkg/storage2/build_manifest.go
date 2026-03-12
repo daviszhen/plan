@@ -151,7 +151,66 @@ func buildManifestUpdateConfig(current *Manifest, update *storage2pb.Transaction
 	for _, k := range update.GetDeleteKeys() {
 		delete(next.Config, k)
 	}
+
+	// Apply new-style config updates.
+	applyUpdateMapToStringMap(next.Config, update.GetConfigUpdates())
+
+	// Apply table metadata updates.
+	if next.TableMetadata == nil {
+		next.TableMetadata = make(map[string]string)
+	}
+	applyUpdateMapToStringMap(next.TableMetadata, update.GetTableMetadataUpdates())
+
+	// Apply schema metadata updates (legacy schema_metadata map merged with updates).
+	if next.SchemaMetadata == nil {
+		next.SchemaMetadata = make(map[string][]byte)
+	}
+	// First merge legacy schema_metadata string map if present.
+	for k, v := range update.GetSchemaMetadata() {
+		next.SchemaMetadata[k] = []byte(v)
+	}
+	// Then apply UpdateMap-style schema metadata updates.
+	if smUpdates := update.GetSchemaMetadataUpdates(); smUpdates != nil {
+		entries := smUpdates.GetUpdateEntries()
+		if smUpdates.GetReplace() {
+			// Replace entire map.
+			next.SchemaMetadata = make(map[string][]byte)
+		}
+		for _, e := range entries {
+			key := e.GetKey()
+			if e.Value == nil {
+				delete(next.SchemaMetadata, key)
+				continue
+			}
+			next.SchemaMetadata[key] = []byte(e.GetValue())
+		}
+	}
+
 	return next, nil
+}
+
+// applyUpdateMapToStringMap applies an UpdateMap to a map[string]string.
+// If upd.Replace is true, the target map is replaced entirely by entries
+// whose value is non-nil. If false, entries with non-nil value upsert keys,
+// and entries with nil value delete keys.
+func applyUpdateMapToStringMap(target map[string]string, upd *storage2pb.Transaction_UpdateMap) {
+	if upd == nil {
+		return
+	}
+	entries := upd.GetUpdateEntries()
+	if upd.GetReplace() {
+		for k := range target {
+			delete(target, k)
+		}
+	}
+	for _, e := range entries {
+		key := e.GetKey()
+		if e.Value == nil {
+			delete(target, key)
+			continue
+		}
+		target[key] = e.GetValue()
+	}
 }
 
 func ptrUint32(u uint32) *uint32 { return &u }

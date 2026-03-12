@@ -309,46 +309,44 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 > - Lance-DataFusion 集成（SQL / DataFusion 互操作相关模块）  
 > 这些能力涉及较大范围的架构与依赖引入，将在 Storage2 完成核心功能与基础 API 后再单独规划。
 
-#### P0 / P1：现在就能加（改动范围可控）
+#### 7.4.0 已完成能力（摘要）
 
-- **变长类型 / Blob 边界测试（仅测试，先不改 API）**
-  - **对应 Lance**：`DatasetTest` 中的 blob/range/integrity 类测试；Rust 侧 `dataset/blob.rs` 等。
-  - **落地方式**：在 `pkg/storage2/data_chunk_test.go` 增加用例，覆盖：
-    - 0 长度 bytes/string、非常大 payload（接近单 chunk 上限）、混合长度、包含 NULL
-    - 顺序完整性（写入后逐行逐列读回比对）
-  - **收益**：不引入新接口即可快速提升文件读写稳健性。
+以下能力已实现，不再列入待办；验收与 one2one-testcases 对应关系见 `pkg/storage2/one2one-testcases.md` 第三节摘要。
 
-- **最小 Scanner（Chunk 扫描，先不做 filter/pushdown）**
-  - **对应 Lance**：Rust `dataset_scanner` / `scan`，Java `Scanner` 概念。
-  - **落地方式（建议最小接口）**：
-    - 遍历 `Manifest.Fragments` → 遍历每个 `DataFile.Path` → `ReadChunkFromFile` → 返回 `[]*chunk.Chunk` 或迭代器/chan
-  - **测试建议**：新增 `scanner_test.go`（或 `sdk/scanner_test.go`），验证：
-    - 多 fragment / 多 datafile 扫描顺序一致
-    - 空数据集扫描结果为空
+- **Scanner 最小实现**：Storage2 `ScanChunks` + SDK `Scanner`/`ScannerBuilder`/`Record`，顺序扫描、offset/limit；`scanner_test.go`、`sdk/scanner_test.go: TestScannerBasic`。
+- **Take 最小实现**：`TakeRows`（基于 `ComputeFragmentOffsets`）+ SDK `Dataset.Take`；单/多 fragment、跨 fragment、重复与乱序 indices 已测。
+- **Tags 底层**：`ListTags`、`ResolveTagVersion`（`tags.go`），`tags_test.go: TestListTagsAndResolveTagVersion`。
+- **Config 更新**：`BuildManifest` 中 `Transaction_UpdateConfig`（upsert_values/delete_keys + config_updates/table_metadata_updates/schema_metadata_updates），`config_test.go`。
+- **变长列基础**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen`（变长字符串往返）。
+- **版本与错误路径**：SDK `TestDatasetVersioning`、`TestCheckoutVersion`、`TestOpenInvalidPath`、`TestOpenNonExist`、`TestOpenExistingManifestDataset`、`TestCreateOnExistingDir`、`TestDelete`；事务列表 `txn_file_test.go: TestLoadTransactionsAfter`。
 
-- **最小 Take（按全局行号随机访问）**
-  - **对应 Lance**：Java `testTake`、Rust `dataset/take.rs`。
-  - **落地方式**：
-    - 使用 `ComputeFragmentOffsets` / `FragmentsByOffsetRange` 将全局 row index 映射到 fragment
-    - 读取对应 chunk 后在列向量上 `GetValue` 拼装结果（先支持基础类型）
-  - **测试建议**：新增 `take_test.go`，覆盖：
-    - 跨 fragment 的 indices
-    - 重复 indices、乱序 indices
+#### 7.4.1 基于 one2one-testcases 的「可以实现」项开发计划
 
-#### P2：可以做但需要先明确语义（避免过早设计失误）
+下表来自 `pkg/storage2/one2one-testcases.md` 中标记为「可以实现」或「部分对应 + 后续可扩展」的条目，拆成可执行任务与建议优先级。
 
-- **Config 更新（UpdateConfig / DeleteConfigKeys）**
-  - **对应 Lance**：Java `testUpdateConfig` / `testDeleteConfigKeys`。
-  - **当前进度**：在 `BuildManifest` 中支持 `Transaction_UpdateConfig`，使用 deprecated 字段 `upsert_values` / `delete_keys` 更新 Manifest.Config；`config_test.go` 覆盖增删改行为。
-  - **后续拓展**：可逐步接入新的 `config_updates` / `table_metadata_updates` / `schema_metadata_updates` / `field_metadata_updates`，并在测试中对齐 Lance 的更完整语义。
+| 优先级 | 任务 ID | 任务描述 | 产出 / 验收 | 对应 one2one 条目 |
+|--------|---------|----------|-------------|-------------------|
+| P1 | S1 | **Scanner：列投影** | SDK `ScannerBuilder` 支持列名/列 ID 选择；扫描仅加载选中列；单测与 Lance 行为对齐 | 1.2 dataset_scanner：后续可逐步对齐列选择 |
+| P1 | S2 | **Scanner：过滤（filter）** | 在扫描路径支持简单谓词（如列=值、范围）；先内存过滤或可选 pushdown；单测覆盖带条件扫描 | 1.2 dataset_scanner：后续可逐步对齐过滤 |
+| P1 | S3 | **count_lance_file 对应测试** | 在引入扫描/过滤 API 后，在 `scanner_test.go` 增加基于 Chunk 的「按条件统计行数」测试，对齐 Rust `count_lance_file` 语义 | one2one §1：count_lance_file 未来 scanner_test.go |
+| P2 | T1 | **Take：列投影** | `TakeRows` / SDK `Take` 支持仅返回指定列；单测 | 1.2 take + 2.4 testTake |
+| P2 | T2 | **Take：RowId 级别随机访问** | 若引入稳定 RowId，支持按 RowId 取行（或明确暂不实现并文档化） | 1.2 take、2.5 testEnableStableRowIds 暂不实现但可预留 |
+| P2 | B1 | **Blob/变长边界测试** | 在 `data_chunk_test.go` 增加：0 长度 bytes/string、接近单 chunk 上限的大 payload、混合长度与 NULL、顺序完整性读回 | 1.2 blob、2.6 testReadZeroLengthBlob 等 |
+| P2 | C1 | **Config：field_metadata / schema_metadata** | `BuildManifest` 支持 `field_metadata_updates` / `schema_metadata_updates`；`config_test.go` 覆盖更复杂场景，对齐 Java testUpdateConfig 语义 | 2.5 testUpdateConfig 更复杂场景 |
+| P2 | Tag1 | **SDK OpenDatasetWithTag** | SDK 提供 `OpenDatasetWithTag(ctx, basePath, tag)` 或 `OpenDataset(...).WithTag(tag)`，内部调用 `ResolveTagVersion` 再按版本打开；one2one 中 testTags 对齐用例 | 2.2 testTags 暂不实现/后续 → 可实现 |
+| P2 | D1 | **testCalculateDataSize** | 基于 Manifest + DataFile 的 size 字段暴露「数据大小」统计 API；单测对齐 Java testCalculateDataSize 行为 | 2.4 testCalculateDataSize |
+| P3 | V1 | **版本语义扩展（refs/restore/branches）** | 在现有单线性版本上，设计并实现 refs 或 restore 语义（或明确范围后拆子任务）；与 dataset_versioning 对齐 | 1.2 dataset_versioning：更多语义可以实现 |
+| P3 | O1 | **对象存储 / S3 提交路径** | CommitHandler 的 S3 实现（或与现有 ObjectStore 对接），使提交在对象存储上可用；单测/集成测 | 1.2 commit：对象存储/S3 可以实现 |
+| P3 | I1 | **执行层 pushdown（非 KNN）** | 在 scan/filtered_read/rowids 等方向做执行层优化（如 rowid 回填、简单 pushdown）；KNN 仍暂不实现 | 1.2 io/exec：其它可以实现 |
+| P3 | L1 | **lance-table / lance-io 其余** | 表格式、rowids、调度与编码等与当前 Storage2 可对齐的部分，按需拆子任务并验收 | 1.2 lance-table、lance-io：其余可以实现 |
 
-- **Tags（命名版本）增强**
-  - **对应 Lance**：Java `testTags`、Rust refs/版本引用。
-  - **当前进度**：Storage2 已实现基于 Manifest.Tag 的 tag 列举与解析：  
-    - `ListTags(ctx, basePath, handler)`：扫描 0..latest 版本的 Manifest，返回 tag → 版本列表。  
-    - `ResolveTagVersion(ctx, basePath, handler, tag)`：返回给定 tag 对应的最新版本（若不存在则返回 `(0,false)`）。  
-    - 对应单测：`tags_test.go: TestListTagsAndResolveTagVersion`。
-  - **后续拓展**：可在 SDK 层增加基于 tag 打开版本的辅助方法（如 `OpenDatasetWithTag`），并在 `one2one-testcases.md` 中对齐更多 Tag 相关用例。
+依赖与建议顺序：S1/S2/S3 可并行或先 S1 再 S2；T1 依赖 Scanner/Take 现有实现；B1、C1、Tag1、D1 无强依赖；V1/O1/I1/L1 视资源与架构决策排期。
+
+#### 7.4.2 原 P0/P1/P2 中已关闭项（仅作参考）
+
+- **变长/Blob 边界**：基础变长测试已实现；扩展（0 长/大 payload/混合/NULL）已纳入上表 **B1**。
+- **最小 Scanner / 最小 Take**：已实现，见 7.4.0。
+- **Config 更新 / Tags 增强**：底层已实现；扩展（field_metadata、OpenDatasetWithTag）已纳入上表 **C1**、**Tag1**。
 
 ---
 
@@ -368,5 +366,5 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 
 ---
 
-*文档版本：1.2*  
-*序列化采用 Proto，直接使用 Lance 的 proto 文件，便于与 Lance 的对比测试。*
+*文档版本：1.3*  
+*序列化采用 Proto，直接使用 Lance 的 proto 文件，便于与 Lance 的对比测试。7.4 已按已实现/可实现拆分，可实现项与 one2one-testcases.md 对齐。*
