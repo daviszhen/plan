@@ -3,6 +3,8 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage2"
@@ -99,6 +101,10 @@ type scannerImpl struct {
 	currentIdx   int
 	hasMore      bool
 	err          error
+
+	// selectedCols caches the physical column indices to read from chunks.
+	// It is derived from columns on first batch load. If empty, all columns are used.
+	selectedCols []int
 }
 
 func (s *scannerImpl) Next() bool {
@@ -202,6 +208,30 @@ func (s *scannerImpl) loadNextBatch() error {
 			continue
 		}
 		colCount := c.ColumnCount()
+
+		// 初始化列选择：若未指定 columns，则使用所有列；否则按 "c{idx}" 解析。
+		if s.selectedCols == nil {
+			if len(s.columns) == 0 {
+				s.selectedCols = make([]int, colCount)
+				for i := 0; i < colCount; i++ {
+					s.selectedCols[i] = i
+				}
+			} else {
+				for _, name := range s.columns {
+					// 当前实现仅支持形如 "c0"、"c1" 的列名
+					if !strings.HasPrefix(name, "c") {
+						return fmt.Errorf("unsupported column name %q (expect c{index})", name)
+					}
+					idx, err := strconv.Atoi(strings.TrimPrefix(name, "c"))
+					if err != nil || idx < 0 || idx >= colCount {
+						return fmt.Errorf("column %q out of range", name)
+					}
+					s.selectedCols = append(s.selectedCols, idx)
+				}
+			}
+		}
+
+		selCount := len(s.selectedCols)
 		for i := 0; i < c.Card(); i++ {
 			// offset 处理：跳过前 offset 行
 			if s.offset != nil && rowIndex < *s.offset {
@@ -216,10 +246,10 @@ func (s *scannerImpl) loadNextBatch() error {
 				return nil
 			}
 
-			rowValues := make(map[string]interface{}, colCount)
-			rowSlice := make([]interface{}, colCount)
-			for col := 0; col < colCount; col++ {
-				val := c.Data[col].GetValue(i)
+			rowValues := make(map[string]interface{}, selCount)
+			rowSlice := make([]interface{}, selCount)
+			for j, colIdx := range s.selectedCols {
+				val := c.Data[colIdx].GetValue(i)
 				var v interface{}
 				switch val.Typ.Id {
 				case common.LTID_INTEGER, common.LTID_BIGINT:
@@ -234,9 +264,9 @@ func (s *scannerImpl) loadNextBatch() error {
 					// 其它类型先用字符串表示
 					v = val.String()
 				}
-				key := fmt.Sprintf("c%d", col)
+				key := fmt.Sprintf("c%d", colIdx)
 				rowValues[key] = v
-				rowSlice[col] = v
+				rowSlice[j] = v
 			}
 			records = append(records, &Record{Values: rowValues})
 			vals = append(vals, rowSlice)
