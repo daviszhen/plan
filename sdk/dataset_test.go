@@ -128,6 +128,45 @@ func TestDeleteAndOverwrite(t *testing.T) {
 	}
 }
 
+func TestDatasetTake(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	// Create dataset and append 10 rows
+	ds, err := CreateDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, emptyChunk(t)); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	indices := []uint64{0, 3, 7, 9}
+	ch, err := ds.Take(ctx, indices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch == nil {
+		t.Fatal("expected non-nil chunk")
+	}
+	if ch.Card() != len(indices) {
+		t.Fatalf("Card=%d want %d", ch.Card(), len(indices))
+	}
+	for outRow, idx := range indices {
+		v0 := ch.Data[0].GetValue(outRow)
+		v1 := ch.Data[1].GetValue(outRow)
+		if v0.I64 != int64(idx) || v1.I64 != int64(idx*100) {
+			t.Errorf("outRow %d from idx %d: got (%d,%d)", outRow, idx, v0.I64, v1.I64)
+		}
+	}
+}
+
 func TestOpenInvalidPath(t *testing.T) {
 	ctx := context.Background()
 	base := t.TempDir()
@@ -367,5 +406,15 @@ func emptyChunk(t *testing.T) *chunk.Chunk {
 	c := &chunk.Chunk{}
 	c.Init(typs, util.DefaultVectorSize)
 	c.SetCard(10)
+	for i := 0; i < 10; i++ {
+		c.Data[0].SetValue(i, &chunk.Value{
+			Typ: typs[0],
+			I64: int64(i),
+		})
+		c.Data[1].SetValue(i, &chunk.Value{
+			Typ: typs[1],
+			I64: int64(i * 100),
+		})
+	}
 	return c
 }

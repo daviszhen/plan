@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
+	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/storage2"
 )
 
@@ -18,6 +19,9 @@ type Dataset interface {
 	Append(ctx context.Context, fragments []*DataFragment) error
 	Delete(ctx context.Context, predicate string) error
 	Overwrite(ctx context.Context, fragments []*DataFragment) error
+	// Take returns rows at the given logical indices for the current version.
+	// This is a minimal random-access API built on top of storage2.TakeRows.
+	Take(ctx context.Context, indices []uint64) (*chunk.Chunk, error)
 }
 
 type datasetImpl struct {
@@ -117,6 +121,10 @@ func (d *datasetImpl) Overwrite(ctx context.Context, fragments []*DataFragment) 
 	d.currentManifest = manifest
 	d.version = latest
 	return nil
+}
+
+func (d *datasetImpl) Take(ctx context.Context, indices []uint64) (*chunk.Chunk, error) {
+	return storage2.TakeRows(ctx, d.basePath, d.handler, d.version, indices)
 }
 
 // datasetBuilder is used by OpenDataset and CreateDataset.

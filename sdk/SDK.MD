@@ -677,9 +677,9 @@ func boolPtr(b bool) *bool { return &b }
    - 支持流式处理，内存效率高
 
 3. **随机访问**（P1）
-   - 重要功能，支持点查询
-   - 需要实现 Fragment 定位和行索引映射
-   - 可优化为批量预取和并行读取
+  - 重要功能，支持点查询
+  - 已在 Storage2 层提供 `TakeRows(ctx, basePath, handler, version, indices)`，SDK `Dataset` 暴露了最小版 `Take(ctx, indices []uint64) (*chunk.Chunk, error)` 封装
+  - 后续可在此基础上扩展列投影、按行 ID 访问以及批量预取/并行读取
 
 4. **索引支持**（P2）
    - 高级功能，提升查询性能

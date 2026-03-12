@@ -28,6 +28,8 @@ func BuildManifest(current *Manifest, txn *Transaction) (*Manifest, error) {
 		return buildManifestDelete(current, op.Delete)
 	case *storage2pb.Transaction_Overwrite_:
 		return buildManifestOverwrite(current, op.Overwrite)
+	case *storage2pb.Transaction_UpdateConfig_:
+		return buildManifestUpdateConfig(current, op.UpdateConfig)
 	default:
 		return nil, fmt.Errorf("unsupported operation type %T", txn.Operation)
 	}
@@ -125,6 +127,29 @@ func buildManifestOverwrite(current *Manifest, overwriteOp *storage2pb.Transacti
 	}
 	if len(next.Fragments) > 0 {
 		next.MaxFragmentId = ptrUint32(uint32(len(next.Fragments) - 1))
+	}
+	return next, nil
+}
+
+// buildManifestUpdateConfig applies UpdateConfig to the current manifest.
+// For now we support only the deprecated upsert_values/delete_keys fields
+// to update Manifest.Config, ignoring table/schema/field metadata.
+func buildManifestUpdateConfig(current *Manifest, update *storage2pb.Transaction_UpdateConfig) (*Manifest, error) {
+	if update == nil {
+		return nil, fmt.Errorf("update config is nil")
+	}
+	next := protobuf.Clone(current).(*Manifest)
+	next.Version = current.Version + 1
+	if next.Config == nil {
+		next.Config = make(map[string]string)
+	}
+	// Apply upserts.
+	for k, v := range update.GetUpsertValues() {
+		next.Config[k] = v
+	}
+	// Apply deletes.
+	for _, k := range update.GetDeleteKeys() {
+		delete(next.Config, k)
 	}
 	return next, nil
 }

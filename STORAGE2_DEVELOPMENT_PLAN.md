@@ -301,6 +301,14 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 
 > 目标：把 Lance（Java/Rust）中“高频核心能力”的测试缺口，收敛到 Storage2 可实现的最小闭环；优先补齐不需要大规模重构的数据读取路径与边界用例。
 
+> 特别说明：以下能力**暂不纳入当前规划**，在 `one2one-testcases.md` 中继续标记为“暂不实现”：  
+> - Schema 演进与列级操作（`schema_evolution.rs`、列增删改等）  
+> - 依赖 DynamoDB / 外部 manifest 的提交路径（如 Rust `dynamodb.rs` / `external_manifest.rs`）  
+> - KNN/向量检索高阶实现（Rust `io/exec/knn.rs` 等）  
+> - 独立 Lance encoding 层（`lance-encoding` crate，全套物理/逻辑编码与压缩）  
+> - Lance-DataFusion 集成（SQL / DataFusion 互操作相关模块）  
+> 这些能力涉及较大范围的架构与依赖引入，将在 Storage2 完成核心功能与基础 API 后再单独规划。
+
 #### P0 / P1：现在就能加（改动范围可控）
 
 - **变长类型 / Blob 边界测试（仅测试，先不改 API）**
@@ -331,11 +339,16 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 
 - **Config 更新（UpdateConfig / DeleteConfigKeys）**
   - **对应 Lance**：Java `testUpdateConfig` / `testDeleteConfigKeys`。
-  - **落地方式**：为 `BuildManifest` 增加对应 Operation（或单独 API），定义 config 的 merge / delete 规则，并补齐回归测试。
+  - **当前进度**：在 `BuildManifest` 中支持 `Transaction_UpdateConfig`，使用 deprecated 字段 `upsert_values` / `delete_keys` 更新 Manifest.Config；`config_test.go` 覆盖增删改行为。
+  - **后续拓展**：可逐步接入新的 `config_updates` / `table_metadata_updates` / `schema_metadata_updates` / `field_metadata_updates`，并在测试中对齐 Lance 的更完整语义。
 
 - **Tags（命名版本）增强**
   - **对应 Lance**：Java `testTags`、Rust refs/版本引用。
-  - **落地方式**：在仅保留 `manifest.Tag` 的基础上，增加 tag → version 的解析与列举（如 `ResolveTag` / `ListTags`），并补齐测试。
+  - **当前进度**：Storage2 已实现基于 Manifest.Tag 的 tag 列举与解析：  
+    - `ListTags(ctx, basePath, handler)`：扫描 0..latest 版本的 Manifest，返回 tag → 版本列表。  
+    - `ResolveTagVersion(ctx, basePath, handler, tag)`：返回给定 tag 对应的最新版本（若不存在则返回 `(0,false)`）。  
+    - 对应单测：`tags_test.go: TestListTagsAndResolveTagVersion`。
+  - **后续拓展**：可在 SDK 层增加基于 tag 打开版本的辅助方法（如 `OpenDatasetWithTag`），并在 `one2one-testcases.md` 中对齐更多 Tag 相关用例。
 
 ---
 
