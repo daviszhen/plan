@@ -98,3 +98,47 @@ func TestScannerWithColumns(t *testing.T) {
 	}
 }
 
+func TestScannerWithFilter(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	ds, err := CreateDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, emptyChunk(t)); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	// 只保留 c0 >= 5 的行
+	scanner := ds.Scanner().WithFilter("c0 >= 5").Build()
+	defer scanner.Close()
+
+	var got0 []int64
+	for scanner.Next() {
+		var v0 int64
+		if err := scanner.Scan(&v0); err != nil {
+			t.Fatal(err)
+		}
+		got0 = append(got0, v0)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(got0) != 5 {
+		t.Fatalf("scanner returned %d rows, want 5", len(got0))
+	}
+	for i, v := range got0 {
+		if v != int64(i+5) {
+			t.Errorf("row %d: got %d, want %d", i, v, int64(i+5))
+		}
+	}
+}
+

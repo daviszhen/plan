@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage2"
 )
@@ -105,6 +106,12 @@ type scannerImpl struct {
 	// selectedCols caches the physical column indices to read from chunks.
 	// It is derived from columns on first batch load. If empty, all columns are used.
 	selectedCols []int
+
+	// simple filter support: currently only expressions like "c0 = 1" or "c1 > 10".
+	filterColIdx int
+	filterOp     string // "=", ">", "<", ">=", "<="
+	filterValue  int64  // minimal implementation: integer comparisons
+	filterInited bool
 }
 
 func (s *scannerImpl) Next() bool {
@@ -209,6 +216,13 @@ func (s *scannerImpl) loadNextBatch() error {
 		}
 		colCount := c.ColumnCount()
 
+		// 初始化 filter：目前仅支持形如 "c0 = 1" / "c1 > 10" 的整数比较。
+		if s.filter != "" && !s.filterInited {
+			if err := s.initFilter(c); err != nil {
+				return err
+			}
+		}
+
 		// 初始化列选择：若未指定 columns，则使用所有列；否则按 "c{idx}" 解析。
 		if s.selectedCols == nil {
 			if len(s.columns) == 0 {
@@ -237,6 +251,16 @@ func (s *scannerImpl) loadNextBatch() error {
 			if s.offset != nil && rowIndex < *s.offset {
 				rowIndex++
 				continue
+			}
+
+			// filter 处理：不满足条件的行直接跳过
+			if s.filterInited {
+				if match, err := s.evalFilter(c, i); err != nil {
+					return err
+				} else if !match {
+					rowIndex++
+					continue
+				}
 			}
 			// limit 处理：超过限制则结束
 			if s.limit != nil && len(records) >= *s.limit {
@@ -278,5 +302,57 @@ func (s *scannerImpl) loadNextBatch() error {
 	s.currentVals = vals
 	s.hasMore = false
 	return nil
+}
+
+// initFilter parses a very simple filter string like "c0 = 1" or "c1 > 10".
+// It currently only supports integer comparisons on a single column.
+func (s *scannerImpl) initFilter(firstChunk *chunk.Chunk) error {
+	tokens := strings.Fields(s.filter)
+	if len(tokens) != 3 {
+		return fmt.Errorf("unsupported filter %q: expect form \"cN op value\"", s.filter)
+	}
+	colToken, op, valueToken := tokens[0], tokens[1], tokens[2]
+	if !strings.HasPrefix(colToken, "c") {
+		return fmt.Errorf("unsupported filter column %q (expect c{index})", colToken)
+	}
+	colIdx, err := strconv.Atoi(strings.TrimPrefix(colToken, "c"))
+	if err != nil || colIdx < 0 || colIdx >= firstChunk.ColumnCount() {
+		return fmt.Errorf("filter column %q out of range", colToken)
+	}
+	switch op {
+	case "=", ">", "<", ">=", "<=":
+		// supported ops
+	default:
+		return fmt.Errorf("unsupported filter operator %q", op)
+	}
+	v, err := strconv.ParseInt(valueToken, 10, 64)
+	if err != nil {
+		return fmt.Errorf("unsupported filter value %q: only integer literals are supported", valueToken)
+	}
+	s.filterColIdx = colIdx
+	s.filterOp = op
+	s.filterValue = v
+	s.filterInited = true
+	return nil
+}
+
+// evalFilter evaluates the initialized filter against the given row in the chunk.
+func (s *scannerImpl) evalFilter(c *chunk.Chunk, row int) (bool, error) {
+	val := c.Data[s.filterColIdx].GetValue(row)
+	rowVal := val.I64
+	switch s.filterOp {
+	case "=":
+		return rowVal == s.filterValue, nil
+	case ">":
+		return rowVal > s.filterValue, nil
+	case "<":
+		return rowVal < s.filterValue, nil
+	case ">=":
+		return rowVal >= s.filterValue, nil
+	case "<=":
+		return rowVal <= s.filterValue, nil
+	default:
+		return false, fmt.Errorf("unexpected filter operator %q", s.filterOp)
+	}
 }
 
