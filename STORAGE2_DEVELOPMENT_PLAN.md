@@ -297,6 +297,46 @@ Append↔Append 兼容；Append↔Delete 兼容；Append↔Overwrite 冲突；De
 - **行为测试**：实现 CommitHandler 与 BuildManifest 后，按 6.2 表格逐项写用例：给定输入状态 + 操作，对比输出 Manifest（或导出结构）与预期。
 - **差异文档**：若某处有意与 Lance 不同（如字段省略、命名、路径），在本文档或 `doc.go` 中单独列出“与 Lance 的已知差异”，避免误判为缺陷。必列项：**数据文件内部格式**（Lance 使用 Arrow 列存，Storage2 使用 pkg/chunk 列存格式，见 4.1）。
 
+### 7.4 可近期补齐的能力（建议优先级）
+
+> 目标：把 Lance（Java/Rust）中“高频核心能力”的测试缺口，收敛到 Storage2 可实现的最小闭环；优先补齐不需要大规模重构的数据读取路径与边界用例。
+
+#### P0 / P1：现在就能加（改动范围可控）
+
+- **变长类型 / Blob 边界测试（仅测试，先不改 API）**
+  - **对应 Lance**：`DatasetTest` 中的 blob/range/integrity 类测试；Rust 侧 `dataset/blob.rs` 等。
+  - **落地方式**：在 `pkg/storage2/data_chunk_test.go` 增加用例，覆盖：
+    - 0 长度 bytes/string、非常大 payload（接近单 chunk 上限）、混合长度、包含 NULL
+    - 顺序完整性（写入后逐行逐列读回比对）
+  - **收益**：不引入新接口即可快速提升文件读写稳健性。
+
+- **最小 Scanner（Chunk 扫描，先不做 filter/pushdown）**
+  - **对应 Lance**：Rust `dataset_scanner` / `scan`，Java `Scanner` 概念。
+  - **落地方式（建议最小接口）**：
+    - 遍历 `Manifest.Fragments` → 遍历每个 `DataFile.Path` → `ReadChunkFromFile` → 返回 `[]*chunk.Chunk` 或迭代器/chan
+  - **测试建议**：新增 `scanner_test.go`（或 `sdk/scanner_test.go`），验证：
+    - 多 fragment / 多 datafile 扫描顺序一致
+    - 空数据集扫描结果为空
+
+- **最小 Take（按全局行号随机访问）**
+  - **对应 Lance**：Java `testTake`、Rust `dataset/take.rs`。
+  - **落地方式**：
+    - 使用 `ComputeFragmentOffsets` / `FragmentsByOffsetRange` 将全局 row index 映射到 fragment
+    - 读取对应 chunk 后在列向量上 `GetValue` 拼装结果（先支持基础类型）
+  - **测试建议**：新增 `take_test.go`，覆盖：
+    - 跨 fragment 的 indices
+    - 重复 indices、乱序 indices
+
+#### P2：可以做但需要先明确语义（避免过早设计失误）
+
+- **Config 更新（UpdateConfig / DeleteConfigKeys）**
+  - **对应 Lance**：Java `testUpdateConfig` / `testDeleteConfigKeys`。
+  - **落地方式**：为 `BuildManifest` 增加对应 Operation（或单独 API），定义 config 的 merge / delete 规则，并补齐回归测试。
+
+- **Tags（命名版本）增强**
+  - **对应 Lance**：Java `testTags`、Rust refs/版本引用。
+  - **落地方式**：在仅保留 `manifest.Tag` 的基础上，增加 tag → version 的解析与列举（如 `ResolveTag` / `ListTags`），并补齐测试。
+
 ---
 
 ## 八、依赖与约束

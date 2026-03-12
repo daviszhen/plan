@@ -30,6 +30,36 @@ Storage2 对应关系（更偏元数据 + Chunk 数据文件）：
 
 ---
 
+## 1.1 Rust Lance（`rust/`）测试用例覆盖范围说明（重要）
+
+结论：**否**，目前本文档**没有**记录 `lance/rust/` 下“所有测试 case”，也不可能在 Storage2 现阶段为其提供一一对应的 Go 测试实现。
+
+原因：
+
+- Lance Rust 侧包含大量测试，覆盖 **Arrow/Lance 文件格式、扫描执行引擎、Schema 演进、行号与稳定 row id、对象存储（S3/DDB）、Compaction、Index（标量/向量/倒排）、DataFusion、Namespace** 等；而 Storage2 当前仅实现元数据与事务提交（Append/Delete/Overwrite/Conflict/Rebase）+ `pkg/chunk` 数据文件读写 + 一个精简 SDK。
+- 因此本文档将 Rust 侧测试按“**模块/能力簇**”补充记录，并标注 Storage2 是否已有对应测试/是否暂不实现。等 Storage2 功能落地后，再逐步把“暂不实现”的条目拆成更细的一一对应用例。
+
+### 1.2 Rust 侧主要测试模块（按文件/目录）与 Storage2 对应情况
+
+下面列出本次扫描到的 Rust 测试入口（`#[test]` / `tokio::test` / `rstest`）所覆盖的主要模块。**这些模块当前大多未在本文档记录**，现补充如下：
+
+| Rust 测试模块（示例路径） | 关注点 | Storage2 对应情况 |
+|---|---|---|
+| `rust/lance/src/dataset/tests/dataset_versioning.rs` | Dataset 版本/checkout/refs 等 | **部分对应**：SDK 级 `TestDatasetVersioning`、`TestCheckoutVersion`；更多语义（refs/restore/branches）**暂不实现** |
+| `rust/lance/src/dataset/tests/dataset_scanner.rs`、`rust/lance/src/dataset/scanner.rs` | 扫描、投影、过滤、batch 读取 | **暂不实现**（需新增 Scanner API + 基于 Chunk 的扫描执行） |
+| `rust/lance/src/dataset/take.rs`、`rust/lance/src/io/exec/take.rs` | Take / 随机访问 | **暂不实现**（需 row→fragment/chunk 映射 + Take API；可复用 `fragment_offsets.go`） |
+| `rust/lance/src/dataset/schema_evolution.rs`、`dataset_io.rs` | Schema 演进、读写兼容 | **暂不实现**（需 Schema API + Manifest/schema 更新） |
+| `rust/lance/src/dataset/blob.rs` | Blob/变长列读写边界 | **部分对应**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen`（变长字符串边界）；后续可扩展到 BLOB/更大 payload | |
+| `rust/lance/src/io/commit/*.rs`（含 s3/dynamodb/external manifest） | 提交协议、对象存储一致性、外部 manifest | **部分对应**：`commit.go`/`commit_txn.go`/冲突矩阵；对象存储/S3/DDB **暂不实现** |
+| `rust/lance/src/index/*`、`rust/lance-index/src/*` | 标量/向量/倒排索引、统计、优化 | **暂不实现** |
+| `rust/lance/src/io/exec/*`（scan/filtered_read/rowids/knn/fts 等） | 执行层 pushdown、rowid、knn、全文等 | **暂不实现** |
+| `rust/lance-table/src/*` | 表格式/manifest/rowids | **部分对应**：Manifest/Transaction proto 结构对齐；其余 **暂不实现** |
+| `rust/lance-io/src/*` | object_store/scheduler/encodings | **部分对应**：`LocalObjectStore` 的最小读写/list/mkdir；调度与编码 **暂不实现** |
+| `rust/lance-encoding/src/*` | 编解码、统计、压缩 | **暂不实现** |
+| `rust/lance-datafusion/src/*` | SQL / DataFusion 互操作 | **暂不实现** |
+
+---
+
 ## 2. Lance Java `DatasetTest` 与 Storage2 对应测试设计
 
 Java 侧 `DatasetTest` 是 Lance Dataset 的端到端测试主力，覆盖 Dataset 创建、版本管理、Tag、Schema 变更、Compaction、分支、索引等。
@@ -73,7 +103,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 
 | Lance 测试 | 场景描述 | Storage2 对应测试 | 说明 |
 |------------|----------|-------------------|------|
-| `testTake` | 按行号随机访问 | **计划**：未来 `scanner_test.go: TestTake` | 需要在 Storage2 增加 Scanner/Take API，按 Fragment/Chunk 映射行号后实现。 |
+| `testTake` | 按行号随机访问 | **已有**：`scanner_test.go: TestTakeRowsSingleFragment` / `TestTakeRowsMultiFragment` | 通过 `TakeRows` + `ComputeFragmentOffsets` 支持单/多 fragment 的随机访问（基础整型列）。 |
 | `testCountRows` | 按条件计数 | **已有基础**：`sdk/dataset_test.go: TestCreateAndOpenDataset` / `TestDeleteAndOverwrite` | 当前只测试全表 `CountRows()`；未来扩展带谓词的计数时可对齐。 |
 | `testCalculateDataSize` | 计算数据大小 | **暂不实现** | Storage2 未暴露数据大小统计 API，后续可用 Manifest + DataFile 的 size 字段实现。 |
 | `testDeleteRows` | 逻辑删除行 | **已有**：`comparison_test.go: TestOperationBehaviorDelete`、`sdk/dataset_test.go: TestDelete` | Manifest 层 Delete + SDK 端到端 Delete（当前按 Fragment 粒度）。 |
@@ -96,7 +126,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | `testCompact` / `testCompactWithDeletions` / `testCompactWithMaxBytesAndBatchSize` / `testMultipleCompactions` / `testCompactWithAllOptions` | Compaction 行为与参数 | **暂不实现** | Storage2 还未实现 Compaction；后续如增加 Compaction，可直接对照这些测试设计 P0 用例。 |
 | `testShallowClone` | 浅克隆数据集 | **暂不实现** | Storage2 未实现 Clone。 |
 | `testOptimizingIndices` / `testIndexStatistics` / `testDescribeIndicesByName` | 索引优化与统计 | **暂不实现** | Storage2 尚未接入 Lance Index 模块。 |
-| `testReadZeroLengthBlob` / `testReadLargeBlobAndRanges` / `testReadSmallBlobSequentialIntegrity` | Blob 列读写边界 | **暂不实现** | Storage2 当前 Chunk 层已支持变长类型，但尚无专门 Blob API 与测试；后续可在 `data_chunk_test.go` 中增加变长列/Blob 边界测试作为对应。 |
+| `testReadZeroLengthBlob` / `testReadLargeBlobAndRanges` / `testReadSmallBlobSequentialIntegrity` | Blob 列读写边界 | **部分对应**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen` 覆盖空字符串/多字节/较长字符串；后续可在此基础上增加更大 payload 与 BLOB 类型测试。 |
 
 ---
 
@@ -115,7 +145,8 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | `conflict_test.go` / `comparison_test.go: TestConflict*` / `TestRebaseResultMatchesOrder` | 事务冲突矩阵与 Rebase 行为 | 事务并发与重放的行为与 Lance 设计一致性 |
 | `fragment_offsets_test.go` | Fragment -> 行号偏移映射 | Dataset 级随机访问（`testTake` 等）的基础 |
 | `io_test.go` | LocalObjectStore 读写/列目录/自动建目录 | Rust `ObjectStore::local()` 行为 |
-| `data_chunk_test.go` | Chunk 文件写入/读取/缺失文件错误 | Rust lance-file 文件级测试（按 Storage2 Chunk 格式重现） |
+| `data_chunk_test.go` | Chunk 文件写入/读取/缺失文件错误；变长字符串往返校验 | Rust lance-file 文件级测试（按 Storage2 Chunk 格式重现）+ 变长列边界（字符串） |
+| `scanner_test.go` | ScanChunks（全表扫描，支持空表）；TakeRows（单/多 fragment 随机访问） | Rust `dataset_scanner` / `take` 测试的最小子集（无 filter/投影，仅按行号访问） |
 | `all_test.go` | 从 Manifest 0 开始，写入 Chunk、创建 DataFile/Fragment、Append 事务并读回 Chunk 校验数据 | `testWriteStreamAndOpenPath` + `testCountRows` 的简单端到端版本 |
 | `sdk/dataset_test.go` | `CreateDataset` / `OpenDataset` / Append / Delete / Overwrite / Version / CountRows；TestOpenInvalidPath / TestOpenNonExist / TestOpenExistingManifestDataset / TestCreateOnExistingDir / TestCheckoutVersion / TestDelete | `DatasetTest` 中创建/打开/版本/行数/删除等核心场景 |
 

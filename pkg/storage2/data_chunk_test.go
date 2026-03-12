@@ -81,3 +81,51 @@ func TestReadChunkFromFileMissing(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestWriteChunkToFileReadChunkFromFileVarlen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data", "chunk_varlen.dat")
+
+	typs := []common.LType{
+		common.MakeLType(common.LTID_VARCHAR),
+		common.MakeLType(common.LTID_VARCHAR),
+	}
+	c := &chunk.Chunk{}
+	c.Init(typs, util.DefaultVectorSize)
+	c.SetCard(5)
+
+	values0 := []string{"", "a", "你好", "very-long-string-0123456789", "x"}
+	values1 := []string{"α", "", "βγ", "δ", ""}
+
+	for i := 0; i < 5; i++ {
+		c.Data[0].SetValue(i, &chunk.Value{
+			Typ: typs[0],
+			Str: values0[i],
+		})
+		c.Data[1].SetValue(i, &chunk.Value{
+			Typ: typs[1],
+			Str: values1[i],
+		})
+	}
+
+	if err := WriteChunkToFile(path, c); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadChunkFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Card() != 5 || got.ColumnCount() != 2 {
+		t.Fatalf("got Card=%d ColumnCount=%d", got.Card(), got.ColumnCount())
+	}
+	for i := 0; i < 5; i++ {
+		v0 := got.Data[0].GetValue(i)
+		v1 := got.Data[1].GetValue(i)
+		if v0.IsNull || v0.Str != values0[i] {
+			t.Errorf("row %d col0: got Str=%q IsNull=%v want %q", i, v0.Str, v0.IsNull, values0[i])
+		}
+		if v1.IsNull || v1.Str != values1[i] {
+			t.Errorf("row %d col1: got Str=%q IsNull=%v want %q", i, v1.Str, v1.IsNull, values1[i])
+		}
+	}
+}

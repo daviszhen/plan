@@ -321,8 +321,8 @@ func readDataset() {
     count, _ := dataset.CountRows()
     fmt.Printf("Version: %d, Rows: %d\n", version, count)
     
-    // 读取数据文件：从 Manifest 获取 Fragment/DataFile 路径后，使用 ReadChunkFromFile(path) 得到 *chunk.Chunk
-    // 未来扩展：提供 Scanner API 直接按行/按批读取
+// 读取数据文件：从 Manifest 获取 Fragment/DataFile 路径后，可直接使用 ReadChunkFromFile(path) 得到 *chunk.Chunk
+// 未来扩展：在 SDK 层封装 Scanner/Take 接口，内部可以基于 storage2.ScanChunks / storage2.TakeRows 实现
 }
 ```
 
