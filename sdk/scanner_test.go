@@ -142,3 +142,45 @@ func TestScannerWithFilter(t *testing.T) {
 	}
 }
 
+// TestScannerCountLikeLance 模拟 count_lance_file：按条件统计行数。
+func TestScannerCountLikeLance(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	ds, err := CreateDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, emptyChunk(t)); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	// 等价于：count where c0 >= 3 and c0 <= 7
+	scanner := ds.Scanner().WithFilter("c0 >= 3").Build()
+	defer scanner.Close()
+
+	var cnt int
+	for scanner.Next() {
+		var v0 int64
+		if err := scanner.Scan(&v0); err != nil {
+			t.Fatal(err)
+		}
+		if v0 <= 7 {
+			cnt++
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 5 {
+		t.Fatalf("count = %d, want 5", cnt)
+	}
+}
+
