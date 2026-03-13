@@ -334,6 +334,73 @@ func TestCheckoutVersion(t *testing.T) {
 	}
 }
 
+// TestOpenDatasetWithTag verifies opening a dataset by tag name (Lance testTags 部分能力).
+func TestOpenDatasetWithTag(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+	handler := NewLocalRenameCommitHandler()
+
+	// version 0: empty manifest
+	m0 := storage2.NewManifest(0)
+	m0.Fragments = []*storage2.DataFragment{}
+	m0.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, m0); err != nil {
+		t.Fatal(err)
+	}
+
+	// v1: append with tag "v1"
+	txn1 := storage2.NewTransactionAppend(0, "txn-v1", []*storage2.DataFragment{
+		storage2.NewDataFragment(0, nil),
+	})
+	txn1.Tag = "v1"
+	if err := storage2.CommitTransaction(ctx, basePath, handler, txn1); err != nil {
+		t.Fatal(err)
+	}
+
+	// v2: append with tag "v2"
+	txn2 := storage2.NewTransactionAppend(1, "txn-v2", []*storage2.DataFragment{
+		storage2.NewDataFragment(1, nil),
+	})
+	txn2.Tag = "v2"
+	if err := storage2.CommitTransaction(ctx, basePath, handler, txn2); err != nil {
+		t.Fatal(err)
+	}
+
+	// v3: another append also tagged "v1"
+	txn3 := storage2.NewTransactionAppend(2, "txn-v1b", []*storage2.DataFragment{
+		storage2.NewDataFragment(2, nil),
+	})
+	txn3.Tag = "v1"
+	if err := storage2.CommitTransaction(ctx, basePath, handler, txn3); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open by tag "v1" -> latest tagged version 3
+	dsV1, err := OpenDatasetWithTag(ctx, basePath, "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dsV1.Close()
+	if dsV1.Version() != 3 {
+		t.Errorf("OpenDatasetWithTag(v1): Version() want 3 got %d", dsV1.Version())
+	}
+
+	// Open by tag "v2" -> version 2
+	dsV2, err := OpenDatasetWithTag(ctx, basePath, "v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dsV2.Close()
+	if dsV2.Version() != 2 {
+		t.Errorf("OpenDatasetWithTag(v2): Version() want 2 got %d", dsV2.Version())
+	}
+
+	// Missing tag -> expect error
+	if _, err := OpenDatasetWithTag(ctx, basePath, "missing"); err == nil {
+		t.Fatal("expected error for missing tag, got nil")
+	}
+}
+
 func mustCount(t *testing.T, ds Dataset) uint64 {
 	t.Helper()
 	c, err := ds.CountRows()

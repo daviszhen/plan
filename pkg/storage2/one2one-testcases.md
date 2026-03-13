@@ -86,7 +86,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | `testDatasetVersion` | 版本号递增、`latestVersion`、版本时间戳、按版本打开 | **已有**：`commit_test.go`、`commit_txn_test.go`、`sdk/dataset_test.go: TestDatasetVersioning` | Storage2 不维护时间戳；版本号与 latestVersion、`WithVersion` 已覆盖。 |
 | `testDatasetCheckoutVersion` | checkout 到旧版本再读 | **已有**：`sdk/dataset_test.go: TestCheckoutVersion` | 通过 `OpenDataset(...).WithVersion(v)` 打开旧版本，校验 `CountRows()` 随版本变化。 |
 | `testDatasetRestore` | Restore 版本 | **暂不实现** | Storage2 未提供 Restore/Undo 语义。 |
-| `testTags` | Tag（命名版本）相关操作 | **部分对应**：`tags_test.go: TestListTagsAndResolveTagVersion` 已覆盖底层；**可以实现**：SDK 层 `OpenDatasetWithTag` 及与 Lance 对齐的 Tag 行为测试（见 STORAGE2_DEVELOPMENT_PLAN.md 7.4.1 任务 Tag1）。 | 底层 ListTags/ResolveTagVersion 已有；SDK 按 tag 打开与端到端用例待实现。 |
+| `testTags` | Tag（命名版本）相关操作 | **部分对应**：`tags_test.go: TestListTagsAndResolveTagVersion` + `sdk/dataset_test.go: TestOpenDatasetWithTag` 已覆盖底层与 SDK；后续可根据需要补充更多 Tag 行为用例。 | 底层 ListTags/ResolveTagVersion + SDK 按 tag 打开 Dataset 均已实现。 |
 | `testBranches` | 分支管理（类似 Git Branch） | **暂不实现** | Storage2 当前版本模型为单线性版本号，无分支；保留为未来扩展。 |
 
 ### 2.3 Schema / 列操作

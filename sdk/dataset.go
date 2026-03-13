@@ -168,6 +168,20 @@ func (b *datasetBuilder) WithCommitHandler(handler storage2.CommitHandler) *data
 	return b
 }
 
+// OpenDatasetWithTag opens a dataset at the version referenced by the given tag.
+// It uses the default CommitHandler and ResolveTagVersion under the hood.
+func OpenDatasetWithTag(ctx context.Context, basePath, tag string) (Dataset, error) {
+	handler := storage2.NewLocalRenameCommitHandler()
+	version, ok, err := storage2.ResolveTagVersion(ctx, basePath, handler, tag)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("tag %q not found", tag)
+	}
+	return OpenDataset(ctx, basePath).WithCommitHandler(handler).WithVersion(version).Build()
+}
+
 // Build opens or creates the dataset. For OpenDataset it loads the manifest; for CreateDataset it commits version 0.
 func (b *datasetBuilder) Build() (Dataset, error) {
 	if b.isCreate {
