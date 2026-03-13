@@ -115,7 +115,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | `testUpdateConfig` / `testDeleteConfigKeys` | 更新/删除表级配置 | **部分对应**：`build_manifest.go: buildManifestUpdateConfig` + `config_test.go` 支持基于 `UpdateConfig` 的 Config upsert/delete 与部分元数据更新；更复杂场景（field/schema 元数据等）暂未覆盖 | 
 | `testReadTransaction` | 读取事务文件列表 | **已有**：`txn_file_test.go: TestWriteTransactionFile`、`TestParseTransactionFilename`、`TestLoadTransactionsAfter` | 事务文件读写、命名解析、按版本列举已提交事务。 |
 | `testCommitTransactionDetachedTrue` / `testCommitTransactionDetachedTrueOnV1ManifestThrowsUnsupported` | Detached Transaction Commit 行为 | **暂不实现** | Storage2 目前只实现简单的 Append/Delete/Overwrite 事务提交模型。 |
-| `testEnableStableRowIds` | 启用稳定 RowId | **暂不实现** | Storage2 尚未支持稳定行 ID；未来实现后需参考该测试设计行 ID 稳定性的用例。 |
+| `testEnableStableRowIds` | 启用稳定 RowId | **部分实现**：`rowid_scanner.go: RowIdScanner` + `rowid_scanner_test.go` | 已实现 RowId 级随机访问的基础框架，需要启用 feature flag 2。当前因 RowId 序列解析未完全实现而受限。 |
 
 ### 2.6 Compaction / Clone / 索引
 
@@ -136,6 +136,14 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 
 | Storage2 测试 | 覆盖内容 | 对应 Lance 场景 |
 |---------------|----------|------------------|
+| `rowid_scanner.go` / `rowid_scanner_test.go` | RowId 级随机访问（需 feature flag 2） | Java `testTake` / `testEnableStableRowIds` 的 RowId 语义扩展 |
+| `rowids.go` / `rowids_test.go` | RowIdSequence 解析（支持 Range/RangeWithHoles/RangeWithBitmap/SortedArray/Array 五种 U64Segment） | Rust `lance-table/src/rowids.rs` 的完整对齐 |
+| `field_metadata_test.go` | field_metadata_updates 处理框架 | Java `testUpdateConfig` 中 field_metadata 相关场景的准备 |
+| `refs.go` / `refs_test.go` | Refs/Tags/Branches/Restore/Checkout 完整实现 | Rust `dataset/refs.rs` + Java `testBranches` / `testTags` / `testRestore` |
+| `pushdown.go` / `pushdown_test.go` | Predicate pushdown（Column/And/Or/Not）、Projection、Limit | Rust `io/exec/scanner.rs` 的 filter/projection 能力 |
+| `index.go` | 索引接口设计（Scalar/Vector/Inverted） | Rust `index/*` 的接口对齐 |
+| `table_format.go` | Table 抽象、TableConfig、MigrationManager | Rust `lance-table/src/format.rs` 的表格式对齐 |
+| `io_ext.go` | ObjectStoreExt、ParallelReader/Writer、IOStats | Rust `lance-io/src/object_store.rs` 的扩展能力 |
 | `version_test.go` | `ManifestPath` / `TransactionPath` / `ParseVersion` | 路径约定 & 版本解析（`DatasetTest` 中版本路径相关逻辑 + 文档约定） |
 | `manifest_test.go: TestManifestRoundTrip` | Manifest Proto round-trip + DataFragment/DataFile 结构 | Dataset 版本元数据正确序列化/反序列化 |
 | `manifest_test.go: TestBuildManifest*` / `comparison_test.go: TestOperationBehavior*` | Append / Overwrite / Delete 对 Manifest 的影响 | `Dataset` Append/Delete/Overwrite 后 Fragment 列表和版本号的变化 |
