@@ -24,6 +24,9 @@ type Dataset interface {
 	// Take returns rows at the given logical indices for the current version.
 	// This is a minimal random-access API built on top of storage2.TakeRows.
 	Take(ctx context.Context, indices []uint64) (*chunk.Chunk, error)
+	// TakeProjected returns rows at the given logical indices and only the specified
+	// zero-based column indices. If columns is empty, it behaves like Take.
+	TakeProjected(ctx context.Context, indices []uint64, columns []int) (*chunk.Chunk, error)
 	// Scanner creates a ScannerBuilder for streaming reads.
 	Scanner() *ScannerBuilder
 }
@@ -133,6 +136,10 @@ func (d *datasetImpl) Overwrite(ctx context.Context, fragments []*DataFragment) 
 
 func (d *datasetImpl) Take(ctx context.Context, indices []uint64) (*chunk.Chunk, error) {
 	return storage2.TakeRows(ctx, d.basePath, d.handler, d.version, indices)
+}
+
+func (d *datasetImpl) TakeProjected(ctx context.Context, indices []uint64, columns []int) (*chunk.Chunk, error) {
+	return storage2.TakeRowsProjected(ctx, d.basePath, d.handler, d.version, indices, columns)
 }
 
 // datasetBuilder is used by OpenDataset and CreateDataset.

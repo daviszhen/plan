@@ -2,6 +2,7 @@ package storage2
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"github.com/daviszhen/plan/pkg/chunk"
@@ -41,6 +42,13 @@ func ScanChunks(ctx context.Context, basePath string, handler CommitHandler, ver
 // intended for tests; it currently assumes that each fragment has at least one
 // data file and uses the first file per fragment.
 func TakeRows(ctx context.Context, basePath string, handler CommitHandler, version uint64, indices []uint64) (*chunk.Chunk, error) {
+	return TakeRowsProjected(ctx, basePath, handler, version, indices, nil)
+}
+
+// TakeRowsProjected is an extended version of TakeRows that supports column projection.
+// If columns is nil or empty, all columns are returned; otherwise only the specified
+// zero-based column indices are included in the result chunk, in the given order.
+func TakeRowsProjected(ctx context.Context, basePath string, handler CommitHandler, version uint64, indices []uint64, columns []int) (*chunk.Chunk, error) {
 	if len(indices) == 0 {
 		return nil, nil
 	}
@@ -110,10 +118,27 @@ func TakeRows(ctx context.Context, basePath string, handler CommitHandler, versi
 		return nil, nil
 	}
 
-	colCount := sampleChunk.ColumnCount()
+	srcColCount := sampleChunk.ColumnCount()
+
+	// Determine projected columns.
+	var projCols []int
+	if len(columns) == 0 {
+		projCols = make([]int, srcColCount)
+		for j := 0; j < srcColCount; j++ {
+			projCols[j] = j
+		}
+	} else {
+		projCols = make([]int, len(columns))
+		copy(projCols, columns)
+	}
+
+	colCount := len(projCols)
 	typs := make([]common.LType, colCount)
-	for j := 0; j < colCount; j++ {
-		typs[j] = sampleChunk.Data[j].Typ()
+	for j, colIdx := range projCols {
+		if colIdx < 0 || colIdx >= srcColCount {
+			return nil, fmt.Errorf("projected column index %d out of range [0,%d)", colIdx, srcColCount)
+		}
+		typs[j] = sampleChunk.Data[colIdx].Typ()
 	}
 	dst := &chunk.Chunk{}
 	dst.Init(typs, len(indices))
@@ -135,9 +160,9 @@ func TakeRows(ctx context.Context, basePath string, handler CommitHandler, versi
 			if int(r.localRow) >= src.Card() {
 				continue
 			}
-			for col := 0; col < colCount; col++ {
-				val := src.Data[col].GetValue(int(r.localRow))
-				dst.Data[col].SetValue(r.outRow, val)
+			for outCol, srcColIdx := range projCols {
+				val := src.Data[srcColIdx].GetValue(int(r.localRow))
+				dst.Data[outCol].SetValue(r.outRow, val)
 			}
 		}
 	}

@@ -202,4 +202,59 @@ func TestTakeRowsMultiFragment(t *testing.T) {
 	}
 }
 
+func TestTakeRowsProjectedColumns(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+	handler := NewLocalRenameCommitHandler()
+
+	// Build a manifest with a single fragment whose first data file has 3 columns.
+	m := NewManifest(0)
+	m.Fragments = []*DataFragment{
+		NewDataFragmentWithRows(0, 10, []*DataFile{
+			NewDataFile("data/0.dat", []int32{0, 1, 2}, 1, 0),
+		}),
+	}
+	if err := handler.Commit(ctx, basePath, 0, m); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a chunk with 3 columns: col0=i, col1=i*10, col2=i*100.
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	typs := []common.LType{
+		common.MakeLType(common.LTID_INTEGER),
+		common.MakeLType(common.LTID_INTEGER),
+		common.MakeLType(common.LTID_INTEGER),
+	}
+	src := &chunk.Chunk{}
+	src.Init(typs, util.DefaultVectorSize)
+	src.SetCard(10)
+	for i := 0; i < 10; i++ {
+		src.Data[0].SetValue(i, &chunk.Value{Typ: typs[0], I64: int64(i)})
+		src.Data[1].SetValue(i, &chunk.Value{Typ: typs[1], I64: int64(i * 10)})
+		src.Data[2].SetValue(i, &chunk.Value{Typ: typs[2], I64: int64(i * 100)})
+	}
+	if err := WriteChunkToFile(dataPath, src); err != nil {
+		t.Fatal(err)
+	}
+
+	indices := []uint64{0, 3, 7}
+	// Project only columns 0 and 2.
+	chunkTaken, err := TakeRowsProjected(ctx, basePath, handler, 0, indices, []int{0, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chunkTaken == nil {
+		t.Fatal("expected non-nil chunk")
+	}
+	if chunkTaken.Card() != len(indices) || chunkTaken.ColumnCount() != 2 {
+		t.Fatalf("Card=%d Cols=%d, want Card=%d Cols=2", chunkTaken.Card(), chunkTaken.ColumnCount(), len(indices))
+	}
+	for outRow, idx := range indices {
+		v0 := chunkTaken.Data[0].GetValue(outRow)
+		v2 := chunkTaken.Data[1].GetValue(outRow)
+		if v0.I64 != int64(idx) || v2.I64 != int64(idx*100) {
+			t.Errorf("row %d from idx %d: got (v0=%d,v2=%d)", outRow, idx, v0.I64, v2.I64)
+		}
+	}
+}
 

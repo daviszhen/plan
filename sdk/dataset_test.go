@@ -167,6 +167,58 @@ func TestDatasetTake(t *testing.T) {
 	}
 }
 
+func TestDatasetTakeProjected(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	// Create dataset and append 10 rows with 3 columns.
+	ds, err := CreateDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	typs := []common.LType{
+		common.MakeLType(common.LTID_INTEGER),
+		common.MakeLType(common.LTID_INTEGER),
+		common.MakeLType(common.LTID_INTEGER),
+	}
+	src := &chunk.Chunk{}
+	src.Init(typs, util.DefaultVectorSize)
+	src.SetCard(10)
+	for i := 0; i < 10; i++ {
+		src.Data[0].SetValue(i, &chunk.Value{Typ: typs[0], I64: int64(i)})
+		src.Data[1].SetValue(i, &chunk.Value{Typ: typs[1], I64: int64(i * 10)})
+		src.Data[2].SetValue(i, &chunk.Value{Typ: typs[2], I64: int64(i * 100)})
+	}
+	if err := storage2.WriteChunkToFile(dataPath, src); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1, 2}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	indices := []uint64{0, 4, 9}
+	ch, err := ds.TakeProjected(ctx, indices, []int{0, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch == nil {
+		t.Fatal("expected non-nil chunk")
+	}
+	if ch.Card() != len(indices) || ch.ColumnCount() != 2 {
+		t.Fatalf("Card=%d Cols=%d, want Card=%d Cols=2", ch.Card(), ch.ColumnCount(), len(indices))
+	}
+	for outRow, idx := range indices {
+		v0 := ch.Data[0].GetValue(outRow)
+		v2 := ch.Data[1].GetValue(outRow)
+		if v0.I64 != int64(idx) || v2.I64 != int64(idx*100) {
+			t.Errorf("outRow %d from idx %d: got (v0=%d,v2=%d)", outRow, idx, v0.I64, v2.I64)
+		}
+	}
+}
+
 func TestOpenInvalidPath(t *testing.T) {
 	ctx := context.Background()
 	base := t.TempDir()

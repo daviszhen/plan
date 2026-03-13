@@ -39,7 +39,7 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| T1 | P2 | planned | **Take 列投影**：在 `TakeRows` 及 SDK `Dataset.Take` 上增加列选择能力，使随机访问也能只返回指定列。 |
+| T1 | P2 | done | **Take 列投影**：在 `TakeRows` 基础上新增 `TakeRowsProjected` 支持按列下标选择列，在 SDK 层新增 `Dataset.TakeProjected` 以便随机访问只返回指定列；UT：`pkg/storage2/scanner_test.go: TestTakeRowsProjectedColumns` 与 `sdk/dataset_test.go: TestDatasetTakeProjected`。 |
 | T2 | P2 | planned | **RowId 级随机访问**：若未来引入稳定 RowId 语义，为 `Take` 增加按 RowId 取行的能力；需与 `testEnableStableRowIds` 语义对齐。 |
 
 ---
