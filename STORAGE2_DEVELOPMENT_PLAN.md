@@ -80,7 +80,7 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| D1 | P2 | planned | **testCalculateDataSize 对应能力**：在 Storage2 暴露一个基于 Manifest + DataFile size 字段的「数据大小」统计 API（可在 SDK 层提供方法）；新增 UT 对齐 Java `testCalculateDataSize` 行为。 |
+| D1 | P2 | done | **testCalculateDataSize 对应能力**：在 Storage2 暴露 `CalculateManifestDataSize` / `CalculateDatasetDataSize`（基于 Manifest + DataFile.FileSizeBytes 的数据大小统计），并在 SDK 层提供 `Dataset.DataSize()`；UT：`pkg/storage2/data_size_test.go` 与 `sdk/dataset_test.go: TestDatasetDataSize` 对齐 Java `testCalculateDataSize` 行为。 |
 
 ---
 

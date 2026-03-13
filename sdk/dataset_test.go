@@ -217,6 +217,46 @@ func TestOpenExistingManifestDataset(t *testing.T) {
 	}
 }
 
+func TestDatasetDataSize(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+	handler := NewLocalRenameCommitHandler()
+
+	// version 0 manifest with explicit FileSizeBytes
+	m0 := storage2.NewManifest(0)
+	m0.Fragments = []*storage2.DataFragment{
+		storage2.NewDataFragment(0, []*storage2.DataFile{
+			{
+				Path:          "data/0.dat",
+				FileSizeBytes: 100,
+			},
+		}),
+		storage2.NewDataFragment(1, []*storage2.DataFile{
+			{
+				Path:          "data/1.dat",
+				FileSizeBytes: 200,
+			},
+		}),
+	}
+	if err := handler.Commit(ctx, basePath, 0, m0); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).WithCommitHandler(handler).WithVersion(0).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	size, err := ds.DataSize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != 300 {
+		t.Fatalf("DataSize() = %d, want 300", size)
+	}
+}
+
 func TestDatasetVersioning(t *testing.T) {
 	ctx := context.Background()
 	basePath := t.TempDir()

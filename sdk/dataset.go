@@ -16,6 +16,8 @@ type Dataset interface {
 	Version() uint64
 	LatestVersion() (uint64, error)
 	CountRows() (uint64, error)
+	// DataSize returns the total data size in bytes based on manifest metadata.
+	DataSize() (uint64, error)
 	Append(ctx context.Context, fragments []*DataFragment) error
 	Delete(ctx context.Context, predicate string) error
 	Overwrite(ctx context.Context, fragments []*DataFragment) error
@@ -59,6 +61,10 @@ func (d *datasetImpl) CountRows() (uint64, error) {
 		total += frag.PhysicalRows
 	}
 	return total, nil
+}
+
+func (d *datasetImpl) DataSize() (uint64, error) {
+	return storage2.CalculateDatasetDataSize(context.Background(), d.basePath, d.handler, d.version)
 }
 
 func (d *datasetImpl) Append(ctx context.Context, fragments []*DataFragment) error {
