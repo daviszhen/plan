@@ -56,7 +56,7 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| C1 | P2 | planned | **Config：field_metadata / schema_metadata 扩展**：在 `build_manifest.go` 的 `buildManifestUpdateConfig` 基础上，支持 `field_metadata_updates` / `schema_metadata_updates` 等更细粒度更新；在 `config_test.go` 增加对应用例，对齐 Java `testUpdateConfig`/`testDeleteConfigKeys` 更完整语义。 |
+| C1 | P2 | planned | **Config：field_metadata / schema_metadata 扩展**：当前 `buildManifestUpdateConfig` 已支持 `config_updates` / `table_metadata_updates` / `schema_metadata_updates`，但尚未接通 `field_metadata_updates` 到 Manifest/Schema 结构；后续需要结合 Lance 对 Field 元数据的设计，补齐 field 级 metadata 更新，并增加对应 UT。 |
 
 ---
 
