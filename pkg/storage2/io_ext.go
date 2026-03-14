@@ -143,7 +143,7 @@ func (s *LocalObjectStoreExt) ReadStream(ctx context.Context, path string, opts 
 // WriteStream implements ObjectStoreExt
 func (s *LocalObjectStoreExt) WriteStream(ctx context.Context, path string, opts WriteOptions) (io.WriteCloser, error) {
 	fullPath := filepath.Join(s.Root, path)
-	
+
 	flag := os.O_WRONLY
 	if opts.Create {
 		flag |= os.O_CREATE

@@ -331,4 +331,3 @@ func (s *scannerImpl) initFilter(firstChunk *chunk.Chunk) error {
 	s.filterInited = true
 	return nil
 }
-

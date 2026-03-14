@@ -19,13 +19,13 @@ import (
 
 // S3ObjectStore implements ObjectStore and ObjectStoreExt for S3-compatible storage
 type S3ObjectStore struct {
-	client    *s3.Client
-	uploader  *manager.Uploader
+	client     *s3.Client
+	uploader   *manager.Uploader
 	downloader *manager.Downloader
-	bucket    string
-	prefix    string // prefix for all objects (like a base path)
-	region    string
-	endpoint  string
+	bucket     string
+	prefix     string // prefix for all objects (like a base path)
+	region     string
+	endpoint   string
 
 	// For testing with MinIO/localstack
 	forcePathStyle bool
@@ -445,12 +445,12 @@ func (h *S3CommitHandlerWithLock) ResolveVersion(ctx context.Context, basePath s
 func (h *S3CommitHandlerWithLock) Commit(ctx context.Context, basePath string, version uint64, manifest *Manifest) error {
 	// First check if the target version already exists
 	key := h.store.store.fullKey(basePath + "/" + ManifestPath(version))
-	
+
 	_, err := h.store.store.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(h.store.store.bucket),
 		Key:    aws.String(key),
 	})
-	
+
 	if err == nil {
 		// Object exists - conflict
 		return fmt.Errorf("version %d already exists", version)
@@ -483,14 +483,14 @@ func (s *S3ObjectStore) CreateBucket(ctx context.Context) error {
 			LocationConstraint: types.BucketLocationConstraint(s.region),
 		},
 	})
-	
+
 	if err != nil {
 		// Check if bucket already exists
 		var alreadyExists *types.BucketAlreadyExists
 		var alreadyOwned *types.BucketAlreadyOwnedByYou
-		if alreadyExists != nil || alreadyOwned != nil || 
-		   strings.Contains(err.Error(), "BucketAlreadyExists") ||
-		   strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
+		if alreadyExists != nil || alreadyOwned != nil ||
+			strings.Contains(err.Error(), "BucketAlreadyExists") ||
+			strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
 			return nil
 		}
 		return err

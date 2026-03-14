@@ -97,6 +97,16 @@ Aligned with the Lance columnar format metadata model. Key interfaces:
 - **Logical Encoder/Decoder** - `LogicalColumnEncoder` and `LogicalColumnDecoder` provide type-aware encoding with automatic encoding selection
 - **Encoding Selection** - `AnalyzeIntColumn`, `AnalyzeStringColumn`, `SelectIntEncoding`, `SelectStringEncoding` choose optimal encoding based on column statistics
 - **EncodingProfile** - Measures compression ratios across different encodings for a column
+- **Encoding Scheduler** (`encoding_scheduler.go`):
+  - `EncodingScheduler` - Parallel, memory-bounded column encoding with semaphore-based concurrency control
+  - `EncodingSchedulerConfig` - Configurable `MaxConcurrency`, `MemoryBudget`, `AutoSelectEncoding`
+  - `EncodingTask` / `EncodingResult` - Task and result types for individual column encoding jobs
+  - `EncodingProgress` - Atomic progress tracking (completed columns, bytes encoded, fraction)
+  - `EncodeChunk` - Convenience method to encode all columns of a `chunk.Chunk` in parallel
+  - `EncodeBatch` - Sequential chunk encoding with per-chunk parallel column encoding
+  - `PlanChunkEncoding` - Preview encoding decisions per column without encoding
+  - `CollectStats` - Aggregate encoding statistics from results
+  - Memory back-pressure via `memoryTracker` with configurable budget and `sync.Cond` blocking
 
 ### sdk/ - High-Level SDK
 

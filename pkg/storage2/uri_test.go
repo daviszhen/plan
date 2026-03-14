@@ -6,15 +6,15 @@ import (
 
 func TestParseURI(t *testing.T) {
 	tests := []struct {
-		name        string
-		uri         string
-		wantScheme  string
-		wantBucket  string
-		wantPath    string
-		wantErr     bool
-		wantLocal   bool
-		wantCloud   bool
-		wantMemory  bool
+		name       string
+		uri        string
+		wantScheme string
+		wantBucket string
+		wantPath   string
+		wantErr    bool
+		wantLocal  bool
+		wantCloud  bool
+		wantMemory bool
 	}{
 		{
 			name:       "local path without scheme",
@@ -39,20 +39,20 @@ func TestParseURI(t *testing.T) {
 			wantCloud:  true,
 		},
 		{
-			name:        "s3 with endpoint",
-			uri:         "s3://my-bucket/path/to/dataset?endpoint=http://localhost:9000",
-			wantScheme:  "s3",
-			wantBucket:  "my-bucket",
-			wantPath:    "path/to/dataset",
-			wantCloud:   true,
+			name:       "s3 with endpoint",
+			uri:        "s3://my-bucket/path/to/dataset?endpoint=http://localhost:9000",
+			wantScheme: "s3",
+			wantBucket: "my-bucket",
+			wantPath:   "path/to/dataset",
+			wantCloud:  true,
 		},
 		{
-			name:        "s3 with region",
-			uri:         "s3://my-bucket/path/to/dataset?region=us-west-2",
-			wantScheme:  "s3",
-			wantBucket:  "my-bucket",
-			wantPath:    "path/to/dataset",
-			wantCloud:   true,
+			name:       "s3 with region",
+			uri:        "s3://my-bucket/path/to/dataset?region=us-west-2",
+			wantScheme: "s3",
+			wantBucket: "my-bucket",
+			wantPath:   "path/to/dataset",
+			wantCloud:  true,
 		},
 		{
 			name:       "gs basic",

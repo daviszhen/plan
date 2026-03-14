@@ -79,4 +79,3 @@ func TestListTagsAndResolveTagVersion(t *testing.T) {
 		t.Errorf("ResolveTagVersion(missing) want (0,false) got (%d,%v)", vMissing, okMissing)
 	}
 }
-

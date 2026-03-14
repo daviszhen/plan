@@ -209,7 +209,7 @@ func TestDatasetSchema(t *testing.T) {
 
 	// Create dataset with schema by manually creating manifest with fields
 	handler := NewLocalRenameCommitHandler()
-	
+
 	// Create a manifest with some fields
 	fields := []*storage2pb.Field{
 		{
@@ -227,12 +227,12 @@ func TestDatasetSchema(t *testing.T) {
 			Nullable:    true,
 		},
 	}
-	
+
 	manifest := storage2.NewManifest(0)
 	manifest.Fields = fields
 	manifest.Fragments = []*storage2pb.DataFragment{}
 	manifest.NextRowId = 1
-	
+
 	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -248,14 +248,14 @@ func TestDatasetSchema(t *testing.T) {
 	if len(schema2) != 2 {
 		t.Errorf("schema should have 2 fields, got %d", len(schema2))
 	}
-	
+
 	if schema2[0].Name != "id" {
 		t.Errorf("first field name want 'id' got '%s'", schema2[0].Name)
 	}
 	if schema2[0].LogicalType != "int64" {
 		t.Errorf("first field logical type want 'int64' got '%s'", schema2[0].LogicalType)
 	}
-	
+
 	if schema2[1].Name != "name" {
 		t.Errorf("second field name want 'name' got '%s'", schema2[1].Name)
 	}
@@ -282,20 +282,20 @@ func TestDatasetSchemaMetadata(t *testing.T) {
 
 	// Create dataset with schema metadata
 	handler := NewLocalRenameCommitHandler()
-	
+
 	// Create a manifest with schema metadata
 	schemaMetadata := map[string][]byte{
 		"pandas_version": []byte("1.5.0"),
 		"creator":        []byte("test"),
 		"encoding":       []byte("utf-8"),
 	}
-	
+
 	manifest := storage2.NewManifest(0)
 	manifest.Fields = []*storage2pb.Field{}
 	manifest.SchemaMetadata = schemaMetadata
 	manifest.Fragments = []*storage2pb.DataFragment{}
 	manifest.NextRowId = 1
-	
+
 	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestDatasetSchemaMetadata(t *testing.T) {
 	if len(metadata2) != 3 {
 		t.Errorf("schema metadata should have 3 entries, got %d", len(metadata2))
 	}
-	
+
 	if string(metadata2["pandas_version"]) != "1.5.0" {
 		t.Errorf("pandas_version want '1.5.0' got '%s'", string(metadata2["pandas_version"]))
 	}
@@ -329,7 +329,7 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 
 	// Create dataset with complex schema including nested fields
 	handler := NewLocalRenameCommitHandler()
-	
+
 	// Create fields with different configurations
 	fields := []*storage2pb.Field{
 		{
@@ -381,12 +381,12 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 			Nullable:    true,
 		},
 	}
-	
+
 	manifest := storage2.NewManifest(0)
 	manifest.Fields = fields
 	manifest.Fragments = []*storage2pb.DataFragment{}
 	manifest.NextRowId = 1
-	
+
 	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 	if idField.Name != "id" || idField.LogicalType != "int64" || idField.Nullable != false {
 		t.Errorf("id field config incorrect: %+v", idField)
 	}
-	
+
 	nameField := ds.FieldByName("name")
 	if nameField == nil {
 		t.Fatal("FieldByName('name') should not be nil")
@@ -414,7 +414,7 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 	if nameField.Name != "name" || nameField.LogicalType != "string" || nameField.Nullable != true {
 		t.Errorf("name field config incorrect: %+v", nameField)
 	}
-	
+
 	// Test non-existent field
 	nonExistent := ds.FieldByName("nonexistent")
 	if nonExistent != nil {
@@ -426,7 +426,7 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 	if fieldByID == nil || fieldByID.Name != "id" {
 		t.Errorf("FieldByID(0) should return id field, got %+v", fieldByID)
 	}
-	
+
 	fieldByID2 := ds.FieldByID(3)
 	if fieldByID2 == nil || fieldByID2.Name != "street" {
 		t.Errorf("FieldByID(3) should return street field, got %+v", fieldByID2)
@@ -437,7 +437,7 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 	if len(addressChildren) != 2 {
 		t.Errorf("FieldsByParentID(2) should return 2 children, got %d", len(addressChildren))
 	}
-	
+
 	// Check that we got street and city
 	foundStreet := false
 	foundCity := false
@@ -452,7 +452,7 @@ func TestDatasetFieldConfiguration(t *testing.T) {
 	if !foundStreet || !foundCity {
 		t.Errorf("Missing expected child fields: street=%v, city=%v", foundStreet, foundCity)
 	}
-	
+
 	// Test root fields (ParentId = -1)
 	rootFields := ds.FieldsByParentID(-1)
 	if len(rootFields) != 3 {
@@ -489,7 +489,7 @@ func TestDatasetCompact(t *testing.T) {
 	if initialCount != 30 {
 		t.Errorf("Initial count want 30 got %d", initialCount)
 	}
-	
+
 	// Perform compaction
 	if err := ds.Compact(ctx); err != nil {
 		t.Fatal(err)
@@ -521,13 +521,13 @@ func TestDatasetCompactWithDeletions(t *testing.T) {
 		}
 		df := NewDataFile(fmt.Sprintf("data/%d.dat", i), []int32{0, 1}, 1, 0)
 		frag := NewDataFragmentWithRows(uint64(i), 10, []*DataFile{df})
-		
+
 		// Add deletion file to first fragment
 		if i == 0 {
 			deletionFile := storage2.NewDeletionFile(storage2pb.DeletionFile_ARROW_ARRAY, 0, 0, 3)
 			frag.DeletionFile = deletionFile
 		}
-		
+
 		if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
 			t.Fatal(err)
 		}
@@ -582,17 +582,17 @@ func TestDatasetCompactWithOptions(t *testing.T) {
 	opts1 := CompactionOptions{
 		BatchSize: intPtr(2),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts1); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test 2: Compact with max bytes constraint
 	opts2 := CompactionOptions{
-		MaxBytes: uint64Ptr(2000), // Only compact fragments under 2000 bytes
+		MaxBytes:  uint64Ptr(2000), // Only compact fragments under 2000 bytes
 		BatchSize: intPtr(3),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts2); err != nil {
 		t.Fatal(err)
 	}
@@ -600,9 +600,9 @@ func TestDatasetCompactWithOptions(t *testing.T) {
 	// Test 3: Compact with target fragment size
 	opts3 := CompactionOptions{
 		TargetFragmentSize: uint64Ptr(1000),
-		BatchSize: intPtr(2),
+		BatchSize:          intPtr(2),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts3); err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +642,7 @@ func TestDatasetMultipleCompactions(t *testing.T) {
 	opts1 := CompactionOptions{
 		BatchSize: intPtr(3),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts1); err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +657,7 @@ func TestDatasetMultipleCompactions(t *testing.T) {
 	opts2 := CompactionOptions{
 		BatchSize: intPtr(2),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts2); err != nil {
 		t.Fatal(err)
 	}
@@ -685,20 +685,20 @@ func TestDatasetCompactWithOptionsEdgeCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	ds.Close()
-	
+
 	opts := CompactionOptions{}
 	err = ds.CompactWithOptions(ctx, opts)
 	if err == nil {
 		t.Fatal("expected error when compacting closed dataset")
 	}
-	
+
 	// Test with single fragment (nothing to compact)
 	ds2, err := CreateDataset(ctx, basePath+"_2").Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ds2.Close()
-	
+
 	dataPath := filepath.Join(basePath+"_2", "data", "0.dat")
 	if err := storage2.WriteChunkToFile(dataPath, emptyChunk(t)); err != nil {
 		t.Fatal(err)
@@ -708,7 +708,7 @@ func TestDatasetCompactWithOptionsEdgeCases(t *testing.T) {
 	if err := ds2.Append(ctx, []*DataFragment{frag}); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Should complete successfully but do nothing
 	if err := ds2.CompactWithOptions(ctx, opts); err != nil {
 		t.Errorf("expected no error for single fragment, got %v", err)
@@ -732,7 +732,7 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 		hasDeletes bool
 		fileSize   uint64
 	}{
-		{rows: 5, hasDeletes: true, fileSize: 500},   // Small with deletions
+		{rows: 5, hasDeletes: true, fileSize: 500},    // Small with deletions
 		{rows: 10, hasDeletes: false, fileSize: 1000}, // Medium without deletions
 		{rows: 20, hasDeletes: false, fileSize: 2000}, // Large without deletions
 		{rows: 15, hasDeletes: true, fileSize: 1500},  // Medium with deletions
@@ -747,13 +747,13 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 		df := NewDataFile(fmt.Sprintf("data/%d.dat", i), []int32{0, 1}, 1, 0)
 		df.FileSizeBytes = config.fileSize
 		frag := NewDataFragmentWithRows(uint64(i), config.rows, []*DataFile{df})
-		
+
 		// Add deletion file if needed
 		if config.hasDeletes {
 			deletionFile := storage2.NewDeletionFile(storage2pb.DeletionFile_ARROW_ARRAY, 0, uint64(i), 2)
 			frag.DeletionFile = deletionFile
 		}
-		
+
 		if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
 			t.Fatal(err)
 		}
@@ -761,12 +761,12 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 
 	// Test 1: Size-based compaction with min/max constraints
 	opts1 := CompactionOptions{
-		MinFragmentSize: uint64Ptr(800),  // Compact fragments smaller than 800 bytes
-		MaxFragmentSize: uint64Ptr(1800), // Don't compact fragments larger than 1800 bytes
+		MinFragmentSize:  uint64Ptr(800),  // Compact fragments smaller than 800 bytes
+		MaxFragmentSize:  uint64Ptr(1800), // Don't compact fragments larger than 1800 bytes
 		CompactionMethod: stringPtr("size_based"),
-		BatchSize:       intPtr(2),
+		BatchSize:        intPtr(2),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts1); err != nil {
 		t.Fatal(err)
 	}
@@ -774,9 +774,9 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 	// Test 2: Count-based compaction
 	opts2 := CompactionOptions{
 		CompactionMethod: stringPtr("count_based"),
-		BatchSize:       intPtr(3), // Compact in groups of 3
+		BatchSize:        intPtr(3), // Compact in groups of 3
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts2); err != nil {
 		t.Fatal(err)
 	}
@@ -784,11 +784,11 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 	// Test 3: Hybrid compaction
 	opts3 := CompactionOptions{
 		CompactionMethod:   stringPtr("hybrid"),
-		MaxBytes:          uint64Ptr(3000),
-		BatchSize:         intPtr(2),
+		MaxBytes:           uint64Ptr(3000),
+		BatchSize:          intPtr(2),
 		IncludeDeletedRows: boolPtr(false), // Exclude fragments with deletions
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts3); err != nil {
 		t.Fatal(err)
 	}
@@ -796,10 +796,10 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 	// Test 4: Preserve row IDs
 	opts4 := CompactionOptions{
 		CompactionMethod: stringPtr("size_based"),
-		BatchSize:       intPtr(2),
-		PreserveRowIds:  boolPtr(true),
+		BatchSize:        intPtr(2),
+		PreserveRowIds:   boolPtr(true),
 	}
-	
+
 	if err := ds.CompactWithOptions(ctx, opts4); err != nil {
 		t.Fatal(err)
 	}

@@ -176,12 +176,12 @@ func (s *IndexSelector) selectForEquality(ctx context.Context, indexes []Index, 
 			// Bitmap is good for equality on low cardinality
 			cardinality := index.GetValueCardinality(extractValueFromChunkValue(pred.Value))
 			stats := index.Statistics()
-			
+
 			// Skip if no data
 			if stats.NumEntries == 0 {
 				continue
 			}
-			
+
 			// For bitmap, we can always use it for equality queries
 			// even if cardinality is 0 (means value doesn't exist, can prune all)
 			if s.config.PreferBitmapForLowCardinality {
@@ -191,11 +191,11 @@ func (s *IndexSelector) selectForEquality(ctx context.Context, indexes []Index, 
 					selection.CanPrune = true
 					return selection, nil
 				}
-				
+
 				if cardinality <= s.config.LowCardinalityThreshold {
 					selection.EstimatedSelectivity = float64(cardinality) / float64(stats.NumEntries)
 					selection.CanPrune = true
-					
+
 					// For bitmap, always select if cardinality is low
 					// The selectivity check is for cost-based optimization later
 					if bestSelection == nil || selection.EstimatedSelectivity < bestSelection.EstimatedSelectivity {
@@ -212,7 +212,7 @@ func (s *IndexSelector) selectForEquality(ctx context.Context, indexes []Index, 
 				if err != nil {
 					continue
 				}
-				
+
 				if !mightContain {
 					// Definitely not present - can prune everything
 					selection.EstimatedSelectivity = 0
@@ -220,14 +220,14 @@ func (s *IndexSelector) selectForEquality(ctx context.Context, indexes []Index, 
 					selection.PrunableFragments = index.GetPrunableFragments(columnIdx, extractValueFromChunkValue(pred.Value))
 					return selection, nil // Best possible outcome
 				}
-				
+
 				// Might be present - estimate selectivity based on FPR
 				filter := index.GetFilter(columnIdx)
 				if filter != nil {
 					selection.EstimatedSelectivity = filter.EstimatedFalsePositiveRate()
 					selection.CanPrune = true
 					selection.PrunableFragments = index.GetPrunableFragments(columnIdx, extractValueFromChunkValue(pred.Value))
-					
+
 					if bestSelection == nil || selection.EstimatedSelectivity < bestSelection.EstimatedSelectivity {
 						bestSelection = selection
 					}
@@ -434,15 +434,15 @@ func NewIndexAwareScanner(basePath string, handler CommitHandler, version uint64
 	if config == nil {
 		config = DefaultScanConfig()
 	}
-	
+
 	if manager == nil {
 		manager = NewIndexManager(basePath, handler)
 	}
 
 	return &IndexAwareScanner{
 		PushdownScanner: NewPushdownScanner(basePath, handler, version, config),
-		selector:         NewIndexSelector(manager, DefaultIndexSelectorConfig()),
-		manager:          manager,
+		selector:        NewIndexSelector(manager, DefaultIndexSelectorConfig()),
+		manager:         manager,
 	}
 }
 
@@ -605,7 +605,7 @@ func (c *IndexStatisticsCollector) CollectFromChunk(chunk *chunk.Chunk) {
 
 			// Extract Go value for tracking
 			goVal := extractValueFromChunkValue(val)
-			
+
 			// Track distinct values (with limit to avoid memory issues)
 			if len(stats.ValueFrequency) < 10000 {
 				stats.ValueFrequency[goVal]++

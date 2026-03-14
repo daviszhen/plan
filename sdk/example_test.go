@@ -8,9 +8,9 @@ import (
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
-	"github.com/daviszhen/plan/sdk"
 	"github.com/daviszhen/plan/pkg/storage2"
 	"github.com/daviszhen/plan/pkg/util"
+	"github.com/daviszhen/plan/sdk"
 )
 
 // Example_createAndAppend demonstrates creating a dataset and appending a fragment (data file uses pkg/chunk).

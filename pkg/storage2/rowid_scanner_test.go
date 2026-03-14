@@ -33,14 +33,14 @@ func TestRowIdScannerBasic(t *testing.T) {
 		// This is expected since we haven't implemented RowIds parsing yet
 		return
 	}
-	
+
 	// If somehow we got a scanner, test basic functionality
 	rowIds := []uint64{1, 2, 3}
 	chunk, err := scanner.TakeByRowIds(ctx, rowIds)
 	if err != nil {
 		t.Logf("TakeByRowIds failed as expected: %v", err)
 	}
-	
+
 	// The chunk might be nil or have an error, both are acceptable for now
 	_ = chunk
 }
@@ -89,14 +89,14 @@ func TestRowIdScannerNotFound(t *testing.T) {
 		t.Logf("Expected error due to unimplemented RowIds parsing: %v", err)
 		return
 	}
-	
+
 	// Request non-existent RowIds
 	rowIds := []uint64{999, 1000, 1001}
 	chunk, err := scanner.TakeByRowIds(ctx, rowIds)
 	if err != nil {
 		t.Logf("TakeByRowIds failed as expected: %v", err)
 	}
-	
+
 	// Should handle gracefully even with unimplemented parsing
 	_ = chunk
 }
@@ -109,7 +109,7 @@ func createTestFragmentWithRowIds(t *testing.T, id uint64, rowCount int, rowIds 
 		NewDataFile("data/test.dat", []int32{0, 1}, 1, 0),
 	})
 	frag.PhysicalRows = uint64(rowCount)
-	
+
 	// Would set RowIdSequence here when serialization is implemented
 	return frag
 }

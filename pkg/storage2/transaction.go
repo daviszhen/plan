@@ -71,8 +71,8 @@ func NewTransactionOverwrite(readVersion uint64, uuid string, fragments []*DataF
 		ReadVersion: readVersion,
 		Uuid:        uuid,
 		Operation: &storage2pb.Transaction_Overwrite_{Overwrite: &storage2pb.Transaction_Overwrite{
-			Fragments:         fragments,
-			Schema:            schema,
+			Fragments:          fragments,
+			Schema:             schema,
 			ConfigUpsertValues: configUpsert,
 		}},
 	}
@@ -134,14 +134,14 @@ func NewTransactionRewrite(readVersion uint64, uuid string, oldFragments, newFra
 	if newFragments == nil {
 		newFragments = []*DataFragment{}
 	}
-	
+
 	groups := []*storage2pb.Transaction_Rewrite_RewriteGroup{
 		{
-			OldFragments:  oldFragments,
-			NewFragments:  newFragments,
+			OldFragments: oldFragments,
+			NewFragments: newFragments,
 		},
 	}
-	
+
 	return &Transaction{
 		ReadVersion: readVersion,
 		Uuid:        uuid,

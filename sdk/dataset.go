@@ -247,7 +247,7 @@ func (d *datasetImpl) FieldByName(name string) *storage2pb.Field {
 	if d.currentManifest == nil {
 		return nil
 	}
-	
+
 	for _, field := range d.currentManifest.Fields {
 		if field.Name == name {
 			return field
@@ -260,7 +260,7 @@ func (d *datasetImpl) FieldByID(id int32) *storage2pb.Field {
 	if d.currentManifest == nil {
 		return nil
 	}
-	
+
 	for _, field := range d.currentManifest.Fields {
 		if field.Id == id {
 			return field
@@ -273,7 +273,7 @@ func (d *datasetImpl) FieldsByParentID(parentID int32) []*storage2pb.Field {
 	if d.currentManifest == nil {
 		return nil
 	}
-	
+
 	var result []*storage2pb.Field
 	for _, field := range d.currentManifest.Fields {
 		if field.ParentId == parentID {
@@ -291,16 +291,16 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 	if d.closed {
 		return fmt.Errorf("dataset is closed")
 	}
-	
+
 	// Simple compaction strategy: merge fragments based on options
 	if len(d.currentManifest.Fragments) <= 1 {
 		// Nothing to compact
 		return nil
 	}
-	
+
 	readVersion := d.version
 	uuid := generateUUID()
-	
+
 	// Apply compaction options
 	fragments := d.currentManifest.Fragments
 	batchSize := 2 // default batch size
@@ -310,21 +310,21 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 			batchSize = 2
 		}
 	}
-	
+
 	var groups []*storage2pb.Transaction_Rewrite_RewriteGroup
-	
+
 	// Group fragments for compaction
 	for i := 0; i < len(fragments); i += batchSize {
 		end := i + batchSize
 		if end > len(fragments) {
 			end = len(fragments)
 		}
-		
+
 		batch := fragments[i:end]
-		
+
 		// Check if this batch should be compacted based on options
 		shouldCompact := true
-		
+
 		// Check max bytes constraint
 		if opts.MaxBytes != nil {
 			var totalSize uint64
@@ -337,7 +337,7 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 				shouldCompact = false
 			}
 		}
-		
+
 		// Check min fragment size constraint
 		if shouldCompact && opts.MinFragmentSize != nil {
 			var totalSize uint64
@@ -350,7 +350,7 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 				shouldCompact = true // Force compaction for small fragments
 			}
 		}
-		
+
 		// Check compaction method
 		if shouldCompact && opts.CompactionMethod != nil {
 			method := *opts.CompactionMethod
@@ -375,7 +375,7 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 				}
 			}
 		}
-		
+
 		// Check deleted rows inclusion
 		hasDeletions := false
 		for _, frag := range batch {
@@ -384,31 +384,31 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 				break
 			}
 		}
-		
+
 		if shouldCompact && hasDeletions && opts.IncludeDeletedRows != nil && !*opts.IncludeDeletedRows {
 			// Skip batches with deletions if not explicitly included
 			shouldCompact = false
 		}
-		
+
 		if shouldCompact && len(batch) > 1 {
 			// Calculate total rows for new fragment
 			var totalRows uint64
 			for _, frag := range batch {
 				totalRows += frag.PhysicalRows
 			}
-			
+
 			newFragment := storage2.NewDataFragmentWithRows(
 				uint64(len(groups)), // new fragment ID
 				totalRows,
 				nil, // files will be populated during actual data processing
 			)
-			
+
 			// Handle row ID preservation
 			if opts.PreserveRowIds != nil && *opts.PreserveRowIds {
 				// Preserve row IDs by copying sequence (simplified implementation)
 				// In a real implementation, this would need to merge row ID sequences properly
 			}
-			
+
 			group := &storage2pb.Transaction_Rewrite_RewriteGroup{
 				OldFragments: batch,
 				NewFragments: []*storage2.DataFragment{newFragment},
@@ -416,12 +416,12 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 			groups = append(groups, group)
 		}
 	}
-	
+
 	if len(groups) == 0 {
 		// No compaction needed based on options
 		return nil
 	}
-	
+
 	txn := &storage2.Transaction{
 		ReadVersion: readVersion,
 		Uuid:        uuid,
@@ -431,11 +431,11 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 			},
 		},
 	}
-	
+
 	if err := storage2.CommitTransaction(ctx, d.basePath, d.handler, txn); err != nil {
 		return err
 	}
-	
+
 	// Update dataset state
 	latest, err := d.handler.ResolveLatestVersion(ctx, d.basePath)
 	if err != nil {
@@ -447,7 +447,7 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 	}
 	d.currentManifest = manifest
 	d.version = latest
-	
+
 	return nil
 }
 
@@ -1090,13 +1090,13 @@ func (d *datasetImpl) GetVectorIndex(name string) (storage2.VectorSearchIndex, b
 
 // datasetBuilder is used by OpenDataset and CreateDataset.
 type datasetBuilder struct {
-	uri       string
-	basePath  string
-	version   *uint64
-	handler   storage2.CommitHandler
-	isCreate  bool
-	readOpts  *ReadOptions
-	store     storage2.ObjectStoreExt
+	uri      string
+	basePath string
+	version  *uint64
+	handler  storage2.CommitHandler
+	isCreate bool
+	readOpts *ReadOptions
+	store    storage2.ObjectStoreExt
 }
 
 // parseURIToPath parses a URI and returns the local path for backward compatibility

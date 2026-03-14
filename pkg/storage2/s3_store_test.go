@@ -311,8 +311,8 @@ func TestGSCredentials(t *testing.T) {
 
 func TestAZCredentials(t *testing.T) {
 	creds := &AZCredentials{
-		AccountName:   "testaccount",
-		AccountKey:    "test-key",
+		AccountName:      "testaccount",
+		AccountKey:       "test-key",
 		ConnectionString: "DefaultEndpointsProtocol=https;AccountName=test",
 	}
 	require.Equal(t, "testaccount", creds.AccountName)

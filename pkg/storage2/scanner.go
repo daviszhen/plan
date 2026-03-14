@@ -168,4 +168,3 @@ func TakeRowsProjected(ctx context.Context, basePath string, handler CommitHandl
 	}
 	return dst, nil
 }
-

@@ -10,8 +10,8 @@ const (
 	// VersionsDir is the directory under dataset root for manifest files.
 	VersionsDir = "_versions"
 	// TransactionsDir is the directory under dataset root for transaction files.
-	TransactionsDir = "_transactions"
-	ManifestExtension  = "manifest"
+	TransactionsDir      = "_transactions"
+	ManifestExtension    = "manifest"
 	TransactionExtension = "txn"
 )
 

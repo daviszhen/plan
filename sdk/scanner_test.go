@@ -183,4 +183,3 @@ func TestScannerCountLikeLance(t *testing.T) {
 		t.Fatalf("count = %d, want 5", cnt)
 	}
 }
-

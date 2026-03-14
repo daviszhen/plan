@@ -212,7 +212,7 @@ func TestRowIdSequence(t *testing.T) {
 	// Create a sequence with multiple segments
 	seq := &RowIdSequence{
 		Segments: []U64Segment{
-			&RangeSegment{Start: 0, End: 5},      // 0, 1, 2, 3, 4
+			&RangeSegment{Start: 0, End: 5}, // 0, 1, 2, 3, 4
 			&SortedArraySegment{Values: []uint64{10, 20, 30}},
 			&RangeSegment{Start: 100, End: 103}, // 100, 101, 102
 		},

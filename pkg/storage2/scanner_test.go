@@ -257,4 +257,3 @@ func TestTakeRowsProjectedColumns(t *testing.T) {
 		}
 	}
 }
-

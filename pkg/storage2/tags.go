@@ -41,4 +41,3 @@ func ResolveTagVersion(ctx context.Context, basePath string, handler CommitHandl
 	// Return the latest version carrying this tag.
 	return versions[len(versions)-1], true, nil
 }
-

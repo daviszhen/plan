@@ -40,9 +40,9 @@ type VectorSearchIndexConfig struct {
 	NList  int `json:"nlist,omitempty"`  // Number of clusters for IVF
 	NProbe int `json:"nprobe,omitempty"` // Number of clusters to probe during search
 	// HNSW-specific parameters
-	M              int `json:"m,omitempty"`                // Max connections per element
-	EfConstruction int `json:"ef_construction,omitempty"`  // EF during construction
-	EfSearch       int `json:"ef_search,omitempty"`        // EF during search
+	M              int `json:"m,omitempty"`               // Max connections per element
+	EfConstruction int `json:"ef_construction,omitempty"` // EF during construction
+	EfSearch       int `json:"ef_search,omitempty"`       // EF during search
 }
 
 // VectorSearchIndex is the interface for vector indexes that support KNN search.
@@ -317,16 +317,16 @@ func (p *IndexPersistence) LoadIndex(ctx context.Context, name string, config Ve
 
 // IVFIndexData is the serializable form of an IVF index.
 type IVFIndexData struct {
-	Name          string              `json:"name"`
-	ColumnIdx     int                 `json:"column_idx"`
-	Dimension     int                 `json:"dimension"`
-	Metric        MetricType          `json:"metric"`
-	NList         int                 `json:"nlist"`
-	NProbe        int                 `json:"nprobe"`
-	Centroids     [][]float32         `json:"centroids"`
-	InvertedLists [][]uint64          `json:"inverted_lists"`
+	Name          string               `json:"name"`
+	ColumnIdx     int                  `json:"column_idx"`
+	Dimension     int                  `json:"dimension"`
+	Metric        MetricType           `json:"metric"`
+	NList         int                  `json:"nlist"`
+	NProbe        int                  `json:"nprobe"`
+	Centroids     [][]float32          `json:"centroids"`
+	InvertedLists [][]uint64           `json:"inverted_lists"`
 	Vectors       map[uint64][]float32 `json:"vectors"`
-	NumEntries    uint64              `json:"num_entries"`
+	NumEntries    uint64               `json:"num_entries"`
 }
 
 func (p *IndexPersistence) serializeIVFIndex(idx *IVFIndex) ([]byte, error) {
@@ -369,20 +369,20 @@ func (p *IndexPersistence) deserializeIVFIndex(data []byte, config VectorSearchI
 
 // HNSWIndexData is the serializable form of an HNSW index.
 type HNSWIndexData struct {
-	Name        string               `json:"name"`
-	ColumnIdx   int                  `json:"column_idx"`
-	Dimension   int                  `json:"dimension"`
-	Metric      MetricType           `json:"metric"`
-	M           int                  `json:"m"`
-	Mmax        int                  `json:"mmax"`
-	Mmax0       int                  `json:"mmax0"`
-	EfConstruct int                  `json:"ef_construction"`
-	EfSearch    int                  `json:"ef_search"`
-	Vectors     map[uint64][]float32 `json:"vectors"`
+	Name        string                `json:"name"`
+	ColumnIdx   int                   `json:"column_idx"`
+	Dimension   int                   `json:"dimension"`
+	Metric      MetricType            `json:"metric"`
+	M           int                   `json:"m"`
+	Mmax        int                   `json:"mmax"`
+	Mmax0       int                   `json:"mmax0"`
+	EfConstruct int                   `json:"ef_construction"`
+	EfSearch    int                   `json:"ef_search"`
+	Vectors     map[uint64][]float32  `json:"vectors"`
 	Layers      []map[uint64][]uint64 `json:"layers"`
-	EntryPoint  uint64               `json:"entry_point"`
-	MaxLevel    int                  `json:"max_level"`
-	NumEntries  uint64               `json:"num_entries"`
+	EntryPoint  uint64                `json:"entry_point"`
+	MaxLevel    int                   `json:"max_level"`
+	NumEntries  uint64                `json:"num_entries"`
 }
 
 func (p *IndexPersistence) serializeHNSWIndex(idx *HNSWIndex) ([]byte, error) {

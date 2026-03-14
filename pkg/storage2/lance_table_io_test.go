@@ -675,9 +675,9 @@ func TestChunkedParallelReader_LargeFile(t *testing.T) {
 
 // failingStore wraps a store and fails the first N operations.
 type failingStore struct {
-	inner      ObjectStore
-	failCount  int64
-	callCount  int64
+	inner     ObjectStore
+	failCount int64
+	callCount int64
 }
 
 func newFailingStore(inner ObjectStore, failCount int) *failingStore {

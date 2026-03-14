@@ -10,18 +10,18 @@ import (
 
 // IVFIndex is an Inverted File index for approximate nearest neighbor search
 type IVFIndex struct {
-	name        string
-	columnIdx   int
-	indexType   IndexType
-	metricType  MetricType
-	nlist       int       // number of clusters
-	nprobe      int       // number of clusters to search
-	centroids   [][]float32
-	invertedLists [][]uint64 // row IDs for each cluster
-	vectors     map[uint64][]float32 // store vectors for lookup
-	mu          sync.RWMutex
-	stats       IndexStats
-	dimension   int
+	name          string
+	columnIdx     int
+	indexType     IndexType
+	metricType    MetricType
+	nlist         int // number of clusters
+	nprobe        int // number of clusters to search
+	centroids     [][]float32
+	invertedLists [][]uint64           // row IDs for each cluster
+	vectors       map[uint64][]float32 // store vectors for lookup
+	mu            sync.RWMutex
+	stats         IndexStats
+	dimension     int
 }
 
 // NewIVFIndex creates a new IVF index
@@ -30,18 +30,18 @@ func NewIVFIndex(name string, columnIdx int, dimension int, metric MetricType) *
 	if nlist > dimension {
 		nlist = dimension
 	}
-	
+
 	return &IVFIndex{
-		name:       name,
-		columnIdx:  columnIdx,
-		indexType:  VectorIndex,
-		metricType: metric,
-		nlist:      nlist,
-		nprobe:     10, // default number of clusters to probe
-		centroids:  make([][]float32, nlist),
+		name:          name,
+		columnIdx:     columnIdx,
+		indexType:     VectorIndex,
+		metricType:    metric,
+		nlist:         nlist,
+		nprobe:        10, // default number of clusters to probe
+		centroids:     make([][]float32, nlist),
 		invertedLists: make([][]uint64, nlist),
-		vectors:    make(map[uint64][]float32),
-		dimension:  dimension,
+		vectors:       make(map[uint64][]float32),
+		dimension:     dimension,
 		stats: IndexStats{
 			NumEntries: 0,
 			SizeBytes:  0,
@@ -70,7 +70,7 @@ func (idx *IVFIndex) Search(ctx context.Context, query interface{}, limit int) (
 	if !ok {
 		return nil, nil
 	}
-	
+
 	_, rowIDs, err := idx.ANNSearch(ctx, queryVector, limit)
 	return rowIDs, err
 }
@@ -237,7 +237,7 @@ func (idx *IVFIndex) Train(vectors [][]float32) error {
 		// Update centroids
 		newCentroids := make([][]float32, idx.nlist)
 		counts := make([]int, idx.nlist)
-		
+
 		for i := range newCentroids {
 			newCentroids[i] = make([]float32, idx.dimension)
 		}
@@ -299,11 +299,11 @@ func cosineDistance(a, b []float32) float32 {
 	dot := dotProduct(a, b)
 	normA := float32(math.Sqrt(float64(dotProduct(a, a))))
 	normB := float32(math.Sqrt(float64(dotProduct(b, b))))
-	
+
 	if normA == 0 || normB == 0 {
 		return 1.0
 	}
-	
+
 	return 1.0 - dot/(normA*normB)
 }
 
