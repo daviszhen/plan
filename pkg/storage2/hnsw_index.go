@@ -276,6 +276,13 @@ func (idx *HNSWIndex) SetEfSearch(ef int) {
 	idx.efSearch = ef
 }
 
+// Train is a no-op for HNSW index (it doesn't require training like IVF).
+// This method exists to satisfy the VectorSearchIndex interface.
+func (idx *HNSWIndex) Train(vectors [][]float32) error {
+	// HNSW doesn't require training, just return nil
+	return nil
+}
+
 // randomLevel generates a random level for a new node
 func (idx *HNSWIndex) randomLevel() int {
 	level := 0

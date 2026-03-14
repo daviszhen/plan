@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"time"
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/storage2"
@@ -114,6 +115,51 @@ type Dataset interface {
 	TakeProjected(ctx context.Context, indices []uint64, columns []int) (*chunk.Chunk, error)
 	// Scanner creates a ScannerBuilder for streaming reads.
 	Scanner() *ScannerBuilder
+
+	// Detached Transaction methods
+
+	// CreateDetachedAppend creates a detached append transaction.
+	// Returns a transaction ID that can be used to commit later.
+	CreateDetachedAppend(ctx context.Context, fragments []*DataFragment, timeout *time.Duration) (string, error)
+	// CreateDetachedDelete creates a detached delete transaction.
+	CreateDetachedDelete(ctx context.Context, predicate string, timeout *time.Duration) (string, error)
+	// CreateDetachedOverwrite creates a detached overwrite transaction.
+	CreateDetachedOverwrite(ctx context.Context, fragments []*DataFragment, timeout *time.Duration) (string, error)
+	// CommitDetached commits a detached transaction by ID.
+	// Returns the resulting version number.
+	CommitDetached(ctx context.Context, txnID string) (uint64, error)
+	// GetDetachedStatus returns the status of a detached transaction.
+	GetDetachedStatus(ctx context.Context, txnID string) (*storage2.DetachedTransactionState, error)
+	// ListDetached lists detached transactions with the given status.
+	ListDetached(ctx context.Context, status storage2.DetachedTransactionStatus) ([]*storage2.DetachedTransactionState, error)
+	// CleanupExpiredDetached removes expired detached transactions.
+	CleanupExpiredDetached(ctx context.Context) (int, error)
+	// DeleteDetached deletes a detached transaction state file.
+	DeleteDetached(txnID string) error
+
+	// KNN Vector Search methods
+
+	// CreateVectorIndex creates a vector index for KNN search.
+	// config specifies the index type (IVF or HNSW), dimension, metric, etc.
+	CreateVectorIndex(ctx context.Context, config storage2.VectorSearchIndexConfig) error
+	// CreateVectorIndexSimple creates a vector index with default parameters.
+	// indexType should be "ivf" or "hnsw".
+	CreateVectorIndexSimple(ctx context.Context, name string, columnIdx int, dimension int, metric storage2.MetricType, indexType string) error
+	// DropVectorIndex drops a vector index.
+	DropVectorIndex(ctx context.Context, name string) error
+	// ListVectorIndexes lists all vector index names.
+	ListVectorIndexes() []string
+	// SearchNearest performs KNN search using the specified index.
+	// Returns up to k nearest neighbors with their distances.
+	SearchNearest(ctx context.Context, indexName string, queryVector []float32, k int) (*storage2.SearchResults, error)
+	// BuildVectorIndex builds a vector index from the given vectors.
+	BuildVectorIndex(ctx context.Context, indexName string, vectors map[uint64][]float32) error
+	// SaveVectorIndex persists a vector index to storage.
+	SaveVectorIndex(ctx context.Context, name string) error
+	// LoadVectorIndex loads a vector index from storage.
+	LoadVectorIndex(ctx context.Context, name string, config storage2.VectorSearchIndexConfig) error
+	// GetVectorIndex returns the vector index by name.
+	GetVectorIndex(name string) (storage2.VectorSearchIndex, bool)
 }
 
 type datasetImpl struct {
@@ -122,6 +168,8 @@ type datasetImpl struct {
 	currentManifest *storage2.Manifest
 	version         uint64
 	closed          bool
+	knnManager      *storage2.KNNIndexManager
+	indexPersist    *storage2.IndexPersistence
 }
 
 func (d *datasetImpl) Close() error {
@@ -859,6 +907,185 @@ func (d *datasetImpl) Take(ctx context.Context, indices []uint64) (*chunk.Chunk,
 
 func (d *datasetImpl) TakeProjected(ctx context.Context, indices []uint64, columns []int) (*chunk.Chunk, error) {
 	return storage2.TakeRowsProjected(ctx, d.basePath, d.handler, d.version, indices, columns)
+}
+
+// Detached Transaction methods
+
+func (d *datasetImpl) CreateDetachedAppend(ctx context.Context, fragments []*DataFragment, timeout *time.Duration) (string, error) {
+	if d.closed {
+		return "", fmt.Errorf("dataset is closed")
+	}
+	readVersion := d.version
+	uuid := generateUUID()
+	txn := storage2.NewTransactionAppend(readVersion, uuid, fragments)
+
+	opts := &storage2.DetachedTransactionOptions{}
+	if timeout != nil {
+		opts.Timeout = *timeout
+	}
+
+	return storage2.CreateDetachedTransaction(ctx, d.basePath, d.handler, txn, opts)
+}
+
+func (d *datasetImpl) CreateDetachedDelete(ctx context.Context, predicate string, timeout *time.Duration) (string, error) {
+	if d.closed {
+		return "", fmt.Errorf("dataset is closed")
+	}
+	readVersion := d.version
+	uuid := generateUUID()
+	var deletedIds []uint64
+	for _, frag := range d.currentManifest.Fragments {
+		deletedIds = append(deletedIds, frag.Id)
+	}
+	txn := storage2.NewTransactionDelete(readVersion, uuid, nil, deletedIds, predicate)
+
+	opts := &storage2.DetachedTransactionOptions{}
+	if timeout != nil {
+		opts.Timeout = *timeout
+	}
+
+	return storage2.CreateDetachedTransaction(ctx, d.basePath, d.handler, txn, opts)
+}
+
+func (d *datasetImpl) CreateDetachedOverwrite(ctx context.Context, fragments []*DataFragment, timeout *time.Duration) (string, error) {
+	if d.closed {
+		return "", fmt.Errorf("dataset is closed")
+	}
+	readVersion := d.version
+	uuid := generateUUID()
+	txn := storage2.NewTransactionOverwrite(readVersion, uuid, fragments, nil, nil)
+
+	opts := &storage2.DetachedTransactionOptions{}
+	if timeout != nil {
+		opts.Timeout = *timeout
+	}
+
+	return storage2.CreateDetachedTransaction(ctx, d.basePath, d.handler, txn, opts)
+}
+
+func (d *datasetImpl) CommitDetached(ctx context.Context, txnID string) (uint64, error) {
+	if d.closed {
+		return 0, fmt.Errorf("dataset is closed")
+	}
+	version, err := storage2.CommitDetachedTransaction(ctx, d.basePath, d.handler, txnID)
+	if err != nil {
+		return version, err
+	}
+
+	// Refresh dataset state
+	if err := d.refreshState(ctx); err != nil {
+		return version, err
+	}
+
+	return version, nil
+}
+
+func (d *datasetImpl) GetDetachedStatus(ctx context.Context, txnID string) (*storage2.DetachedTransactionState, error) {
+	return storage2.GetDetachedTransactionStatus(ctx, d.basePath, txnID)
+}
+
+func (d *datasetImpl) ListDetached(ctx context.Context, status storage2.DetachedTransactionStatus) ([]*storage2.DetachedTransactionState, error) {
+	return storage2.ListDetachedTransactions(ctx, d.basePath, status)
+}
+
+func (d *datasetImpl) CleanupExpiredDetached(ctx context.Context) (int, error) {
+	return storage2.CleanupExpiredDetachedTransactions(ctx, d.basePath)
+}
+
+func (d *datasetImpl) DeleteDetached(txnID string) error {
+	return storage2.DeleteDetachedTransaction(d.basePath, txnID)
+}
+
+// KNN Vector Search methods
+
+func (d *datasetImpl) initKNNManager() {
+	if d.knnManager == nil {
+		d.knnManager = storage2.NewKNNIndexManager(d.basePath, d.handler)
+		d.indexPersist = storage2.NewIndexPersistence(d.basePath, d.handler)
+	}
+}
+
+func (d *datasetImpl) CreateVectorIndex(ctx context.Context, config storage2.VectorSearchIndexConfig) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	d.initKNNManager()
+	_, err := d.knnManager.CreateIndex(ctx, config)
+	return err
+}
+
+func (d *datasetImpl) CreateVectorIndexSimple(ctx context.Context, name string, columnIdx int, dimension int, metric storage2.MetricType, indexType string) error {
+	config := storage2.VectorSearchIndexConfig{
+		Name:      name,
+		ColumnIdx: columnIdx,
+		Dimension: dimension,
+		Metric:    metric,
+		IndexType: indexType,
+	}
+	return d.CreateVectorIndex(ctx, config)
+}
+
+func (d *datasetImpl) DropVectorIndex(ctx context.Context, name string) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	d.initKNNManager()
+	return d.knnManager.DropIndex(name)
+}
+
+func (d *datasetImpl) ListVectorIndexes() []string {
+	if d.knnManager == nil {
+		return nil
+	}
+	return d.knnManager.ListIndexes()
+}
+
+func (d *datasetImpl) SearchNearest(ctx context.Context, indexName string, queryVector []float32, k int) (*storage2.SearchResults, error) {
+	if d.closed {
+		return nil, fmt.Errorf("dataset is closed")
+	}
+	d.initKNNManager()
+	return d.knnManager.Search(ctx, indexName, queryVector, k)
+}
+
+func (d *datasetImpl) BuildVectorIndex(ctx context.Context, indexName string, vectors map[uint64][]float32) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	d.initKNNManager()
+	return d.knnManager.BuildIndex(ctx, indexName, vectors)
+}
+
+func (d *datasetImpl) SaveVectorIndex(ctx context.Context, name string) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	d.initKNNManager()
+	idx, ok := d.knnManager.GetIndex(name)
+	if !ok {
+		return fmt.Errorf("index %q not found", name)
+	}
+	return d.indexPersist.SaveIndex(ctx, name, idx)
+}
+
+func (d *datasetImpl) LoadVectorIndex(ctx context.Context, name string, config storage2.VectorSearchIndexConfig) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	d.initKNNManager()
+	idx, err := d.indexPersist.LoadIndex(ctx, name, config)
+	if err != nil {
+		return err
+	}
+	// Add loaded index to manager
+	return d.knnManager.AddIndex(name, idx)
+}
+
+func (d *datasetImpl) GetVectorIndex(name string) (storage2.VectorSearchIndex, bool) {
+	if d.knnManager == nil {
+		return nil, false
+	}
+	return d.knnManager.GetIndex(name)
 }
 
 // datasetBuilder is used by OpenDataset and CreateDataset.
