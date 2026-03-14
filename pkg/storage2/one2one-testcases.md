@@ -53,8 +53,8 @@ Storage2 对应关系（更偏元数据 + Chunk 数据文件）：
 | `rust/lance/src/io/commit/*.rs`（含 s3/dynamodb/external manifest） | 提交协议、对象存储一致性、外部 manifest | **部分对应**：`commit.go`/`commit_txn.go`/冲突矩阵；对象存储/S3/ **可以实现**；DDB**暂不实现** |
 | `rust/lance/src/index/*`、`rust/lance-index/src/*` | 标量/向量/倒排索引、统计、优化 | ✅ **已完成**：`index.go` B-tree/IVF/HNSW 索引实现 |
 | `rust/lance/src/io/exec/*`（scan/filtered_read/rowids/knn/fts 等） | 执行层 pushdown、rowid、全文等 | ✅ **已完成**：pushdown.go 过滤/投影；knn **暂不实现** |
-| `rust/lance-table/src/*` | 表格式/manifest/rowids | **部分对应**：Manifest/Transaction proto 结构对齐；其余 **可以实现** |
-| `rust/lance-io/src/*` | object_store/scheduler/encodings | **部分对应**：`LocalObjectStore` 的最小读写/list/mkdir；调度与编码 **可以实现** |
+| `rust/lance-table/src/*` | 表格式/manifest/rowids | ✅ **已完成**：Manifest/Transaction proto 对齐；`table_format.go` Table/TableConfig/MigrationManager；`lance_table_io.go` V2 manifest 命名（倒排版本号）+ ValidateManifest/ValidateTableFiles |
+| `rust/lance-io/src/*` | object_store/scheduler/encodings | ✅ **已完成**：`LocalObjectStore` + `ObjectStoreExt` 读写/list/mkdir；`lance_table_io.go` ConcurrentIOScheduler/Semaphore（并发控制）、ParallelMultiFileReader（多文件并行读取）、ChunkedParallelReader（分块并行读取）、RetryableObjectStore/RetryableObjectStoreExt（重试包装器）；`gs_store.go` + `az_store.go` GCS/Azure Blob Storage 支持（含 emulator） |
 | `rust/lance-encoding/src/*` | 编解码、统计、压缩 | **暂不实现** |
 | `rust/lance-datafusion/src/*` | SQL / DataFusion 互操作 | **暂不实现** |
 
@@ -158,6 +158,9 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | `sdk/scanner.go` / `sdk/scanner_test.go` | SDK 层 `Scanner` / `ScannerBuilder` / `Record` 最小实现（顺序扫描所有行，支持 offset/limit，暂不支持 filter/列投影）；`TestScannerBasic` 覆盖基本读取路径 | 对应 Java `Dataset.Scanner` / Rust dataset scanner 的高层 API 形态（功能为子集） |
 | `all_test.go` | 从 Manifest 0 开始，写入 Chunk、创建 DataFile/Fragment、Append 事务并读回 Chunk 校验数据 | `testWriteStreamAndOpenPath` + `testCountRows` 的简单端到端版本 |
 | `sdk/dataset_test.go` | `CreateDataset` / `OpenDataset` / Append / Delete / Overwrite / Version / CountRows；TestOpenInvalidPath / TestOpenNonExist / TestOpenExistingManifestDataset / TestCreateOnExistingDir / TestCheckoutVersion / TestDelete | `DatasetTest` 中创建/打开/版本/行数/删除等核心场景 |
+| `lance_table_io.go` / `lance_table_io_test.go` | V2 manifest 倒排命名（ManifestPathV2/ParseVersionV2/V2CommitHandler）、Table 完整性校验（ValidateManifest/ValidateTableFiles）、IO 并发调度（Semaphore/ConcurrentIOScheduler）、并行多文件读取（ParallelMultiFileReader）、分块并行读取（ChunkedParallelReader）、重试包装器（RetryableObjectStore/RetryableObjectStoreExt） | Rust `lance-table/src/format.rs` V2 命名 + `lance-io/src/object_store.rs` 调度与重试 |
+| `gs_store.go` / `cloud_store_test.go` | GSObjectStore（ObjectStore + ObjectStoreExt）、GSCommitHandler/GSCommitHandlerWithLock、emulator client | Google Cloud Storage 支持 |
+| `az_store.go` / `cloud_store_test.go` | AZObjectStore（ObjectStore + ObjectStoreExt）、AZCommitHandler/AZCommitHandlerWithLock、emulator client | Azure Blob Storage 支持 |
 
 ---
 
@@ -188,12 +191,13 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | Detached Transaction 测试（Phase 6.1） | ✅ 完成 | Phase 6.1 |
 | 带谓词计数测试（Phase 6.2） | ✅ 完成 | Phase 6.2 |
 | 稳定 RowId 完善（Phase 6.3） | ✅ 完成 | Phase 6.3 |
+| S3 提交协议增强（Phase 6.4） | ✅ 完成 | Phase 6.4 |
+| lance-table/lance-io 对齐（Phase 6.5） | ✅ 完成 | Phase 6.5 |
+| GSObjectStore/AZObjectStore（Phase 6.6） | ✅ 完成 | Phase 6.6 |
 
 ### 待实现功能
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| GSObjectStore（OBJ5） | P2 | Google Cloud Storage 支持 |
-| AZObjectStore（OBJ6） | P2 | Azure Blob Storage 支持 |
-| S3 提交协议增强 | P2 | Phase 6.4 |
+| 无 | - | Phase 6 全部完成 |
 

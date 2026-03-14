@@ -89,12 +89,37 @@ func (f *StoreFactory) GetStore(ctx context.Context, uri string) (ObjectStoreExt
 		store = &s3ObjectStoreExt{s3Store}
 
 	case "gs":
-		// TODO: Implement GCS store
-		return nil, fmt.Errorf("GCS storage not yet implemented")
+		var creds *GSCredentials
+		if f.options.GSCredentialsProvider != nil {
+			creds = f.options.GSCredentialsProvider()
+		}
+
+		gsStore, err := NewGSObjectStore(ctx, GSObjectStoreOptions{
+			Bucket:      parsed.Bucket,
+			Prefix:      parsed.Path,
+			ProjectID:   parsed.Query.Get("project"),
+			Credentials: creds,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GCS store: %w", err)
+		}
+		store = &gsObjectStoreExt{gsStore}
 
 	case "az":
-		// TODO: Implement Azure store
-		return nil, fmt.Errorf("Azure storage not yet implemented")
+		var creds *AZCredentials
+		if f.options.AZCredentialsProvider != nil {
+			creds = f.options.AZCredentialsProvider()
+		}
+
+		azStore, err := NewAZObjectStore(ctx, AZObjectStoreOptions{
+			Container:   parsed.Bucket,
+			Prefix:      parsed.Path,
+			Credentials: creds,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Azure store: %w", err)
+		}
+		store = &azObjectStoreExt{azStore}
 
 	case "mem":
 		// In-memory store for testing
@@ -133,6 +158,22 @@ func (f *StoreFactory) GetCommitHandler(ctx context.Context, uri string) (Commit
 		s3Store := store.(*s3ObjectStoreExt).S3ObjectStore
 		return NewS3CommitHandlerWithLock(s3Store), nil
 
+	case "gs":
+		store, err := f.GetStore(ctx, uri)
+		if err != nil {
+			return nil, err
+		}
+		gsStore := store.(*gsObjectStoreExt).GSObjectStore
+		return NewGSCommitHandlerWithLock(gsStore), nil
+
+	case "az":
+		store, err := f.GetStore(ctx, uri)
+		if err != nil {
+			return nil, err
+		}
+		azStore := store.(*azObjectStoreExt).AZObjectStore
+		return NewAZCommitHandlerWithLock(azStore), nil
+
 	case "mem":
 		return NewMemoryCommitHandler(), nil
 
@@ -144,6 +185,16 @@ func (f *StoreFactory) GetCommitHandler(ctx context.Context, uri string) (Commit
 // s3ObjectStoreExt wraps S3ObjectStore to implement ObjectStoreExt
 type s3ObjectStoreExt struct {
 	*S3ObjectStore
+}
+
+// gsObjectStoreExt wraps GSObjectStore to implement ObjectStoreExt
+type gsObjectStoreExt struct {
+	*GSObjectStore
+}
+
+// azObjectStoreExt wraps AZObjectStore to implement ObjectStoreExt
+type azObjectStoreExt struct {
+	*AZObjectStore
 }
 
 // MemoryObjectStore is an in-memory implementation for testing

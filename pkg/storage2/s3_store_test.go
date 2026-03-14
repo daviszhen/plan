@@ -262,15 +262,13 @@ func TestStoreFactory_Unsupported(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported")
 
-	// Test GCS (not yet implemented)
+	// Test GCS (now implemented)
 	_, err = factory.GetStore(ctx, "gs://bucket/path")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.NoError(t, err)
 
-	// Test Azure (not yet implemented)
+	// Test Azure (now implemented)
 	_, err = factory.GetStore(ctx, "az://container/path")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.NoError(t, err)
 }
 
 func TestMemoryCommitHandler(t *testing.T) {
