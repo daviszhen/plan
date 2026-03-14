@@ -811,3 +811,650 @@ func TestDatasetCompactWithAllOptions(t *testing.T) {
 		t.Errorf("Final row count want %d got %d", expectedRows, finalCount)
 	}
 }
+
+// ============================================================
+// Phase 4: Schema Evolution Tests
+// ============================================================
+
+func createDatasetWithSchema(t *testing.T, basePath string, fields []*storage2pb.Field) Dataset {
+	t.Helper()
+	ctx := context.Background()
+	handler := NewLocalRenameCommitHandler()
+
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+
+	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ds
+}
+
+func TestDropColumns(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64", Nullable: false},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string", Nullable: true},
+		{Name: "age", Type: storage2pb.Field_LEAF, Id: 2, ParentId: -1, LogicalType: "int32", Nullable: true},
+		{Name: "email", Type: storage2pb.Field_LEAF, Id: 3, ParentId: -1, LogicalType: "string", Nullable: true},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Verify initial schema
+	if len(ds.Schema()) != 4 {
+		t.Fatalf("initial schema should have 4 fields, got %d", len(ds.Schema()))
+	}
+
+	// Drop a single column
+	if err := ds.DropColumns(ctx, []string{"age"}); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := ds.Schema()
+	if len(schema) != 3 {
+		t.Fatalf("after drop 'age': want 3 fields, got %d", len(schema))
+	}
+	for _, f := range schema {
+		if f.Name == "age" {
+			t.Error("'age' field should have been dropped")
+		}
+	}
+
+	// Drop multiple columns
+	if err := ds.DropColumns(ctx, []string{"name", "email"}); err != nil {
+		t.Fatal(err)
+	}
+
+	schema = ds.Schema()
+	if len(schema) != 1 {
+		t.Fatalf("after drop 'name','email': want 1 field, got %d", len(schema))
+	}
+	if schema[0].Name != "id" {
+		t.Errorf("remaining field should be 'id', got '%s'", schema[0].Name)
+	}
+}
+
+func TestDropColumnsErrors(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Drop non-existent column
+	err := ds.DropColumns(ctx, []string{"nonexistent"})
+	if err == nil {
+		t.Fatal("expected error dropping non-existent column")
+	}
+
+	// Drop all columns
+	err = ds.DropColumns(ctx, []string{"id", "name"})
+	if err == nil {
+		t.Fatal("expected error dropping all columns")
+	}
+
+	// Empty column list
+	err = ds.DropColumns(ctx, []string{})
+	if err == nil {
+		t.Fatal("expected error with empty column list")
+	}
+
+	// Drop on closed dataset
+	ds.Close()
+	err = ds.DropColumns(ctx, []string{"id"})
+	if err == nil {
+		t.Fatal("expected error on closed dataset")
+	}
+}
+
+func TestDropColumnsWithNestedFields(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "address", Type: storage2pb.Field_PARENT, Id: 1, ParentId: -1, LogicalType: "struct"},
+		{Name: "street", Type: storage2pb.Field_LEAF, Id: 2, ParentId: 1, LogicalType: "string"},
+		{Name: "city", Type: storage2pb.Field_LEAF, Id: 3, ParentId: 1, LogicalType: "string"},
+		{Name: "zip", Type: storage2pb.Field_LEAF, Id: 4, ParentId: 1, LogicalType: "string"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Drop parent field should also drop all children
+	if err := ds.DropColumns(ctx, []string{"address"}); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := ds.Schema()
+	if len(schema) != 1 {
+		t.Fatalf("after drop 'address': want 1 field, got %d", len(schema))
+	}
+	if schema[0].Name != "id" {
+		t.Errorf("remaining field should be 'id', got '%s'", schema[0].Name)
+	}
+}
+
+func TestAlterColumns(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64", Nullable: false},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string", Nullable: true},
+		{Name: "age", Type: storage2pb.Field_LEAF, Id: 2, ParentId: -1, LogicalType: "int32", Nullable: false},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Rename a column
+	if err := ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "name", NewName: "full_name"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	f := ds.FieldByName("full_name")
+	if f == nil {
+		t.Fatal("renamed field 'full_name' not found")
+	}
+	if f.LogicalType != "string" {
+		t.Errorf("renamed field type want 'string' got '%s'", f.LogicalType)
+	}
+
+	// Verify old name is gone
+	if ds.FieldByName("name") != nil {
+		t.Error("old field name 'name' should not exist after rename")
+	}
+
+	// Change nullable
+	if err := ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "age", NewNullable: boolPtr(true)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ageField := ds.FieldByName("age")
+	if ageField == nil {
+		t.Fatal("field 'age' not found")
+	}
+	if !ageField.Nullable {
+		t.Error("age field should be nullable after alter")
+	}
+
+	// Change data type
+	if err := ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "age", NewDataType: "int64"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ageField = ds.FieldByName("age")
+	if ageField.LogicalType != "int64" {
+		t.Errorf("age field type want 'int64' got '%s'", ageField.LogicalType)
+	}
+
+	// Multiple alterations at once
+	if err := ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "id", NewNullable: boolPtr(true)},
+		{Path: "full_name", NewName: "user_name", NewNullable: boolPtr(false)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	idField := ds.FieldByName("id")
+	if !idField.Nullable {
+		t.Error("id should be nullable after alter")
+	}
+	userField := ds.FieldByName("user_name")
+	if userField == nil {
+		t.Fatal("'user_name' not found")
+	}
+	if userField.Nullable {
+		t.Error("user_name should not be nullable after alter")
+	}
+}
+
+func TestAlterColumnsErrors(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Alter non-existent column
+	err := ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "nonexistent", NewName: "x"},
+	})
+	if err == nil {
+		t.Fatal("expected error altering non-existent column")
+	}
+
+	// Empty alteration list
+	err = ds.AlterColumns(ctx, []ColumnAlteration{})
+	if err == nil {
+		t.Fatal("expected error with empty alteration list")
+	}
+
+	// Alter on closed dataset
+	ds.Close()
+	err = ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "id", NewName: "pk"},
+	})
+	if err == nil {
+		t.Fatal("expected error on closed dataset")
+	}
+}
+
+func TestAddColumns(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64", Nullable: false},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string", Nullable: true},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Add a single column
+	if err := ds.AddColumns(ctx, []ColumnAddition{
+		{
+			Field: &storage2pb.Field{
+				Name:        "age",
+				Type:        storage2pb.Field_LEAF,
+				ParentId:    -1,
+				LogicalType: "int32",
+				Nullable:    true,
+			},
+			DefaultValue: "0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := ds.Schema()
+	if len(schema) != 3 {
+		t.Fatalf("after add: want 3 fields, got %d", len(schema))
+	}
+
+	ageField := ds.FieldByName("age")
+	if ageField == nil {
+		t.Fatal("added field 'age' not found")
+	}
+	if ageField.LogicalType != "int32" {
+		t.Errorf("age type want 'int32' got '%s'", ageField.LogicalType)
+	}
+	if !ageField.Nullable {
+		t.Error("age should be nullable")
+	}
+
+	// Add multiple columns at once
+	if err := ds.AddColumns(ctx, []ColumnAddition{
+		{
+			Field: &storage2pb.Field{
+				Name:        "email",
+				Type:        storage2pb.Field_LEAF,
+				ParentId:    -1,
+				LogicalType: "string",
+				Nullable:    true,
+			},
+			DefaultValue: "NULL",
+		},
+		{
+			Field: &storage2pb.Field{
+				Name:        "score",
+				Type:        storage2pb.Field_LEAF,
+				ParentId:    -1,
+				LogicalType: "double",
+				Nullable:    true,
+			},
+			DefaultValue: "0.0",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	schema = ds.Schema()
+	if len(schema) != 5 {
+		t.Fatalf("after adding 2 more: want 5 fields, got %d", len(schema))
+	}
+
+	if ds.FieldByName("email") == nil {
+		t.Error("added field 'email' not found")
+	}
+	if ds.FieldByName("score") == nil {
+		t.Error("added field 'score' not found")
+	}
+}
+
+func TestAddColumnsErrors(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Add duplicate column
+	err := ds.AddColumns(ctx, []ColumnAddition{
+		{
+			Field: &storage2pb.Field{
+				Name:        "id",
+				Type:        storage2pb.Field_LEAF,
+				LogicalType: "int64",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error adding duplicate column")
+	}
+
+	// Empty addition list
+	err = ds.AddColumns(ctx, []ColumnAddition{})
+	if err == nil {
+		t.Fatal("expected error with empty addition list")
+	}
+
+	// Add on closed dataset
+	ds.Close()
+	err = ds.AddColumns(ctx, []ColumnAddition{
+		{
+			Field: &storage2pb.Field{
+				Name:        "new_col",
+				Type:        storage2pb.Field_LEAF,
+				LogicalType: "string",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error on closed dataset")
+	}
+}
+
+func TestAddColumnsWithSQLExpressions(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "price", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "double"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Add columns with SQL expression defaults
+	if err := ds.AddColumns(ctx, []ColumnAddition{
+		{
+			Field: &storage2pb.Field{
+				Name:        "tax",
+				Type:        storage2pb.Field_LEAF,
+				ParentId:    -1,
+				LogicalType: "double",
+				Nullable:    true,
+			},
+			DefaultValue: "price * 0.1",
+		},
+		{
+			Field: &storage2pb.Field{
+				Name:        "total",
+				Type:        storage2pb.Field_LEAF,
+				ParentId:    -1,
+				LogicalType: "double",
+				Nullable:    true,
+			},
+			DefaultValue: "price * 1.1",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := ds.Schema()
+	if len(schema) != 4 {
+		t.Fatalf("want 4 fields, got %d", len(schema))
+	}
+
+	taxField := ds.FieldByName("tax")
+	if taxField == nil {
+		t.Fatal("'tax' field not found")
+	}
+	totalField := ds.FieldByName("total")
+	if totalField == nil {
+		t.Fatal("'total' field not found")
+	}
+}
+
+func TestDropPath(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "address", Type: storage2pb.Field_PARENT, Id: 1, ParentId: -1, LogicalType: "struct"},
+		{Name: "street", Type: storage2pb.Field_LEAF, Id: 2, ParentId: 1, LogicalType: "string"},
+		{Name: "city", Type: storage2pb.Field_LEAF, Id: 3, ParentId: 1, LogicalType: "string"},
+		{Name: "zip", Type: storage2pb.Field_LEAF, Id: 4, ParentId: 1, LogicalType: "string"},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 5, ParentId: -1, LogicalType: "string"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Drop a nested path: "address.city"
+	if err := ds.DropPath(ctx, "address.city"); err != nil {
+		t.Fatal(err)
+	}
+
+	// "city" should be gone, but "street" and "zip" remain
+	schema := ds.Schema()
+	if len(schema) != 5 { // id, address, street, zip, name
+		t.Fatalf("after drop 'address.city': want 5 fields, got %d", len(schema))
+	}
+
+	for _, f := range schema {
+		if f.Name == "city" {
+			t.Error("'city' field should have been dropped")
+		}
+	}
+
+	// Drop entire nested path: "address"
+	if err := ds.DropPath(ctx, "address"); err != nil {
+		t.Fatal(err)
+	}
+
+	schema = ds.Schema()
+	if len(schema) != 2 { // id, name
+		t.Fatalf("after drop 'address': want 2 fields, got %d", len(schema))
+	}
+
+	for _, f := range schema {
+		if f.Name == "address" || f.Name == "street" || f.Name == "zip" {
+			t.Errorf("field '%s' should have been dropped", f.Name)
+		}
+	}
+}
+
+func TestDropPathErrors(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Non-existent path
+	err := ds.DropPath(ctx, "nonexistent.path")
+	if err == nil {
+		t.Fatal("expected error for non-existent path")
+	}
+
+	// Empty path
+	err = ds.DropPath(ctx, "")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+
+	// Drop only field
+	err = ds.DropPath(ctx, "id")
+	if err == nil {
+		t.Fatal("expected error dropping all fields")
+	}
+
+	// Drop on closed dataset
+	ds.Close()
+	err = ds.DropPath(ctx, "id")
+	if err == nil {
+		t.Fatal("expected error on closed dataset")
+	}
+}
+
+func TestShallowClone(t *testing.T) {
+	ctx := context.Background()
+	srcPath := t.TempDir()
+
+	// Create source dataset with schema and data
+	handler := NewLocalRenameCommitHandler()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "value", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string"},
+	}
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+
+	if err := handler.Commit(ctx, srcPath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	srcDS, err := OpenDataset(ctx, srcPath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srcDS.Close()
+
+	// Add data to source
+	dataPath := filepath.Join(srcPath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, emptyChunk(t)); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := srcDS.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Shallow clone to target
+	targetPath := t.TempDir()
+	clonedDS, err := srcDS.ShallowClone(ctx, targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clonedDS.Close()
+
+	// Verify clone version
+	if clonedDS.Version() < 1 {
+		t.Errorf("cloned dataset should have version >= 1, got %d", clonedDS.Version())
+	}
+
+	// Verify schema is preserved
+	clonedSchema := clonedDS.Schema()
+	if len(clonedSchema) != 2 {
+		t.Fatalf("cloned schema should have 2 fields, got %d", len(clonedSchema))
+	}
+}
+
+func TestShallowCloneErrors(t *testing.T) {
+	ctx := context.Background()
+	srcPath := t.TempDir()
+
+	ds := createDatasetWithSchema(t, srcPath, []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+	})
+
+	// Clone on closed dataset
+	ds.Close()
+	_, err := ds.ShallowClone(ctx, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error on closed dataset")
+	}
+}
+
+func TestSchemaEvolutionCombined(t *testing.T) {
+	// Test combining add, alter, and drop columns
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64", Nullable: false},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string", Nullable: true},
+	}
+
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Step 1: Add a new column
+	if err := ds.AddColumns(ctx, []ColumnAddition{
+		{
+			Field: &storage2pb.Field{
+				Name: "age", Type: storage2pb.Field_LEAF,
+				ParentId: -1, LogicalType: "int32", Nullable: true,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ds.Schema()) != 3 {
+		t.Fatalf("after add: want 3 fields, got %d", len(ds.Schema()))
+	}
+
+	// Step 2: Rename 'name' -> 'full_name'
+	if err := ds.AlterColumns(ctx, []ColumnAlteration{
+		{Path: "name", NewName: "full_name"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ds.FieldByName("full_name") == nil {
+		t.Fatal("'full_name' not found after rename")
+	}
+
+	// Step 3: Drop 'age'
+	if err := ds.DropColumns(ctx, []string{"age"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ds.Schema()) != 2 {
+		t.Fatalf("after drop: want 2 fields, got %d", len(ds.Schema()))
+	}
+	if ds.FieldByName("age") != nil {
+		t.Error("'age' should be gone after drop")
+	}
+
+	// Final schema: id, full_name
+	schema := ds.Schema()
+	names := map[string]bool{}
+	for _, f := range schema {
+		names[f.Name] = true
+	}
+	if !names["id"] || !names["full_name"] {
+		t.Errorf("final schema should have 'id' and 'full_name', got %v", names)
+	}
+}

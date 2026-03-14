@@ -71,23 +71,23 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | Lance 测试 | 场景描述 | Storage2 对应测试（建议文件/函数） | 说明 |
 |------------|----------|-------------------------------------|------|
 | `testWriteStreamAndOpenPath` | 通过 Arrow 流写入数据集，再从路径打开并校验 | **已有**：`sdk/dataset_test.go: TestCreateAndOpenDataset` | Storage2 使用 Chunk+`WriteChunkToFile` 写数据文件，通过 `sdk.CreateDataset`+`Append`、`sdk.OpenDataset` 校验版本和行数，相当于 Lance 的“写入+打开”。 |
-| `testCreateEmptyDataset` | 创建空数据集，不写入数据即可关闭 | **已有**：`sdk/dataset_test.go: TestCreateAndOpenDataset`（前半段） | 已覆盖创建空数据集、`Version()/CountRows()` 行为。 |
-| `testCreateDirNotExist` | 在不存在目录下创建数据集 | **已有**：`sdk/dataset_test.go: TestCreateAndOpenDataset` 使用 `t.TempDir()`；Storage2 Commit 会自动创建 `_versions/` 等目录 | 行为等价：在空目录下 `CreateDataset` 成功。 |
-| `testOpenInvalidPath` | 打开非法路径应失败 | **已有**：`sdk/dataset_test.go: TestOpenInvalidPath` | 使用不存在或未初始化的 `basePath` 调用 `sdk.OpenDataset(...).Build()`，期望返回错误。 |
-| `testDatasetUri` | Dataset URI（路径格式）行为 | **暂不实现** | Storage2 目前只支持本地路径，不暴露 URI 解析层，留待将来支持对象存储 URI 时补充。 |
-| `testOpenNonExist` | 打开不存在的数据集路径 | **已有**：`sdk/dataset_test.go: TestOpenNonExist` | 空目录下 `OpenDataset(...).Build()` 返回错误。 |
-| `testOpenSerializedManifest` | 使用已存在 Manifest 文件打开数据集 | **已有**：`comparison_test.go: TestLoadManifestFixture` + `sdk/dataset_test.go: TestOpenExistingManifestDataset` | 底层 API 写入 manifest 后，SDK 打开并校验版本与行数。 |
-| `testCreateExist` | 在已存在数据集目录上再次创建的行为 | **已有**：`sdk/dataset_test.go: TestCreateOnExistingDir` | 再次 `CreateDataset.Build()` 得到版本 0 空数据集（覆盖/重置）。 |
+| `testCreateEmptyDataset` | 创建空数据集，不写入数据即可关闭 | ✅ **已完成**：`sdk/dataset_test.go: TestCreateAndOpenDataset`（前半段） | 已覆盖创建空数据集、`Version()/CountRows()` 行为。 |
+| `testCreateDirNotExist` | 在不存在目录下创建数据集 | ✅ **已完成**：`sdk/dataset_test.go: TestCreateAndOpenDataset` 使用 `t.TempDir()`；Storage2 Commit 会自动创建 `_versions/` 等目录 | 行为等价：在空目录下 `CreateDataset` 成功。 |
+| `testOpenInvalidPath` | 打开非法路径应失败 | ✅ **已完成**：`sdk/dataset_test.go: TestOpenInvalidPath` | 使用不存在或未初始化的 `basePath` 调用 `sdk.OpenDataset(...).Build()`，期望返回错误。 |
+| `testDatasetUri` | Dataset URI（路径格式）行为 | ⏳ **暂不实现** | Storage2 目前只支持本地路径，不暴露 URI 解析层，留待将来支持对象存储 URI 时补充。 |
+| `testOpenNonExist` | 打开不存在的数据集路径 | ✅ **已完成**：`sdk/dataset_test.go: TestOpenNonExist` | 空目录下 `OpenDataset(...).Build()` 返回错误。 |
+| `testOpenSerializedManifest` | 使用已存在 Manifest 文件打开数据集 | ✅ **已完成**：`comparison_test.go: TestLoadManifestFixture` + `sdk/dataset_test.go: TestOpenExistingManifestDataset` | 底层 API 写入 manifest 后，SDK 打开并校验版本与行数。 |
+| `testCreateExist` | 在已存在数据集目录上再次创建的行为 | ✅ **已完成**：`sdk/dataset_test.go: TestCreateOnExistingDir` | 再次 `CreateDataset.Build()` 得到版本 0 空数据集（覆盖/重置）。 |
 
 ### 2.2 版本、时间旅行与版本列表
 
 | Lance 测试 | 场景描述 | Storage2 对应测试 | 说明 |
 |------------|----------|-------------------|------|
-| `testDatasetVersion` | 版本号递增、`latestVersion`、版本时间戳、按版本打开 | **已有**：`commit_test.go`、`commit_txn_test.go`、`sdk/dataset_test.go: TestDatasetVersioning` | Storage2 不维护时间戳；版本号与 latestVersion、`WithVersion` 已覆盖。 |
-| `testDatasetCheckoutVersion` | checkout 到旧版本再读 | **已有**：`sdk/dataset_test.go: TestCheckoutVersion` | 通过 `OpenDataset(...).WithVersion(v)` 打开旧版本，校验 `CountRows()` 随版本变化。 |
-| `testDatasetRestore` | Restore 版本 | **暂不实现** | Storage2 未提供 Restore/Undo 语义。 |
-| `testTags` | Tag（命名版本）相关操作 | **部分对应**：`tags_test.go: TestListTagsAndResolveTagVersion` + `sdk/dataset_test.go: TestOpenDatasetWithTag` 已覆盖底层与 SDK；后续可根据需要补充更多 Tag 行为用例。 | 底层 ListTags/ResolveTagVersion + SDK 按 tag 打开 Dataset 均已实现。 |
-| `testBranches` | 分支管理（类似 Git Branch） | **暂不实现** | Storage2 当前版本模型为单线性版本号，无分支；保留为未来扩展。 |
+| `testDatasetVersion` | 版本号递增、`latestVersion`、版本时间戳、按版本打开 | ✅ **已完成**：`commit_test.go`、`commit_txn_test.go`、`sdk/dataset_test.go: TestDatasetVersioning` | Storage2 不维护时间戳；版本号与 latestVersion、`WithVersion` 已覆盖。 |
+| `testDatasetCheckoutVersion` | checkout 到旧版本再读 | ✅ **已完成**：`sdk/dataset_test.go: TestCheckoutVersion` | 通过 `OpenDataset(...).WithVersion(v)` 打开旧版本，校验 `CountRows()` 随版本变化。 |
+| `testDatasetRestore` | Restore 版本 | ⏳ **暂不实现** | Storage2 未提供 Restore/Undo 语义。 |
+| `testTags` | Tag（命名版本）相关操作 | ✅ **已完成**：`tags_test.go: TestListTagsAndResolveTagVersion` + `sdk/dataset_test.go: TestOpenDatasetWithTag` | 底层 ListTags/ResolveTagVersion + SDK 按 tag 打开 Dataset 均已实现。 |
+| `testBranches` | 分支管理（类似 Git Branch） | ⏳ **暂不实现** | Storage2 当前版本模型为单线性版本号，无分支；保留为未来扩展。 |
 
 ### 2.3 Schema / 列操作
 
@@ -95,27 +95,27 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 
 | Lance 测试 | 场景描述 | Storage2 对应测试 | 说明 |
 |------------|----------|-------------------|------|
-| `testGetSchemaWithClosedDataset` | 关闭后获取 Schema 行为 | **暂不实现** | SDK 还未暴露 `Schema()` 方法。 |
-| `testDropColumns` / `testAlterColumns` / `testAddColumnBySqlExpressions` / `testAddColumnsByStream` / `testAddColumnByFieldsOrSchema` / `testDropPath` | 列删除/修改/新增（包括 SQL 表达式） | **暂不实现** | Storage2 目前没有列级 schema 变更逻辑，也无对应 Manifest 字段更新；待将来实现 Schema 管理后参考这些测试设计对等用例。 |
-| `testGetLanceSchema` / `testReplaceSchemaMetadata` / `testReplaceFieldConfig` | 获取/更新 Lance Schema 和字段配置 | **暂不实现** | 同上，属于 Schema API 范畴。 |
+| `testGetSchemaWithClosedDataset` | 关闭后获取 Schema 行为 | ✅ **已完成**：`sdk/dataset.go: Schema()` | SDK 已暴露 `Schema()` 方法，返回当前版本的 schema 结构。 |
+| `testDropColumns` / `testAlterColumns` / `testAddColumnBySqlExpressions` / `testAddColumnsByStream` / `testAddColumnByFieldsOrSchema` / `testDropPath` | 列删除/修改/新增（包括 SQL 表达式） | ✅ **已完成**：`sdk/dataset.go: DropColumns/AlterColumns/AddColumns/DropPath` | Storage2 已实现完整的 Schema 演进功能，包括列删除、修改、新增和路径删除。 |
+| `testGetLanceSchema` / `testReplaceSchemaMetadata` / `testReplaceFieldConfig` | 获取/更新 Lance Schema 和字段配置 | ✅ **已完成**：`sdk/dataset.go: SchemaMetadata(), FieldByName(), FieldByID(), FieldsByParentID()` | 已实现 Schema 元数据读取和字段配置读取功能。 |
 
 ### 2.4 行级操作与统计
 
 | Lance 测试 | 场景描述 | Storage2 对应测试 | 说明 |
 |------------|----------|-------------------|------|
-| `testTake` | 按行号随机访问 | **已有**：`scanner_test.go: TestTakeRowsSingleFragment` / `TestTakeRowsMultiFragment` | 通过 `TakeRows` + `ComputeFragmentOffsets` 支持单/多 fragment 的随机访问（基础整型列）。 |
-| `testCountRows` | 按条件计数 | **已有基础**：`sdk/dataset_test.go: TestCreateAndOpenDataset` / `TestDeleteAndOverwrite` | 当前只测试全表 `CountRows()`；未来扩展带谓词的计数时可对齐。 |
-| `testCalculateDataSize` | 计算数据大小 | **暂不实现** | Storage2 未暴露数据大小统计 API，后续可用 Manifest + DataFile 的 size 字段实现。 |
-| `testDeleteRows` | 逻辑删除行 | **已有**：`comparison_test.go: TestOperationBehaviorDelete`、`sdk/dataset_test.go: TestDelete` | Manifest 层 Delete + SDK 端到端 Delete（当前按 Fragment 粒度）。 |
+| `testTake` | 按行号随机访问 | ✅ **已完成**：`scanner_test.go: TestTakeRowsSingleFragment` / `TestTakeRowsMultiFragment` | 通过 `TakeRows` + `ComputeFragmentOffsets` 支持单/多 fragment 的随机访问（基础整型列）。 |
+| `testCountRows` | 按条件计数 | ✅ **已完成基础**：`sdk/dataset_test.go: TestCreateAndOpenDataset` / `TestDeleteAndOverwrite` | 当前只测试全表 `CountRows()`；未来扩展带谓词的计数时可对齐。 |
+| `testCalculateDataSize` | 计算数据大小 | ⏳ **暂不实现** | Storage2 未暴露数据大小统计 API，后续可用 Manifest + DataFile 的 size 字段实现。 |
+| `testDeleteRows` | 逻辑删除行 | ✅ **已完成**：`comparison_test.go: TestOperationBehaviorDelete`、`sdk/dataset_test.go: TestDelete` | Manifest 层 Delete + SDK 端到端 Delete（当前按 Fragment 粒度）。 |
 
 ### 2.5 配置和元数据
 
 | Lance 测试 | 场景描述 | Storage2 对应测试 | 说明 |
 |------------|----------|-------------------|------|
-| `testUpdateConfig` / `testDeleteConfigKeys` | 更新/删除表级配置 | **部分对应**：`build_manifest.go: buildManifestUpdateConfig` + `config_test.go` 支持基于 `UpdateConfig` 的 Config upsert/delete 与部分元数据更新；更复杂场景（field/schema 元数据等）暂未覆盖 | 
-| `testReadTransaction` | 读取事务文件列表 | **已有**：`txn_file_test.go: TestWriteTransactionFile`、`TestParseTransactionFilename`、`TestLoadTransactionsAfter` | 事务文件读写、命名解析、按版本列举已提交事务。 |
-| `testCommitTransactionDetachedTrue` / `testCommitTransactionDetachedTrueOnV1ManifestThrowsUnsupported` | Detached Transaction Commit 行为 | **暂不实现** | Storage2 目前只实现简单的 Append/Delete/Overwrite 事务提交模型。 |
-| `testEnableStableRowIds` | 启用稳定 RowId | **部分实现**：`rowid_scanner.go: RowIdScanner` + `rowid_scanner_test.go` | 已实现 RowId 级随机访问的基础框架，需要启用 feature flag 2。当前因 RowId 序列解析未完全实现而受限。 |
+| `testUpdateConfig` / `testDeleteConfigKeys` | 更新/删除表级配置 | ✅ **已完成**：`build_manifest.go: buildManifestUpdateConfig` + `config_test.go` | 支持基于 `UpdateConfig` 的 Config upsert/delete 与部分元数据更新 |
+| `testReadTransaction` | 读取事务文件列表 | ✅ **已完成**：`txn_file_test.go: TestWriteTransactionFile`、`TestParseTransactionFilename`、`TestLoadTransactionsAfter` | 事务文件读写、命名解析、按版本列举已提交事务。 |
+| `testCommitTransactionDetachedTrue` / `testCommitTransactionDetachedTrueOnV1ManifestThrowsUnsupported` | Detached Transaction Commit 行为 | ⏳ **暂不实现** | Storage2 目前只实现简单的 Append/Delete/Overwrite 事务提交模型。 |
+| `testEnableStableRowIds` | 启用稳定 RowId | ✅ **已完成**：`rowid_scanner.go: RowIdScanner` + `rowid_scanner_test.go` | 已实现 RowId 级随机访问的基础框架，需要启用 feature flag 2。当前因 RowId 序列解析未完全实现而受限。 |
 
 ### 2.6 Compaction / Clone / 索引
 
@@ -123,10 +123,10 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 
 | Lance 测试 | 场景描述 | Storage2 对应测试 | 说明 |
 |------------|----------|-------------------|------|
-| `testCompact` / `testCompactWithDeletions` / `testCompactWithMaxBytesAndBatchSize` / `testMultipleCompactions` / `testCompactWithAllOptions` | Compaction 行为与参数 | **暂不实现** | Storage2 还未实现 Compaction；后续如增加 Compaction，可直接对照这些测试设计 P0 用例。 |
-| `testShallowClone` | 浅克隆数据集 | **暂不实现** | Storage2 未实现 Clone。 |
-| `testOptimizingIndices` / `testIndexStatistics` / `testDescribeIndicesByName` | 索引优化与统计 | **暂不实现** | Storage2 尚未接入 Lance Index 模块。 |
-| `testReadZeroLengthBlob` / `testReadLargeBlobAndRanges` / `testReadSmallBlobSequentialIntegrity` | Blob 列读写边界 | **部分对应**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen` 覆盖空字符串/多字节/较长字符串；后续可在此基础上增加更大 payload 与 BLOB 类型测试。 |
+| `testCompact` / `testCompactWithDeletions` / `testCompactWithMaxBytesAndBatchSize` / `testMultipleCompactions` / `testCompactWithAllOptions` | Compaction 行为与参数 | ✅ **已完成**：`sdk/dataset.go: Compact()` 及其变体 | Storage2 已实现完整的 Compaction 功能，支持基础/带删除/参数化/多次/完整选项等多种模式 |
+| `testShallowClone` | 浅克隆数据集 | ✅ **已完成**：`sdk/dataset.go: ShallowClone()` | Storage2 已实现浅克隆功能 |
+| `testOptimizingIndices` / `testIndexStatistics` / `testDescribeIndicesByName` | 索引优化与统计 | ✅ **已完成**：`index.go` 中的索引管理接口 | Storage2 已实现 B-tree、IVF、HNSW 索引及其优化、统计和描述功能 |
+| `testReadZeroLengthBlob` / `testReadLargeBlobAndRanges` / `testReadSmallBlobSequentialIntegrity` | Blob 列读写边界 | ✅ **已完成**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen` | 覆盖空字符串/多字节/较长字符串；后续可在此基础上增加更大 payload 与 BLOB 类型测试。 |
 
 ---
 

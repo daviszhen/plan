@@ -23,16 +23,16 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| SCH1 | P1 | planned | **GetSchema API**：在 SDK 层暴露 `Dataset.Schema()` 方法，返回当前版本的 schema 结构；对应 Java `testGetSchemaWithClosedDataset` 和 `testGetLanceSchema`。 |
-| SCH2 | P1 | planned | **Schema 元数据读取**：实现 `GetSchemaMetadata()` 方法，支持读取 schema 级别的元数据；对应 Java `testReplaceSchemaMetadata`。 |
-| SCH3 | P1 | planned | **字段配置读取**：实现 `GetFieldConfig()` 方法，支持读取字段级别的配置；对应 Java `testReplaceFieldConfig`。 |
+| SCH1 | P1 | ✅ completed | **GetSchema API**：在 SDK 层暴露 `Dataset.Schema()` 方法，返回当前版本的 schema 结构；对应 Java `testGetSchemaWithClosedDataset` 和 `testGetLanceSchema`。 |
+| SCH2 | P1 | ✅ completed | **Schema 元数据读取**：实现 `GetSchemaMetadata()` 方法，支持读取 schema 级别的元数据；对应 Java `testReplaceSchemaMetadata`。 |
+| SCH3 | P1 | ✅ completed | **字段配置读取**：实现 `GetFieldConfig()` 方法，支持读取字段级别的配置；对应 Java `testReplaceFieldConfig`。 |
 
 ### 1.2 Schema 验证与兼容性
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| SCH4 | P2 | planned | **Schema 兼容性检查**：实现 schema 版本间的兼容性检查工具，确保读写兼容；为后续 schema 演进做准备。 |
-| SCH5 | P2 | planned | **字段类型验证**：实现字段类型的验证逻辑，防止不兼容的类型转换。 |
+| SCH4 | P2 | ✅ completed | **Schema 兼容性检查**：实现 schema 版本间的兼容性检查工具，确保读写兼容；为后续 schema 演进做准备。 |
+| SCH5 | P2 | ✅ completed | **字段类型验证**：实现字段类型的验证逻辑，防止不兼容的类型转换。 |
 
 ---
 
@@ -42,16 +42,16 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| CMP1 | P1 | planned | **基础 Compaction**：实现 `Compact()` 方法，支持合并小 fragment、清理删除数据；对应 Java `testCompact`。 |
-| CMP2 | P1 | planned | **带删除的 Compaction**：支持在 Compaction 过程中清理已删除的行；对应 Java `testCompactWithDeletions`。 |
-| CMP3 | P1 | planned | **参数化 Compaction**：支持 max_bytes、batch_size 等参数控制；对应 Java `testCompactWithMaxBytesAndBatchSize`。 |
+| CMP1 | P1 | ✅ completed | **基础 Compaction**：实现 `Compact()` 方法，支持合并小 fragment、清理删除数据；对应 Java `testCompact`。 |
+| CMP2 | P1 | ✅ completed | **带删除的 Compaction**：支持在 Compaction 过程中清理已删除的行；对应 Java `testCompactWithDeletions`。 |
+| CMP3 | P1 | ✅ completed | **参数化 Compaction**：支持 max_bytes、batch_size 等参数控制；对应 Java `testCompactWithMaxBytesAndBatchSize`。 |
 
 ### 2.2 高级 Compaction 策略
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| CMP4 | P2 | planned | **多次 Compaction**：支持连续多次 Compaction 操作；对应 Java `testMultipleCompactions`。 |
-| CMP5 | P2 | planned | **完整 Compaction 选项**：实现所有 Compaction 选项的支持；对应 Java `testCompactWithAllOptions`。 |
+| CMP4 | P2 | ✅ completed | **多次 Compaction**：支持连续多次 Compaction 操作；对应 Java `testMultipleCompactions`。 |
+| CMP5 | P2 | ✅ completed | **完整 Compaction 选项**：实现所有 Compaction 选项的支持；对应 Java `testCompactWithAllOptions`。 |
 
 ---
 
@@ -61,22 +61,22 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| IDX2 | P1 | planned | **B-tree 标量索引**：实现基础的 B-tree 索引，支持等值查询和范围查询；对应 Lance `index/scalar`。 |
-| IDX3 | P1 | planned | **标量索引统计**：实现索引统计信息收集；对应 Java `testIndexStatistics`。 |
+| IDX2 | P1 | ✅ completed | **B-tree 标量索引**：实现基础的 B-tree 索引，支持等值查询和范围查询；对应 Lance `index/scalar`。 |
+| IDX3 | P1 | ✅ completed | **标量索引统计**：实现索引统计信息收集；对应 Java `testIndexStatistics`。 |
 
 ### 3.2 向量索引实现
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| IDX4 | P1 | planned | **IVF 向量索引**：实现 IVF（Inverted File）向量索引；对应 Lance `index/vector`。 |
-| IDX5 | P1 | planned | **HNSW 向量索引**：实现 HNSW（Hierarchical Navigable Small World）向量索引。 |
-| IDX6 | P1 | planned | **向量索引优化**：实现索引优化和重建功能；对应 Java `testOptimizingIndices`。 |
+| IDX4 | P1 | ✅ completed | **IVF 向量索引**：实现 IVF（Inverted File）向量索引；对应 Lance `index/vector`。 |
+| IDX5 | P1 | ✅ completed | **HNSW 向量索引**：实现 HNSW（Hierarchical Navigable Small World）向量索引。 |
+| IDX6 | P1 | ✅ completed | **向量索引优化**：实现索引优化和重建功能；对应 Java `testOptimizingIndices`。 |
 
 ### 3.3 索引管理
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| IDX7 | P2 | planned | **索引描述**：实现索引描述功能，支持按名称查询索引信息；对应 Java `testDescribeIndicesByName`。 |
+| IDX7 | P2 | ✅ completed | **索引描述**：实现索引描述功能，支持按名称查询索引信息；对应 Java `testDescribeIndicesByName`。 |
 
 ---
 
@@ -86,16 +86,16 @@
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| SE1 | P2 | planned | **列删除**：实现 `DropColumns()` 方法；对应 Java `testDropColumns`。 |
-| SE2 | P2 | planned | **列修改**：实现 `AlterColumns()` 方法；对应 Java `testAlterColumns`。 |
-| SE3 | P2 | planned | **列新增**：实现多种方式的列新增（SQL 表达式、流式、字段定义等）；对应 Java `testAddColumnBySqlExpressions` / `testAddColumnsByStream` / `testAddColumnByFieldsOrSchema`。 |
-| SE4 | P2 | planned | **路径删除**：实现 `DropPath()` 方法；对应 Java `testDropPath`。 |
+| SE1 | P2 | ✅ completed | **列删除**：实现 `DropColumns()` 方法；对应 Java `testDropColumns`。 |
+| SE2 | P2 | ✅ completed | **列修改**：实现 `AlterColumns()` 方法；对应 Java `testAlterColumns`。 |
+| SE3 | P2 | ✅ completed | **列新增**：实现多种方式的列新增（SQL 表达式、流式、字段定义等）；对应 Java `testAddColumnBySqlExpressions` / `testAddColumnsByStream` / `testAddColumnByFieldsOrSchema`。 |
+| SE4 | P2 | ✅ completed | **路径删除**：实现 `DropPath()` 方法；对应 Java `testDropPath`。 |
 
 ### 4.2 数据集克隆
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
-| CLN1 | P2 | planned | **浅克隆**：实现 `ShallowClone()` 方法；对应 Java `testShallowClone`。 |
+| CLN1 | P2 | ✅ completed | **浅克隆**：实现 `ShallowClone()` 方法；对应 Java `testShallowClone`。 |
 
 ### 4.3 URI 与对象存储
 

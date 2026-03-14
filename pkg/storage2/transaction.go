@@ -78,6 +78,54 @@ func NewTransactionOverwrite(readVersion uint64, uuid string, fragments []*DataF
 	}
 }
 
+// NewTransactionProject builds a transaction with Project operation (drop columns).
+// The projected schema contains only the columns to keep.
+func NewTransactionProject(readVersion uint64, uuid string, schema []*storage2pb.Field) *Transaction {
+	if schema == nil {
+		schema = []*storage2pb.Field{}
+	}
+	return &Transaction{
+		ReadVersion: readVersion,
+		Uuid:        uuid,
+		Operation: &storage2pb.Transaction_Project_{Project: &storage2pb.Transaction_Project{
+			Schema: schema,
+		}},
+	}
+}
+
+// NewTransactionMerge builds a transaction with Merge operation (add/alter columns).
+func NewTransactionMerge(readVersion uint64, uuid string, fragments []*DataFragment, schema []*storage2pb.Field, schemaMetadata map[string][]byte) *Transaction {
+	if fragments == nil {
+		fragments = []*DataFragment{}
+	}
+	if schema == nil {
+		schema = []*storage2pb.Field{}
+	}
+	return &Transaction{
+		ReadVersion: readVersion,
+		Uuid:        uuid,
+		Operation: &storage2pb.Transaction_Merge_{Merge: &storage2pb.Transaction_Merge{
+			Fragments:      fragments,
+			Schema:         schema,
+			SchemaMetadata: schemaMetadata,
+		}},
+	}
+}
+
+// NewTransactionClone builds a transaction with Clone operation.
+func NewTransactionClone(readVersion uint64, uuid string, isShallow bool, refName *string, refVersion uint64, refPath string) *Transaction {
+	return &Transaction{
+		ReadVersion: readVersion,
+		Uuid:        uuid,
+		Operation: &storage2pb.Transaction_Clone_{Clone: &storage2pb.Transaction_Clone{
+			IsShallow:  isShallow,
+			RefName:    refName,
+			RefVersion: refVersion,
+			RefPath:    refPath,
+		}},
+	}
+}
+
 // NewTransactionRewrite builds a transaction with Rewrite operation (compaction).
 func NewTransactionRewrite(readVersion uint64, uuid string, oldFragments, newFragments []*DataFragment) *Transaction {
 	if oldFragments == nil {
