@@ -9,7 +9,7 @@ import (
 )
 
 // BuildManifest produces the next manifest from current and the given transaction.
-// Supports Append, Delete, and Overwrite operations.
+// Supports Append, Delete, Overwrite, UpdateConfig, and Rewrite operations.
 func BuildManifest(current *Manifest, txn *Transaction) (*Manifest, error) {
 	if current == nil {
 		return nil, fmt.Errorf("current manifest is nil")
@@ -30,6 +30,8 @@ func BuildManifest(current *Manifest, txn *Transaction) (*Manifest, error) {
 		return buildManifestOverwrite(current, op.Overwrite)
 	case *storage2pb.Transaction_UpdateConfig_:
 		return buildManifestUpdateConfig(current, op.UpdateConfig)
+	case *storage2pb.Transaction_Rewrite_:
+		return buildManifestRewrite(current, op.Rewrite)
 	default:
 		return nil, fmt.Errorf("unsupported operation type %T", txn.Operation)
 	}
@@ -211,6 +213,49 @@ func applyUpdateMapToStringMap(target map[string]string, upd *storage2pb.Transac
 		}
 		target[key] = e.GetValue()
 	}
+}
+
+// buildManifestRewrite applies Rewrite operation (compaction) to the current manifest.
+// It replaces old fragments with new compacted fragments.
+func buildManifestRewrite(current *Manifest, rewriteOp *storage2pb.Transaction_Rewrite) (*Manifest, error) {
+	next := protobuf.Clone(current).(*Manifest)
+	next.Version = current.Version + 1
+
+	// Create maps for quick lookup
+	oldFragmentIDs := make(map[uint64]bool)
+	for _, group := range rewriteOp.GetGroups() {
+		for _, oldFrag := range group.GetOldFragments() {
+			oldFragmentIDs[oldFrag.Id] = true
+		}
+	}
+
+	// Filter out old fragments
+	var remainingFragments []*DataFragment
+	for _, frag := range current.Fragments {
+		if !oldFragmentIDs[frag.Id] {
+			remainingFragments = append(remainingFragments, frag)
+		}
+	}
+
+	// Add new fragments
+	var nextFragmentID uint64
+	if current.MaxFragmentId != nil {
+		nextFragmentID = uint64(*current.MaxFragmentId) + 1
+	}
+
+	for _, group := range rewriteOp.GetGroups() {
+		for _, newFrag := range group.GetNewFragments() {
+			cloned := protobuf.Clone(newFrag).(*DataFragment)
+			cloned.Id = nextFragmentID
+			remainingFragments = append(remainingFragments, cloned)
+			nextFragmentID++
+		}
+	}
+
+	next.Fragments = remainingFragments
+	next.MaxFragmentId = ptrUint32(uint32(nextFragmentID - 1))
+
+	return next, nil
 }
 
 func ptrUint32(u uint32) *uint32 { return &u }

@@ -77,3 +77,28 @@ func NewTransactionOverwrite(readVersion uint64, uuid string, fragments []*DataF
 		}},
 	}
 }
+
+// NewTransactionRewrite builds a transaction with Rewrite operation (compaction).
+func NewTransactionRewrite(readVersion uint64, uuid string, oldFragments, newFragments []*DataFragment) *Transaction {
+	if oldFragments == nil {
+		oldFragments = []*DataFragment{}
+	}
+	if newFragments == nil {
+		newFragments = []*DataFragment{}
+	}
+	
+	groups := []*storage2pb.Transaction_Rewrite_RewriteGroup{
+		{
+			OldFragments:  oldFragments,
+			NewFragments:  newFragments,
+		},
+	}
+	
+	return &Transaction{
+		ReadVersion: readVersion,
+		Uuid:        uuid,
+		Operation: &storage2pb.Transaction_Rewrite_{Rewrite: &storage2pb.Transaction_Rewrite{
+			Groups: groups,
+		}},
+	}
+}
