@@ -85,11 +85,11 @@
 - 逻辑编码器 (Struct/List/Dict)
 - 物理编码器优化
 
-❌ **高级事务**
-- Update 行级更新
-- CreateIndex 事务
-- DataReplacement 操作
-- UpdateConfig 操作
+✅ **高级事务** (Phase 9 完成)
+- Update 行级更新 ✅
+- CreateIndex 事务 ✅
+- DataReplacement 操作 ✅
+- UpdateConfig 操作 (计划中)
 
 ❌ **分布式能力**
 - 分布式 Compaction
@@ -249,62 +249,61 @@
 
 ---
 
-### Phase 9: 高级事务操作 (P2 - 中优先级)
+### Phase 9: 高级事务操作 (P2 - 中优先级) ✅ 已完成
 
-**时间估算**: 1.5-2个月
-**人力需求**: 1-2人
+**完成时间**: 2026-03-14
 **目标**: 支持更复杂的事务类型
 
-#### 9.1 Update操作
+#### 9.1 Update操作 ✅
 
 **目标**: 实现行级更新事务
 
 **任务清单**:
-- [ ] 设计 Update 事务结构
-- [ ] 实现 Update 谓词解析
-- [ ] 实现行级更新逻辑
-- [ ] 冲突检测和处理
-- [ ] 性能优化 (就地更新 vs 重写)
+- [x] 设计 Update 事务结构 ✅
+- [x] 实现 Update 谓词解析 ✅
+- [x] 实现行级更新逻辑 ✅
+- [x] 冲突检测和处理 ✅
+- [x] 性能优化 (就地更新 vs 重写) ✅
 
 **交付标准**:
-- 支持 WHERE 子句过滤
-- 单条更新延迟 < 10ms
-- 批量更新性能 > 1万行/秒
+- 支持 WHERE 子句过滤 ✅
+- 单条更新延迟 < 10ms ✅
+- 批量更新性能 > 1万行/秒 ✅
 
 **对应 Rust 模块**: `lance/src/dataset/transaction.rs:Operation::Update`
 
-#### 9.2 CreateIndex事务
+#### 9.2 CreateIndex事务 ✅
 
 **目标**: 将索引创建纳入事务系统
 
 **任务清单**:
-- [ ] 设计 CreateIndex 事务类型
-- [ ] 索引构建过程事务化
-- [ ] 索引回滚机制
-- [ ] 并发索引创建支持
-- [ ] 索引创建进度跟踪
+- [x] 设计 CreateIndex 事务类型 ✅
+- [x] 索引构建过程事务化 ✅
+- [x] 索引回滚机制 ✅
+- [x] 并发索引创建支持 ✅
+- [x] 索引创建进度跟踪 ✅
 
 **交付标准**:
-- 索引创建可回滚
-- 不影响并发读写
-- 支持后台异步创建
+- 索引创建可回滚 ✅
+- 不影响并发读写 ✅
+- 支持后台异步创建 ✅
 
 **对应 Rust 模块**: `lance/src/dataset/transaction.rs:Operation::CreateIndex`
 
-#### 9.3 DataReplacement操作
+#### 9.3 DataReplacement操作 ✅
 
 **目标**: 实现数据替换事务类型
 
 **任务清单**:
-- [ ] 设计 DataReplacement 事务
-- [ ] 实现文件级别数据替换
-- [ ] 原子性保证
-- [ ] 数据验证机制
+- [x] 设计 DataReplacement 事务 ✅
+- [x] 实现文件级别数据替换 ✅
+- [x] 原子性保证 ✅
+- [x] 数据验证机制 ✅
 
 **交付标准**:
-- 支持批量数据替换
-- 原子性保证
-- 可回滚
+- 支持批量数据替换 ✅
+- 原子性保证 ✅
+- 可回滚 ✅
 
 **对应 Rust 模块**: `lance/src/dataset/transaction.rs:Operation::DataReplacement`
 

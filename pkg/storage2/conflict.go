@@ -18,6 +18,9 @@ const (
 	OpAppend OpKind = iota
 	OpDelete
 	OpOverwrite
+	OpUpdate
+	OpCreateIndex
+	OpDataReplacement
 	OpOther
 )
 
@@ -33,6 +36,12 @@ func OpKindOf(txn *Transaction) OpKind {
 		return OpDelete
 	case *storage2pb.Transaction_Overwrite_:
 		return OpOverwrite
+	case *storage2pb.Transaction_Update_:
+		return OpUpdate
+	case *storage2pb.Transaction_CreateIndex_:
+		return OpCreateIndex
+	case *storage2pb.Transaction_DataReplacement_:
+		return OpDataReplacement
 	default:
 		return OpOther
 	}
@@ -62,6 +71,30 @@ func CheckConflict(myTxn *Transaction, otherTxn *Transaction, otherVersion uint6
 	// Delete vs Delete: conflict if they touch the same fragments.
 	if myOp == OpDelete && otherOp == OpDelete {
 		return deleteDeleteConflict(myTxn, otherTxn)
+	}
+	// Update vs other operations: use specific conflict check
+	if myOp == OpUpdate {
+		return CheckUpdateConflict(myTxn, otherTxn)
+	}
+	if otherOp == OpUpdate {
+		// Check conflict from the other direction
+		return CheckUpdateConflict(otherTxn, myTxn)
+	}
+	// CreateIndex vs other operations: use specific conflict check
+	if myOp == OpCreateIndex {
+		return CheckCreateIndexConflict(myTxn, otherTxn)
+	}
+	if otherOp == OpCreateIndex {
+		// Check conflict from the other direction
+		return CheckCreateIndexConflict(otherTxn, myTxn)
+	}
+	// DataReplacement vs other operations: use specific conflict check
+	if myOp == OpDataReplacement {
+		return CheckDataReplacementConflict(myTxn, otherTxn)
+	}
+	if otherOp == OpDataReplacement {
+		// Check conflict from the other direction
+		return CheckDataReplacementConflict(otherTxn, myTxn)
 	}
 	// Unsupported or other ops: treat as conflict.
 	return true

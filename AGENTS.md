@@ -108,6 +108,24 @@ Aligned with the Lance columnar format metadata model. Key interfaces:
   - `CollectStats` - Aggregate encoding statistics from results
   - Memory back-pressure via `memoryTracker` with configurable budget and `sync.Cond` blocking
 
+**Advanced Transactions (Phase 9):**
+- **Update Operation** (`update.go`) - Row-level update transactions with predicate filtering:
+  - `UpdatePlanner` - Plans update operations with cost-based strategy selection (REWRITE_ROWS vs REWRITE_COLUMNS)
+  - `UpdateExecutor` - Applies updates to chunks with row-level granularity
+  - `UpdatePredicate` - Filter expression support for targeting specific rows
+  - Conflict detection via `CheckUpdateConflict()`
+- **CreateIndex Transaction** (`index_transaction.go`) - Transactional index creation:
+  - `IndexBuilder` - Sync/async index building with job management
+  - `IndexBuildJob` - Tracks ongoing index builds with cancellation support
+  - `IndexBuildProgressTracker` - Atomic progress tracking for long-running builds
+  - `ConcurrentIndexBuilder` - Semaphore-based concurrent index building
+  - `IndexRollback` - Rollback support for failed index operations
+- **DataReplacement Operation** (`data_replacement.go`) - File-level data replacement:
+  - `DataReplacementPlanner` - Plans atomic data replacement operations
+  - `DataReplacementValidator` - Validates replacement data (checksum, row count, schema)
+  - `DataReplacementManager` - Orchestrates replacement with atomic commit
+  - Batch processing support via `DataReplacementBatch`
+
 ### sdk/ - High-Level SDK
 
 `Dataset` interface (`dataset.go`) wraps storage2 with: Append, Delete, Overwrite, Scanner, Take, DropColumns, ShallowClone, Compact, detached transactions, KNN vector search.

@@ -9,7 +9,7 @@ import (
 )
 
 // BuildManifest produces the next manifest from current and the given transaction.
-// Supports Append, Delete, Overwrite, UpdateConfig, and Rewrite operations.
+// Supports Append, Delete, Overwrite, UpdateConfig, Rewrite, Update, CreateIndex, and DataReplacement operations.
 func BuildManifest(current *Manifest, txn *Transaction) (*Manifest, error) {
 	if current == nil {
 		return nil, fmt.Errorf("current manifest is nil")
@@ -38,6 +38,12 @@ func BuildManifest(current *Manifest, txn *Transaction) (*Manifest, error) {
 		return buildManifestMerge(current, op.Merge)
 	case *storage2pb.Transaction_Clone_:
 		return buildManifestClone(current, op.Clone)
+	case *storage2pb.Transaction_Update_:
+		return buildManifestUpdate(current, op.Update)
+	case *storage2pb.Transaction_CreateIndex_:
+		return buildManifestCreateIndex(current, op.CreateIndex)
+	case *storage2pb.Transaction_DataReplacement_:
+		return buildManifestDataReplacement(current, op.DataReplacement)
 	default:
 		return nil, fmt.Errorf("unsupported operation type %T", txn.Operation)
 	}
