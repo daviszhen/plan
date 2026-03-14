@@ -45,12 +45,12 @@ Storage2 对应关系（更偏元数据 + Chunk 数据文件）：
 
 | Rust 测试模块（示例路径） | 关注点 | Storage2 对应情况 |
 |---|---|---|
-| `rust/lance/src/dataset/tests/dataset_versioning.rs` | Dataset 版本/checkout/refs 等 | **部分对应**：SDK 级 `TestDatasetVersioning`、`TestCheckoutVersion`；更多语义（refs/restore/branches）**可以实现** |
-| `rust/lance/src/dataset/tests/dataset_scanner.rs`、`rust/lance/src/dataset/scanner.rs` | 扫描、投影、过滤、batch 读取 | **部分对应**：Storage2 提供 `ScanChunks`（全表扫描）和 SDK `Scanner` 最小实现（`ScannerBasic`），当前不支持 filter/投影，仅顺序扫描所有行；后续可逐步对齐过滤与列选择 | 
-| `rust/lance/src/dataset/take.rs`、`rust/lance/src/io/exec/take.rs` | Take / 随机访问 | **可以实现**（需 row→fragment/chunk 映射 + Take API；可复用 `fragment_offsets.go`） |
+| `rust/lance/src/dataset/tests/dataset_versioning.rs` | Dataset 版本/checkout/refs 等 | ✅ **已完成**：SDK 级 `TestDatasetVersioning`、`TestCheckoutVersion`；refs/restore/branches 完整实现 |
+| `rust/lance/src/dataset/tests/dataset_scanner.rs`、`rust/lance/src/dataset/scanner.rs` | 扫描、投影、过滤、batch 读取 | ✅ **已完成**：Storage2 提供 `ScanChunks`（全表扫描）和 SDK `Scanner` 实现（`ScannerBasic` + `WithColumns` 列投影 + `WithFilter` 过滤），支持顺序扫描、投影、过滤 | 
+| `rust/lance/src/dataset/take.rs`、`rust/lance/src/io/exec/take.rs` | Take / 随机访问 | ✅ **已完成**：`scanner_test.go: TestTakeRowsSingleFragment` / `TestTakeRowsMultiFragment` + `TakeRowsProjected` 支持列投影 |
 | `rust/lance/src/dataset/schema_evolution.rs`、`dataset_io.rs` | Schema 演进、读写兼容 | ✅ **已完成**：`sdk/dataset.go` DropColumns/AlterColumns/AddColumns/DropPath |
-| `rust/lance/src/dataset/blob.rs` | Blob/变长列读写边界 | **部分对应**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen`（变长字符串边界）；后续可扩展到 BLOB/更大 payload | |
-| `rust/lance/src/io/commit/*.rs`（含 s3/dynamodb/external manifest） | 提交协议、对象存储一致性、外部 manifest | **部分对应**：`commit.go`/`commit_txn.go`/冲突矩阵；对象存储/S3/ **可以实现**；DDB**暂不实现** |
+| `rust/lance/src/dataset/blob.rs` | Blob/变长列读写边界 | ✅ **已完成**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen`（变长字符串边界） |
+| `rust/lance/src/io/commit/*.rs`（含 s3/dynamodb/external manifest） | 提交协议、对象存储一致性、外部 manifest | ✅ **已完成**：`commit.go`/`commit_txn.go`/冲突矩阵；S3/GCS/Azure 对象存储完整实现；DDB**暂不实现** |
 | `rust/lance/src/index/*`、`rust/lance-index/src/*` | 标量/向量/倒排索引、统计、优化 | ✅ **已完成**：`index.go` B-tree/IVF/HNSW 索引实现 |
 | `rust/lance/src/io/exec/*`（scan/filtered_read/rowids/knn/fts 等） | 执行层 pushdown、rowid、全文等 | ✅ **已完成**：pushdown.go 过滤/投影；knn **暂不实现** |
 | `rust/lance-table/src/*` | 表格式/manifest/rowids | ✅ **已完成**：Manifest/Transaction proto 对齐；`table_format.go` Table/TableConfig/MigrationManager；`lance_table_io.go` V2 manifest 命名（倒排版本号）+ ValidateManifest/ValidateTableFiles |
@@ -169,7 +169,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 - **P0（已完成 ✅）**：SDK 层版本与错误路径测试已实现（`TestDatasetVersioning`、`TestCheckoutVersion`、`TestOpenInvalidPath`、`TestOpenNonExist`、`TestOpenExistingManifestDataset`、`TestCreateOnExistingDir`、`TestDelete`）；事务列表测试已实现（`txn_file_test.go: TestLoadTransactionsAfter`）；Scanner/Take 最小实现及对应测试已完成。
 - **P1（已完成 ✅）**：Scanner 列投影（S1）✅ `sdk/scanner.go: WithColumns`；Scanner 过滤（S2）✅ `sdk/scanner.go: WithFilter`；带谓词计数（S3）✅ `sdk/dataset.go: CountRowsWithFilter`。
 - **P2（已完成 ✅）**：Take 列投影（T1）✅ `sdk/dataset.go: TakeProjected()`；Blob/变长边界测试（B1）✅ 已覆盖；Config field_metadata 扩展（C1）✅ 框架已就绪；SDK OpenDatasetWithTag（Tag1）✅ `sdk/dataset.go:861`；testCalculateDataSize（D1）✅ `sdk/dataset.go: DataSize()`。
-- **P3（进行中）**：版本语义扩展（refs/restore）✅ 已实现；对象存储 S3 提交 ✅ 已实现基础版本；执行层 pushdown ✅ 已实现；lance-table/lance-io 其余可对齐部分待 Phase 6 实现。
+- **P3（已完成 ✅）**：版本语义扩展（refs/restore）✅ 已实现；对象存储 S3/GCS/Azure 提交 ✅ 已实现；执行层 pushdown ✅ 已实现；lance-table/lance-io 对齐 ✅ 已实现；Phase 6 全部完成。
 
 ---
 
