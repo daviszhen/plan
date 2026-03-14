@@ -181,14 +181,19 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | Lance 编码格式（ENC1-4） | ✅ 完成 | Phase 5.4 |
 | KNN 向量搜索（KNN1-4） | ✅ 完成 | Phase 5.5 |
 
+### Phase 6 完成状态汇总
+
+| 功能模块 | 状态 | 完成时间 |
+|----------|------|----------|
+| Detached Transaction 测试（Phase 6.1） | ✅ 完成 | Phase 6.1 |
+| 带谓词计数测试（Phase 6.2） | ✅ 完成 | Phase 6.2 |
+| 稳定 RowId 完善（Phase 6.3） | ✅ 完成 | Phase 6.3 |
+
 ### 待实现功能
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
 | GSObjectStore（OBJ5） | P2 | Google Cloud Storage 支持 |
 | AZObjectStore（OBJ6） | P2 | Azure Blob Storage 支持 |
-| Detached Transaction 测试对齐 | P1 | Phase 6.1 |
-| 带谓词计数测试对齐 | P1 | Phase 6.2 |
-| 稳定 RowId 完善 | P1 | Phase 6.3 |
 | S3 提交协议增强 | P2 | Phase 6.4 |
 
