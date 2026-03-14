@@ -15,8 +15,8 @@ func TestBuildManifestUpdateConfigUpsertAndDelete(t *testing.T) {
 
 	update := &storage2pb.Transaction_UpdateConfig{}
 	update.UpsertValues = map[string]string{
-		"a": "10",  // overwrite existing
-		"c": "3",   // new key
+		"a": "10", // overwrite existing
+		"c": "3",  // new key
 	}
 	update.DeleteKeys = []string{"b"} // remove existing
 
@@ -44,4 +44,3 @@ func TestBuildManifestUpdateConfigUpsertAndDelete(t *testing.T) {
 		t.Errorf("config[c] = %q, want %q", got, "3")
 	}
 }
-

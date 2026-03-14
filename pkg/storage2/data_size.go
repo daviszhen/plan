@@ -34,4 +34,3 @@ func CalculateDatasetDataSize(ctx context.Context, basePath string, handler Comm
 	}
 	return CalculateManifestDataSize(m), nil
 }
-

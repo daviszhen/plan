@@ -86,6 +86,18 @@ Aligned with the Lance columnar format metadata model. Key interfaces:
 - **GSStore** (`gs_store.go`) - Google Cloud Storage backend
 - **AZStore** (`az_store.go`) - Azure Blob Storage backend
 
+**Encoding Framework:**
+- **Physical Encoders** (`encoding.go`):
+  - `PlainEncoder` - Fixed-width native binary encoding (1, 2, 4, 8 bytes)
+  - `BitPackEncoder` - Minimum-bits packing with min/max offset, effective for small value ranges
+  - `RLEEncoder` - Run-length encoding for repeated values, stores (count, value) pairs
+  - `DictEncoder` - Dictionary encoding for integer columns with few distinct values
+  - `VarBinaryEncoder` - Variable-length binary with offset/data layout for strings/blobs
+  - `StringDictEncoder` - Dictionary encoding for string columns
+- **Logical Encoder/Decoder** - `LogicalColumnEncoder` and `LogicalColumnDecoder` provide type-aware encoding with automatic encoding selection
+- **Encoding Selection** - `AnalyzeIntColumn`, `AnalyzeStringColumn`, `SelectIntEncoding`, `SelectStringEncoding` choose optimal encoding based on column statistics
+- **EncodingProfile** - Measures compression ratios across different encodings for a column
+
 ### sdk/ - High-Level SDK
 
 `Dataset` interface (`dataset.go`) wraps storage2 with: Append, Delete, Overwrite, Scanner, Take, DropColumns, ShallowClone, Compact, detached transactions, KNN vector search.

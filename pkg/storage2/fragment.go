@@ -37,10 +37,10 @@ func NewDataFile(path string, fields []int32, fileMajorVersion, fileMinorVersion
 		fields = []int32{}
 	}
 	return &DataFile{
-		Path:              path,
-		Fields:            fields,
-		FileMajorVersion:  fileMajorVersion,
-		FileMinorVersion:  fileMinorVersion,
+		Path:             path,
+		Fields:           fields,
+		FileMajorVersion: fileMajorVersion,
+		FileMinorVersion: fileMinorVersion,
 	}
 }
 
@@ -50,10 +50,10 @@ type BasePath = storage2pb.BasePath
 // NewBasePath creates a BasePath for multi-base or shallow clone.
 func NewBasePath(id uint32, path string, name *string, isDatasetRoot bool) *BasePath {
 	return &BasePath{
-		Id:             id,
-		Path:           path,
-		Name:           name,
-		IsDatasetRoot:  isDatasetRoot,
+		Id:            id,
+		Path:          path,
+		Name:          name,
+		IsDatasetRoot: isDatasetRoot,
 	}
 }
 

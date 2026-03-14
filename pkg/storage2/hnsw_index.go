@@ -14,7 +14,7 @@ type HNSWIndex struct {
 	columnIdx  int
 	indexType  IndexType
 	metricType MetricType
-	
+
 	// HNSW parameters
 	M              int     // maximum number of connections per element
 	Mmax           int     // maximum number of connections for layer 0
@@ -22,23 +22,23 @@ type HNSWIndex struct {
 	efConstruction int     // size of dynamic candidate list during construction
 	efSearch       int     // size of dynamic candidate list during search
 	levelMult      float64 // level multiplier for layer generation
-	
+
 	// Index data
-	vectors    map[uint64][]float32 // vector storage
+	vectors    map[uint64][]float32  // vector storage
 	layers     []map[uint64][]uint64 // connections for each layer
-	entryPoint uint64              // entry point for search
-	maxLevel   int                 // maximum level in the hierarchy
+	entryPoint uint64                // entry point for search
+	maxLevel   int                   // maximum level in the hierarchy
 	dimension  int
-	
-	mu         sync.RWMutex
-	stats      IndexStats
+
+	mu    sync.RWMutex
+	stats IndexStats
 }
 
 // HNSWNode represents a node in the HNSW graph
 type HNSWNode struct {
-	id       uint64
-	vector   []float32
-	level    int
+	id        uint64
+	vector    []float32
+	level     int
 	neighbors [][]uint64 // neighbors for each level
 }
 
@@ -89,7 +89,7 @@ func (idx *HNSWIndex) Search(ctx context.Context, query interface{}, limit int) 
 	if !ok {
 		return nil, nil
 	}
-	
+
 	_, rowIDs, err := idx.ANNSearch(ctx, queryVector, limit)
 	return rowIDs, err
 }
@@ -136,7 +136,7 @@ func (idx *HNSWIndex) ANNSearch(ctx context.Context, queryVector []float32, limi
 
 	// Search at layer 0 with efSearch
 	candidates := idx.searchLayer(queryVector, []uint64{currentNode}, idx.efSearch, 0)
-	
+
 	// Extract results
 	results := make([]struct {
 		rowID    uint64
@@ -217,22 +217,22 @@ func (idx *HNSWIndex) Insert(rowID uint64, vector []float32) error {
 
 	// Search from top layer to layer 1 to find entry point for layer 0
 	currentNode := idx.entryPoint
-	
+
 	for l := idx.maxLevel; l > 0; l-- {
 		if l <= level {
 			// Find neighbors at this level
 			neighbors := idx.searchLayer(vector, []uint64{currentNode}, idx.efConstruction, l)
 			selectedNeighbors := idx.selectNeighbors(vector, neighbors, idx.M)
-			
+
 			// Add connections
 			idx.layers[l][rowID] = selectedNeighbors
-			
+
 			// Update reverse connections
 			for _, neighbor := range selectedNeighbors {
 				idx.layers[l][neighbor] = idx.addConnection(idx.layers[l][neighbor], rowID, idx.M)
 			}
 		}
-		
+
 		// Find closest node at this level for next iteration
 		if l > level {
 			minDist := idx.computeDistance(vector, idx.vectors[currentNode])
@@ -250,9 +250,9 @@ func (idx *HNSWIndex) Insert(rowID uint64, vector []float32) error {
 	// Handle layer 0
 	neighbors := idx.searchLayer(vector, []uint64{currentNode}, idx.efConstruction, 0)
 	selectedNeighbors := idx.selectNeighbors(vector, neighbors, idx.Mmax0)
-	
+
 	idx.layers[0][rowID] = selectedNeighbors
-	
+
 	// Update reverse connections at layer 0
 	for _, neighbor := range selectedNeighbors {
 		idx.layers[0][neighbor] = idx.addConnection(idx.layers[0][neighbor], rowID, idx.Mmax0)
@@ -307,7 +307,7 @@ func (idx *HNSWIndex) searchLayer(queryVector []float32, entryPoints []uint64, e
 
 	for candidates.Len() > 0 {
 		current := heap.Pop(candidates).(nodeDistance)
-		
+
 		if results.Len() >= ef {
 			worstResult := (*results)[0]
 			if current.distance > worstResult.distance {
@@ -320,7 +320,7 @@ func (idx *HNSWIndex) searchLayer(queryVector []float32, entryPoints []uint64, e
 				if !visited[neighbor] {
 					visited[neighbor] = true
 					dist := idx.computeDistance(queryVector, idx.vectors[neighbor])
-					
+
 					if results.Len() < ef {
 						heap.Push(candidates, nodeDistance{nodeID: neighbor, distance: dist})
 						heap.Push(results, nodeDistance{nodeID: neighbor, distance: dist})
@@ -343,7 +343,7 @@ func (idx *HNSWIndex) selectNeighbors(queryVector []float32, candidates map[uint
 		nodeID   uint64
 		distance float32
 	}
-	
+
 	neighbors := make([]neighborDist, 0, len(candidates))
 	for nodeID := range candidates {
 		dist := idx.computeDistance(queryVector, idx.vectors[nodeID])
@@ -363,7 +363,7 @@ func (idx *HNSWIndex) selectNeighbors(queryVector []float32, candidates map[uint
 	if M > len(neighbors) {
 		M = len(neighbors)
 	}
-	
+
 	result := make([]uint64, M)
 	for i := 0; i < M; i++ {
 		result[i] = neighbors[i].nodeID
@@ -379,7 +379,7 @@ func (idx *HNSWIndex) addConnection(neighbors []uint64, newNeighbor uint64, maxC
 			return neighbors
 		}
 	}
-	
+
 	neighbors = append(neighbors, newNeighbor)
 	if len(neighbors) > maxConn {
 		// Remove the oldest connection (simple strategy)

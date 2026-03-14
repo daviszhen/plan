@@ -72,7 +72,7 @@ func TestDetachedTransaction_StatusQueries(t *testing.T) {
 	// Create multiple transactions with different statuses
 	txn1 := NewTransactionAppend(0, "txn-pending", nil)
 	txn2 := NewTransactionAppend(0, "txn-committed", nil)
-	
+
 	// txn3 will be an Overwrite that conflicts with the committed Append
 	txn3 := NewTransactionOverwrite(0, "txn-failed", nil, nil, nil)
 

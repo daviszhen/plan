@@ -8,10 +8,10 @@ import (
 
 func TestFilterParser_Comparison(t *testing.T) {
 	tests := []struct {
-		name      string
-		filter    string
-		wantErr   bool
-		wantType  string
+		name     string
+		filter   string
+		wantErr  bool
+		wantType string
 	}{
 		{
 			name:     "simple equals",

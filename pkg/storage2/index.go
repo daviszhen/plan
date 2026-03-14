@@ -281,7 +281,7 @@ func (m *IndexManager) optimizeIVFIndex(idx *IVFIndex) error {
 	// 1. Re-clustering if data distribution has changed
 	// 2. Merging small inverted lists
 	// 3. Pruning unused centroids
-	
+
 	// Re-train with current data if needed
 	if idx.Statistics().NumEntries > 1000 {
 		vectors := make([][]float32, 0, len(idx.vectors))
@@ -301,7 +301,7 @@ func (m *IndexManager) optimizeHNSWIndex(idx *HNSWIndex) error {
 	// 1. Pruning redundant connections
 	// 2. Rebuilding the graph for better connectivity
 	// 3. Optimizing layer distribution
-	
+
 	// For now, we just verify the index structure
 	return nil
 }
@@ -330,28 +330,28 @@ func (m *IndexManager) RebuildIndex(ctx context.Context, name string, vectors ma
 		index.vectors = make(map[uint64][]float32)
 		index.invertedLists = make([][]uint64, index.nlist)
 		index.stats.NumEntries = 0
-		
+
 		// Re-train with new data
 		vecList := make([][]float32, 0, len(vectors))
 		for _, vec := range vectors {
 			vecList = append(vecList, vec)
 		}
-		
+
 		if len(vecList) > 0 {
 			if err := index.Train(vecList); err != nil {
 				return err
 			}
 		}
-		
+
 		// Re-insert all vectors
 		for rowID, vec := range vectors {
 			if err := index.Insert(rowID, vec); err != nil {
 				return err
 			}
 		}
-		
+
 		return nil
-		
+
 	case *HNSWIndex:
 		// Clear existing data
 		index.vectors = make(map[uint64][]float32)
@@ -359,16 +359,16 @@ func (m *IndexManager) RebuildIndex(ctx context.Context, name string, vectors ma
 		index.entryPoint = 0
 		index.maxLevel = -1
 		index.stats.NumEntries = 0
-		
+
 		// Re-insert all vectors
 		for rowID, vec := range vectors {
 			if err := index.Insert(rowID, vec); err != nil {
 				return err
 			}
 		}
-		
+
 		return nil
-		
+
 	default:
 		return fmt.Errorf("rebuild not supported for index type %T", idx)
 	}
@@ -377,17 +377,17 @@ func (m *IndexManager) RebuildIndex(ctx context.Context, name string, vectors ma
 // IndexDescription provides detailed description of an index
 type IndexDescription struct {
 	// Basic info
-	Name       string    `json:"name"`
-	Type       IndexType `json:"type"`
-	ColumnIdx  int       `json:"column_idx"`
-	
+	Name      string    `json:"name"`
+	Type      IndexType `json:"type"`
+	ColumnIdx int       `json:"column_idx"`
+
 	// Index-specific parameters
 	Parameters map[string]interface{} `json:"parameters"`
-	
+
 	// Current status
-	Status     string `json:"status"`
-	IsOptimized bool  `json:"is_optimized"`
-	
+	Status      string `json:"status"`
+	IsOptimized bool   `json:"is_optimized"`
+
 	// Statistics
 	Statistics IndexStatistics `json:"statistics"`
 }
@@ -400,11 +400,11 @@ func (m *IndexManager) DescribeIndex(name string) (*IndexDescription, error) {
 	}
 
 	desc := &IndexDescription{
-		Name:       idx.Name(),
-		Type:       idx.Type(),
-		ColumnIdx:  idx.Columns()[0],
-		Parameters: make(map[string]interface{}),
-		Status:     "active",
+		Name:        idx.Name(),
+		Type:        idx.Type(),
+		ColumnIdx:   idx.Columns()[0],
+		Parameters:  make(map[string]interface{}),
+		Status:      "active",
 		IsOptimized: false,
 	}
 
@@ -420,14 +420,14 @@ func (m *IndexManager) DescribeIndex(name string) (*IndexDescription, error) {
 	case *BTreeIndex:
 		desc.Parameters["degree"] = BTreeDegree
 		desc.Parameters["implementation"] = "btree"
-		
+
 	case *IVFIndex:
 		desc.Parameters["nlist"] = index.nlist
 		desc.Parameters["nprobe"] = index.nprobe
 		desc.Parameters["dimension"] = index.dimension
 		desc.Parameters["metric"] = index.metricType.String()
 		desc.Parameters["implementation"] = "ivf"
-		
+
 	case *HNSWIndex:
 		desc.Parameters["M"] = index.M
 		desc.Parameters["Mmax"] = index.Mmax
@@ -445,7 +445,7 @@ func (m *IndexManager) DescribeIndex(name string) (*IndexDescription, error) {
 // DescribeIndexesByName returns descriptions for indexes matching a name pattern
 func (m *IndexManager) DescribeIndexesByName(pattern string) ([]*IndexDescription, error) {
 	var results []*IndexDescription
-	
+
 	// For now, do exact match or prefix match
 	for name := range m.indexes {
 		if name == pattern || (len(pattern) > 0 && len(name) >= len(pattern) && name[:len(pattern)] == pattern) {
@@ -456,7 +456,7 @@ func (m *IndexManager) DescribeIndexesByName(pattern string) ([]*IndexDescriptio
 			results = append(results, desc)
 		}
 	}
-	
+
 	return results, nil
 }
 
@@ -482,7 +482,7 @@ func (m *IndexManager) GetIndexStatistics(name string) (*IndexStatistics, error)
 	}
 
 	stats := idx.Statistics()
-	
+
 	return &IndexStatistics{
 		IndexStats:       stats,
 		IndexVersion:     1, // Current version
@@ -494,7 +494,7 @@ func (m *IndexManager) GetIndexStatistics(name string) (*IndexStatistics, error)
 // GetAllIndexStatistics returns statistics for all indexes
 func (m *IndexManager) GetAllIndexStatistics() ([]*IndexStatistics, error) {
 	var results []*IndexStatistics
-	
+
 	for name := range m.indexes {
 		stats, err := m.GetIndexStatistics(name)
 		if err != nil {
@@ -502,7 +502,7 @@ func (m *IndexManager) GetAllIndexStatistics() ([]*IndexStatistics, error) {
 		}
 		results = append(results, stats)
 	}
-	
+
 	return results, nil
 }
 

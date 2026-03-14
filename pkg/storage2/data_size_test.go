@@ -64,4 +64,3 @@ func TestCalculateDatasetDataSize(t *testing.T) {
 		t.Fatalf("CalculateDatasetDataSize = %d, want 384", size)
 	}
 }
-

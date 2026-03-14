@@ -9,15 +9,15 @@ import (
 
 // BTreeIndex is a B-tree based scalar index for efficient range and equality queries
 type BTreeIndex struct {
-	name       string
-	columnIdx  int
-	indexType  IndexType
-	root       *BTreeNode
-	mu         sync.RWMutex
-	stats      IndexStats
-	entries    uint64
-	minValue   interface{}
-	maxValue   interface{}
+	name          string
+	columnIdx     int
+	indexType     IndexType
+	root          *BTreeNode
+	mu            sync.RWMutex
+	stats         IndexStats
+	entries       uint64
+	minValue      interface{}
+	maxValue      interface{}
 	distinctCount uint64
 }
 
@@ -91,7 +91,7 @@ func (idx *BTreeIndex) RangeQuery(ctx context.Context, start, end interface{}) (
 
 	var result []uint64
 	node := idx.findLeafNode(start)
-	
+
 	for node != nil {
 		for i, key := range node.keys {
 			if btreeCompareValues(key, start) >= 0 && btreeCompareValues(key, end) <= 0 {
@@ -102,7 +102,7 @@ func (idx *BTreeIndex) RangeQuery(ctx context.Context, start, end interface{}) (
 		}
 		node = node.next
 	}
-	
+
 	return result, nil
 }
 
@@ -117,13 +117,13 @@ func (idx *BTreeIndex) EqualityQuery(ctx context.Context, value interface{}) ([]
 // equalityQuery is the internal implementation of equality query
 func (idx *BTreeIndex) equalityQuery(value interface{}) ([]uint64, error) {
 	node := idx.findLeafNode(value)
-	
+
 	for i, key := range node.keys {
 		if btreeCompareValues(key, value) == 0 {
 			return node.values[i], nil
 		}
 	}
-	
+
 	return nil, nil
 }
 
@@ -270,8 +270,9 @@ func (idx *BTreeIndex) updateMinMax(key interface{}) {
 
 // btreeCompareValues compares two values and returns:
 // -1 if a < b
-//  0 if a == b
-//  1 if a > b
+//
+//	0 if a == b
+//	1 if a > b
 func btreeCompareValues(a, b interface{}) int {
 	switch av := a.(type) {
 	case int64:

@@ -87,12 +87,12 @@ type GCSObjectIterator interface {
 // This implementation uses a simplified approach that can be replaced with the
 // actual cloud.google.com/go/storage client when needed.
 type GSObjectStore struct {
-	bucket     string
-	prefix     string
-	projectID  string
-	creds      *GSCredentials
-	client     GCSClient // lazy-initialized
-	emuClient  *emuGCSClient
+	bucket    string
+	prefix    string
+	projectID string
+	creds     *GSCredentials
+	client    GCSClient // lazy-initialized
+	emuClient *emuGCSClient
 }
 
 // GSObjectStoreOptions contains options for creating GSObjectStore

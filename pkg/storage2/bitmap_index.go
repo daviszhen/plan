@@ -15,17 +15,17 @@ type BitmapIndex struct {
 	name      string
 	columnIdx int
 	indexType IndexType
-	
+
 	// For each distinct value, we store a compressed bitmap of row positions
 	valueBitmaps map[string]*CompressedBitmap
-	
+
 	// Statistics
 	rowCount       uint64
 	distinctValues uint64
 	nullCount      uint64
 	hasNullBitmap  *CompressedBitmap // bitmap of rows with null values
-	
-	mu sync.RWMutex
+
+	mu    sync.RWMutex
 	stats IndexStats
 }
 
@@ -34,10 +34,10 @@ type BitmapIndex struct {
 type CompressedBitmap struct {
 	// Array of 64-bit words representing the bitmap
 	words []uint64
-	
+
 	// Number of set bits (cardinality)
 	cardinality uint64
-	
+
 	// Maximum bit position set
 	maxBit uint64
 }
@@ -64,11 +64,11 @@ func NewBitmapIndex(columnIdx int, opts ...BitmapIndexOption) *BitmapIndex {
 			DataType:  "boolean/enum", // Will be updated when data is added
 		},
 	}
-	
+
 	for _, opt := range opts {
 		opt(idx)
 	}
-	
+
 	return idx
 }
 
@@ -93,22 +93,22 @@ func (bi *BitmapIndex) Columns() []int {
 func (bi *BitmapIndex) Search(ctx context.Context, query interface{}, limit int) ([]uint64, error) {
 	bi.mu.RLock()
 	defer bi.mu.RUnlock()
-	
+
 	// For bitmap index, we interpret query as value equality
 	queryStr := fmt.Sprintf("%v", query)
-	
+
 	bitmap, exists := bi.valueBitmaps[queryStr]
 	if !exists {
 		return nil, nil
 	}
-	
+
 	rowIDs := bitmap.ToRowIDs()
-	
+
 	// Apply limit if specified
 	if limit > 0 && len(rowIDs) > limit {
 		rowIDs = rowIDs[:limit]
 	}
-	
+
 	return rowIDs, nil
 }
 
@@ -135,9 +135,9 @@ func (bi *BitmapIndex) EqualityQuery(ctx context.Context, value interface{}) ([]
 func (bi *BitmapIndex) Insert(value interface{}, rowID uint64) error {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
-	
+
 	valueStr := fmt.Sprintf("%v", value)
-	
+
 	// Handle null values specially
 	if valueStr == "<nil>" {
 		if bi.hasNullBitmap == nil {
@@ -153,15 +153,15 @@ func (bi *BitmapIndex) Insert(value interface{}, rowID uint64) error {
 			bi.valueBitmaps[valueStr] = bitmap
 			bi.distinctValues++
 		}
-		
+
 		bitmap.Set(rowID)
 	}
-	
+
 	// Update row count
 	if rowID >= bi.rowCount {
 		bi.rowCount = rowID + 1
 	}
-	
+
 	bi.updateStats()
 	return nil
 }
@@ -171,14 +171,14 @@ func (bi *BitmapIndex) InsertBatch(values []interface{}, rowIDs []uint64) error 
 	if len(values) != len(rowIDs) {
 		return fmt.Errorf("values and rowIDs length mismatch")
 	}
-	
+
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
-	
+
 	for i, value := range values {
 		valueStr := fmt.Sprintf("%v", value)
 		rowID := rowIDs[i]
-		
+
 		if valueStr == "&lt;nil&gt;" {
 			if bi.hasNullBitmap == nil {
 				bi.hasNullBitmap = NewCompressedBitmap()
@@ -194,12 +194,12 @@ func (bi *BitmapIndex) InsertBatch(values []interface{}, rowIDs []uint64) error 
 			}
 			bitmap.Set(rowID)
 		}
-		
+
 		if rowID >= bi.rowCount {
 			bi.rowCount = rowID + 1
 		}
 	}
-	
+
 	bi.updateStats()
 	return nil
 }
@@ -211,13 +211,13 @@ func (bi *BitmapIndex) And(bitmap1, bitmap2 *CompressedBitmap) *CompressedBitmap
 	if bitmap1 == nil || bitmap2 == nil {
 		return NewCompressedBitmap()
 	}
-	
+
 	result := NewCompressedBitmap()
 	maxWords := len(bitmap1.words)
 	if len(bitmap2.words) > maxWords {
 		maxWords = len(bitmap2.words)
 	}
-	
+
 	result.words = make([]uint64, maxWords)
 	for i := 0; i < maxWords; i++ {
 		word1 := uint64(0)
@@ -231,7 +231,7 @@ func (bi *BitmapIndex) And(bitmap1, bitmap2 *CompressedBitmap) *CompressedBitmap
 		result.words[i] = word1 & word2
 		result.cardinality += uint64(bits.OnesCount64(result.words[i]))
 	}
-	
+
 	result.maxBit = max(bitmap1.maxBit, bitmap2.maxBit)
 	return result
 }
@@ -247,13 +247,13 @@ func (bi *BitmapIndex) Or(bitmap1, bitmap2 *CompressedBitmap) *CompressedBitmap 
 	if bitmap2 == nil {
 		return bitmap1.Clone()
 	}
-	
+
 	result := NewCompressedBitmap()
 	maxWords := len(bitmap1.words)
 	if len(bitmap2.words) > maxWords {
 		maxWords = len(bitmap2.words)
 	}
-	
+
 	result.words = make([]uint64, maxWords)
 	for i := 0; i < maxWords; i++ {
 		word1 := uint64(0)
@@ -267,7 +267,7 @@ func (bi *BitmapIndex) Or(bitmap1, bitmap2 *CompressedBitmap) *CompressedBitmap 
 		result.words[i] = word1 | word2
 		result.cardinality += uint64(bits.OnesCount64(result.words[i]))
 	}
-	
+
 	result.maxBit = max(bitmap1.maxBit, bitmap2.maxBit)
 	return result
 }
@@ -282,10 +282,10 @@ func (bi *BitmapIndex) Not(bitmap *CompressedBitmap) *CompressedBitmap {
 		}
 		return result
 	}
-	
+
 	result := NewCompressedBitmap()
 	wordsNeeded := (bi.rowCount + 63) / 64
-	
+
 	result.words = make([]uint64, wordsNeeded)
 	for i := uint64(0); i < wordsNeeded; i++ {
 		word := uint64(0)
@@ -294,19 +294,19 @@ func (bi *BitmapIndex) Not(bitmap *CompressedBitmap) *CompressedBitmap {
 		}
 		result.words[i] = ^word
 	}
-	
+
 	// Clear bits beyond rowCount
 	if bi.rowCount%64 != 0 {
 		lastWordIdx := wordsNeeded - 1
 		mask := uint64(1)<<(bi.rowCount%64) - 1
 		result.words[lastWordIdx] &= mask
 	}
-	
+
 	// Calculate cardinality
 	for _, word := range result.words {
 		result.cardinality += uint64(bits.OnesCount64(word))
 	}
-	
+
 	result.maxBit = bi.rowCount - 1
 	return result
 }
@@ -315,7 +315,7 @@ func (bi *BitmapIndex) Not(bitmap *CompressedBitmap) *CompressedBitmap {
 func (bi *BitmapIndex) GetBitmap(value interface{}) *CompressedBitmap {
 	bi.mu.RLock()
 	defer bi.mu.RUnlock()
-	
+
 	valueStr := fmt.Sprintf("%v", value)
 	if bitmap, exists := bi.valueBitmaps[valueStr]; exists {
 		return bitmap
@@ -336,7 +336,7 @@ func (bi *BitmapIndex) GetValueCardinality(value interface{}) uint64 {
 func (bi *BitmapIndex) ListValues() []string {
 	bi.mu.RLock()
 	defer bi.mu.RUnlock()
-	
+
 	values := make([]string, 0, len(bi.valueBitmaps))
 	for value := range bi.valueBitmaps {
 		values = append(values, value)
@@ -349,21 +349,21 @@ func (bi *BitmapIndex) ListValues() []string {
 func (bi *BitmapIndex) updateStats() {
 	totalBits := uint64(0)
 	totalSize := uint64(0)
-	
+
 	for _, bitmap := range bi.valueBitmaps {
 		totalBits += bitmap.cardinality
 		totalSize += uint64(len(bitmap.words) * 8) // 8 bytes per uint64
 	}
-	
+
 	if bi.hasNullBitmap != nil {
 		totalSize += uint64(len(bi.hasNullBitmap.words) * 8)
 	}
-	
+
 	bi.stats.NumEntries = bi.rowCount
 	bi.stats.SizeBytes = totalSize
 	bi.stats.DistinctValues = bi.distinctValues
 	bi.stats.NullCount = bi.nullCount
-	
+
 	// Estimate compression ratio
 	if bi.rowCount > 0 {
 		uncompressedSize := bi.rowCount / 8 // bits to bytes
@@ -381,25 +381,25 @@ func (bi *BitmapIndex) updateStats() {
 func (bi *BitmapIndex) MarshalBinary() ([]byte, error) {
 	bi.mu.RLock()
 	defer bi.mu.RUnlock()
-	
+
 	// Simple binary format:
 	// [header][value_count][value_entries][null_bitmap]
-	
+
 	var buf []byte
-	
+
 	// Header: rowCount, distinctValues, nullCount (24 bytes)
 	header := make([]byte, 24)
 	binary.LittleEndian.PutUint64(header[0:8], bi.rowCount)
 	binary.LittleEndian.PutUint64(header[8:16], bi.distinctValues)
 	binary.LittleEndian.PutUint64(header[16:24], bi.nullCount)
 	buf = append(buf, header...)
-	
+
 	// Value count (4 bytes)
 	valueCount := uint32(len(bi.valueBitmaps))
 	countBuf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(countBuf, valueCount)
 	buf = append(buf, countBuf...)
-	
+
 	// Value entries: [value_len][value][bitmap_data_len][bitmap_data]
 	for value, bitmap := range bi.valueBitmaps {
 		// Value length and data
@@ -408,7 +408,7 @@ func (bi *BitmapIndex) MarshalBinary() ([]byte, error) {
 		binary.LittleEndian.PutUint32(lenBuf, valueLen)
 		buf = append(buf, lenBuf...)
 		buf = append(buf, []byte(value)...)
-		
+
 		// Bitmap data
 		bitmapData, err := bitmap.MarshalBinary()
 		if err != nil {
@@ -420,7 +420,7 @@ func (bi *BitmapIndex) MarshalBinary() ([]byte, error) {
 		buf = append(buf, dataLenBuf...)
 		buf = append(buf, bitmapData...)
 	}
-	
+
 	// Null bitmap (if exists)
 	if bi.hasNullBitmap != nil {
 		nullData, err := bi.hasNullBitmap.MarshalBinary()
@@ -434,7 +434,7 @@ func (bi *BitmapIndex) MarshalBinary() ([]byte, error) {
 		nullFlag := []byte{0} // 0 byte flag indicating no null bitmap
 		buf = append(buf, nullFlag...)
 	}
-	
+
 	return buf, nil
 }
 
@@ -442,61 +442,61 @@ func (bi *BitmapIndex) MarshalBinary() ([]byte, error) {
 func (bi *BitmapIndex) UnmarshalBinary(data []byte) error {
 	bi.mu.Lock()
 	defer bi.mu.Unlock()
-	
+
 	if len(data) < 28 { // minimum header size
 		return fmt.Errorf("insufficient data for bitmap index")
 	}
-	
+
 	// Parse header
 	bi.rowCount = binary.LittleEndian.Uint64(data[0:8])
 	bi.distinctValues = binary.LittleEndian.Uint64(data[8:16])
 	bi.nullCount = binary.LittleEndian.Uint64(data[16:24])
-	
+
 	valueCount := binary.LittleEndian.Uint32(data[24:28])
 	offset := 28
-	
+
 	bi.valueBitmaps = make(map[string]*CompressedBitmap)
-	
+
 	// Parse value entries
 	for i := uint32(0); i < valueCount; i++ {
 		if offset+4 > len(data) {
 			return fmt.Errorf("unexpected end of data while reading value length")
 		}
-		
+
 		valueLen := binary.LittleEndian.Uint32(data[offset : offset+4])
 		offset += 4
-		
+
 		if offset+int(valueLen)+4 > len(data) {
 			return fmt.Errorf("unexpected end of data while reading value")
 		}
-		
+
 		value := string(data[offset : offset+int(valueLen)])
 		offset += int(valueLen)
-		
+
 		dataLen := binary.LittleEndian.Uint32(data[offset : offset+4])
 		offset += 4
-		
+
 		if offset+int(dataLen) > len(data) {
 			return fmt.Errorf("unexpected end of data while reading bitmap")
 		}
-		
+
 		bitmap := NewCompressedBitmap()
 		if err := bitmap.UnmarshalBinary(data[offset : offset+int(dataLen)]); err != nil {
 			return err
 		}
-		
+
 		bi.valueBitmaps[value] = bitmap
 		offset += int(dataLen)
 	}
-	
+
 	// Parse null bitmap
 	if offset >= len(data) {
 		return fmt.Errorf("missing null bitmap flag")
 	}
-	
+
 	hasNull := data[offset] != 0
 	offset++
-	
+
 	if hasNull {
 		if offset >= len(data) {
 			return fmt.Errorf("missing null bitmap data")
@@ -507,7 +507,7 @@ func (bi *BitmapIndex) UnmarshalBinary(data []byte) error {
 			return err
 		}
 	}
-	
+
 	bi.updateStats()
 	return nil
 }
@@ -525,18 +525,18 @@ func NewCompressedBitmap() *CompressedBitmap {
 func (cb *CompressedBitmap) Set(bit uint64) {
 	wordIdx := bit / 64
 	bitIdx := bit % 64
-	
+
 	// Extend words slice if needed
 	for uint64(len(cb.words)) <= wordIdx {
 		cb.words = append(cb.words, 0)
 	}
-	
+
 	// Set the bit
 	if cb.words[wordIdx]&(1<<bitIdx) == 0 {
 		cb.words[wordIdx] |= 1 << bitIdx
 		cb.cardinality++
 	}
-	
+
 	if bit > cb.maxBit {
 		cb.maxBit = bit
 	}
@@ -546,35 +546,35 @@ func (cb *CompressedBitmap) Set(bit uint64) {
 func (cb *CompressedBitmap) Get(bit uint64) bool {
 	wordIdx := bit / 64
 	bitIdx := bit % 64
-	
+
 	if wordIdx >= uint64(len(cb.words)) {
 		return false
 	}
-	
+
 	return cb.words[wordIdx]&(1<<bitIdx) != 0
 }
 
 // ToRowIDs converts the bitmap to a sorted slice of row IDs
 func (cb *CompressedBitmap) ToRowIDs() []uint64 {
 	rowIDs := make([]uint64, 0, cb.cardinality)
-	
+
 	for wordIdx, word := range cb.words {
 		if word == 0 {
 			continue
 		}
-		
+
 		for bitIdx := 0; bitIdx < 64; bitIdx++ {
 			if word&(1<<uint(bitIdx)) != 0 {
 				rowIDs = append(rowIDs, uint64(wordIdx)*64+uint64(bitIdx))
 			}
 		}
 	}
-	
+
 	// Sort to ensure consistent order
 	sort.Slice(rowIDs, func(i, j int) bool {
 		return rowIDs[i] < rowIDs[j]
 	})
-	
+
 	return rowIDs
 }
 
@@ -593,17 +593,17 @@ func (cb *CompressedBitmap) Clone() *CompressedBitmap {
 func (cb *CompressedBitmap) MarshalBinary() ([]byte, error) {
 	// Format: [cardinality][maxBit][word_count][words...]
 	buf := make([]byte, 8+8+4+len(cb.words)*8)
-	
+
 	binary.LittleEndian.PutUint64(buf[0:8], cb.cardinality)
 	binary.LittleEndian.PutUint64(buf[8:16], cb.maxBit)
-	
+
 	wordCount := uint32(len(cb.words))
 	binary.LittleEndian.PutUint32(buf[16:20], wordCount)
-	
+
 	for i, word := range cb.words {
 		binary.LittleEndian.PutUint64(buf[20+i*8:28+i*8], word)
 	}
-	
+
 	return buf, nil
 }
 
@@ -612,20 +612,20 @@ func (cb *CompressedBitmap) UnmarshalBinary(data []byte) error {
 	if len(data) < 20 {
 		return fmt.Errorf("insufficient data for compressed bitmap")
 	}
-	
+
 	cb.cardinality = binary.LittleEndian.Uint64(data[0:8])
 	cb.maxBit = binary.LittleEndian.Uint64(data[8:16])
-	
+
 	wordCount := binary.LittleEndian.Uint32(data[16:20])
 	if len(data) < 20+int(wordCount)*8 {
 		return fmt.Errorf("insufficient data for bitmap words")
 	}
-	
+
 	cb.words = make([]uint64, wordCount)
 	for i := uint32(0); i < wordCount; i++ {
 		cb.words[i] = binary.LittleEndian.Uint64(data[20+i*8 : 28+i*8])
 	}
-	
+
 	return nil
 }
 

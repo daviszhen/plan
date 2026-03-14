@@ -42,12 +42,12 @@ func TestBTreeIndexBasicOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RangeQuery failed: %v", err)
 	}
-	
+
 	// Should find keys 10, 15, 20
 	expected := []uint64{1, 4, 2}
 	sort.Slice(rangeResult, func(i, j int) bool { return rangeResult[i] < rangeResult[j] })
 	sort.Slice(expected, func(i, j int) bool { return expected[i] < expected[j] })
-	
+
 	if len(rangeResult) != len(expected) {
 		t.Errorf("RangeQuery expected %v, got %v", expected, rangeResult)
 	}
@@ -269,7 +269,7 @@ func TestBTreeIndexConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			for j := 0; j < 10; j++ {
 				key := int64(j * 10)
 				_, err := idx.EqualityQuery(ctx, key)

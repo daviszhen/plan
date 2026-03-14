@@ -16,19 +16,19 @@ import (
 type BloomFilter struct {
 	// Bit array storing the filter state
 	bits []uint64
-	
+
 	// Number of bits in the filter
 	numBits uint64
-	
+
 	// Number of hash functions
 	numHashes int
-	
+
 	// Number of items inserted
 	numItems uint64
-	
+
 	// Target false positive rate
 	falsePositiveRate float64
-	
+
 	mu sync.RWMutex
 }
 
@@ -36,14 +36,14 @@ type BloomFilter struct {
 type BloomFilterIndex struct {
 	name      string
 	indexType IndexType
-	
+
 	// Bloom filters by column index
 	filters map[int]*BloomFilter
-	
+
 	// Bloom filters by fragment ID (for finer granularity)
 	// fragmentID -> columnIdx -> BloomFilter
 	fragmentFilters map[uint64]map[int]*BloomFilter
-	
+
 	mu    sync.RWMutex
 	stats IndexStats
 }
@@ -52,10 +52,10 @@ type BloomFilterIndex struct {
 type BloomFilterConfig struct {
 	// Expected number of items to insert
 	ExpectedItems uint64
-	
+
 	// Target false positive rate (0.0 to 1.0)
 	FalsePositiveRate float64
-	
+
 	// Maximum memory usage in bytes (0 = unlimited)
 	MaxMemoryBytes uint64
 }
@@ -85,20 +85,20 @@ func NewBloomFilter(config BloomFilterConfig) *BloomFilter {
 	// Using formulas:
 	// numBits = -n * ln(p) / (ln(2)^2)
 	// numHashes = (numBits / n) * ln(2)
-	
+
 	n := float64(config.ExpectedItems)
 	p := config.FalsePositiveRate
-	
+
 	if p <= 0 {
 		p = 0.01
 	}
 	if p >= 1 {
 		p = 0.99
 	}
-	
+
 	numBits := uint64(math.Ceil(-n * math.Log(p) / (math.Ln2 * math.Ln2)))
 	numHashes := int(math.Ceil((float64(numBits) / n) * math.Ln2))
-	
+
 	// Ensure minimum values
 	if numBits < 64 {
 		numBits = 64
@@ -109,7 +109,7 @@ func NewBloomFilter(config BloomFilterConfig) *BloomFilter {
 	if numHashes > 20 {
 		numHashes = 20 // Cap to avoid too many hash computations
 	}
-	
+
 	// Check memory constraint
 	if config.MaxMemoryBytes > 0 {
 		maxBits := config.MaxMemoryBytes * 8
@@ -117,10 +117,10 @@ func NewBloomFilter(config BloomFilterConfig) *BloomFilter {
 			numBits = maxBits
 		}
 	}
-	
+
 	// Allocate bit array (using uint64 words)
 	numWords := (numBits + 63) / 64
-	
+
 	return &BloomFilter{
 		bits:              make([]uint64, numWords),
 		numBits:           numBits,
@@ -141,11 +141,11 @@ func NewBloomFilterIndex(opts ...BloomFilterIndexOption) *BloomFilterIndex {
 			IndexType: "bloomfilter",
 		},
 	}
-	
+
 	for _, opt := range opts {
 		opt(idx)
 	}
-	
+
 	return idx
 }
 
@@ -165,7 +165,7 @@ func (bfi *BloomFilterIndex) Type() IndexType {
 func (bfi *BloomFilterIndex) Columns() []int {
 	bfi.mu.RLock()
 	defer bfi.mu.RUnlock()
-	
+
 	cols := make([]int, 0, len(bfi.filters))
 	for col := range bfi.filters {
 		cols = append(cols, col)
@@ -203,7 +203,7 @@ func (bfi *BloomFilterIndex) EqualityQuery(ctx context.Context, value interface{
 func (bf *BloomFilter) Add(item []byte) {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
-	
+
 	hashes := bf.computeHashes(item)
 	for _, h := range hashes {
 		bf.setBit(h)
@@ -246,7 +246,7 @@ func (bf *BloomFilter) AddValue(value interface{}) error {
 func (bf *BloomFilter) MightContain(item []byte) bool {
 	bf.mu.RLock()
 	defer bf.mu.RUnlock()
-	
+
 	hashes := bf.computeHashes(item)
 	for _, h := range hashes {
 		if !bf.getBit(h) {
@@ -290,7 +290,7 @@ func (bf *BloomFilter) computeHashes(item []byte) []uint64 {
 	// Compute two base hashes using FNV-1a
 	h1 := fnvHash(item, 0)
 	h2 := fnvHash(item, h1)
-	
+
 	hashes := make([]uint64, bf.numHashes)
 	for i := 0; i < bf.numHashes; i++ {
 		// Double hashing: h(i) = h1 + i * h2
@@ -342,17 +342,17 @@ func (bf *BloomFilter) NumItems() uint64 {
 func (bf *BloomFilter) EstimatedFalsePositiveRate() float64 {
 	bf.mu.RLock()
 	defer bf.mu.RUnlock()
-	
+
 	if bf.numItems == 0 {
 		return 0
 	}
-	
+
 	// Formula: (1 - e^(-k*n/m))^k
 	// where k = numHashes, n = numItems, m = numBits
 	k := float64(bf.numHashes)
 	n := float64(bf.numItems)
 	m := float64(bf.numBits)
-	
+
 	return math.Pow(1-math.Exp(-k*n/m), k)
 }
 
@@ -360,7 +360,7 @@ func (bf *BloomFilter) EstimatedFalsePositiveRate() float64 {
 func (bf *BloomFilter) Clear() {
 	bf.mu.Lock()
 	defer bf.mu.Unlock()
-	
+
 	for i := range bf.bits {
 		bf.bits[i] = 0
 	}
@@ -380,7 +380,7 @@ func (bfi *BloomFilterIndex) GetFilter(columnIdx int) *BloomFilter {
 func (bfi *BloomFilterIndex) GetFragmentFilter(fragmentID uint64, columnIdx int) *BloomFilter {
 	bfi.mu.RLock()
 	defer bfi.mu.RUnlock()
-	
+
 	if fragFilters, exists := bfi.fragmentFilters[fragmentID]; exists {
 		return fragFilters[columnIdx]
 	}
@@ -391,7 +391,7 @@ func (bfi *BloomFilterIndex) GetFragmentFilter(fragmentID uint64, columnIdx int)
 func (bfi *BloomFilterIndex) CreateFilter(columnIdx int, config BloomFilterConfig) error {
 	bfi.mu.Lock()
 	defer bfi.mu.Unlock()
-	
+
 	bfi.filters[columnIdx] = NewBloomFilter(config)
 	bfi.updateStats()
 	return nil
@@ -401,13 +401,13 @@ func (bfi *BloomFilterIndex) CreateFilter(columnIdx int, config BloomFilterConfi
 func (bfi *BloomFilterIndex) CreateFragmentFilter(fragmentID uint64, columnIdx int, config BloomFilterConfig) error {
 	bfi.mu.Lock()
 	defer bfi.mu.Unlock()
-	
+
 	fragFilters, exists := bfi.fragmentFilters[fragmentID]
 	if !exists {
 		fragFilters = make(map[int]*BloomFilter)
 		bfi.fragmentFilters[fragmentID] = fragFilters
 	}
-	
+
 	fragFilters[columnIdx] = NewBloomFilter(config)
 	bfi.updateStats()
 	return nil
@@ -417,19 +417,19 @@ func (bfi *BloomFilterIndex) CreateFragmentFilter(fragmentID uint64, columnIdx i
 func (bfi *BloomFilterIndex) AddToFilter(columnIdx int, value interface{}) error {
 	bfi.mu.Lock()
 	defer bfi.mu.Unlock()
-	
+
 	filter, exists := bfi.filters[columnIdx]
 	if !exists {
 		// Create filter with default config if not exists
 		filter = NewBloomFilter(DefaultBloomFilterConfig())
 		bfi.filters[columnIdx] = filter
 	}
-	
+
 	err := filter.AddValue(value)
 	if err != nil {
 		return err
 	}
-	
+
 	bfi.updateStats()
 	return nil
 }
@@ -438,24 +438,24 @@ func (bfi *BloomFilterIndex) AddToFilter(columnIdx int, value interface{}) error
 func (bfi *BloomFilterIndex) AddToFragmentFilter(fragmentID uint64, columnIdx int, value interface{}) error {
 	bfi.mu.Lock()
 	defer bfi.mu.Unlock()
-	
+
 	fragFilters, exists := bfi.fragmentFilters[fragmentID]
 	if !exists {
 		fragFilters = make(map[int]*BloomFilter)
 		bfi.fragmentFilters[fragmentID] = fragFilters
 	}
-	
+
 	filter, exists := fragFilters[columnIdx]
 	if !exists {
 		filter = NewBloomFilter(DefaultBloomFilterConfig())
 		fragFilters[columnIdx] = filter
 	}
-	
+
 	err := filter.AddValue(value)
 	if err != nil {
 		return err
 	}
-	
+
 	bfi.updateStats()
 	return nil
 }
@@ -464,12 +464,12 @@ func (bfi *BloomFilterIndex) AddToFragmentFilter(fragmentID uint64, columnIdx in
 func (bfi *BloomFilterIndex) MightContain(columnIdx int, value interface{}) (bool, error) {
 	bfi.mu.RLock()
 	defer bfi.mu.RUnlock()
-	
+
 	filter, exists := bfi.filters[columnIdx]
 	if !exists {
 		return false, fmt.Errorf("no bloom filter for column %d", columnIdx)
 	}
-	
+
 	return filter.MightContainValue(value)
 }
 
@@ -477,17 +477,17 @@ func (bfi *BloomFilterIndex) MightContain(columnIdx int, value interface{}) (boo
 func (bfi *BloomFilterIndex) MightContainInFragment(fragmentID uint64, columnIdx int, value interface{}) (bool, error) {
 	bfi.mu.RLock()
 	defer bfi.mu.RUnlock()
-	
+
 	fragFilters, exists := bfi.fragmentFilters[fragmentID]
 	if !exists {
 		return false, nil // No filter means we can't prune
 	}
-	
+
 	filter, exists := fragFilters[columnIdx]
 	if !exists {
 		return false, nil
 	}
-	
+
 	return filter.MightContainValue(value)
 }
 
@@ -505,25 +505,25 @@ func (bfi *BloomFilterIndex) CanPrune(fragmentID uint64, columnIdx int, value in
 func (bfi *BloomFilterIndex) GetPrunableFragments(columnIdx int, value interface{}) []uint64 {
 	bfi.mu.RLock()
 	defer bfi.mu.RUnlock()
-	
+
 	var prunable []uint64
-	
+
 	for fragID, fragFilters := range bfi.fragmentFilters {
 		filter, exists := fragFilters[columnIdx]
 		if !exists {
 			continue
 		}
-		
+
 		mightContain, err := filter.MightContainValue(value)
 		if err != nil {
 			continue
 		}
-		
+
 		if !mightContain {
 			prunable = append(prunable, fragID)
 		}
 	}
-	
+
 	return prunable
 }
 
@@ -533,11 +533,11 @@ func MergeFilters(filters ...*BloomFilter) (*BloomFilter, error) {
 	if len(filters) == 0 {
 		return nil, fmt.Errorf("no filters to merge")
 	}
-	
+
 	// Check that all filters have the same size
 	numBits := filters[0].numBits
 	numHashes := filters[0].numHashes
-	
+
 	for _, f := range filters {
 		if f.numBits != numBits {
 			return nil, fmt.Errorf("cannot merge filters with different sizes")
@@ -546,7 +546,7 @@ func MergeFilters(filters ...*BloomFilter) (*BloomFilter, error) {
 			return nil, fmt.Errorf("cannot merge filters with different number of hashes")
 		}
 	}
-	
+
 	// Create new filter
 	result := &BloomFilter{
 		bits:              make([]uint64, len(filters[0].bits)),
@@ -554,7 +554,7 @@ func MergeFilters(filters ...*BloomFilter) (*BloomFilter, error) {
 		numHashes:         numHashes,
 		falsePositiveRate: filters[0].falsePositiveRate,
 	}
-	
+
 	// OR all bit arrays
 	for _, f := range filters {
 		for i, word := range f.bits {
@@ -562,7 +562,7 @@ func MergeFilters(filters ...*BloomFilter) (*BloomFilter, error) {
 		}
 		result.numItems += f.numItems
 	}
-	
+
 	return result, nil
 }
 
@@ -572,21 +572,21 @@ func MergeFilters(filters ...*BloomFilter) (*BloomFilter, error) {
 func (bf *BloomFilter) MarshalBinary() ([]byte, error) {
 	bf.mu.RLock()
 	defer bf.mu.RUnlock()
-	
+
 	// Format:
 	// [numBits][numHashes][numItems][falsePositiveRate][bits...]
-	
+
 	buf := make([]byte, 8+4+8+8+len(bf.bits)*8)
-	
+
 	binary.LittleEndian.PutUint64(buf[0:8], bf.numBits)
 	binary.LittleEndian.PutUint32(buf[8:12], uint32(bf.numHashes))
 	binary.LittleEndian.PutUint64(buf[12:20], bf.numItems)
 	binary.LittleEndian.PutUint64(buf[20:28], math.Float64bits(bf.falsePositiveRate))
-	
+
 	for i, word := range bf.bits {
 		binary.LittleEndian.PutUint64(buf[28+i*8:36+i*8], word)
 	}
-	
+
 	return buf, nil
 }
 
@@ -595,22 +595,22 @@ func (bf *BloomFilter) UnmarshalBinary(data []byte) error {
 	if len(data) < 28 {
 		return fmt.Errorf("insufficient data for bloom filter")
 	}
-	
+
 	bf.numBits = binary.LittleEndian.Uint64(data[0:8])
 	bf.numHashes = int(binary.LittleEndian.Uint32(data[8:12]))
 	bf.numItems = binary.LittleEndian.Uint64(data[12:20])
 	bf.falsePositiveRate = math.Float64frombits(binary.LittleEndian.Uint64(data[20:28]))
-	
+
 	numWords := (bf.numBits + 63) / 64
 	if len(data) < 28+int(numWords)*8 {
 		return fmt.Errorf("insufficient data for bloom filter bits")
 	}
-	
+
 	bf.bits = make([]uint64, numWords)
 	for i := uint64(0); i < numWords; i++ {
 		bf.bits[i] = binary.LittleEndian.Uint64(data[28+i*8 : 36+i*8])
 	}
-	
+
 	return nil
 }
 
@@ -618,22 +618,22 @@ func (bf *BloomFilter) UnmarshalBinary(data []byte) error {
 func (bfi *BloomFilterIndex) MarshalBinary() ([]byte, error) {
 	bfi.mu.RLock()
 	defer bfi.mu.RUnlock()
-	
+
 	// Similar format to ZoneMapIndex
 	var buf []byte
-	
+
 	// Number of columns
 	numCols := uint32(len(bfi.filters))
 	colCountBuf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(colCountBuf, numCols)
 	buf = append(buf, colCountBuf...)
-	
+
 	// Column filters
 	for colIdx, filter := range bfi.filters {
 		colBuf := make([]byte, 4)
 		binary.LittleEndian.PutUint32(colBuf, uint32(colIdx))
 		buf = append(buf, colBuf...)
-		
+
 		filterData, err := filter.MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -643,29 +643,29 @@ func (bfi *BloomFilterIndex) MarshalBinary() ([]byte, error) {
 		buf = append(buf, filterLenBuf...)
 		buf = append(buf, filterData...)
 	}
-	
+
 	// Number of fragments
 	numFrags := uint32(len(bfi.fragmentFilters))
 	fragCountBuf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(fragCountBuf, numFrags)
 	buf = append(buf, fragCountBuf...)
-	
+
 	// Fragment filters
 	for fragID, fragFilters := range bfi.fragmentFilters {
 		fragIDBuf := make([]byte, 8)
 		binary.LittleEndian.PutUint64(fragIDBuf, fragID)
 		buf = append(buf, fragIDBuf...)
-		
+
 		numFragCols := uint32(len(fragFilters))
 		numFragColsBuf := make([]byte, 4)
 		binary.LittleEndian.PutUint32(numFragColsBuf, numFragCols)
 		buf = append(buf, numFragColsBuf...)
-		
+
 		for colIdx, filter := range fragFilters {
 			colBuf := make([]byte, 4)
 			binary.LittleEndian.PutUint32(colBuf, uint32(colIdx))
 			buf = append(buf, colBuf...)
-			
+
 			filterData, err := filter.MarshalBinary()
 			if err != nil {
 				return nil, err
@@ -676,7 +676,7 @@ func (bfi *BloomFilterIndex) MarshalBinary() ([]byte, error) {
 			buf = append(buf, filterData...)
 		}
 	}
-	
+
 	return buf, nil
 }
 
@@ -684,69 +684,69 @@ func (bfi *BloomFilterIndex) MarshalBinary() ([]byte, error) {
 func (bfi *BloomFilterIndex) UnmarshalBinary(data []byte) error {
 	bfi.mu.Lock()
 	defer bfi.mu.Unlock()
-	
+
 	if len(data) < 4 {
 		return fmt.Errorf("insufficient data for bloom filter index")
 	}
-	
+
 	offset := 0
-	
+
 	// Number of columns
 	numCols := binary.LittleEndian.Uint32(data[offset : offset+4])
 	offset += 4
-	
+
 	bfi.filters = make(map[int]*BloomFilter)
-	
+
 	for i := uint32(0); i < numCols; i++ {
 		colIdx := int(binary.LittleEndian.Uint32(data[offset : offset+4]))
 		offset += 4
-		
+
 		filterLen := binary.LittleEndian.Uint32(data[offset : offset+4])
 		offset += 4
-		
+
 		filter := &BloomFilter{}
 		if err := filter.UnmarshalBinary(data[offset : offset+int(filterLen)]); err != nil {
 			return err
 		}
 		offset += int(filterLen)
-		
+
 		bfi.filters[colIdx] = filter
 	}
-	
+
 	// Number of fragments
 	numFrags := binary.LittleEndian.Uint32(data[offset : offset+4])
 	offset += 4
-	
+
 	bfi.fragmentFilters = make(map[uint64]map[int]*BloomFilter)
-	
+
 	for i := uint32(0); i < numFrags; i++ {
 		fragID := binary.LittleEndian.Uint64(data[offset : offset+8])
 		offset += 8
-		
+
 		numFragCols := binary.LittleEndian.Uint32(data[offset : offset+4])
 		offset += 4
-		
+
 		fragFilters := make(map[int]*BloomFilter)
-		
+
 		for j := uint32(0); j < numFragCols; j++ {
 			colIdx := int(binary.LittleEndian.Uint32(data[offset : offset+4]))
 			offset += 4
-			
+
 			filterLen := binary.LittleEndian.Uint32(data[offset : offset+4])
 			offset += 4
-			
+
 			filter := &BloomFilter{}
 			if err := filter.UnmarshalBinary(data[offset : offset+int(filterLen)]); err != nil {
 				return err
 			}
 			offset += int(filterLen)
-			
+
 			fragFilters[colIdx] = filter
 		}
-		
+
 		bfi.fragmentFilters[fragID] = fragFilters
 	}
-	
+
 	bfi.updateStats()
 	return nil
 }
@@ -762,19 +762,19 @@ func serializeValueForBloom(value interface{}) ([]byte, error) {
 func (bfi *BloomFilterIndex) updateStats() {
 	totalItems := uint64(0)
 	totalSize := uint64(0)
-	
+
 	for _, filter := range bfi.filters {
 		totalItems += filter.numItems
 		totalSize += filter.Size()
 	}
-	
+
 	for _, fragFilters := range bfi.fragmentFilters {
 		for _, filter := range fragFilters {
 			totalItems += filter.numItems
 			totalSize += filter.Size()
 		}
 	}
-	
+
 	bfi.stats.NumEntries = totalItems
 	bfi.stats.SizeBytes = totalSize
 }

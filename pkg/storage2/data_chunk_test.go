@@ -154,7 +154,7 @@ func TestWriteChunkToFileReadChunkFromFileVarlenExtended(t *testing.T) {
 		{large, false},     // 大 payload
 		{"mixed-1", false}, // 混合
 		{"", true},         // NULL
-		{"尾部", false},       // 多字节
+		{"尾部", false},      // 多字节
 	}
 	col1 := []struct {
 		str   string
