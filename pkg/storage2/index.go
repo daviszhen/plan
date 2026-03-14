@@ -158,8 +158,31 @@ func NewIndexManager(basePath string, handler CommitHandler) *IndexManager {
 
 // CreateScalarIndex creates a scalar index on a column
 func (m *IndexManager) CreateScalarIndex(ctx context.Context, name string, columnIdx int) error {
-	// TODO: Implement scalar index creation
-	return fmt.Errorf("scalar index creation not yet implemented")
+	// Create B-tree index as default scalar index
+	idx := NewBTreeIndex(name, columnIdx)
+	m.indexes[name] = idx
+	return nil
+}
+
+// CreateBitmapIndex creates a bitmap index on a column
+func (m *IndexManager) CreateBitmapIndex(ctx context.Context, name string, columnIdx int) error {
+	idx := NewBitmapIndex(columnIdx, WithBitmapIndexName(name))
+	m.indexes[name] = idx
+	return nil
+}
+
+// CreateZoneMapIndex creates a zone map index
+func (m *IndexManager) CreateZoneMapIndex(ctx context.Context, name string) error {
+	idx := NewZoneMapIndex(WithZoneMapIndexName(name))
+	m.indexes[name] = idx
+	return nil
+}
+
+// CreateBloomFilterIndex creates a bloom filter index
+func (m *IndexManager) CreateBloomFilterIndex(ctx context.Context, name string) error {
+	idx := NewBloomFilterIndex(WithBloomFilterIndexName(name))
+	m.indexes[name] = idx
+	return nil
 }
 
 // CreateVectorIndex creates a vector index on a column
@@ -209,6 +232,12 @@ func (m *IndexManager) OptimizeIndex(ctx context.Context, name string) error {
 	switch index := idx.(type) {
 	case *BTreeIndex:
 		return m.optimizeBTreeIndex(index)
+	case *BitmapIndex:
+		return m.optimizeBitmapIndex(index)
+	case *ZoneMapIndex:
+		return m.optimizeZoneMapIndex(index)
+	case *BloomFilterIndex:
+		return m.optimizeBloomFilterIndex(index)
 	case *IVFIndex:
 		return m.optimizeIVFIndex(index)
 	case *HNSWIndex:
@@ -216,6 +245,27 @@ func (m *IndexManager) OptimizeIndex(ctx context.Context, name string) error {
 	default:
 		return fmt.Errorf("optimization not supported for index type %T", idx)
 	}
+}
+
+// optimizeBitmapIndex optimizes a bitmap index
+func (m *IndexManager) optimizeBitmapIndex(idx *BitmapIndex) error {
+	// Bitmap indexes are typically compact already
+	// Could implement compression optimization in the future
+	return nil
+}
+
+// optimizeZoneMapIndex optimizes a zone map index
+func (m *IndexManager) optimizeZoneMapIndex(idx *ZoneMapIndex) error {
+	// Zone maps are updated automatically during writes
+	// Could implement merging of fragmented zone maps
+	return nil
+}
+
+// optimizeBloomFilterIndex optimizes a bloom filter index
+func (m *IndexManager) optimizeBloomFilterIndex(idx *BloomFilterIndex) error {
+	// Bloom filters could be rebuilt if false positive rate is too high
+	// For now, just return success
+	return nil
 }
 
 // optimizeBTreeIndex optimizes a B-tree index

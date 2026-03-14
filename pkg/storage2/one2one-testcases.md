@@ -195,9 +195,23 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 | lance-table/lance-io 对齐（Phase 6.5） | ✅ 完成 | Phase 6.5 |
 | GSObjectStore/AZObjectStore（Phase 6.6） | ✅ 完成 | Phase 6.6 |
 
+### Phase 7 完成状态汇总
+
+| 功能模块 | 状态 | 完成时间 |
+|----------|------|----------|
+| Bitmap 索引（BIT1-4） | ✅ 完成 | Phase 7.1 |
+| ZoneMap 索引（ZON1-4） | ✅ 完成 | Phase 7.2 |
+| BloomFilter 索引（BLM1-4） | ✅ 完成 | Phase 7.3 |
+| Index Selector（SEL1-3） | ✅ 完成 | Phase 7.4 |
+| Scanner 集成（SCAN1-2） | ✅ 完成 | Phase 7.5 |
+
 ### 待实现功能
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| 无 | - | Phase 6 全部完成 |
+| Phase 8: 编码层 | P1 | 列编码、压缩、字典编码 |
+| Phase 9: 高级事务 | P2 | 嵌套事务、保存点 |
+| Phase 10: 分布式能力 | P2 | 分布式提交、一致性协议 |
+| Phase 11: 查询优化 | P3 | 代价估算、执行计划优化 |
+| Phase 12: 生产特性 | P3 | 监控、诊断、运维工具 |
 
