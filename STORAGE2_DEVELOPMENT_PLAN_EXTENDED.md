@@ -97,26 +97,43 @@
 |------|--------|------|----------|
 | CLN1 | P2 | ✅ completed | **浅克隆**：实现 `ShallowClone()` 方法；对应 Java `testShallowClone`。 |
 
-### 4.3 URI 与对象存储
+### 4.3 版本管理与分支
+
+| 编号 | 优先级 | 状态 | 任务描述 |
+|------|--------|------|----------|
+| RST1 | P2 | ✅ completed | **版本恢复**：实现 `Restore()` 方法，支持将数据集恢复到指定版本；对应 Java `testDatasetRestore`。 |
+| BRH1 | P2 | ✅ completed | **分支管理**：实现完整的分支 CRUD 操作（Create/Get/List/Delete）；对应 Java `testBranches`。 |
+| TAG1 | P2 | ✅ completed | **Tag 打开数据集**：实现 `OpenDatasetWithTag()` 方法，支持按 tag 名称打开数据集。 |
+
+### 4.4 数据统计与查询增强
+
+| 编号 | 优先级 | 状态 | 任务描述 |
+|------|--------|------|----------|
+| DSZ1 | P2 | ✅ completed | **数据大小统计**：实现 `DataSize()` 方法，基于 Manifest 元数据计算数据大小；对应 Java `testCalculateDataSize`。 |
+| SCN1 | P1 | ✅ completed | **Scanner 过滤**：实现 `Scanner.WithFilter()` 方法，支持基础过滤表达式；对应 Rust scanner filter。 |
+| SCN2 | P1 | ✅ completed | **Scanner 列投影**：实现 `Scanner.WithColumns()` 方法，支持列选择；对应 Rust scanner projection。 |
+| TAK1 | P2 | ✅ completed | **Take 列投影**：实现 `TakeProjected()` 方法，支持随机访问时指定列；对应 Rust take projection。 |
+
+### 4.5 URI 与对象存储
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
 | URI1 | P3 | planned | **Dataset URI 支持**：支持 s3://, gs:// 等对象存储 URI；对应 Java `testDatasetUri`。 |
 
-### 4.4 Detached Transaction
+### 4.6 Detached Transaction
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
 | DT1 | P3 | planned | **Detached Transaction**：实现分离式事务提交模型；对应 Java `testCommitTransactionDetachedTrue`。 |
 
-### 4.5 编解码与压缩
+### 4.7 编解码与压缩
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
 | ENC1 | P3 | planned | **Lance 编码格式**：实现 Lance 的编码格式支持；对应 `rust/lance-encoding`。 |
 | CMP6 | P3 | planned | **数据压缩**：实现数据压缩算法支持。 |
 
-### 4.6 DataFusion 集成
+### 4.8 DataFusion 集成
 
 | 编号 | 优先级 | 状态 | 任务描述 |
 |------|--------|------|----------|
@@ -143,5 +160,5 @@
 
 ---
 
-*文档版本：0.2（扩展阶段规划）*
-*更新时间：2026-03-13*
+*文档版本：0.3（扩展阶段规划 - 更新已完成项）*
+*更新时间：2026-03-14*

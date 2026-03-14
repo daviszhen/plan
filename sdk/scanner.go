@@ -52,6 +52,14 @@ func (d *datasetImpl) Scanner() *ScannerBuilder {
 	}
 }
 
+// WithFilter sets the filter expression for the scanner.
+// The filter string supports:
+//   - Comparison: "c0 = 1", "c1 > 10", "c2 <= 100"
+//   - String comparison: "name = 'foo'", "name LIKE 'bar%'"
+//   - NULL checks: "c0 IS NULL", "c1 IS NOT NULL"
+//   - IN expressions: "id IN (1, 2, 3)"
+//   - Boolean operators: "c0 > 10 AND c1 < 100", "c0 = 1 OR c0 = 2", "NOT c0 = 1"
+//   - Parentheses: "(c0 > 10 OR c1 > 10) AND c2 < 100"
 func (b *ScannerBuilder) WithFilter(filter string) *ScannerBuilder {
 	b.filter = filter
 	return b
@@ -107,11 +115,12 @@ type scannerImpl struct {
 	// It is derived from columns on first batch load. If empty, all columns are used.
 	selectedCols []int
 
-	// simple filter support: currently only expressions like "c0 = 1" or "c1 > 10".
-	filterColIdx int
-	filterOp     string // "=", ">", "<", ">=", "<="
-	filterValue  int64  // minimal implementation: integer comparisons
-	filterInited bool
+	// filterPredicate is the compiled filter predicate
+	filterPredicate storage2.FilterPredicate
+	filterInited    bool
+
+	// filterMask caches the filter evaluation result for the current chunk
+	filterMask []bool
 }
 
 func (s *scannerImpl) Next() bool {
@@ -216,9 +225,18 @@ func (s *scannerImpl) loadNextBatch() error {
 		}
 		colCount := c.ColumnCount()
 
-		// 初始化 filter：目前仅支持形如 "c0 = 1" / "c1 > 10" 的整数比较。
+		// 初始化 filter：解析并编译过滤表达式
 		if s.filter != "" && !s.filterInited {
 			if err := s.initFilter(c); err != nil {
+				return err
+			}
+		}
+
+		// Evaluate filter on the entire chunk once
+		var filterMask []bool
+		if s.filterPredicate != nil {
+			filterMask, err = s.filterPredicate.Evaluate(c)
+			if err != nil {
 				return err
 			}
 		}
@@ -254,10 +272,8 @@ func (s *scannerImpl) loadNextBatch() error {
 			}
 
 			// filter 处理：不满足条件的行直接跳过
-			if s.filterInited {
-				if match, err := s.evalFilter(c, i); err != nil {
-					return err
-				} else if !match {
+			if filterMask != nil {
+				if !filterMask[i] {
 					rowIndex++
 					continue
 				}
@@ -304,55 +320,15 @@ func (s *scannerImpl) loadNextBatch() error {
 	return nil
 }
 
-// initFilter parses a very simple filter string like "c0 = 1" or "c1 > 10".
-// It currently only supports integer comparisons on a single column.
+// initFilter parses the filter string into a FilterPredicate.
+// Supports complex expressions including AND, OR, NOT, comparisons, IN, LIKE, IS NULL.
 func (s *scannerImpl) initFilter(firstChunk *chunk.Chunk) error {
-	tokens := strings.Fields(s.filter)
-	if len(tokens) != 3 {
-		return fmt.Errorf("unsupported filter %q: expect form \"cN op value\"", s.filter)
-	}
-	colToken, op, valueToken := tokens[0], tokens[1], tokens[2]
-	if !strings.HasPrefix(colToken, "c") {
-		return fmt.Errorf("unsupported filter column %q (expect c{index})", colToken)
-	}
-	colIdx, err := strconv.Atoi(strings.TrimPrefix(colToken, "c"))
-	if err != nil || colIdx < 0 || colIdx >= firstChunk.ColumnCount() {
-		return fmt.Errorf("filter column %q out of range", colToken)
-	}
-	switch op {
-	case "=", ">", "<", ">=", "<=":
-		// supported ops
-	default:
-		return fmt.Errorf("unsupported filter operator %q", op)
-	}
-	v, err := strconv.ParseInt(valueToken, 10, 64)
+	predicate, err := storage2.ParseFilter(s.filter, nil)
 	if err != nil {
-		return fmt.Errorf("unsupported filter value %q: only integer literals are supported", valueToken)
+		return fmt.Errorf("failed to parse filter %q: %w", s.filter, err)
 	}
-	s.filterColIdx = colIdx
-	s.filterOp = op
-	s.filterValue = v
+	s.filterPredicate = predicate
 	s.filterInited = true
 	return nil
-}
-
-// evalFilter evaluates the initialized filter against the given row in the chunk.
-func (s *scannerImpl) evalFilter(c *chunk.Chunk, row int) (bool, error) {
-	val := c.Data[s.filterColIdx].GetValue(row)
-	rowVal := val.I64
-	switch s.filterOp {
-	case "=":
-		return rowVal == s.filterValue, nil
-	case ">":
-		return rowVal > s.filterValue, nil
-	case "<":
-		return rowVal < s.filterValue, nil
-	case ">=":
-		return rowVal >= s.filterValue, nil
-	case "<=":
-		return rowVal <= s.filterValue, nil
-	default:
-		return false, fmt.Errorf("unexpected filter operator %q", s.filterOp)
-	}
 }
 

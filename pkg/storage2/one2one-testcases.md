@@ -48,11 +48,11 @@ Storage2 对应关系（更偏元数据 + Chunk 数据文件）：
 | `rust/lance/src/dataset/tests/dataset_versioning.rs` | Dataset 版本/checkout/refs 等 | **部分对应**：SDK 级 `TestDatasetVersioning`、`TestCheckoutVersion`；更多语义（refs/restore/branches）**可以实现** |
 | `rust/lance/src/dataset/tests/dataset_scanner.rs`、`rust/lance/src/dataset/scanner.rs` | 扫描、投影、过滤、batch 读取 | **部分对应**：Storage2 提供 `ScanChunks`（全表扫描）和 SDK `Scanner` 最小实现（`ScannerBasic`），当前不支持 filter/投影，仅顺序扫描所有行；后续可逐步对齐过滤与列选择 | 
 | `rust/lance/src/dataset/take.rs`、`rust/lance/src/io/exec/take.rs` | Take / 随机访问 | **可以实现**（需 row→fragment/chunk 映射 + Take API；可复用 `fragment_offsets.go`） |
-| `rust/lance/src/dataset/schema_evolution.rs`、`dataset_io.rs` | Schema 演进、读写兼容 | **暂不实现**（需 Schema API + Manifest/schema 更新） |
+| `rust/lance/src/dataset/schema_evolution.rs`、`dataset_io.rs` | Schema 演进、读写兼容 | ✅ **已完成**：`sdk/dataset.go` DropColumns/AlterColumns/AddColumns/DropPath |
 | `rust/lance/src/dataset/blob.rs` | Blob/变长列读写边界 | **部分对应**：`data_chunk_test.go: TestWriteChunkToFileReadChunkFromFileVarlen`（变长字符串边界）；后续可扩展到 BLOB/更大 payload | |
 | `rust/lance/src/io/commit/*.rs`（含 s3/dynamodb/external manifest） | 提交协议、对象存储一致性、外部 manifest | **部分对应**：`commit.go`/`commit_txn.go`/冲突矩阵；对象存储/S3/ **可以实现**；DDB**暂不实现** |
-| `rust/lance/src/index/*`、`rust/lance-index/src/*` | 标量/向量/倒排索引、统计、优化 | **可以实现** |
-| `rust/lance/src/io/exec/*`（scan/filtered_read/rowids/knn/fts 等） | 执行层 pushdown、rowid、全文等 | knn、**暂不实现**;其它**可以实现** |
+| `rust/lance/src/index/*`、`rust/lance-index/src/*` | 标量/向量/倒排索引、统计、优化 | ✅ **已完成**：`index.go` B-tree/IVF/HNSW 索引实现 |
+| `rust/lance/src/io/exec/*`（scan/filtered_read/rowids/knn/fts 等） | 执行层 pushdown、rowid、全文等 | ✅ **已完成**：pushdown.go 过滤/投影；knn **暂不实现** |
 | `rust/lance-table/src/*` | 表格式/manifest/rowids | **部分对应**：Manifest/Transaction proto 结构对齐；其余 **可以实现** |
 | `rust/lance-io/src/*` | object_store/scheduler/encodings | **部分对应**：`LocalObjectStore` 的最小读写/list/mkdir；调度与编码 **可以实现** |
 | `rust/lance-encoding/src/*` | 编解码、统计、压缩 | **暂不实现** |
@@ -85,9 +85,9 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 |------------|----------|-------------------|------|
 | `testDatasetVersion` | 版本号递增、`latestVersion`、版本时间戳、按版本打开 | ✅ **已完成**：`commit_test.go`、`commit_txn_test.go`、`sdk/dataset_test.go: TestDatasetVersioning` | Storage2 不维护时间戳；版本号与 latestVersion、`WithVersion` 已覆盖。 |
 | `testDatasetCheckoutVersion` | checkout 到旧版本再读 | ✅ **已完成**：`sdk/dataset_test.go: TestCheckoutVersion` | 通过 `OpenDataset(...).WithVersion(v)` 打开旧版本，校验 `CountRows()` 随版本变化。 |
-| `testDatasetRestore` | Restore 版本 | ⏳ **暂不实现** | Storage2 未提供 Restore/Undo 语义。 |
+| `testDatasetRestore` | Restore 版本 | ✅ **已完成**：`refs.go:387` `Restore()` + `refs_test.go: TestRestore` | Storage2 已实现 Restore 语义，可将数据集恢复到指定版本。 |
 | `testTags` | Tag（命名版本）相关操作 | ✅ **已完成**：`tags_test.go: TestListTagsAndResolveTagVersion` + `sdk/dataset_test.go: TestOpenDatasetWithTag` | 底层 ListTags/ResolveTagVersion + SDK 按 tag 打开 Dataset 均已实现。 |
-| `testBranches` | 分支管理（类似 Git Branch） | ⏳ **暂不实现** | Storage2 当前版本模型为单线性版本号，无分支；保留为未来扩展。 |
+| `testBranches` | 分支管理（类似 Git Branch） | ✅ **已完成**：`refs.go:48-312` Branches CRUD + `refs_test.go: TestBranchesCreateGetDelete` | Storage2 已实现完整的分支管理功能，包括创建、获取、删除分支。 |
 
 ### 2.3 Schema / 列操作
 
@@ -105,7 +105,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 |------------|----------|-------------------|------|
 | `testTake` | 按行号随机访问 | ✅ **已完成**：`scanner_test.go: TestTakeRowsSingleFragment` / `TestTakeRowsMultiFragment` | 通过 `TakeRows` + `ComputeFragmentOffsets` 支持单/多 fragment 的随机访问（基础整型列）。 |
 | `testCountRows` | 按条件计数 | ✅ **已完成基础**：`sdk/dataset_test.go: TestCreateAndOpenDataset` / `TestDeleteAndOverwrite` | 当前只测试全表 `CountRows()`；未来扩展带谓词的计数时可对齐。 |
-| `testCalculateDataSize` | 计算数据大小 | ⏳ **暂不实现** | Storage2 未暴露数据大小统计 API，后续可用 Manifest + DataFile 的 size 字段实现。 |
+| `testCalculateDataSize` | 计算数据大小 | ✅ **已完成**：`sdk/dataset.go:136` `DataSize()` + `data_size.go` | Storage2 已实现数据大小统计 API，基于 Manifest 元数据计算。 |
 | `testDeleteRows` | 逻辑删除行 | ✅ **已完成**：`comparison_test.go: TestOperationBehaviorDelete`、`sdk/dataset_test.go: TestDelete` | Manifest 层 Delete + SDK 端到端 Delete（当前按 Fragment 粒度）。 |
 
 ### 2.5 配置和元数据
@@ -164,7 +164,7 @@ Storage2 当前仅实现：Manifest / Transaction / Commit / Conflict / Path 约
 ## 4. 后续工作建议
 
 - **P0（已完成）**：SDK 层版本与错误路径测试已实现（`TestDatasetVersioning`、`TestCheckoutVersion`、`TestOpenInvalidPath`、`TestOpenNonExist`、`TestOpenExistingManifestDataset`、`TestCreateOnExistingDir`、`TestDelete`）；事务列表测试已实现（`txn_file_test.go: TestLoadTransactionsAfter`）；Scanner/Take 最小实现及对应测试已完成。
-- **P1（开发计划见 STORAGE2_DEVELOPMENT_PLAN.md 7.4.1）**：Scanner 列投影（S1）、Scanner 过滤（S2）、count_lance_file 对应测试（S3）。
-- **P2**：Take 列投影（T1）、Blob/变长边界测试（B1）、Config field_metadata 扩展（C1）、SDK OpenDatasetWithTag（Tag1）、testCalculateDataSize（D1）等，见开发计划 7.4.1。
+- **P1（已完成）**：Scanner 列投影（S1）✅ `sdk/scanner.go: WithColumns`；Scanner 过滤（S2）✅ `sdk/scanner.go: WithFilter`；count_lance_file 对应测试（S3）仍待实现。
+- **P2（部分完成）**：Take 列投影（T1）✅ `sdk/dataset.go: TakeProjected()`；Blob/变长边界测试（B1）✅ 已覆盖；Config field_metadata 扩展（C1）框架已就绪；SDK OpenDatasetWithTag（Tag1）✅ `sdk/dataset.go:861`；testCalculateDataSize（D1）✅ `sdk/dataset.go: DataSize()`。
 - **P3**：版本语义扩展（refs/restore）、对象存储 S3 提交、执行层 pushdown、lance-table/lance-io 其余可对齐部分；Schema/Compaction/Index 等高级特性在实现后直接参考上表 `DatasetTest` 补充一一对应测试。
 

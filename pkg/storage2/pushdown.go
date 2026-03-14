@@ -192,14 +192,20 @@ func compareValues(a, b *chunk.Value, op ComparisonOp) bool {
 		return false
 	}
 
-	// Type checking
-	if a.Typ.Id != b.Typ.Id {
-		return false
-	}
+	// Normalize types for comparison - treat INTEGER and BIGINT as compatible
+	aTypeId := a.Typ.Id
+	bTypeId := b.Typ.Id
+
+	// Check if both are integer types
+	aIsInt := aTypeId == common.LTID_INTEGER || aTypeId == common.LTID_BIGINT
+	bIsInt := bTypeId == common.LTID_INTEGER || bTypeId == common.LTID_BIGINT
+
+	// Check if both are float types
+	aIsFloat := aTypeId == common.LTID_FLOAT || aTypeId == common.LTID_DOUBLE
+	bIsFloat := bTypeId == common.LTID_FLOAT || bTypeId == common.LTID_DOUBLE
 
 	// Compare based on type
-	switch a.Typ.Id {
-	case common.LTID_INTEGER, common.LTID_BIGINT:
+	if aIsInt && bIsInt {
 		aVal := a.I64
 		bVal := b.I64
 		switch op {
@@ -216,7 +222,9 @@ func compareValues(a, b *chunk.Value, op ComparisonOp) bool {
 		case Ge:
 			return aVal >= bVal
 		}
-	case common.LTID_FLOAT, common.LTID_DOUBLE:
+	}
+
+	if aIsFloat && bIsFloat {
 		aVal := a.F64
 		bVal := b.F64
 		switch op {
@@ -233,6 +241,14 @@ func compareValues(a, b *chunk.Value, op ComparisonOp) bool {
 		case Ge:
 			return aVal >= bVal
 		}
+	}
+
+	// Type checking for other types
+	if aTypeId != bTypeId {
+		return false
+	}
+
+	switch aTypeId {
 	case common.LTID_VARCHAR:
 		aVal := a.Str
 		bVal := b.Str

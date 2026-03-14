@@ -11,6 +11,21 @@ import (
 	"github.com/daviszhen/plan/pkg/storage2/proto"
 )
 
+// DefaultStoreFactory is the global default store factory
+var defaultStoreFactory = storage2.NewStoreFactory(storage2.StoreFactoryOptions{
+	EnableCache: true,
+})
+
+// SetDefaultStoreFactory sets the global default store factory
+func SetDefaultStoreFactory(factory *storage2.StoreFactory) {
+	defaultStoreFactory = factory
+}
+
+// GetDefaultStoreFactory returns the global default store factory
+func GetDefaultStoreFactory() *storage2.StoreFactory {
+	return defaultStoreFactory
+}
+
 // ColumnAlteration describes how to alter an existing column.
 type ColumnAlteration struct {
 	// Path is the field path to alter (e.g., "name" or "address.city").
@@ -58,6 +73,9 @@ type Dataset interface {
 	Version() uint64
 	LatestVersion() (uint64, error)
 	CountRows() (uint64, error)
+	// CountRowsWithFilter counts rows matching the given filter predicate.
+	// See CountRowsWithFilter method documentation for filter syntax.
+	CountRowsWithFilter(ctx context.Context, filter string) (uint64, error)
 	// DataSize returns the total data size in bytes based on manifest metadata.
 	DataSize() (uint64, error)
 	// Schema returns the schema of the current version.
@@ -131,6 +149,32 @@ func (d *datasetImpl) CountRows() (uint64, error) {
 		total += frag.PhysicalRows
 	}
 	return total, nil
+}
+
+// CountRowsWithFilter counts rows matching the given filter predicate.
+// The filter string supports:
+//   - Comparison: "c0 = 1", "c1 > 10", "c2 <= 100"
+//   - String comparison: "name = 'foo'", "name LIKE 'bar%'"
+//   - NULL checks: "c0 IS NULL", "c1 IS NOT NULL"
+//   - IN expressions: "id IN (1, 2, 3)"
+//   - Boolean operators: "c0 > 10 AND c1 < 100", "c0 = 1 OR c0 = 2", "NOT c0 = 1"
+//   - Parentheses: "(c0 > 10 OR c1 > 10) AND c2 < 100"
+func (d *datasetImpl) CountRowsWithFilter(ctx context.Context, filter string) (uint64, error) {
+	if d.currentManifest == nil {
+		return 0, nil
+	}
+
+	// Parse filter expression
+	predicate, err := storage2.ParseFilter(filter, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse filter: %w", err)
+	}
+
+	if predicate == nil {
+		return d.CountRows()
+	}
+
+	return storage2.CountRowsWithFilter(ctx, d.basePath, d.handler, d.version, predicate)
 }
 
 func (d *datasetImpl) DataSize() (uint64, error) {
@@ -819,27 +863,87 @@ func (d *datasetImpl) TakeProjected(ctx context.Context, indices []uint64, colum
 
 // datasetBuilder is used by OpenDataset and CreateDataset.
 type datasetBuilder struct {
+	uri       string
 	basePath  string
 	version   *uint64
 	handler   storage2.CommitHandler
 	isCreate  bool
 	readOpts  *ReadOptions
+	store     storage2.ObjectStoreExt
+}
+
+// parseURIToPath parses a URI and returns the local path for backward compatibility
+// or the full URI for cloud storage. It also returns a CommitHandler appropriate
+// for the storage scheme.
+func parseURIToPath(ctx context.Context, uri string) (string, storage2.CommitHandler, error) {
+	parsed, err := storage2.ParseURI(uri)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// For local filesystem, return the path directly
+	if parsed.IsLocal() {
+		return parsed.Path, storage2.NewLocalRenameCommitHandler(), nil
+	}
+
+	// For cloud storage, use the store factory
+	handler, err := defaultStoreFactory.GetCommitHandler(ctx, uri)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get commit handler for URI %q: %w", uri, err)
+	}
+
+	// For cloud storage, basePath is the URI path within the bucket
+	return parsed.Path, handler, nil
 }
 
 // OpenDataset opens an existing dataset at basePath. Use WithVersion and WithCommitHandler, then Build().
+// The basePath can be:
+//   - A local path: "/path/to/dataset" or "file:///path/to/dataset"
+//   - An S3 URI: "s3://bucket/path/to/dataset"
+//   - A memory URI: "mem://dataset-name" (for testing)
 func OpenDataset(ctx context.Context, basePath string) *datasetBuilder {
+	// Try to parse as URI and get appropriate handler
+	path, handler, err := parseURIToPath(ctx, basePath)
+	if err != nil {
+		// Fall back to local filesystem for backward compatibility
+		return &datasetBuilder{
+			uri:      basePath,
+			basePath: basePath,
+			handler:  storage2.NewLocalRenameCommitHandler(),
+			isCreate: false,
+		}
+	}
+
 	return &datasetBuilder{
-		basePath: basePath,
-		handler:  storage2.NewLocalRenameCommitHandler(),
+		uri:      basePath,
+		basePath: path,
+		handler:  handler,
 		isCreate: false,
 	}
 }
 
 // CreateDataset creates a new empty dataset at basePath. Use WithCommitHandler, then Build().
+// The basePath can be:
+//   - A local path: "/path/to/dataset" or "file:///path/to/dataset"
+//   - An S3 URI: "s3://bucket/path/to/dataset"
+//   - A memory URI: "mem://dataset-name" (for testing)
 func CreateDataset(ctx context.Context, basePath string) *datasetBuilder {
+	// Try to parse as URI and get appropriate handler
+	path, handler, err := parseURIToPath(ctx, basePath)
+	if err != nil {
+		// Fall back to local filesystem for backward compatibility
+		return &datasetBuilder{
+			uri:      basePath,
+			basePath: basePath,
+			handler:  storage2.NewLocalRenameCommitHandler(),
+			isCreate: true,
+		}
+	}
+
 	return &datasetBuilder{
-		basePath: basePath,
-		handler:  storage2.NewLocalRenameCommitHandler(),
+		uri:      basePath,
+		basePath: path,
+		handler:  handler,
 		isCreate: true,
 	}
 }
