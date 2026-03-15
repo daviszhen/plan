@@ -3,6 +3,8 @@ package storage2
 import (
 	"testing"
 
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -337,4 +339,194 @@ func TestTokenize(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNullPredicateEvaluate tests NullPredicate.Evaluate method.
+func TestNullPredicateEvaluate(t *testing.T) {
+	c := createTestChunkWithNulls(t)
+
+	pred := &NullPredicate{ColumnIndex: 0}
+	mask, err := pred.Evaluate(c)
+	require.NoError(t, err)
+	require.Equal(t, 4, len(mask))
+
+	// Check NULL detection (index 1 and 3 are nil)
+	expected := []bool{false, true, false, true}
+	for i, want := range expected {
+		require.Equal(t, want, mask[i], "row %d", i)
+	}
+
+	// Test CanPushdown
+	require.True(t, pred.CanPushdown())
+
+	// Test String
+	require.Contains(t, pred.String(), "IS NULL")
+}
+
+// TestNotNullPredicateEvaluate tests NotNullPredicate.Evaluate method.
+func TestNotNullPredicateEvaluate(t *testing.T) {
+	c := createTestChunkWithNulls(t)
+
+	pred := &NotNullPredicate{ColumnIndex: 0}
+	mask, err := pred.Evaluate(c)
+	require.NoError(t, err)
+	require.Equal(t, 4, len(mask))
+
+	// Check NOT NULL detection (index 0 and 2 are not nil)
+	expected := []bool{true, false, true, false}
+	for i, want := range expected {
+		require.Equal(t, want, mask[i], "row %d", i)
+	}
+
+	// Test CanPushdown
+	require.True(t, pred.CanPushdown())
+
+	// Test String
+	require.Contains(t, pred.String(), "IS NOT NULL")
+}
+
+// TestInPredicateEvaluate tests InPredicate.Evaluate method.
+func TestInPredicateEvaluate(t *testing.T) {
+	c := createTestChunkForIn(t)
+
+	// Test IN (1, 3)
+	pred := &InPredicate{
+		ColumnIndex: 0,
+		Values:      createChunkValues([]int64{1, 3}),
+	}
+	mask, err := pred.Evaluate(c)
+	require.NoError(t, err)
+	require.Equal(t, 5, len(mask))
+
+	// Values: 1, 2, 3, 4, 5 -> IN (1, 3) = true, false, true, false, false
+	expected := []bool{true, false, true, false, false}
+	for i, want := range expected {
+		require.Equal(t, want, mask[i], "row %d", i)
+	}
+
+	// Test CanPushdown
+	require.True(t, pred.CanPushdown())
+
+	// Test String
+	require.Contains(t, pred.String(), "IN")
+}
+
+// TestLikePredicateEvaluate tests LikePredicate.Evaluate method.
+func TestLikePredicateEvaluate(t *testing.T) {
+	c := createTestChunkForLike(t)
+
+	// Test LIKE 'foo%'
+	pred := &LikePredicate{
+		ColumnIndex: 0,
+		Pattern:     "foo%",
+	}
+	mask, err := pred.Evaluate(c)
+	require.NoError(t, err)
+	require.Equal(t, 4, len(mask))
+
+	// Strings: "foobar", "bar", "football", nil -> LIKE 'foo%' = true, false, true, false
+	expected := []bool{true, false, true, false}
+	for i, want := range expected {
+		require.Equal(t, want, mask[i], "row %d", i)
+	}
+
+	// Test CanPushdown
+	require.True(t, pred.CanPushdown())
+
+	// Test String
+	require.Contains(t, pred.String(), "LIKE")
+	require.Contains(t, pred.String(), "foo%")
+}
+
+// TestPredicateOutOfRange tests predicates with invalid column index.
+func TestPredicateOutOfRange(t *testing.T) {
+	c := createTestChunkWithNulls(t)
+
+	// Test NullPredicate with invalid column
+	nullPred := &NullPredicate{ColumnIndex: 99}
+	_, err := nullPred.Evaluate(c)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "out of range")
+
+	// Test NotNullPredicate with invalid column
+	notNullPred := &NotNullPredicate{ColumnIndex: -1}
+	_, err = notNullPred.Evaluate(c)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "out of range")
+
+	// Test InPredicate with invalid column
+	inPred := &InPredicate{ColumnIndex: 99, Values: nil}
+	_, err = inPred.Evaluate(c)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "out of range")
+
+	// Test LikePredicate with invalid column
+	likePred := &LikePredicate{ColumnIndex: 99, Pattern: "%"}
+	_, err = likePred.Evaluate(c)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "out of range")
+}
+
+// Helper function to create a test chunk with null values
+func createTestChunkWithNulls(t *testing.T) *chunk.Chunk {
+	t.Helper()
+	typs := []common.LType{common.MakeLType(common.LTID_INTEGER)}
+	c := &chunk.Chunk{}
+	c.Init(typs, 4)
+	c.SetCard(4)
+
+	// Set values: 10, nil, 20, nil
+	col := c.Data[0]
+	col.SetValue(0, &chunk.Value{Typ: typs[0], I64: 10})
+	col.SetValue(1, &chunk.Value{Typ: typs[0], I64: 0}) // Set a placeholder
+	chunk.SetNullInPhyFormatFlat(col, 1, true)          // Mark as null
+	col.SetValue(2, &chunk.Value{Typ: typs[0], I64: 20})
+	col.SetValue(3, &chunk.Value{Typ: typs[0], I64: 0}) // Set a placeholder
+	chunk.SetNullInPhyFormatFlat(col, 3, true)          // Mark as null
+
+	return c
+}
+
+// Helper function to create a test chunk for IN tests
+func createTestChunkForIn(t *testing.T) *chunk.Chunk {
+	t.Helper()
+	typs := []common.LType{common.MakeLType(common.LTID_INTEGER)}
+	c := &chunk.Chunk{}
+	c.Init(typs, 5)
+	c.SetCard(5)
+
+	col := c.Data[0]
+	for i := 0; i < 5; i++ {
+		col.SetValue(i, &chunk.Value{Typ: typs[0], I64: int64(i + 1)}) // 1, 2, 3, 4, 5
+	}
+
+	return c
+}
+
+// Helper function to create a test chunk for LIKE tests
+func createTestChunkForLike(t *testing.T) *chunk.Chunk {
+	t.Helper()
+	typs := []common.LType{common.MakeLType(common.LTID_VARCHAR)}
+	c := &chunk.Chunk{}
+	c.Init(typs, 4)
+	c.SetCard(4)
+
+	col := c.Data[0]
+	col.SetValue(0, &chunk.Value{Typ: typs[0], Str: "foobar"})
+	col.SetValue(1, &chunk.Value{Typ: typs[0], Str: "bar"})
+	col.SetValue(2, &chunk.Value{Typ: typs[0], Str: "football"})
+	col.SetValue(3, &chunk.Value{Typ: typs[0], Str: ""}) // Set placeholder
+	chunk.SetNullInPhyFormatFlat(col, 3, true)           // Mark as null
+
+	return c
+}
+
+// Helper function to create chunk values for IN predicate
+func createChunkValues(values []int64) []*chunk.Value {
+	typ := common.MakeLType(common.LTID_INTEGER)
+	result := make([]*chunk.Value, len(values))
+	for i, v := range values {
+		result[i] = &chunk.Value{Typ: typ, I64: v}
+	}
+	return result
 }

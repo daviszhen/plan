@@ -44,6 +44,8 @@ func BuildManifest(current *Manifest, txn *Transaction) (*Manifest, error) {
 		return buildManifestCreateIndex(current, op.CreateIndex)
 	case *storage2pb.Transaction_DataReplacement_:
 		return buildManifestDataReplacement(current, op.DataReplacement)
+	case *storage2pb.Transaction_UpdateMemWalState_:
+		return buildManifestUpdateMemWalState(current, op.UpdateMemWalState)
 	default:
 		return nil, fmt.Errorf("unsupported operation type %T", txn.Operation)
 	}
@@ -380,3 +382,29 @@ func buildManifestClone(current *Manifest, cloneOp *storage2pb.Transaction_Clone
 }
 
 func ptrUint32(u uint32) *uint32 { return &u }
+
+// buildManifestUpdateMemWalState applies an UpdateMemWalState operation.
+// This operation records which generations have been merged to the base table.
+// The merged generations are stored in the table metadata for tracking.
+func buildManifestUpdateMemWalState(current *Manifest, updateOp *storage2pb.Transaction_UpdateMemWalState) (*Manifest, error) {
+	next := protobuf.Clone(current).(*Manifest)
+	next.Version = current.Version + 1
+
+	if next.TableMetadata == nil {
+		next.TableMetadata = make(map[string]string)
+	}
+
+	// Store merged generations as JSON in table metadata
+	// In a full implementation, this would update the MemWalIndexDetails
+	// in the index section instead.
+	for _, mg := range updateOp.GetMergedGenerations() {
+		if mg == nil || mg.RegionId == nil {
+			continue
+		}
+		// Create a key for each region's merged generation
+		regionKey := fmt.Sprintf("memwal.merged_gen.%x", mg.RegionId.Uuid)
+		next.TableMetadata[regionKey] = fmt.Sprintf("%d", mg.Generation)
+	}
+
+	return next, nil
+}

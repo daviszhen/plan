@@ -211,6 +211,75 @@ type MigrationManager struct {
 	table *Table
 }
 
+// CountDeletedRows returns the total number of deleted rows across all fragments
+func CountDeletedRows(ctx context.Context, basePath string, store ObjectStoreExt, handler CommitHandler) (uint64, error) {
+	// Get the latest version
+	version, err := handler.ResolveLatestVersion(ctx, basePath)
+	if err != nil {
+		return 0, fmt.Errorf("resolve latest version: %w", err)
+	}
+
+	// Load the manifest
+	manifest, err := LoadManifest(ctx, basePath, handler, version)
+	if err != nil {
+		return 0, fmt.Errorf("load manifest: %w", err)
+	}
+
+	return CountDeletedRowsFromManifest(manifest), nil
+}
+
+// CountDeletedRowsFromManifest counts deleted rows from a given manifest
+func CountDeletedRowsFromManifest(manifest *Manifest) uint64 {
+	if manifest == nil {
+		return 0
+	}
+
+	var totalDeleted uint64
+	for _, frag := range manifest.Fragments {
+		if frag == nil || frag.DeletionFile == nil {
+			continue
+		}
+		totalDeleted += frag.DeletionFile.NumDeletedRows
+	}
+
+	return totalDeleted
+}
+
+// CountDeletedRowsForFragment returns the number of deleted rows for a specific fragment
+func CountDeletedRowsForFragment(ctx context.Context, basePath string, store ObjectStoreExt,
+	handler CommitHandler, fragmentID uint64) (uint64, error) {
+
+	// Get the latest version
+	version, err := handler.ResolveLatestVersion(ctx, basePath)
+	if err != nil {
+		return 0, fmt.Errorf("resolve latest version: %w", err)
+	}
+
+	// Load the manifest
+	manifest, err := LoadManifest(ctx, basePath, handler, version)
+	if err != nil {
+		return 0, fmt.Errorf("load manifest: %w", err)
+	}
+
+	// Find the fragment
+	for _, frag := range manifest.Fragments {
+		if frag != nil && frag.Id == fragmentID {
+			if frag.DeletionFile != nil {
+				return frag.DeletionFile.NumDeletedRows, nil
+			}
+			return 0, nil
+		}
+	}
+
+	return 0, fmt.Errorf("fragment %d not found", fragmentID)
+}
+
+// Table.CountDeletedRows returns the total number of deleted rows for this table
+func (t *Table) CountDeletedRows(ctx context.Context) (uint64, error) {
+	store := NewLocalObjectStoreExt(t.BasePath, nil)
+	return CountDeletedRows(ctx, t.BasePath, store, t.Handler)
+}
+
 // NewMigrationManager creates a new migration manager
 func NewMigrationManager(table *Table) *MigrationManager {
 	return &MigrationManager{table: table}
@@ -228,18 +297,95 @@ func (m *MigrationManager) NeedsMigration(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	// Check if using V1 naming scheme
-	// In V2, manifests use inverted version numbers
-	_ = manifest
+	// Check if using V1 naming scheme by examining existing manifest files
+	store := NewLocalObjectStore(m.table.BasePath)
+	versionsDir := m.table.BasePath + "/" + VersionsDir
 
+	files, err := store.List(versionsDir)
+	if err != nil {
+		return false, nil // No versions dir means nothing to migrate
+	}
+
+	for _, file := range files {
+		_, scheme, err := ParseVersionEx(file)
+		if err != nil {
+			continue
+		}
+		if scheme == ManifestNamingV1 {
+			return true, nil
+		}
+	}
+
+	_ = manifest
 	return false, nil
 }
 
-// MigrateToV2 migrates the table to V2 format
+// MigrateToV2 migrates the table from V1 naming scheme to V2 naming scheme.
+// V1 uses simple version numbers: 1.manifest, 2.manifest, ...
+// V2 uses inverted version numbers: %020d.manifest where number = MaxUint64 - version
 func (m *MigrationManager) MigrateToV2(ctx context.Context) error {
-	// TODO: Implement migration from V1 to V2
-	// This involves:
-	// 1. Renaming manifest files to use inverted version numbers
-	// 2. Updating metadata
+	store := NewLocalObjectStore(m.table.BasePath)
+	versionsDir := m.table.BasePath + "/" + VersionsDir
+
+	// List all manifest files
+	files, err := store.List(versionsDir)
+	if err != nil {
+		return fmt.Errorf("failed to list manifest files: %w", err)
+	}
+
+	// Collect V1 files that need migration
+	type migrationItem struct {
+		oldPath string
+		newPath string
+		version uint64
+	}
+	var toMigrate []migrationItem
+
+	for _, file := range files {
+		version, scheme, err := ParseVersionEx(file)
+		if err != nil {
+			continue
+		}
+
+		if scheme == ManifestNamingV1 {
+			oldPath := m.table.BasePath + "/" + ManifestPathV1(version)
+			newPath := m.table.BasePath + "/" + ManifestPathV2(version)
+			toMigrate = append(toMigrate, migrationItem{
+				oldPath: oldPath,
+				newPath: newPath,
+				version: version,
+			})
+		}
+	}
+
+	if len(toMigrate) == 0 {
+		// Nothing to migrate
+		return nil
+	}
+
+	// Perform migration: copy to new name, then delete old
+	// We do copy+delete instead of rename to ensure atomicity
+	for _, item := range toMigrate {
+		// Read the manifest data
+		data, err := store.Read(item.oldPath)
+		if err != nil {
+			return fmt.Errorf("failed to read manifest v%d: %w", item.version, err)
+		}
+
+		// Write to new path
+		if err := store.Write(item.newPath, data); err != nil {
+			return fmt.Errorf("failed to write migrated manifest v%d: %w", item.version, err)
+		}
+	}
+
+	// Delete old files after all new files are written
+	for _, item := range toMigrate {
+		if err := store.Delete(item.oldPath); err != nil {
+			// Log warning but continue - the migration is complete
+			// Old files can be cleaned up later
+			continue
+		}
+	}
+
 	return nil
 }

@@ -354,6 +354,181 @@ func (r *RowIdSequence) Iter() []uint64 {
 	return result
 }
 
+// IsEmpty returns true if the sequence contains no values.
+func (r *RowIdSequence) IsEmpty() bool {
+	return len(r.Segments) == 0
+}
+
+// Extend appends another RowIdSequence to this one.
+// If the tail of this sequence and the head of the other are adjacent Range segments,
+// they are merged into a single Range (matching Lance Rust behaviour).
+func (r *RowIdSequence) Extend(other *RowIdSequence) {
+	if other == nil || len(other.Segments) == 0 {
+		return
+	}
+	if len(r.Segments) > 0 {
+		lastRange, okLast := r.Segments[len(r.Segments)-1].(*RangeSegment)
+		firstRange, okFirst := other.Segments[0].(*RangeSegment)
+		if okLast && okFirst && lastRange.End == firstRange.Start {
+			r.Segments[len(r.Segments)-1] = &RangeSegment{Start: lastRange.Start, End: firstRange.End}
+			r.Segments = append(r.Segments, other.Segments[1:]...)
+			return
+		}
+	}
+	r.Segments = append(r.Segments, other.Segments...)
+}
+
+// Delete removes the given row IDs from the sequence.
+// Each segment that contains removed values is rebuilt using NewU64SegmentFromSlice
+// so that the optimal encoding is re-selected (matching Lance Rust behaviour).
+func (r *RowIdSequence) Delete(rowIDs []uint64) {
+	if len(rowIDs) == 0 {
+		return
+	}
+	toDelete := make(map[uint64]struct{}, len(rowIDs))
+	for _, id := range rowIDs {
+		toDelete[id] = struct{}{}
+	}
+
+	var newSegments []U64Segment
+	for _, seg := range r.Segments {
+		// Check whether this segment contains any of the deleted IDs.
+		hasDeleted := false
+		for _, id := range rowIDs {
+			if seg.Contains(id) {
+				hasDeleted = true
+				break
+			}
+		}
+		if !hasDeleted {
+			newSegments = append(newSegments, seg)
+			continue
+		}
+		// Rebuild segment without deleted values.
+		var kept []uint64
+		for _, v := range seg.Iter() {
+			if _, del := toDelete[v]; !del {
+				kept = append(kept, v)
+			}
+		}
+		if len(kept) > 0 {
+			newSegments = append(newSegments, NewU64SegmentFromSlice(kept))
+		}
+	}
+	r.Segments = newSegments
+}
+
+// Slice returns a new RowIdSequence containing values [offset, offset+length).
+// Matches Lance Rust RowIdSequence::slice semantics.
+func (r *RowIdSequence) Slice(offset, length int) *RowIdSequence {
+	if length <= 0 {
+		return &RowIdSequence{}
+	}
+	var segs []U64Segment
+	pos := 0
+	remaining := length
+	for _, seg := range r.Segments {
+		segLen := seg.Len()
+		// Skip segments entirely before offset.
+		if pos+segLen <= offset {
+			pos += segLen
+			continue
+		}
+		// Start index within this segment.
+		start := 0
+		if pos < offset {
+			start = offset - pos
+		}
+		// How many values to take from this segment.
+		take := segLen - start
+		if take > remaining {
+			take = remaining
+		}
+		// Extract sub-slice of segment.
+		vals := seg.Iter()
+		segs = append(segs, NewU64SegmentFromSlice(vals[start:start+take]))
+		remaining -= take
+		pos += segLen
+		if remaining <= 0 {
+			break
+		}
+	}
+	return &RowIdSequence{Segments: segs}
+}
+
+// NewU64SegmentFromSlice creates the optimal U64Segment encoding for the given values.
+// It mirrors Lance Rust's U64Segment::from_iter / from_stats_and_sequence logic:
+//
+//	Sorted?
+//	  Yes → Contiguous? → Range
+//	         Dense?     → RangeWithBitmap / RangeWithHoles
+//	         No         → SortedArray
+//	  No  → Array
+func NewU64SegmentFromSlice(values []uint64) U64Segment {
+	n := len(values)
+	if n == 0 {
+		return &RangeSegment{Start: 0, End: 0}
+	}
+	// Compute stats.
+	sorted := true
+	minVal := values[0]
+	maxVal := values[0]
+	for i, v := range values {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+		if sorted && i > 0 && v < values[i-1] {
+			sorted = false
+		}
+	}
+	if !sorted {
+		cp := make([]uint64, n)
+		copy(cp, values)
+		return &ArraySegment{Values: cp}
+	}
+	// Contiguous?
+	if maxVal-minVal+1 == uint64(n) {
+		return &RangeSegment{Start: minVal, End: maxVal + 1}
+	}
+	// Dense decision: compare bitmap size vs sorted-array size.
+	totalSlots := maxVal - minVal + 1
+	bitmapBytes := 16 + (totalSlots+7)/8 // range + bitmap
+	arrayBytes := 24 + 2*uint64(n)       // min + max + count + packed values (u16)
+	nHoles := totalSlots - uint64(n)
+	holesBytes := 16 + 4*nHoles // range + holes array (u32)
+
+	if nHoles > 0 && holesBytes < bitmapBytes && holesBytes < arrayBytes {
+		// RangeWithHoles
+		existing := make(map[uint64]struct{}, n)
+		for _, v := range values {
+			existing[v] = struct{}{}
+		}
+		var holes []uint64
+		for v := minVal; v <= maxVal; v++ {
+			if _, ok := existing[v]; !ok {
+				holes = append(holes, v)
+			}
+		}
+		return &RangeWithHolesSegment{Start: minVal, End: maxVal + 1, Holes: holes}
+	}
+	if bitmapBytes < arrayBytes {
+		// RangeWithBitmap
+		bitmapLen := int(totalSlots+7) / 8
+		bitmap := make([]byte, bitmapLen)
+		for _, v := range values {
+			off := v - minVal
+			bitmap[off/8] |= 1 << (off % 8)
+		}
+		return &RangeWithBitmapSegment{Start: minVal, End: maxVal + 1, Bitmap: bitmap}
+	}
+	cp := make([]uint64, n)
+	copy(cp, values)
+	return &SortedArraySegment{Values: cp}
+}
+
 // ParseRowIdSequence parses a RowIdSequence from protobuf-encoded bytes.
 // The format is compatible with Lance's RowIdSequence serialization.
 func ParseRowIdSequence(data []byte) (*RowIdSequence, error) {
@@ -876,4 +1051,146 @@ func parseU64Array(data []byte) ([]uint64, error) {
 	}
 
 	return nil, fmt.Errorf("no values found in U64Array")
+}
+
+// MarshalRowIdSequence serializes a RowIdSequence to protobuf-encoded bytes.
+// The format is compatible with Lance's RowIdSequence serialization.
+func MarshalRowIdSequence(seq *RowIdSequence) ([]byte, error) {
+	if seq == nil || len(seq.Segments) == 0 {
+		return nil, nil
+	}
+	var buf []byte
+	for _, seg := range seq.Segments {
+		segData, err := marshalSegment(seg)
+		if err != nil {
+			return nil, fmt.Errorf("marshal segment: %w", err)
+		}
+		// field 1, wire type 2 (length-delimited)
+		buf = appendVarint(buf, (1<<3)|2)
+		buf = appendVarint(buf, uint64(len(segData)))
+		buf = append(buf, segData...)
+	}
+	return buf, nil
+}
+
+func marshalSegment(seg U64Segment) ([]byte, error) {
+	switch s := seg.(type) {
+	case *RangeSegment:
+		inner := marshalRange(s.Start, s.End)
+		var buf []byte
+		buf = appendVarint(buf, (1<<3)|2) // field 1
+		buf = appendVarint(buf, uint64(len(inner)))
+		buf = append(buf, inner...)
+		return buf, nil
+
+	case *RangeWithHolesSegment:
+		inner := marshalRangeWithHoles(s.Start, s.End, s.Holes)
+		var buf []byte
+		buf = appendVarint(buf, (2<<3)|2) // field 2
+		buf = appendVarint(buf, uint64(len(inner)))
+		buf = append(buf, inner...)
+		return buf, nil
+
+	case *RangeWithBitmapSegment:
+		inner := marshalRangeWithBitmap(s.Start, s.End, s.Bitmap)
+		var buf []byte
+		buf = appendVarint(buf, (3<<3)|2) // field 3
+		buf = appendVarint(buf, uint64(len(inner)))
+		buf = append(buf, inner...)
+		return buf, nil
+
+	case *SortedArraySegment:
+		inner := marshalEncodedU64Array(s.Values)
+		var buf []byte
+		buf = appendVarint(buf, (4<<3)|2) // field 4
+		buf = appendVarint(buf, uint64(len(inner)))
+		buf = append(buf, inner...)
+		return buf, nil
+
+	case *ArraySegment:
+		inner := marshalEncodedU64Array(s.Values)
+		var buf []byte
+		buf = appendVarint(buf, (5<<3)|2) // field 5
+		buf = appendVarint(buf, uint64(len(inner)))
+		buf = append(buf, inner...)
+		return buf, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported segment type: %T", seg)
+	}
+}
+
+func marshalRange(start, end uint64) []byte {
+	var buf []byte
+	if start != 0 {
+		buf = appendVarint(buf, (1<<3)|0) // field 1, varint
+		buf = appendVarint(buf, start)
+	}
+	if end != 0 {
+		buf = appendVarint(buf, (2<<3)|0) // field 2, varint
+		buf = appendVarint(buf, end)
+	}
+	return buf
+}
+
+func marshalRangeWithHoles(start, end uint64, holes []uint64) []byte {
+	var buf []byte
+	if start != 0 {
+		buf = appendVarint(buf, (1<<3)|0)
+		buf = appendVarint(buf, start)
+	}
+	if end != 0 {
+		buf = appendVarint(buf, (2<<3)|0)
+		buf = appendVarint(buf, end)
+	}
+	if len(holes) > 0 {
+		inner := marshalEncodedU64Array(holes)
+		buf = appendVarint(buf, (3<<3)|2)
+		buf = appendVarint(buf, uint64(len(inner)))
+		buf = append(buf, inner...)
+	}
+	return buf
+}
+
+func marshalRangeWithBitmap(start, end uint64, bitmap []byte) []byte {
+	var buf []byte
+	if start != 0 {
+		buf = appendVarint(buf, (1<<3)|0)
+		buf = appendVarint(buf, start)
+	}
+	if end != 0 {
+		buf = appendVarint(buf, (2<<3)|0)
+		buf = appendVarint(buf, end)
+	}
+	if len(bitmap) > 0 {
+		buf = appendVarint(buf, (3<<3)|2) // field 3, length-delimited
+		buf = appendVarint(buf, uint64(len(bitmap)))
+		buf = append(buf, bitmap...)
+	}
+	return buf
+}
+
+// marshalEncodedU64Array serializes values using U64Array encoding (field 3).
+func marshalEncodedU64Array(values []uint64) []byte {
+	// Use U64Array (field 3): values as fixed 8-byte little-endian
+	valBytes := make([]byte, len(values)*8)
+	for i, v := range values {
+		binary.LittleEndian.PutUint64(valBytes[i*8:(i+1)*8], v)
+	}
+	var inner []byte
+	inner = appendVarint(inner, (1<<3)|2) // field 1, length-delimited
+	inner = appendVarint(inner, uint64(len(valBytes)))
+	inner = append(inner, valBytes...)
+
+	var buf []byte
+	buf = appendVarint(buf, (3<<3)|2) // field 3 = U64Array
+	buf = appendVarint(buf, uint64(len(inner)))
+	buf = append(buf, inner...)
+	return buf
+}
+
+func appendVarint(buf []byte, v uint64) []byte {
+	var tmp [binary.MaxVarintLen64]byte
+	n := binary.PutUvarint(tmp[:], v)
+	return append(buf, tmp[:n]...)
 }

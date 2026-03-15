@@ -68,6 +68,30 @@ type CompactionOptions struct {
 	PreserveRowIds *bool
 }
 
+// DistributedCompactionOptions controls distributed compaction behavior.
+type DistributedCompactionOptions struct {
+	// MaxConcurrency is the maximum number of parallel compaction workers.
+	MaxConcurrency int
+	// TargetTaskSize is the target size in bytes for each compaction task.
+	TargetTaskSize uint64
+	// MaxTaskSize is the maximum size in bytes for each compaction task.
+	MaxTaskSize uint64
+	// MaxFragmentsPerTask limits the number of fragments per task.
+	MaxFragmentsPerTask int
+	// MinFragmentsPerTask is the minimum number of fragments per task.
+	MinFragmentsPerTask int
+	// Strategy determines how fragments are grouped ("size", "count", "hybrid", "bin_packing").
+	Strategy string
+	// RetryOnConflict whether to retry on commit conflict.
+	RetryOnConflict bool
+	// MaxRetries is the maximum number of retries on conflict.
+	MaxRetries int
+	// PreserveRowIds whether to preserve row IDs during compaction.
+	PreserveRowIds bool
+	// IncludeDeletedRows whether to include deleted rows.
+	IncludeDeletedRows bool
+}
+
 // Dataset is the main interface for a versioned table (open or create).
 type Dataset interface {
 	Close() error
@@ -107,12 +131,36 @@ type Dataset interface {
 	Compact(ctx context.Context) error
 	// CompactWithOptions performs data compaction with specific options.
 	CompactWithOptions(ctx context.Context, opts CompactionOptions) error
+	// DistributedCompact performs distributed compaction with parallel workers.
+	DistributedCompact(ctx context.Context, opts DistributedCompactionOptions) (*storage2.CompactionStats, error)
 	// Take returns rows at the given logical indices for the current version.
 	// This is a minimal random-access API built on top of storage2.TakeRows.
 	Take(ctx context.Context, indices []uint64) (*chunk.Chunk, error)
 	// TakeProjected returns rows at the given logical indices and only the specified
 	// zero-based column indices. If columns is empty, it behaves like Take.
 	TakeProjected(ctx context.Context, indices []uint64, columns []int) (*chunk.Chunk, error)
+	// Update performs row-level updates on the dataset.
+	// predicate filters which rows to update (empty string means all rows).
+	// updates maps column names to their new values.
+	Update(ctx context.Context, predicate string, updates map[string]interface{}) (*storage2.UpdateResult, error)
+
+	// Merge applies a merge operation that adds new fragments and/or updates the schema.
+	Merge(ctx context.Context, fragments []*DataFragment, newSchema []*storage2pb.Field) error
+
+	// Restore restores the dataset to a previous version by creating a new version
+	// with the content of the specified version.
+	Restore(ctx context.Context, version uint64) error
+
+	// CheckoutVersion switches the dataset to a read-only view of the specified version.
+	CheckoutVersion(ctx context.Context, version uint64) error
+
+	// CreateTag creates a tag pointing to the specified version.
+	CreateTag(ctx context.Context, tag string, version uint64) error
+	// DeleteTag deletes a tag by name.
+	DeleteTag(ctx context.Context, tag string) error
+	// ListTags returns all tags as a map of tag name to version number.
+	ListTags(ctx context.Context) (map[string]uint64, error)
+
 	// Scanner creates a ScannerBuilder for streaming reads.
 	Scanner() *ScannerBuilder
 
@@ -454,6 +502,78 @@ func (d *datasetImpl) CompactWithOptions(ctx context.Context, opts CompactionOpt
 // Helper function to get default max bytes
 func getDefaultMaxBytes() uint64 {
 	return 2 * 1024 * 1024 * 1024 // 2GB default
+}
+
+// DistributedCompact performs distributed compaction with parallel workers.
+func (d *datasetImpl) DistributedCompact(ctx context.Context, opts DistributedCompactionOptions) (*storage2.CompactionStats, error) {
+	if d.closed {
+		return nil, fmt.Errorf("dataset is closed")
+	}
+
+	if len(d.currentManifest.Fragments) <= 1 {
+		// Nothing to compact
+		return &storage2.CompactionStats{}, nil
+	}
+
+	// Convert SDK options to storage2 options
+	plannerCfg := storage2.DefaultCompactionPlannerConfig()
+	if opts.TargetTaskSize > 0 {
+		plannerCfg.TargetTaskSize = opts.TargetTaskSize
+	}
+	if opts.MaxTaskSize > 0 {
+		plannerCfg.MaxTaskSize = opts.MaxTaskSize
+	}
+	if opts.MaxFragmentsPerTask > 0 {
+		plannerCfg.MaxFragmentsPerTask = opts.MaxFragmentsPerTask
+	}
+	if opts.MinFragmentsPerTask > 0 {
+		plannerCfg.MinFragmentsPerTask = opts.MinFragmentsPerTask
+	}
+	if opts.Strategy != "" {
+		plannerCfg.Strategy = storage2.CompactionStrategy(opts.Strategy)
+	}
+	plannerCfg.IncludeDeletions = opts.IncludeDeletedRows
+
+	coordCfg := storage2.DefaultCompactionCoordinatorConfig()
+	if opts.MaxConcurrency > 0 {
+		coordCfg.MaxConcurrency = opts.MaxConcurrency
+	}
+	coordCfg.RetryOnConflict = opts.RetryOnConflict
+	if opts.MaxRetries > 0 {
+		coordCfg.MaxRetries = opts.MaxRetries
+	}
+	coordCfg.PreserveRowIds = opts.PreserveRowIds
+	coordCfg.IncludeDeletedRows = opts.IncludeDeletedRows
+
+	store := storage2.NewLocalObjectStoreExt(d.basePath, nil)
+	stats, err := storage2.DistributedCompaction(
+		ctx,
+		d.basePath,
+		d.handler,
+		store,
+		d.currentManifest,
+		storage2.DistributedCompactionOptions{
+			PlannerConfig:     plannerCfg,
+			CoordinatorConfig: coordCfg,
+		},
+	)
+	if err != nil {
+		return stats, err
+	}
+
+	// Refresh state after compaction
+	latest, err := d.handler.ResolveLatestVersion(ctx, d.basePath)
+	if err != nil {
+		return stats, err
+	}
+	manifest, err := storage2.LoadManifest(ctx, d.basePath, d.handler, latest)
+	if err != nil {
+		return stats, err
+	}
+	d.currentManifest = manifest
+	d.version = latest
+
+	return stats, nil
 }
 
 func (d *datasetImpl) Append(ctx context.Context, fragments []*DataFragment) error {
@@ -859,6 +979,134 @@ func (d *datasetImpl) refreshState(ctx context.Context) error {
 	d.currentManifest = manifest
 	d.version = latest
 	return nil
+}
+
+func (d *datasetImpl) Update(ctx context.Context, predicate string, updates map[string]interface{}) (*storage2.UpdateResult, error) {
+	if d.closed {
+		return nil, fmt.Errorf("dataset is closed")
+	}
+	if len(updates) == 0 {
+		return &storage2.UpdateResult{RowsUpdated: 0}, nil
+	}
+
+	result, err := storage2.Update(ctx, d.basePath, d.handler, d.version, predicate, updates, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.RowsUpdated == 0 {
+		return result, nil
+	}
+
+	// Build and commit Update transaction
+	readVersion := d.version
+	uuid := generateUUID()
+
+	var removedIDs []uint64
+	for _, f := range result.OldFragments {
+		removedIDs = append(removedIDs, f.Id)
+	}
+
+	var fieldsModified []uint32
+	for colName := range updates {
+		for i, field := range d.currentManifest.Fields {
+			if field.Name == colName {
+				fieldsModified = append(fieldsModified, uint32(i))
+				break
+			}
+		}
+	}
+
+	txn := storage2.NewTransactionUpdate(
+		readVersion, uuid,
+		removedIDs,
+		nil,
+		result.NewFragments,
+		fieldsModified,
+		storage2.UpdateModeRewriteRows,
+	)
+	if err := storage2.CommitTransaction(ctx, d.basePath, d.handler, txn); err != nil {
+		return nil, err
+	}
+
+	if err := d.refreshState(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (d *datasetImpl) Merge(ctx context.Context, fragments []*DataFragment, newSchema []*storage2pb.Field) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+
+	readVersion := d.version
+	uuid := generateUUID()
+	txn := storage2.NewTransactionMerge(readVersion, uuid, fragments, newSchema, nil)
+	if err := storage2.CommitTransaction(ctx, d.basePath, d.handler, txn); err != nil {
+		return err
+	}
+	return d.refreshState(ctx)
+}
+
+func (d *datasetImpl) Restore(ctx context.Context, version uint64) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+
+	_, err := storage2.Restore(ctx, d.basePath, d.handler, version)
+	if err != nil {
+		return err
+	}
+	return d.refreshState(ctx)
+}
+
+func (d *datasetImpl) CheckoutVersion(ctx context.Context, version uint64) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+
+	manifest, err := storage2.CheckoutVersion(ctx, d.basePath, d.handler, version)
+	if err != nil {
+		return err
+	}
+	d.currentManifest = manifest
+	d.version = version
+	return nil
+}
+
+func (d *datasetImpl) initRefs() *storage2.Refs {
+	store := storage2.NewLocalObjectStore(d.basePath)
+	return storage2.NewRefs(d.basePath, d.handler, store)
+}
+
+func (d *datasetImpl) CreateTag(ctx context.Context, tag string, version uint64) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	return d.initRefs().Tags().Create(ctx, tag, version)
+}
+
+func (d *datasetImpl) DeleteTag(ctx context.Context, tag string) error {
+	if d.closed {
+		return fmt.Errorf("dataset is closed")
+	}
+	return d.initRefs().Tags().Delete(ctx, tag)
+}
+
+func (d *datasetImpl) ListTags(ctx context.Context) (map[string]uint64, error) {
+	if d.closed {
+		return nil, fmt.Errorf("dataset is closed")
+	}
+	tags, err := d.initRefs().Tags().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]uint64, len(tags))
+	for name, contents := range tags {
+		result[name] = contents.Version
+	}
+	return result, nil
 }
 
 // splitPath splits a dot-separated field path into parts.

@@ -5,6 +5,7 @@ package storage2
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -275,8 +276,25 @@ func (e *DataReplacementExecutor) validateReplacement(
 
 			// Validate row count if enabled
 			if opts.ValidateRowCount && repl.ExpectedRowCount > 0 {
-				// Row count validation would require reading the file
-				// This is a simplified implementation
+				rowCount, err := e.readFileRowCount(validationCtx, file)
+				if err != nil {
+					results.RowCountErrors++
+					if plan.Operation.Atomic {
+						return results, fmt.Errorf("row count validation failed for %s: %w", file.Path, err)
+					}
+				} else {
+					// Sum row counts across files for the same fragment replacement
+					// Each file's row count is checked independently here; caller may
+					// aggregate across files in a FragmentReplacement if needed.
+					if uint64(rowCount) != repl.ExpectedRowCount {
+						results.RowCountErrors++
+						if plan.Operation.Atomic {
+							return results, fmt.Errorf(
+								"row count mismatch for %s: got %d, expected %d",
+								file.Path, rowCount, repl.ExpectedRowCount)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -306,13 +324,25 @@ func (e *DataReplacementExecutor) validateFileChecksum(ctx context.Context, file
 	return nil
 }
 
-// DataReplacementManager manages data replacement operations.
+// readFileRowCount reads the row count from the header of a chunk-format data file.
+// The chunk format stores row count as the first uint32 (little-endian, 4 bytes).
+func (e *DataReplacementExecutor) readFileRowCount(ctx context.Context, file *DataFile) (uint32, error) {
+	data, err := e.store.ReadRange(ctx, file.Path, ReadOptions{Offset: 0, Length: 4})
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file header: %w", err)
+	}
+	if len(data) < 4 {
+		return 0, fmt.Errorf("file too short to contain row count header")
+	}
+	return binary.LittleEndian.Uint32(data), nil
+}
+
 type DataReplacementManager struct {
-	basePath  string
-	handler   CommitHandler
-	store     ObjectStoreExt
-	planner   *DataReplacementPlanner
-	executor  *DataReplacementExecutor
+	basePath string
+	handler  CommitHandler
+	store    ObjectStoreExt
+	planner  *DataReplacementPlanner
+	executor *DataReplacementExecutor
 }
 
 // NewDataReplacementManager creates a new data replacement manager.

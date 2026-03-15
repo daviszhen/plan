@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // IOScheduler handles IO scheduling for optimal performance
@@ -14,8 +15,10 @@ type IOScheduler struct {
 	MaxConcurrentReads int
 	// MaxConcurrentWrites is the maximum number of concurrent writes
 	MaxConcurrentWrites int
-	// IOBufferSize is the buffer size for IO operations
+	// IOBufferSize is the buffer size for IO operations (threshold for parallel IO)
 	IOBufferSize int64
+	// ChunkSize is the size of each chunk for parallel operations
+	ChunkSize int64
 }
 
 // DefaultIOScheduler returns a default IO scheduler
@@ -23,7 +26,8 @@ func DefaultIOScheduler() *IOScheduler {
 	return &IOScheduler{
 		MaxConcurrentReads:  256,
 		MaxConcurrentWrites: 64,
-		IOBufferSize:        2 * 1024 * 1024 * 1024, // 2GB
+		IOBufferSize:        8 * 1024 * 1024, // 8MB threshold for parallel IO
+		ChunkSize:           4 * 1024 * 1024, // 4MB chunk size
 	}
 }
 
@@ -292,9 +296,76 @@ func (r *ParallelReader) Read(ctx context.Context, path string) ([]byte, error) 
 		return r.store.ReadRange(ctx, path, ReadOptions{})
 	}
 
-	// For large files, read in parallel chunks
-	// TODO: Implement parallel reading
-	return r.store.ReadRange(ctx, path, ReadOptions{})
+	// Calculate chunk parameters
+	chunkSize := r.scheduler.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 4 * 1024 * 1024 // default 4MB
+	}
+	numChunks := (size + chunkSize - 1) / chunkSize
+
+	// Allocate result buffer
+	result := make([]byte, size)
+
+	// Create semaphore for concurrency control
+	maxConcurrent := r.scheduler.MaxConcurrentReads
+	if maxConcurrent <= 0 {
+		maxConcurrent = 8
+	}
+	sem := make(chan struct{}, maxConcurrent)
+
+	// Error channel for collecting errors
+	errChan := make(chan error, numChunks)
+	var wg sync.WaitGroup
+
+	// Read chunks in parallel
+	for i := int64(0); i < numChunks; i++ {
+		wg.Add(1)
+		go func(chunkIdx int64) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
+
+			// Calculate chunk boundaries
+			offset := chunkIdx * chunkSize
+			length := chunkSize
+			if offset+length > size {
+				length = size - offset
+			}
+
+			// Read chunk
+			data, err := r.store.ReadRange(ctx, path, ReadOptions{
+				Offset: offset,
+				Length: length,
+			})
+			if err != nil {
+				errChan <- fmt.Errorf("read chunk %d: %w", chunkIdx, err)
+				return
+			}
+
+			// Copy to result buffer
+			copy(result[offset:], data)
+		}(i)
+	}
+
+	// Wait for all goroutines
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors
+	for err := range errChan {
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
 }
 
 // ParallelWriter performs parallel writes for large files
@@ -315,9 +386,126 @@ func (w *ParallelWriter) Write(ctx context.Context, path string, data []byte) er
 		return w.store.Write(path, data)
 	}
 
-	// For large files, write in parallel chunks
-	// TODO: Implement parallel writing
+	// Check if store supports multipart upload (for cloud storage)
+	if mp, ok := w.store.(MultipartUploader); ok {
+		return w.writeMultipart(ctx, path, data, mp)
+	}
+
+	// For local filesystem, use sequential write with large buffer
+	// Parallel writes to local files can cause fragmentation
 	return w.store.Write(path, data)
+}
+
+// MultipartUploader interface for stores that support multipart uploads
+type MultipartUploader interface {
+	CreateMultipartUpload(ctx context.Context, path string) (uploadID string, err error)
+	UploadPart(ctx context.Context, path, uploadID string, partNumber int, data []byte) (etag string, err error)
+	CompleteMultipartUpload(ctx context.Context, path, uploadID string, parts []CompletedPart) error
+	AbortMultipartUpload(ctx context.Context, path, uploadID string) error
+}
+
+// CompletedPart represents a completed upload part
+type CompletedPart struct {
+	PartNumber int
+	ETag       string
+}
+
+// writeMultipart writes data using multipart upload
+func (w *ParallelWriter) writeMultipart(ctx context.Context, path string, data []byte, mp MultipartUploader) error {
+	// Start multipart upload
+	uploadID, err := mp.CreateMultipartUpload(ctx, path)
+	if err != nil {
+		return fmt.Errorf("create multipart upload: %w", err)
+	}
+
+	// Calculate chunk parameters
+	chunkSize := w.scheduler.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 8 * 1024 * 1024 // default 8MB for multipart
+	}
+	// Minimum part size for S3 is 5MB (except last part)
+	if chunkSize < 5*1024*1024 {
+		chunkSize = 5 * 1024 * 1024
+	}
+
+	dataLen := int64(len(data))
+	numParts := (dataLen + chunkSize - 1) / chunkSize
+
+	// Pre-allocate parts slice
+	parts := make([]CompletedPart, numParts)
+	var partsLock sync.Mutex
+
+	// Create semaphore for concurrency control
+	maxConcurrent := w.scheduler.MaxConcurrentWrites
+	if maxConcurrent <= 0 {
+		maxConcurrent = 4
+	}
+	sem := make(chan struct{}, maxConcurrent)
+
+	// Error channel
+	errChan := make(chan error, numParts)
+	var wg sync.WaitGroup
+
+	// Upload parts in parallel
+	for i := int64(0); i < numParts; i++ {
+		wg.Add(1)
+		go func(partIdx int64) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
+
+			// Calculate part boundaries
+			offset := partIdx * chunkSize
+			end := offset + chunkSize
+			if end > dataLen {
+				end = dataLen
+			}
+
+			// Upload part (part numbers are 1-based)
+			partNumber := int(partIdx + 1)
+			etag, err := mp.UploadPart(ctx, path, uploadID, partNumber, data[offset:end])
+			if err != nil {
+				errChan <- fmt.Errorf("upload part %d: %w", partNumber, err)
+				return
+			}
+
+			// Record completed part
+			partsLock.Lock()
+			parts[partIdx] = CompletedPart{
+				PartNumber: partNumber,
+				ETag:       etag,
+			}
+			partsLock.Unlock()
+		}(i)
+	}
+
+	// Wait for all uploads
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors
+	for err := range errChan {
+		if err != nil {
+			// Abort the multipart upload on error
+			_ = mp.AbortMultipartUpload(ctx, path, uploadID)
+			return err
+		}
+	}
+
+	// Complete multipart upload
+	if err := mp.CompleteMultipartUpload(ctx, path, uploadID, parts); err != nil {
+		_ = mp.AbortMultipartUpload(ctx, path, uploadID)
+		return fmt.Errorf("complete multipart upload: %w", err)
+	}
+
+	return nil
 }
 
 // IOStats contains IO statistics

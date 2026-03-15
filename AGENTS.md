@@ -14,11 +14,15 @@ go test ./...                              # Run all tests
 go test ./pkg/storage2/...                 # Run storage2 tests
 go test ./sdk/...                          # Run SDK tests
 go test -run TestName ./pkg/storage2/...   # Run specific test
+go test -race ./pkg/storage2/...           # Run with race detector
+go test -coverprofile=coverage.out ./pkg/storage2/...  # Generate coverage
 
 # Code quality
 make fmt             # Format code with gofmt
 make static-check    # Run golangci-lint + license-eye header check
 ```
+
+**CGO required**: The project uses CGO for memory management (`pkg/util/mem.go`, `pkg/storage/mem_buffer.go`). Ensure `CGO_ENABLED=1` (default on most systems).
 
 ## Architecture Overview
 
@@ -59,9 +63,9 @@ Single-node transactional database kernel designed for TPC-H query execution. Tw
 Aligned with the Lance columnar format metadata model. Key interfaces:
 
 - **`ObjectStore` / `ObjectStoreExt`** (`io.go`) - Storage abstraction for local/S3/GCS/Azure. URI schemes: `file:///`, `s3://`, `gs://`, `az://`, `mem://`
-- **`CommitHandler`** (`commit.go`) - Transaction commit protocol. `LocalRenameCommitHandler` for local (atomic rename), `S3CommitHandler` for S3 (optimistic locking with ETags since S3 lacks atomic rename)
+- **`CommitHandler`** (`commit.go`) - Transaction commit protocol. `LocalRenameCommitHandler` for local (atomic rename), `S3CommitHandler` for S3 (optimistic locking with ETags)
 - **Manifest** (`manifest.go`) - Version snapshot: schema, fragments, config, feature flags
-- **Transaction** (`transaction.go`) - Atomic operations: Append, Delete, Overwrite, Project (drop columns), Merge, Clone, Rewrite (compaction)
+- **Transaction** (`transaction.go`) - Atomic operations: Append, Delete, Overwrite, Project, Merge, Clone, Rewrite (compaction)
 - **Feature flags** - `ReaderFeatureFlags` / `WriterFeatureFlags` on Manifest: bit 1 = deletion files, bit 2 = stable row IDs
 - **RowIdSequence** - Protobuf-encoded row ID mapping in DataFragment, five segment types: Range, RangeWithHoles, RangeWithBitmap, SortedArray, Array
 
@@ -71,60 +75,17 @@ Aligned with the Lance columnar format metadata model. Key interfaces:
 3. On conflict, returns `ErrConflict` for retry
 4. Success writes new Manifest with incremented version number
 
-**Index System:**
-- **BitmapIndex** (`bitmap_index.go`) - 64-bit word-compressed bitmap for low-cardinality columns, supports AND/OR/NOT operations
-- **ZoneMapIndex** (`zonemap_index.go`) - Column-level and fragment-level min/max statistics for range query pruning
-- **BloomFilterIndex** (`bloomfilter_index.go`) - Probabilistic membership testing with configurable false positive rate
-- **BTreeIndex** (`btree_index.go`) - B-tree index for scalar columns
-- **IVFIndex** (`ivf_index.go`) - Inverted File vector index for ANN search
-- **HNSWIndex** (`hnsw_index.go`) - Hierarchical Navigable Small World graph for ANN search
-- **IndexSelector** (`index_selector.go`) - Cost-based index selection for query optimization
-- **IndexManager** (`index.go`) - Index lifecycle management (create, drop, optimize, rebuild)
+**Index System** (`index.go`, `index_selector.go`): Bitmap, ZoneMap, BloomFilter, BTree (scalar); IVF, HNSW, IVF-HNSW (vector); FTS with WAND algorithm (full-text). `IndexSelector` does cost-based index selection. `IndexManager` handles lifecycle.
 
-**Cloud Storage:**
-- **S3Store** (`s3_store.go`) - S3 backend with multipart upload support
-- **GSStore** (`gs_store.go`) - Google Cloud Storage backend
-- **AZStore** (`az_store.go`) - Azure Blob Storage backend
+**Encoding Framework** (`encoding.go`): Physical encoders (Plain, BitPack, RLE, Dict, VarBinary, StringDict) with automatic encoding selection via `AnalyzeIntColumn`/`AnalyzeStringColumn`. `EncodingScheduler` (`encoding_scheduler.go`) provides parallel, memory-bounded column encoding.
 
-**Encoding Framework:**
-- **Physical Encoders** (`encoding.go`):
-  - `PlainEncoder` - Fixed-width native binary encoding (1, 2, 4, 8 bytes)
-  - `BitPackEncoder` - Minimum-bits packing with min/max offset, effective for small value ranges
-  - `RLEEncoder` - Run-length encoding for repeated values, stores (count, value) pairs
-  - `DictEncoder` - Dictionary encoding for integer columns with few distinct values
-  - `VarBinaryEncoder` - Variable-length binary with offset/data layout for strings/blobs
-  - `StringDictEncoder` - Dictionary encoding for string columns
-- **Logical Encoder/Decoder** - `LogicalColumnEncoder` and `LogicalColumnDecoder` provide type-aware encoding with automatic encoding selection
-- **Encoding Selection** - `AnalyzeIntColumn`, `AnalyzeStringColumn`, `SelectIntEncoding`, `SelectStringEncoding` choose optimal encoding based on column statistics
-- **EncodingProfile** - Measures compression ratios across different encodings for a column
-- **Encoding Scheduler** (`encoding_scheduler.go`):
-  - `EncodingScheduler` - Parallel, memory-bounded column encoding with semaphore-based concurrency control
-  - `EncodingSchedulerConfig` - Configurable `MaxConcurrency`, `MemoryBudget`, `AutoSelectEncoding`
-  - `EncodingTask` / `EncodingResult` - Task and result types for individual column encoding jobs
-  - `EncodingProgress` - Atomic progress tracking (completed columns, bytes encoded, fraction)
-  - `EncodeChunk` - Convenience method to encode all columns of a `chunk.Chunk` in parallel
-  - `EncodeBatch` - Sequential chunk encoding with per-chunk parallel column encoding
-  - `PlanChunkEncoding` - Preview encoding decisions per column without encoding
-  - `CollectStats` - Aggregate encoding statistics from results
-  - Memory back-pressure via `memoryTracker` with configurable budget and `sync.Cond` blocking
+**Lance V2 File Format** (`lance_v2_format.go`, `lance_v2_column.go`, `lance_v2_file.go`): Column-oriented binary format with `V2FileWriter`/`V2FileReader` for reading and writing lance v2 data files.
 
-**Advanced Transactions (Phase 9):**
-- **Update Operation** (`update.go`) - Row-level update transactions with predicate filtering:
-  - `UpdatePlanner` - Plans update operations with cost-based strategy selection (REWRITE_ROWS vs REWRITE_COLUMNS)
-  - `UpdateExecutor` - Applies updates to chunks with row-level granularity
-  - `UpdatePredicate` - Filter expression support for targeting specific rows
-  - Conflict detection via `CheckUpdateConflict()`
-- **CreateIndex Transaction** (`index_transaction.go`) - Transactional index creation:
-  - `IndexBuilder` - Sync/async index building with job management
-  - `IndexBuildJob` - Tracks ongoing index builds with cancellation support
-  - `IndexBuildProgressTracker` - Atomic progress tracking for long-running builds
-  - `ConcurrentIndexBuilder` - Semaphore-based concurrent index building
-  - `IndexRollback` - Rollback support for failed index operations
-- **DataReplacement Operation** (`data_replacement.go`) - File-level data replacement:
-  - `DataReplacementPlanner` - Plans atomic data replacement operations
-  - `DataReplacementValidator` - Validates replacement data (checksum, row count, schema)
-  - `DataReplacementManager` - Orchestrates replacement with atomic commit
-  - Batch processing support via `DataReplacementBatch`
+**Compaction** (`compaction_worker.go`, `compaction_coordinator.go`, `compaction_planner.go`): Worker executes individual compaction tasks, Coordinator orchestrates end-to-end compaction, Planner selects fragments using bin-packing strategies.
+
+**Advanced Transactions**: `UpdatePlanner`/`UpdateExecutor` (`update.go`) for row-level updates with predicate filtering; `IndexBuilder`/`ConcurrentIndexBuilder` (`index_transaction.go`) for transactional index creation; `DataReplacementManager` (`data_replacement.go`) for atomic file-level data replacement.
+
+**Cloud Storage**: S3 (`s3_store.go`), GCS (`gs_store.go`), Azure (`az_store.go`) backends. S3 commit uses optimistic locking via copy + ETag since S3 lacks atomic rename.
 
 ### sdk/ - High-Level SDK
 
@@ -166,6 +127,7 @@ Regenerate: `cd pkg/storage2/proto && make`
 - **Global singletons in pkg/storage/** - `GCatalog`, `GStorageMgr`, `GTxnMgr`, `GBufferMgr` are initialized at startup. This is the original engine only.
 - **RowIdSequence protobuf encoding** - Requires an outer `RowIdSequence` wrapper message around the `U64Segment`. Missing the wrapper causes "expected length-delimited" parse errors.
 - **String memory in chunk** - Uses C-allocated memory (`util.CMalloc`) requiring proper lifecycle management.
+- **V2 file format field sizes** - Footer is 48 bytes (not 52). `V2ColumnWriter.appendNotNull()` requires special handling for the first value (zero-length previous entry). `V2ColumnReader.ReadVector()` must respect Seek offset.
 
 ## Testing Conventions
 
@@ -173,12 +135,14 @@ Regenerate: `cd pkg/storage2/proto && make`
 - Use `t.TempDir()` for temporary directories (auto-cleaned)
 - Use `context.Background()` for test contexts
 - Use `NewLocalRenameCommitHandler()` for local storage2 tests
-- Assertions use `t.Fatalf()` / `t.Errorf()` (not testify in storage2 tests)
+- **pkg/storage2/ tests**: Use `t.Fatalf()` / `t.Errorf()` (stdlib only, no testify)
+- **sdk/ tests**: Some files use `github.com/stretchr/testify` (e.g., `knn_test.go`, phase6 tests)
 - `util.DefaultVectorSize` (2048) is the standard chunk capacity for tests
+- **golangci-lint excludes test files** from `stylecheck`, `govet`, and `unused` linters (see `.golangci.yml`)
 
 ## Development Notes
 
 - Go 1.24 with toolchain go1.24.4
-- Apache 2.0 license header required on all `.go`, `.proto`, `.c`, `.h` files - checked by `license-eye`
+- Apache 2.0 license header required on all `.go`, `.proto`, `.c`, `.h` files - checked by `license-eye` (copyright-owner: daviszhen)
 - Error handling uses custom error types in `pkg/util/`
 - TPC-H 1G is the primary benchmark - all 22 queries pass

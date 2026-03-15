@@ -150,3 +150,22 @@ func NewTransactionRewrite(readVersion uint64, uuid string, oldFragments, newFra
 		}},
 	}
 }
+
+// MergedGeneration is the protobuf type for merged generation tracking
+type MergedGeneration = storage2pb.MergedGeneration
+
+// NewTransactionUpdateMemWalState builds a transaction with UpdateMemWalState operation.
+// This is used during merge-insert to atomically record which generations have been
+// merged to the base table.
+func NewTransactionUpdateMemWalState(readVersion uint64, uuid string, mergedGenerations []*MergedGeneration) *Transaction {
+	if mergedGenerations == nil {
+		mergedGenerations = []*MergedGeneration{}
+	}
+	return &Transaction{
+		ReadVersion: readVersion,
+		Uuid:        uuid,
+		Operation: &storage2pb.Transaction_UpdateMemWalState_{UpdateMemWalState: &storage2pb.Transaction_UpdateMemWalState{
+			MergedGenerations: mergedGenerations,
+		}},
+	}
+}

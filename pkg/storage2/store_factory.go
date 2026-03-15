@@ -408,11 +408,39 @@ func NewMemoryCommitHandler() *MemoryCommitHandler {
 	return &MemoryCommitHandler{}
 }
 
-// ResolveLatestVersion finds the latest manifest version
+// NewMemoryCommitHandlerWithStore creates a new MemoryCommitHandler backed by the given store.
+func NewMemoryCommitHandlerWithStore(store *MemoryObjectStore) *MemoryCommitHandler {
+	return &MemoryCommitHandler{store: store}
+}
+
+// ResolveLatestVersion finds the latest manifest version by scanning the memory store.
 func (h *MemoryCommitHandler) ResolveLatestVersion(ctx context.Context, basePath string) (uint64, error) {
-	// For memory store, we need to list files and find max version
-	// This is a simplified implementation
-	return 0, nil
+	if h.store == nil {
+		return 0, nil // No store attached, assume version 0
+	}
+
+	entries, err := h.store.List(VersionsDir)
+	if err != nil {
+		return 0, nil // No versions dir yet means version 0
+	}
+
+	var maxVersion uint64
+	found := false
+	for _, entry := range entries {
+		v, err := ParseVersion(entry)
+		if err != nil {
+			continue
+		}
+		if !found || v > maxVersion {
+			maxVersion = v
+			found = true
+		}
+	}
+
+	if !found {
+		return 0, nil
+	}
+	return maxVersion, nil
 }
 
 // ResolveVersion returns the path to the manifest file

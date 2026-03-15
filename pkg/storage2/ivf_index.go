@@ -202,6 +202,11 @@ func (idx *IVFIndex) Insert(rowID uint64, vector []float32) error {
 func (idx *IVFIndex) Train(vectors [][]float32) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+	return idx.trainInternal(vectors)
+}
+
+// trainInternal performs training without acquiring the lock (caller must hold it).
+func (idx *IVFIndex) trainInternal(vectors [][]float32) error {
 
 	if len(vectors) == 0 {
 		return nil

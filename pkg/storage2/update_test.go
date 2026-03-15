@@ -5,6 +5,7 @@ package storage2
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/daviszhen/plan/pkg/chunk"
@@ -259,12 +260,12 @@ func TestBuildManifestUpdate(t *testing.T) {
 	manifest.MaxFragmentId = &maxID
 
 	tests := []struct {
-		name            string
-		removedIDs      []uint64
-		updatedFrags    []*DataFragment
-		newFrags        []*DataFragment
-		expectedFrags   int
-		expectedMaxID   uint32
+		name          string
+		removedIDs    []uint64
+		updatedFrags  []*DataFragment
+		newFrags      []*DataFragment
+		expectedFrags int
+		expectedMaxID uint32
 	}{
 		{
 			name:          "remove one fragment",
@@ -326,9 +327,9 @@ func TestBuildManifestUpdate(t *testing.T) {
 
 func TestCheckUpdateConflict(t *testing.T) {
 	tests := []struct {
-		name        string
-		myTxn       *Transaction
-		otherTxn    *Transaction
+		name         string
+		myTxn        *Transaction
+		otherTxn     *Transaction
 		wantConflict bool
 	}{
 		{
@@ -489,7 +490,7 @@ func TestEstimateUpdateCost(t *testing.T) {
 	// Expected: (1000 + 2000) * 2 = 6000 IO cost
 	expectedIO := uint64(6000)
 	if cost.IOCost != expectedIO {
-			t.Errorf("expected IO cost %d, got %d", expectedIO, cost.IOCost)
+		t.Errorf("expected IO cost %d, got %d", expectedIO, cost.IOCost)
 	}
 
 	// Expected: 100 rows * 2 columns = 200 CPU cost
@@ -578,24 +579,321 @@ func TestDefaultUpdateOptions(t *testing.T) {
 	}
 }
 
+// TestExecuteRewriteRows verifies that executeRewriteRows reads fragments,
+// applies predicate-based updates, and writes new fragments.
+func TestExecuteRewriteRows(t *testing.T) {
+	basePath := t.TempDir()
+
+	// Create a chunk: id(int), name(varchar)
+	src := &chunk.Chunk{}
+	src.Init([]common.LType{common.IntegerType(), common.VarcharType()}, 4)
+	src.SetCard(4)
+	src.Data[0].SetValue(0, &chunk.Value{Typ: common.IntegerType(), I64: 1})
+	src.Data[0].SetValue(1, &chunk.Value{Typ: common.IntegerType(), I64: 2})
+	src.Data[0].SetValue(2, &chunk.Value{Typ: common.IntegerType(), I64: 3})
+	src.Data[0].SetValue(3, &chunk.Value{Typ: common.IntegerType(), I64: 4})
+	src.Data[1].SetValue(0, &chunk.Value{Typ: common.VarcharType(), Str: "a"})
+	src.Data[1].SetValue(1, &chunk.Value{Typ: common.VarcharType(), Str: "b"})
+	src.Data[1].SetValue(2, &chunk.Value{Typ: common.VarcharType(), Str: "c"})
+	src.Data[1].SetValue(3, &chunk.Value{Typ: common.VarcharType(), Str: "d"})
+
+	// Write it as data/0.dat
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := WriteChunkToFile(dataPath, src); err != nil {
+		t.Fatalf("failed to write chunk: %v", err)
+	}
+
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 4, []*DataFile{df})
+
+	manifest := NewManifest(1)
+	manifest.Fields = []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, LogicalType: "int64", Id: 0},
+		{Name: "name", Type: storage2pb.Field_LEAF, LogicalType: "string", Id: 1},
+	}
+	manifest.Fragments = []*DataFragment{frag}
+	maxID := uint32(0)
+	manifest.MaxFragmentId = &maxID
+
+	planner := NewUpdatePlanner(basePath, nil, manifest, nil)
+
+	t.Run("update all rows no predicate", func(t *testing.T) {
+		plan := &UpdatePlan{
+			Operation: &UpdateOperation{
+				Predicate:     UpdatePredicate{},
+				ColumnUpdates: []ColumnUpdate{{ColumnIdx: 1, NewValue: "updated"}},
+				Mode:          UpdateModeRewriteRows,
+			},
+			AffectedFragments: []*DataFragment{frag},
+			EstimatedRows:     4,
+			Strategy:          UpdateStrategyRewriteRows,
+		}
+
+		result, err := planner.ExecuteUpdate(context.Background(), plan)
+		if err != nil {
+			t.Fatalf("ExecuteUpdate failed: %v", err)
+		}
+		if result.RowsUpdated != 4 {
+			t.Errorf("expected 4 rows updated, got %d", result.RowsUpdated)
+		}
+		if len(result.NewFragments) != 1 {
+			t.Fatalf("expected 1 new fragment, got %d", len(result.NewFragments))
+		}
+
+		// Read back the new fragment and verify
+		newPath := filepath.Join(basePath, result.NewFragments[0].Files[0].Path)
+		got, err := ReadChunkFromFile(newPath)
+		if err != nil {
+			t.Fatalf("failed to read new fragment: %v", err)
+		}
+		if got.Card() != 4 {
+			t.Fatalf("expected 4 rows, got %d", got.Card())
+		}
+		for i := 0; i < 4; i++ {
+			val := got.Data[1].GetValue(i)
+			if val.Str != "updated" {
+				t.Errorf("row %d: expected 'updated', got %q", i, val.Str)
+			}
+		}
+		// id column should be unchanged
+		for i := 0; i < 4; i++ {
+			val := got.Data[0].GetValue(i)
+			if val.I64 != int64(i+1) {
+				t.Errorf("row %d: expected id %d, got %d", i, i+1, val.I64)
+			}
+		}
+	})
+
+	t.Run("update with predicate", func(t *testing.T) {
+		// Predicate: c0 > 2  → rows 2,3 match (id=3, id=4)
+		pred, err := ParseFilter("c0 > 2", nil)
+		if err != nil {
+			t.Fatalf("failed to parse filter: %v", err)
+		}
+		plan := &UpdatePlan{
+			Operation: &UpdateOperation{
+				Predicate: UpdatePredicate{
+					Filter:       "c0 > 2",
+					ParsedFilter: &FilterExpr{Predicate: pred, Original: "c0 > 2"},
+				},
+				ColumnUpdates: []ColumnUpdate{{ColumnIdx: 1, NewValue: "big"}},
+				Mode:          UpdateModeRewriteRows,
+			},
+			AffectedFragments: []*DataFragment{frag},
+			EstimatedRows:     2,
+			Strategy:          UpdateStrategyRewriteRows,
+		}
+
+		result, err := planner.ExecuteUpdate(context.Background(), plan)
+		if err != nil {
+			t.Fatalf("ExecuteUpdate failed: %v", err)
+		}
+		if result.RowsUpdated != 2 {
+			t.Errorf("expected 2 rows updated, got %d", result.RowsUpdated)
+		}
+		if len(result.NewFragments) != 1 {
+			t.Fatalf("expected 1 new fragment, got %d", len(result.NewFragments))
+		}
+
+		newPath := filepath.Join(basePath, result.NewFragments[0].Files[0].Path)
+		got, err := ReadChunkFromFile(newPath)
+		if err != nil {
+			t.Fatalf("failed to read new fragment: %v", err)
+		}
+		// Rows 0,1 should keep original names; rows 2,3 should be "big"
+		expected := []string{"a", "b", "big", "big"}
+		for i, exp := range expected {
+			val := got.Data[1].GetValue(i)
+			if val.Str != exp {
+				t.Errorf("row %d: expected %q, got %q", i, exp, val.Str)
+			}
+		}
+	})
+
+	t.Run("no matching rows", func(t *testing.T) {
+		// Predicate: c0 > 100 → no match
+		pred, err := ParseFilter("c0 > 100", nil)
+		if err != nil {
+			t.Fatalf("failed to parse filter: %v", err)
+		}
+		plan := &UpdatePlan{
+			Operation: &UpdateOperation{
+				Predicate: UpdatePredicate{
+					Filter:       "c0 > 100",
+					ParsedFilter: &FilterExpr{Predicate: pred, Original: "c0 > 100"},
+				},
+				ColumnUpdates: []ColumnUpdate{{ColumnIdx: 1, NewValue: "never"}},
+				Mode:          UpdateModeRewriteRows,
+			},
+			AffectedFragments: []*DataFragment{frag},
+			EstimatedRows:     0,
+			Strategy:          UpdateStrategyRewriteRows,
+		}
+
+		result, err := planner.ExecuteUpdate(context.Background(), plan)
+		if err != nil {
+			t.Fatalf("ExecuteUpdate failed: %v", err)
+		}
+		if result.RowsUpdated != 0 {
+			t.Errorf("expected 0 rows updated, got %d", result.RowsUpdated)
+		}
+		if len(result.NewFragments) != 0 {
+			t.Errorf("expected 0 new fragments, got %d", len(result.NewFragments))
+		}
+	})
+}
+
+// TestExecuteRewriteColumns verifies that executeRewriteColumns works correctly.
+func TestExecuteRewriteColumns(t *testing.T) {
+	basePath := t.TempDir()
+
+	// Create a chunk: id(int), score(int), name(varchar)
+	src := &chunk.Chunk{}
+	src.Init([]common.LType{common.IntegerType(), common.IntegerType(), common.VarcharType()}, 3)
+	src.SetCard(3)
+	src.Data[0].SetValue(0, &chunk.Value{Typ: common.IntegerType(), I64: 1})
+	src.Data[0].SetValue(1, &chunk.Value{Typ: common.IntegerType(), I64: 2})
+	src.Data[0].SetValue(2, &chunk.Value{Typ: common.IntegerType(), I64: 3})
+	src.Data[1].SetValue(0, &chunk.Value{Typ: common.IntegerType(), I64: 10})
+	src.Data[1].SetValue(1, &chunk.Value{Typ: common.IntegerType(), I64: 20})
+	src.Data[1].SetValue(2, &chunk.Value{Typ: common.IntegerType(), I64: 30})
+	src.Data[2].SetValue(0, &chunk.Value{Typ: common.VarcharType(), Str: "x"})
+	src.Data[2].SetValue(1, &chunk.Value{Typ: common.VarcharType(), Str: "y"})
+	src.Data[2].SetValue(2, &chunk.Value{Typ: common.VarcharType(), Str: "z"})
+
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := WriteChunkToFile(dataPath, src); err != nil {
+		t.Fatalf("failed to write chunk: %v", err)
+	}
+
+	df := NewDataFile("data/0.dat", []int32{0, 1, 2}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 3, []*DataFile{df})
+
+	manifest := NewManifest(1)
+	manifest.Fields = []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, LogicalType: "int64", Id: 0},
+		{Name: "score", Type: storage2pb.Field_LEAF, LogicalType: "int64", Id: 1},
+		{Name: "name", Type: storage2pb.Field_LEAF, LogicalType: "string", Id: 2},
+	}
+	manifest.Fragments = []*DataFragment{frag}
+	maxID := uint32(0)
+	manifest.MaxFragmentId = &maxID
+
+	planner := NewUpdatePlanner(basePath, nil, manifest, nil)
+
+	t.Run("update single column all rows", func(t *testing.T) {
+		plan := &UpdatePlan{
+			Operation: &UpdateOperation{
+				Predicate:     UpdatePredicate{},
+				ColumnUpdates: []ColumnUpdate{{ColumnIdx: 1, NewValue: int64(99)}},
+				Mode:          UpdateModeRewriteColumns,
+			},
+			AffectedFragments: []*DataFragment{frag},
+			EstimatedRows:     3,
+			Strategy:          UpdateStrategyRewriteColumns,
+		}
+
+		result, err := planner.ExecuteUpdate(context.Background(), plan)
+		if err != nil {
+			t.Fatalf("ExecuteUpdate failed: %v", err)
+		}
+		if result.RowsUpdated != 3 {
+			t.Errorf("expected 3 rows updated, got %d", result.RowsUpdated)
+		}
+		if len(result.NewFragments) != 1 {
+			t.Fatalf("expected 1 new fragment, got %d", len(result.NewFragments))
+		}
+
+		newPath := filepath.Join(basePath, result.NewFragments[0].Files[0].Path)
+		got, err := ReadChunkFromFile(newPath)
+		if err != nil {
+			t.Fatalf("failed to read new fragment: %v", err)
+		}
+
+		// score column should all be 99
+		for i := 0; i < 3; i++ {
+			val := got.Data[1].GetValue(i)
+			if val.I64 != 99 {
+				t.Errorf("row %d: expected score 99, got %d", i, val.I64)
+			}
+		}
+		// id and name should be unchanged
+		for i := 0; i < 3; i++ {
+			val := got.Data[0].GetValue(i)
+			if val.I64 != int64(i+1) {
+				t.Errorf("row %d: expected id %d, got %d", i, i+1, val.I64)
+			}
+		}
+		for i, exp := range []string{"x", "y", "z"} {
+			val := got.Data[2].GetValue(i)
+			if val.Str != exp {
+				t.Errorf("row %d: expected name %q, got %q", i, exp, val.Str)
+			}
+		}
+	})
+
+	t.Run("update column with predicate", func(t *testing.T) {
+		// Only update rows where c0 = 2
+		pred, err := ParseFilter("c0 = 2", nil)
+		if err != nil {
+			t.Fatalf("failed to parse filter: %v", err)
+		}
+		plan := &UpdatePlan{
+			Operation: &UpdateOperation{
+				Predicate: UpdatePredicate{
+					Filter:       "c0 = 2",
+					ParsedFilter: &FilterExpr{Predicate: pred, Original: "c0 = 2"},
+				},
+				ColumnUpdates: []ColumnUpdate{{ColumnIdx: 1, NewValue: int64(999)}},
+				Mode:          UpdateModeRewriteColumns,
+			},
+			AffectedFragments: []*DataFragment{frag},
+			EstimatedRows:     1,
+			Strategy:          UpdateStrategyRewriteColumns,
+		}
+
+		result, err := planner.ExecuteUpdate(context.Background(), plan)
+		if err != nil {
+			t.Fatalf("ExecuteUpdate failed: %v", err)
+		}
+		if result.RowsUpdated != 1 {
+			t.Errorf("expected 1 row updated, got %d", result.RowsUpdated)
+		}
+
+		newPath := filepath.Join(basePath, result.NewFragments[0].Files[0].Path)
+		got, err := ReadChunkFromFile(newPath)
+		if err != nil {
+			t.Fatalf("failed to read new fragment: %v", err)
+		}
+
+		expectedScores := []int64{10, 999, 30}
+		for i, exp := range expectedScores {
+			val := got.Data[1].GetValue(i)
+			if val.I64 != exp {
+				t.Errorf("row %d: expected score %d, got %d", i, exp, val.I64)
+			}
+		}
+	})
+}
+
 func TestUpdateStrategySelection(t *testing.T) {
 	planner := &UpdatePlanner{}
 
 	tests := []struct {
-		name         string
-		op           *UpdateOperation
-		fragments    []*DataFragment
+		name          string
+		op            *UpdateOperation
+		fragments     []*DataFragment
 		estimatedRows uint64
-		expected     UpdateStrategy
+		expected      UpdateStrategy
 	}{
 		{
 			name: "user specified rows mode",
 			op: &UpdateOperation{
 				Mode: UpdateModeRewriteRows,
 			},
-			fragments:    []*DataFragment{{PhysicalRows: 1000}},
+			fragments:     []*DataFragment{{PhysicalRows: 1000}},
 			estimatedRows: 100,
-			expected:     UpdateStrategyRewriteRows,
+			expected:      UpdateStrategyRewriteRows,
 		},
 		{
 			name: "user specified columns mode",
@@ -603,9 +901,9 @@ func TestUpdateStrategySelection(t *testing.T) {
 				Mode:          UpdateModeRewriteColumns,
 				ColumnUpdates: []ColumnUpdate{{}, {}},
 			},
-			fragments:    []*DataFragment{{PhysicalRows: 1000}},
+			fragments:     []*DataFragment{{PhysicalRows: 1000}},
 			estimatedRows: 100,
-			expected:     UpdateStrategyRewriteColumns,
+			expected:      UpdateStrategyRewriteColumns,
 		},
 		{
 			name: "auto select - few rows",
@@ -613,9 +911,9 @@ func TestUpdateStrategySelection(t *testing.T) {
 				Mode:          -1, // Force auto-select
 				ColumnUpdates: []ColumnUpdate{{}},
 			},
-			fragments:    []*DataFragment{{PhysicalRows: 1000}},
+			fragments:     []*DataFragment{{PhysicalRows: 1000}},
 			estimatedRows: 50, // 5% of total
-			expected:     UpdateStrategyRewriteRows,
+			expected:      UpdateStrategyRewriteRows,
 		},
 		{
 			name: "auto select - many rows few columns",
@@ -623,9 +921,9 @@ func TestUpdateStrategySelection(t *testing.T) {
 				Mode:          -1, // Force auto-select
 				ColumnUpdates: []ColumnUpdate{{}},
 			},
-			fragments:    []*DataFragment{{PhysicalRows: 1000}},
+			fragments:     []*DataFragment{{PhysicalRows: 1000}},
 			estimatedRows: 500, // 50% of total, 1 column
-			expected:     UpdateStrategyRewriteColumns,
+			expected:      UpdateStrategyRewriteColumns,
 		},
 	}
 

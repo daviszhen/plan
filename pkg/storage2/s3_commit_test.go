@@ -574,15 +574,16 @@ func TestCommitTransactionWithRetry_LocalHandler(t *testing.T) {
 	err := localHandler.Commit(ctx, basePath, 0, m0)
 	require.NoError(t, err)
 
-	// First transaction succeeds
-	txn1 := NewTransactionAppend(0, "txn1", []*DataFragment{
-		NewDataFragment(0, []*DataFile{NewDataFile("a.parquet", []int32{0}, 1, 0)}),
-	})
+	// First transaction: Overwrite (produces v1)
+	txn1 := NewTransactionOverwrite(0, "txn1", nil, nil, nil)
 	err = CommitTransaction(ctx, basePath, localHandler, txn1)
 	require.NoError(t, err)
 
-	// Second transaction based on v0 should conflict
-	txn2 := NewTransactionOverwrite(0, "txn2", nil, nil, nil)
+	// Second transaction: Append based on v0 should conflict with committed Overwrite
+	// Per Lance semantics: Append (current) vs Overwrite (committed) = CONFLICT
+	txn2 := NewTransactionAppend(0, "txn2", []*DataFragment{
+		NewDataFragment(0, []*DataFile{NewDataFile("a.parquet", []int32{0}, 1, 0)}),
+	})
 	err = CommitTransaction(ctx, basePath, localHandler, txn2)
 	require.Equal(t, ErrConflict, err)
 }

@@ -185,26 +185,42 @@ func (h *S3CommitHandlerV2) commitOnce(ctx context.Context, basePath string, ver
 			return ErrConflict
 		}
 		defer h.locker.Release(ctx, lockKey)
+
+		// When using external lock, we need to explicitly check if the file exists
+		// because MinIO and some S3-compatible stores don't support IfNoneMatch.
+		// The lock ensures no concurrent writes, but we still need to check for
+		// previous sequential writes.
+		exists, err := h.store.Exists(ctx, basePath+"/"+ManifestPath(version))
+		if err != nil {
+			return fmt.Errorf("failed to check existence: %w", err)
+		}
+		if exists {
+			return ErrConflict
+		}
+
+		// Write without conditional header since we've checked existence under lock
+		_, err = h.store.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(h.store.bucket),
+			Key:    aws.String(key),
+			Body:   bytes.NewReader(data),
+		})
+		return err
 	}
 
-	// Check if target version already exists (conflict detection)
-	exists, err := h.store.Exists(ctx, basePath+"/"+ManifestPath(version))
-	if err != nil {
-		return fmt.Errorf("failed to check existence: %w", err)
-	}
-	if exists {
-		return ErrConflict
-	}
-
-	// Write the manifest
-	_, err = h.store.uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(h.store.bucket),
-		Key:    aws.String(key),
-		Body:   bytes.NewReader(data),
+	// Without external lock, use conditional write with IfNoneMatch: "*" to ensure
+	// atomic check-and-put. This tells S3 to fail if the object already exists,
+	// preventing two concurrent writes from both succeeding.
+	// Note: Some S3-compatible stores (like MinIO) don't support IfNoneMatch,
+	// so external locking is recommended for production use with such stores.
+	_, err = h.store.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(h.store.bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		IfNoneMatch: aws.String("*"),
 	})
 	if err != nil {
-		// Check if write failed due to concurrent write (condition failed)
-		if isConditionalWriteError(err) {
+		// Check if write failed due to concurrent write (precondition failed)
+		if isConditionalWriteError(err) || isPreconditionFailed(err) {
 			return ErrConflict
 		}
 		return err
@@ -237,6 +253,19 @@ func isConditionalWriteError(err error) bool {
 	errStr := err.Error()
 	return strings.Contains(errStr, "ConditionCheckFailed") ||
 		strings.Contains(errStr, "PreconditionFailed")
+}
+
+// isPreconditionFailed checks if the error is an HTTP 412 Precondition Failed
+// This is returned by S3 when IfNoneMatch: "*" is used and the object exists
+func isPreconditionFailed(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "412") ||
+		strings.Contains(errStr, "PreconditionFailed") ||
+		strings.Contains(errStr, "Precondition Failed") ||
+		strings.Contains(errStr, "At least one of the pre-conditions")
 }
 
 // CommitTransactionWithRetry wraps CommitTransaction with S3-specific retry logic

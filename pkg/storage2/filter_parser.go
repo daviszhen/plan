@@ -461,7 +461,7 @@ func (p *NullPredicate) Evaluate(c *chunk.Chunk) ([]bool, error) {
 
 	for i := 0; i < c.Card(); i++ {
 		val := col.GetValue(i)
-		result[i] = val == nil
+		result[i] = val == nil || val.IsNull
 	}
 
 	return result, nil
@@ -485,7 +485,7 @@ func (p *NotNullPredicate) Evaluate(c *chunk.Chunk) ([]bool, error) {
 
 	for i := 0; i < c.Card(); i++ {
 		val := col.GetValue(i)
-		result[i] = val != nil
+		result[i] = val != nil && !val.IsNull
 	}
 
 	return result, nil

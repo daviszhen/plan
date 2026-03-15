@@ -2,6 +2,7 @@ package storage2
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -323,3 +324,164 @@ func btreeCompareValues(a, b interface{}) int {
 
 // Ensure BTreeIndex implements ScalarIndexImpl
 var _ ScalarIndexImpl = (*BTreeIndex)(nil)
+
+// BTreeSerializedData represents serialized BTree data
+type BTreeSerializedData struct {
+	Name          string                 `json:"name"`
+	ColumnIdx     int                    `json:"column_idx"`
+	Entries       uint64                 `json:"entries"`
+	DistinctCount uint64                 `json:"distinct_count"`
+	MinValue      interface{}            `json:"min_value"`
+	MaxValue      interface{}            `json:"max_value"`
+	Data          []BTreeSerializedEntry `json:"data"`
+}
+
+// BTreeSerializedEntry represents a key-value entry in the BTree
+type BTreeSerializedEntry struct {
+	Key    interface{} `json:"key"`
+	RowIDs []uint64    `json:"row_ids"`
+}
+
+// Marshal serializes the BTreeIndex to JSON bytes
+func (idx *BTreeIndex) Marshal() ([]byte, error) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	// Collect all entries via in-order traversal
+	var entries []BTreeSerializedEntry
+	idx.collectEntriesInOrder(idx.root, &entries)
+
+	data := BTreeSerializedData{
+		Name:          idx.name,
+		ColumnIdx:     idx.columnIdx,
+		Entries:       idx.entries,
+		DistinctCount: idx.distinctCount,
+		MinValue:      idx.minValue,
+		MaxValue:      idx.maxValue,
+		Data:          entries,
+	}
+
+	return json.Marshal(data)
+}
+
+// collectEntriesInOrder collects all entries from the tree via in-order traversal
+// This B-tree implementation stores data in both internal and leaf nodes
+func (idx *BTreeIndex) collectEntriesInOrder(node *BTreeNode, entries *[]BTreeSerializedEntry) {
+	if node == nil {
+		return
+	}
+
+	if node.isLeaf {
+		// Leaf node: collect all entries
+		for i, key := range node.keys {
+			*entries = append(*entries, BTreeSerializedEntry{
+				Key:    key,
+				RowIDs: node.values[i],
+			})
+		}
+		return
+	}
+
+	// Internal node: in-order traversal
+	// child[0], key[0], child[1], key[1], ..., child[n]
+	for i := 0; i < len(node.keys); i++ {
+		// Visit left child
+		if i < len(node.children) {
+			idx.collectEntriesInOrder(node.children[i], entries)
+		}
+		// Visit current key (internal nodes also have values in this B-tree)
+		*entries = append(*entries, BTreeSerializedEntry{
+			Key:    node.keys[i],
+			RowIDs: node.values[i],
+		})
+	}
+	// Visit rightmost child
+	if len(node.children) > len(node.keys) {
+		idx.collectEntriesInOrder(node.children[len(node.keys)], entries)
+	}
+}
+
+// Unmarshal deserializes the BTreeIndex from JSON bytes
+func (idx *BTreeIndex) Unmarshal(data []byte) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	var serialized BTreeSerializedData
+	if err := json.Unmarshal(data, &serialized); err != nil {
+		return err
+	}
+
+	// Reset the index
+	idx.name = serialized.Name
+	idx.columnIdx = serialized.ColumnIdx
+	idx.entries = 0
+	idx.distinctCount = 0
+	idx.minValue = nil
+	idx.maxValue = nil
+	idx.root = &BTreeNode{
+		isLeaf: true,
+		keys:   make([]interface{}, 0),
+		values: make([][]uint64, 0),
+	}
+
+	// Re-insert all entries
+	for _, entry := range serialized.Data {
+		// JSON unmarshals numbers as float64, convert back to int64 if needed
+		key := normalizeKeyType(entry.Key)
+		for _, rowID := range entry.RowIDs {
+			idx.insertInternal(key, rowID)
+		}
+	}
+
+	return nil
+}
+
+// normalizeKeyType converts JSON-deserialized keys back to appropriate types
+func normalizeKeyType(key interface{}) interface{} {
+	switch v := key.(type) {
+	case float64:
+		// JSON unmarshals all numbers as float64, convert to int64 if it's a whole number
+		if v == float64(int64(v)) {
+			return int64(v)
+		}
+		return v
+	default:
+		return key
+	}
+}
+
+// insertInternal is an internal insert without locking (caller must hold lock)
+func (idx *BTreeIndex) insertInternal(key interface{}, rowID uint64) {
+	idx.entries++
+	idx.updateMinMax(key)
+
+	// If root is full, split it
+	if len(idx.root.keys) >= 2*BTreeDegree-1 {
+		oldRoot := idx.root
+		idx.root = &BTreeNode{
+			isLeaf:   false,
+			keys:     make([]interface{}, 0),
+			values:   make([][]uint64, 0),
+			children: []*BTreeNode{oldRoot},
+		}
+		idx.splitChild(idx.root, 0)
+	}
+
+	idx.insertNonFull(idx.root, key, rowID)
+	idx.updateStats()
+}
+
+// findLeftmostLeaf finds the leftmost leaf node
+func (idx *BTreeIndex) findLeftmostLeaf() *BTreeNode {
+	node := idx.root
+	for !node.isLeaf {
+		if len(node.children) == 0 {
+			return nil
+		}
+		node = node.children[0]
+	}
+	return node
+}
+
+// Ensure BTreeIndex implements Serializable
+var _ Serializable = (*BTreeIndex)(nil)

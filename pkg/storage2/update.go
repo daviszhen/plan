@@ -6,6 +6,7 @@ package storage2
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	protobuf "google.golang.org/protobuf/proto"
@@ -79,11 +80,12 @@ type UpdateResult struct {
 
 // UpdatePlanner plans and executes update operations.
 type UpdatePlanner struct {
-	basePath   string
-	handler    CommitHandler
-	manifest   *Manifest
-	store      ObjectStoreExt
-	readStore  ObjectStoreExt
+	basePath     string
+	handler      CommitHandler
+	manifest     *Manifest
+	store        ObjectStoreExt
+	readStore    ObjectStoreExt
+	zoneMapIndex *ZoneMapIndex // Optional ZoneMap index for fragment pruning
 }
 
 // NewUpdatePlanner creates a new update planner.
@@ -106,6 +108,11 @@ func NewUpdatePlannerWithReadStore(basePath string, handler CommitHandler, manif
 		store:     store,
 		readStore: readStore,
 	}
+}
+
+// SetZoneMapIndex sets the ZoneMap index for fragment pruning optimization.
+func (p *UpdatePlanner) SetZoneMapIndex(idx *ZoneMapIndex) {
+	p.zoneMapIndex = idx
 }
 
 // PlanUpdate plans an update operation without executing it.
@@ -221,10 +228,135 @@ func (p *UpdatePlanner) findAffectedFragments(ctx context.Context, predicate Fil
 }
 
 // fragmentMightMatch checks if a fragment might contain rows matching the predicate.
+// Uses ZoneMap statistics for range pruning when available.
 func (p *UpdatePlanner) fragmentMightMatch(ctx context.Context, frag *DataFragment, predicate FilterPredicate) bool {
-	// TODO: Use ZoneMap statistics for range pruning
-	// For now, assume all fragments might match
-	return true
+	// If no ZoneMap index available, assume fragment might match
+	if p.zoneMapIndex == nil {
+		return true
+	}
+
+	// Try to extract pruning information from the predicate
+	switch pred := predicate.(type) {
+	case *ColumnPredicate:
+		return p.checkColumnPredicateAgainstZoneMap(frag.Id, pred)
+
+	case *AndPredicate:
+		// For AND, both conditions must be satisfiable
+		if !p.fragmentMightMatch(ctx, frag, pred.Left) {
+			return false
+		}
+		if !p.fragmentMightMatch(ctx, frag, pred.Right) {
+			return false
+		}
+		return true
+
+	case *OrPredicate:
+		// For OR, at least one condition must be satisfiable
+		if p.fragmentMightMatch(ctx, frag, pred.Left) {
+			return true
+		}
+		if p.fragmentMightMatch(ctx, frag, pred.Right) {
+			return true
+		}
+		return false
+
+	default:
+		// Unknown predicate type, assume fragment might match
+		return true
+	}
+}
+
+// checkColumnPredicateAgainstZoneMap checks if a column predicate can prune a fragment.
+func (p *UpdatePlanner) checkColumnPredicateAgainstZoneMap(fragID uint64, pred *ColumnPredicate) bool {
+	zm := p.zoneMapIndex.GetFragmentZoneMap(fragID, pred.ColumnIndex)
+	if zm == nil || !zm.Initialized {
+		// No zone map for this fragment/column, assume might match
+		return true
+	}
+
+	// Convert predicate value to comparable interface{}
+	predValue := convertChunkValueToInterface(pred.Value)
+	if predValue == nil {
+		return true
+	}
+
+	switch pred.Op {
+	case Eq:
+		// Equality: prune if value is outside [min, max]
+		cmpMin := zoneMapCompareValues(predValue, zm.MinValue)
+		cmpMax := zoneMapCompareValues(predValue, zm.MaxValue)
+		// If value < min or value > max, fragment cannot contain it
+		if cmpMin < 0 || cmpMax > 0 {
+			return false
+		}
+		return true
+
+	case Lt:
+		// Less than: prune if predicate value <= min
+		// Looking for rows where col < predValue
+		// If min >= predValue, no rows can satisfy col < predValue
+		if zoneMapCompareValues(predValue, zm.MinValue) <= 0 {
+			return false
+		}
+		return true
+
+	case Le:
+		// Less than or equal: prune if predicate value < min
+		if zoneMapCompareValues(predValue, zm.MinValue) < 0 {
+			return false
+		}
+		return true
+
+	case Gt:
+		// Greater than: prune if predicate value >= max
+		// Looking for rows where col > predValue
+		// If max <= predValue, no rows can satisfy col > predValue
+		if zoneMapCompareValues(predValue, zm.MaxValue) >= 0 {
+			return false
+		}
+		return true
+
+	case Ge:
+		// Greater than or equal: prune if predicate value > max
+		if zoneMapCompareValues(predValue, zm.MaxValue) > 0 {
+			return false
+		}
+		return true
+
+	case Ne:
+		// Not equal: can only prune if min == max == predValue
+		// (i.e., all values in fragment equal predValue)
+		if zoneMapCompareValues(zm.MinValue, zm.MaxValue) == 0 &&
+			zoneMapCompareValues(predValue, zm.MinValue) == 0 {
+			return false
+		}
+		return true
+
+	default:
+		return true
+	}
+}
+
+// convertChunkValueToInterface converts a chunk.Value to interface{} for ZoneMap comparison.
+func convertChunkValueToInterface(val *chunk.Value) interface{} {
+	if val == nil || val.IsNull {
+		return nil
+	}
+
+	switch val.Typ.Id {
+	case common.LTID_BOOLEAN:
+		return val.Bool
+	case common.LTID_TINYINT, common.LTID_SMALLINT, common.LTID_INTEGER, common.LTID_BIGINT:
+		return val.I64
+	case common.LTID_UBIGINT:
+		return val.U64
+	case common.LTID_FLOAT, common.LTID_DOUBLE:
+		return val.F64
+	case common.LTID_VARCHAR:
+		return val.Str
+	default:
+		return val.String()
+	}
 }
 
 // estimateRowsToUpdate estimates the number of rows that will be updated.
@@ -280,40 +412,242 @@ func (p *UpdatePlanner) chooseUpdateStrategy(op *UpdateOperation, fragments []*D
 }
 
 // executeRewriteRows executes update by rewriting entire rows.
+// It reads each affected fragment, evaluates the predicate, applies updates
+// to matching rows, and writes new fragments with the modified data.
 func (p *UpdatePlanner) executeRewriteRows(ctx context.Context, plan *UpdatePlan) (*UpdateResult, error) {
-	// This is a simplified implementation
-	// In production, this would:
-	// 1. Read affected fragments
-	// 2. Apply updates to matching rows
-	// 3. Write new fragments
-	// 4. Return result
+	executor := NewUpdateExecutor(plan.Operation.ColumnUpdates, p.manifest.Fields)
 
-	result := &UpdateResult{
-		RowsUpdated:        plan.EstimatedRows,
-		OldFragments:       plan.AffectedFragments,
-		NewFragments:       nil, // Would be populated with new fragments
-		UpdatedFragmentIDs: nil,
+	// Parse predicate for evaluation
+	var predicate FilterPredicate
+	if plan.Operation.Predicate.ParsedFilter != nil {
+		predicate = plan.Operation.Predicate.ParsedFilter.Predicate
+	} else if plan.Operation.Predicate.Filter != "" {
+		parsed, err := ParseFilter(plan.Operation.Predicate.Filter, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse predicate: %w", err)
+		}
+		predicate = parsed
 	}
 
-	return result, nil
+	// Determine next fragment ID for new data files
+	var nextFileID uint64
+	if p.manifest.MaxFragmentId != nil {
+		nextFileID = uint64(*p.manifest.MaxFragmentId) + 1
+	}
+
+	var (
+		totalUpdated uint64
+		oldFragments []*DataFragment
+		newFragments []*DataFragment
+	)
+
+	for _, frag := range plan.AffectedFragments {
+		if frag == nil || len(frag.Files) == 0 {
+			continue
+		}
+
+		// Read the first data file of the fragment
+		df := frag.Files[0]
+		if df == nil || df.Path == "" {
+			continue
+		}
+		fullPath := filepath.Join(p.basePath, df.Path)
+		src, err := ReadChunkFromFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read fragment %d: %w", frag.Id, err)
+		}
+		if src == nil || src.Card() == 0 {
+			continue
+		}
+
+		// Evaluate predicate to get row mask
+		var rowMask []bool
+		if predicate != nil {
+			rowMask, err = predicate.Evaluate(src)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate predicate on fragment %d: %w", frag.Id, err)
+			}
+			// Check if any rows match
+			anyMatch := false
+			for _, m := range rowMask {
+				if m {
+					anyMatch = true
+					break
+				}
+			}
+			if !anyMatch {
+				continue
+			}
+		}
+
+		// Apply updates
+		updated, err := executor.Execute(src, rowMask)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply updates to fragment %d: %w", frag.Id, err)
+		}
+
+		// Count updated rows
+		if rowMask == nil {
+			totalUpdated += uint64(src.Card())
+		} else {
+			for _, m := range rowMask {
+				if m {
+					totalUpdated++
+				}
+			}
+		}
+
+		// Write new fragment
+		newRelPath := fmt.Sprintf("data/%d.dat", nextFileID)
+		newFullPath := filepath.Join(p.basePath, newRelPath)
+		if err := WriteChunkToFile(newFullPath, updated); err != nil {
+			return nil, fmt.Errorf("failed to write updated fragment: %w", err)
+		}
+
+		// Build field IDs from original data file
+		fieldIDs := make([]int32, len(df.Fields))
+		copy(fieldIDs, df.Fields)
+		if len(fieldIDs) == 0 {
+			// If original had no field IDs, generate from schema
+			for i := range p.manifest.Fields {
+				fieldIDs = append(fieldIDs, int32(i))
+			}
+		}
+
+		newDF := NewDataFile(newRelPath, fieldIDs, df.FileMajorVersion, df.FileMinorVersion)
+		newFrag := NewDataFragmentWithRows(0, uint64(updated.Card()), []*DataFile{newDF})
+
+		oldFragments = append(oldFragments, frag)
+		newFragments = append(newFragments, newFrag)
+		nextFileID++
+	}
+
+	return &UpdateResult{
+		RowsUpdated:  totalUpdated,
+		OldFragments: oldFragments,
+		NewFragments: newFragments,
+	}, nil
 }
 
 // executeRewriteColumns executes update by rewriting only affected columns.
+// For each affected fragment, it reads the data, applies updates only to the
+// columns specified in ColumnUpdates, and writes the full chunk back.
+// This is more efficient when many rows are affected but few columns change.
 func (p *UpdatePlanner) executeRewriteColumns(ctx context.Context, plan *UpdatePlan) (*UpdateResult, error) {
-	// This is a simplified implementation
-	// Column rewrite is more complex and requires:
-	// 1. Reading only affected columns
-	// 2. Writing new column files
-	// 3. Updating fragment metadata
+	executor := NewUpdateExecutor(plan.Operation.ColumnUpdates, p.manifest.Fields)
 
-	result := &UpdateResult{
-		RowsUpdated:        plan.EstimatedRows,
-		OldFragments:       plan.AffectedFragments,
-		NewFragments:       nil,
-		UpdatedFragmentIDs: nil, // Would contain IDs of updated fragments
+	// Parse predicate for evaluation
+	var predicate FilterPredicate
+	if plan.Operation.Predicate.ParsedFilter != nil {
+		predicate = plan.Operation.Predicate.ParsedFilter.Predicate
+	} else if plan.Operation.Predicate.Filter != "" {
+		parsed, err := ParseFilter(plan.Operation.Predicate.Filter, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse predicate: %w", err)
+		}
+		predicate = parsed
 	}
 
-	return result, nil
+	// Determine next file ID for new data files
+	var nextFileID uint64
+	if p.manifest.MaxFragmentId != nil {
+		nextFileID = uint64(*p.manifest.MaxFragmentId) + 1
+	}
+
+	var (
+		totalUpdated uint64
+		oldFragments []*DataFragment
+		newFragments []*DataFragment
+	)
+
+	// Collect modified field IDs for transaction metadata
+	modifiedFields := make(map[int32]bool)
+	for _, cu := range plan.Operation.ColumnUpdates {
+		modifiedFields[int32(cu.ColumnIdx)] = true
+	}
+
+	for _, frag := range plan.AffectedFragments {
+		if frag == nil || len(frag.Files) == 0 {
+			continue
+		}
+
+		df := frag.Files[0]
+		if df == nil || df.Path == "" {
+			continue
+		}
+		fullPath := filepath.Join(p.basePath, df.Path)
+		src, err := ReadChunkFromFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read fragment %d: %w", frag.Id, err)
+		}
+		if src == nil || src.Card() == 0 {
+			continue
+		}
+
+		// Evaluate predicate to get row mask
+		var rowMask []bool
+		if predicate != nil {
+			rowMask, err = predicate.Evaluate(src)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate predicate on fragment %d: %w", frag.Id, err)
+			}
+			anyMatch := false
+			for _, m := range rowMask {
+				if m {
+					anyMatch = true
+					break
+				}
+			}
+			if !anyMatch {
+				continue
+			}
+		}
+
+		// Apply updates (executor only modifies the specified columns)
+		updated, err := executor.Execute(src, rowMask)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply column updates to fragment %d: %w", frag.Id, err)
+		}
+
+		// Count updated rows
+		if rowMask == nil {
+			totalUpdated += uint64(src.Card())
+		} else {
+			for _, m := range rowMask {
+				if m {
+					totalUpdated++
+				}
+			}
+		}
+
+		// Write updated chunk
+		newRelPath := fmt.Sprintf("data/%d.dat", nextFileID)
+		newFullPath := filepath.Join(p.basePath, newRelPath)
+		if err := WriteChunkToFile(newFullPath, updated); err != nil {
+			return nil, fmt.Errorf("failed to write updated fragment: %w", err)
+		}
+
+		fieldIDs := make([]int32, len(df.Fields))
+		copy(fieldIDs, df.Fields)
+		if len(fieldIDs) == 0 {
+			for i := range p.manifest.Fields {
+				fieldIDs = append(fieldIDs, int32(i))
+			}
+		}
+
+		newDF := NewDataFile(newRelPath, fieldIDs, df.FileMajorVersion, df.FileMinorVersion)
+		newFrag := NewDataFragmentWithRows(0, uint64(updated.Card()), []*DataFile{newDF})
+
+		oldFragments = append(oldFragments, frag)
+		newFragments = append(newFragments, newFrag)
+		nextFileID++
+	}
+
+	return &UpdateResult{
+		RowsUpdated:  totalUpdated,
+		OldFragments: oldFragments,
+		NewFragments: newFragments,
+	}, nil
 }
 
 // UpdateOptions contains options for the Update operation.

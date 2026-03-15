@@ -640,3 +640,16 @@ func max(a, b uint64) uint64 {
 
 // Ensure BitmapIndex implements ScalarIndexImpl
 var _ ScalarIndexImpl = (*BitmapIndex)(nil)
+
+// Marshal implements Serializable interface
+func (bi *BitmapIndex) Marshal() ([]byte, error) {
+	return bi.MarshalBinary()
+}
+
+// Unmarshal implements Serializable interface
+func (bi *BitmapIndex) Unmarshal(data []byte) error {
+	return bi.UnmarshalBinary(data)
+}
+
+// Ensure BitmapIndex implements Serializable
+var _ Serializable = (*BitmapIndex)(nil)

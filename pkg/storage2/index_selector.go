@@ -88,6 +88,10 @@ type IndexSelection struct {
 	CanPrune bool
 	// PrunableFragments are fragment IDs that can be pruned
 	PrunableFragments []uint64
+	// FilterOp is the comparison operator from the predicate (for fragment-level pruning)
+	FilterOp string
+	// FilterValue is the comparison value from the predicate (for fragment-level pruning)
+	FilterValue interface{}
 }
 
 // SelectIndexForPredicate selects the best index for a predicate
@@ -166,9 +170,11 @@ func (s *IndexSelector) selectForEquality(ctx context.Context, indexes []Index, 
 
 	for _, idx := range indexes {
 		selection := &IndexSelection{
-			Index:     idx,
-			Type:      idx.Type(),
-			ColumnIdx: columnIdx,
+			Index:       idx,
+			Type:        idx.Type(),
+			ColumnIdx:   columnIdx,
+			FilterOp:    pred.Op.String(),
+			FilterValue: extractValueFromChunkValue(pred.Value),
 		}
 
 		switch index := idx.(type) {
@@ -263,9 +269,11 @@ func (s *IndexSelector) selectForRange(ctx context.Context, indexes []Index, col
 
 	for _, idx := range indexes {
 		selection := &IndexSelection{
-			Index:     idx,
-			Type:      idx.Type(),
-			ColumnIdx: columnIdx,
+			Index:       idx,
+			Type:        idx.Type(),
+			ColumnIdx:   columnIdx,
+			FilterOp:    pred.Op.String(),
+			FilterValue: extractValueFromChunkValue(pred.Value),
 		}
 
 		switch index := idx.(type) {
@@ -537,12 +545,10 @@ func (s *IndexAwareScanner) canPruneFragment(selection *IndexSelection, fragment
 	// Check fragment-specific indexes
 	switch idx := selection.Index.(type) {
 	case *ZoneMapIndex:
-		zm := idx.GetFragmentZoneMap(fragmentID, selection.ColumnIdx)
-		if zm == nil || !zm.Initialized {
-			return false
+		// Use ZoneMap fragment-level pruning with the filter op/value
+		if selection.FilterOp != "" && selection.FilterValue != nil {
+			return idx.CanPruneFragment(fragmentID, selection.ColumnIdx, selection.FilterOp, selection.FilterValue)
 		}
-		// Check if zone map indicates no data
-		// This is a simplified check; real implementation would be more sophisticated
 		return false
 
 	case *BloomFilterIndex:

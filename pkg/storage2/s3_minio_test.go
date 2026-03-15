@@ -88,6 +88,8 @@ func TestMinIOConnection(t *testing.T) {
 }
 
 // TestMinIOCommitHandler tests S3CommitHandlerV2 with MinIO
+// Note: MinIO doesn't support S3's IfNoneMatch conditional writes, so we use
+// the external locker mechanism to ensure proper duplicate detection.
 func TestMinIOCommitHandler(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -110,9 +112,12 @@ func TestMinIOCommitHandler(t *testing.T) {
 	// Create bucket if needed
 	_ = store.CreateBucket(ctx)
 
-	// Create commit handler
+	// Create commit handler with external lock for proper duplicate detection
 	opts := DefaultS3CommitOptions()
+	opts.UseExternalLock = true
 	handler := NewS3CommitHandlerV2(store, opts)
+	locker := NewMockExternalLocker()
+	handler.SetLocker(locker)
 
 	basePath := "test-dataset"
 
@@ -194,6 +199,8 @@ func TestMinIOCommitWithExternalLock(t *testing.T) {
 }
 
 // TestMinIOConcurrentCommits tests concurrent commit scenarios
+// Note: MinIO doesn't fully support S3's IfNoneMatch conditional writes,
+// so we use the external locker mechanism to ensure proper concurrency control.
 func TestMinIOConcurrentCommits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -216,8 +223,13 @@ func TestMinIOConcurrentCommits(t *testing.T) {
 	_ = store.CreateBucket(ctx)
 
 	opts := DefaultS3CommitOptions()
-	opts.MaxRetries = 3
+	opts.MaxRetries = 0 // No retries for this test
+	opts.UseExternalLock = true
 	handler := NewS3CommitHandlerV2(store, opts)
+
+	// Use shared locker for both handlers to ensure proper locking
+	locker := NewMockExternalLocker()
+	handler.SetLocker(locker)
 
 	basePath := "test-dataset"
 
@@ -245,6 +257,9 @@ func TestMinIOConcurrentCommits(t *testing.T) {
 	// One should succeed, one should fail
 	err1 := <-done
 	err2 := <-done
+
+	t.Logf("err1: %v", err1)
+	t.Logf("err2: %v", err2)
 
 	// Exactly one should succeed
 	successCount := 0

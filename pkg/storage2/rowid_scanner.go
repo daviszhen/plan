@@ -3,6 +3,7 @@ package storage2
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
@@ -241,8 +242,8 @@ func (r *RowIdScanner) readFragmentRows(fragId uint64, refs []rowLocationRef, re
 	return nil
 }
 
-// joinPath is a helper to construct file paths
+// joinPath is a helper to construct file paths using filepath.Join
+// for correct handling of separators and clean paths.
 func joinPath(base, rel string) string {
-	// Simplified path joining - would need proper implementation
-	return base + "/" + rel
+	return filepath.Join(base, rel)
 }

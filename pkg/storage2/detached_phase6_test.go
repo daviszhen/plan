@@ -71,10 +71,12 @@ func TestDetachedTransaction_StatusQueries(t *testing.T) {
 
 	// Create multiple transactions with different statuses
 	txn1 := NewTransactionAppend(0, "txn-pending", nil)
-	txn2 := NewTransactionAppend(0, "txn-committed", nil)
+	// txn2 will be an Overwrite that gets committed first
+	txn2 := NewTransactionOverwrite(0, "txn-committed", nil, nil, nil)
 
-	// txn3 will be an Overwrite that conflicts with the committed Append
-	txn3 := NewTransactionOverwrite(0, "txn-failed", nil, nil, nil)
+	// txn3 will be an Append that conflicts with the committed Overwrite
+	// Per Lance semantics: Append (current) vs Overwrite (committed) = CONFLICT
+	txn3 := NewTransactionAppend(0, "txn-failed", nil)
 
 	// Create detached transactions
 	id1, err := CreateDetachedTransaction(ctx, tmpDir, handler, txn1, nil)
@@ -86,11 +88,11 @@ func TestDetachedTransaction_StatusQueries(t *testing.T) {
 	id3, err := CreateDetachedTransaction(ctx, tmpDir, handler, txn3, nil)
 	require.NoError(t, err)
 
-	// Commit second transaction (Append)
+	// Commit second transaction (Overwrite)
 	_, err = CommitDetachedTransaction(ctx, tmpDir, handler, id2)
 	require.NoError(t, err)
 
-	// Now try to commit third transaction (Overwrite) - should fail due to conflict with committed Append
+	// Now try to commit third transaction (Append) - should fail due to conflict with committed Overwrite
 	_, err = CommitDetachedTransaction(ctx, tmpDir, handler, id3)
 	require.Error(t, err) // Should fail due to conflict
 	require.Contains(t, err.Error(), "conflict")

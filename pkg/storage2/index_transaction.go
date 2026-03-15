@@ -11,6 +11,8 @@ import (
 
 	protobuf "google.golang.org/protobuf/proto"
 
+	"github.com/daviszhen/plan/pkg/chunk"
+	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/storage2/proto"
 )
 
@@ -245,13 +247,13 @@ func (b *IndexBuilder) startAsyncBuild(ctx context.Context, readVersion uint64, 
 	b.jobCounter++
 	jobID := fmt.Sprintf("index_build_%d_%d", time.Now().Unix(), b.jobCounter)
 	job := &IndexBuildJob{
-		JobID:     jobID,
-		Operation: op,
-		State:     IndexBuildStatePending,
-		Progress:  0,
-		StartTime: time.Now(),
+		JobID:      jobID,
+		Operation:  op,
+		State:      IndexBuildStatePending,
+		Progress:   0,
+		StartTime:  time.Now(),
 		CancelFunc: cancel,
-		ctx:       jobCtx,
+		ctx:        jobCtx,
 	}
 	b.activeJobs[jobID] = job
 	b.jobsMu.Unlock()
@@ -354,9 +356,180 @@ func (b *IndexBuilder) buildScalarIndex(
 		metadata.Fields[i] = int32(idx)
 	}
 
-	// TODO: Actually build and persist the index data
+	// Determine index implementation type from params
+	indexImplType := "btree" // default
+	if op.IndexParams != nil {
+		if t, ok := op.IndexParams["type"]; ok {
+			indexImplType = t
+		}
+	}
+
+	// Create the appropriate index type
+	var idx Index
+	colIdx := op.ColumnIndices[0] // Primary column for the index
+
+	switch indexImplType {
+	case "btree":
+		idx = NewBTreeIndex(op.IndexName, colIdx)
+	case "bitmap":
+		idx = NewBitmapIndex(colIdx, WithBitmapIndexName(op.IndexName))
+	case "zonemap":
+		idx = NewZoneMapIndex(WithZoneMapIndexName(op.IndexName))
+	case "bloomfilter":
+		idx = NewBloomFilterIndex(WithBloomFilterIndexName(op.IndexName))
+	default:
+		idx = NewBTreeIndex(op.IndexName, colIdx)
+	}
+
+	// Scan all fragments and build index
+	var globalRowID uint64 = 0
+	for _, frag := range manifest.Fragments {
+		if frag == nil {
+			continue
+		}
+
+		for _, df := range frag.Files {
+			if df == nil || df.Path == "" {
+				continue
+			}
+
+			// Read chunk from file
+			fullPath := fmt.Sprintf("%s/%s", b.basePath, df.Path)
+			chk, err := ReadChunkFromFile(fullPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read chunk: %w", err)
+			}
+
+			// Add data to index based on index type
+			if err := b.addChunkToIndex(ctx, idx, chk, colIdx, globalRowID); err != nil {
+				return nil, fmt.Errorf("failed to add chunk to index: %w", err)
+			}
+
+			globalRowID += uint64(chk.Card())
+		}
+	}
+
+	// Persist the index using LocalIndexStore
+	indexStore := NewLocalIndexStore(b.basePath)
+
+	// Save index data
+	if serializable, ok := idx.(Serializable); ok {
+		data, err := serializable.Marshal()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize index: %w", err)
+		}
+		if err := indexStore.WriteIndex(ctx, op.IndexName, data); err != nil {
+			return nil, fmt.Errorf("failed to write index: %w", err)
+		}
+	}
+
+	// Save index metadata
+	idxMeta := &IndexMetadata{
+		Name:          op.IndexName,
+		Type:          ScalarIndex,
+		ColumnIndices: op.ColumnIndices,
+		Version:       manifest.Version,
+		Path:          fmt.Sprintf("_indices/%s", op.IndexName),
+		Params:        op.IndexParams,
+	}
+	if err := indexStore.WriteIndexMetadata(ctx, op.IndexName, idxMeta); err != nil {
+		return nil, fmt.Errorf("failed to write index metadata: %w", err)
+	}
+
+	// Save index stats
+	stats := idx.Statistics()
+	if err := indexStore.WriteIndexStats(ctx, op.IndexName, &stats); err != nil {
+		return nil, fmt.Errorf("failed to write index stats: %w", err)
+	}
 
 	return metadata, nil
+}
+
+// addChunkToIndex adds chunk data to the index based on index type.
+func (b *IndexBuilder) addChunkToIndex(ctx context.Context, idx Index, chk *chunk.Chunk, colIdx int, startRowID uint64) error {
+	if chk == nil || colIdx >= chk.ColumnCount() {
+		return nil
+	}
+
+	vec := chk.Data[colIdx]
+	if vec == nil {
+		return nil
+	}
+
+	numRows := uint64(chk.Card())
+
+	switch typedIdx := idx.(type) {
+	case *BTreeIndex:
+		// Add each row to BTree
+		for i := uint64(0); i < numRows; i++ {
+			val := vec.GetValue(int(i))
+			if val != nil && !val.IsNull {
+				value := convertValueToInterface(val)
+				typedIdx.Insert(value, startRowID+i)
+			}
+		}
+
+	case *BitmapIndex:
+		// Add each row to Bitmap
+		for i := uint64(0); i < numRows; i++ {
+			val := vec.GetValue(int(i))
+			value := convertValueToInterface(val)
+			typedIdx.Insert(value, startRowID+i)
+		}
+
+	case *ZoneMapIndex:
+		// Collect values for batch update
+		var values []interface{}
+		var nullCount uint64
+		for i := uint64(0); i < numRows; i++ {
+			val := vec.GetValue(int(i))
+			if val == nil || val.IsNull {
+				nullCount++
+			} else {
+				values = append(values, convertValueToInterface(val))
+			}
+		}
+		if err := typedIdx.UpdateZoneMapBatch(colIdx, values, nullCount); err != nil {
+			return err
+		}
+
+	case *BloomFilterIndex:
+		// Add each row to Bloom filter
+		for i := uint64(0); i < numRows; i++ {
+			val := vec.GetValue(int(i))
+			if val != nil && !val.IsNull {
+				value := convertValueToInterface(val)
+				if err := typedIdx.AddToFilter(colIdx, value); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// convertValueToInterface converts a chunk.Value to interface{} for index storage.
+func convertValueToInterface(val *chunk.Value) interface{} {
+	if val == nil || val.IsNull {
+		return nil
+	}
+
+	switch val.Typ.Id {
+	case common.LTID_BOOLEAN:
+		return val.Bool
+	case common.LTID_TINYINT, common.LTID_SMALLINT, common.LTID_INTEGER, common.LTID_BIGINT:
+		return val.I64
+	case common.LTID_UBIGINT:
+		return val.U64
+	case common.LTID_FLOAT, common.LTID_DOUBLE:
+		return val.F64
+	case common.LTID_VARCHAR:
+		return val.Str
+	default:
+		// Fall back to string representation
+		return val.String()
+	}
 }
 
 // buildVectorIndex builds a vector index.
@@ -549,18 +722,44 @@ func NewIndexRollback(basePath string, handler CommitHandler, store ObjectStoreE
 	}
 }
 
-// RollbackCreateIndex rolls back an index creation.
+// objectDeleter is an optional interface for stores that support deleting objects.
+type objectDeleter interface {
+	Delete(ctx context.Context, path string) error
+}
+
+// RollbackCreateIndex rolls back an index creation by deleting all index files.
 func (r *IndexRollback) RollbackCreateIndex(ctx context.Context, indexMetadata *storage2pb.IndexMetadata) error {
 	if indexMetadata == nil {
 		return nil
 	}
 
-	// Delete index files
-	indexPath := fmt.Sprintf("%s/indexes/%s", r.basePath, indexMetadata.Name)
+	if r.store == nil {
+		return nil
+	}
 
-	// List and delete all files under index path
-	// This is a simplified implementation
-	_ = indexPath
+	deleter, ok := r.store.(objectDeleter)
+	if !ok {
+		// Store does not support deletion; nothing we can do.
+		return nil
+	}
+
+	// Index files are stored under indexes/<name>/
+	indexDir := fmt.Sprintf("indexes/%s", indexMetadata.Name)
+
+	// List all files under the index directory
+	entries, err := r.store.List(indexDir)
+	if err != nil {
+		// Directory may not exist if build failed early — not an error.
+		return nil
+	}
+
+	// Delete each file
+	for _, entry := range entries {
+		filePath := fmt.Sprintf("%s/%s", indexDir, entry)
+		if err := deleter.Delete(ctx, filePath); err != nil {
+			return fmt.Errorf("failed to delete index file %s: %w", filePath, err)
+		}
+	}
 
 	return nil
 }
@@ -589,13 +788,115 @@ func NewIndexRecovery(basePath string, handler CommitHandler, store ObjectStoreE
 }
 
 // RecoverIncompleteBuilds recovers any incomplete index builds after a crash.
+// It scans the indexes directory for orphaned subdirectories that have no
+// corresponding entry in the current manifest and cleans them up.
 func (r *IndexRecovery) RecoverIncompleteBuilds(ctx context.Context) error {
-	// List all index directories
-	// Check for incomplete builds (e.g., temp files, missing metadata)
-	// Clean up or resume as appropriate
+	if r.store == nil {
+		return nil // No store — nothing to recover.
+	}
 
-	// This is a simplified implementation
+	// Resolve the latest manifest to know which indexes are valid.
+	latestVersion, err := r.handler.ResolveLatestVersion(ctx, r.basePath)
+	if err != nil || latestVersion == 0 {
+		// No manifest at all — any index directories are orphaned.
+		return r.cleanAllIndexDirs(ctx)
+	}
+
+	manifest, err := LoadManifest(ctx, r.basePath, r.handler, latestVersion)
+	if err != nil {
+		// Cannot load manifest — skip recovery rather than risk deleting valid data.
+		return fmt.Errorf("index recovery: failed to load manifest v%d: %w", latestVersion, err)
+	}
+
+	// Build a set of known index names from the manifest's transaction file.
+	// If a transaction references a CreateIndex, that name is considered valid.
+	knownIndexes := r.collectKnownIndexNames(manifest)
+
+	// List all subdirectories under indexes/
+	indexDirs, err := r.store.List("indexes")
+	if err != nil {
+		return nil // No indexes directory — nothing to recover.
+	}
+
+	for _, dirName := range indexDirs {
+		if _, ok := knownIndexes[dirName]; ok {
+			continue // This index is referenced in the manifest — keep it.
+		}
+
+		// Orphaned index directory — clean it up.
+		if err := r.deleteIndexDir(ctx, dirName); err != nil {
+			return fmt.Errorf("index recovery: failed to clean up orphaned index %s: %w", dirName, err)
+		}
+	}
+
 	return nil
+}
+
+// cleanAllIndexDirs removes all index subdirectories (used when no manifest exists).
+func (r *IndexRecovery) cleanAllIndexDirs(ctx context.Context) error {
+	dirs, err := r.store.List("indexes")
+	if err != nil {
+		return nil
+	}
+	for _, dir := range dirs {
+		if err := r.deleteIndexDir(ctx, dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteIndexDir deletes all files under indexes/<name>/.
+func (r *IndexRecovery) deleteIndexDir(ctx context.Context, name string) error {
+	deleter, ok := r.store.(objectDeleter)
+	if !ok {
+		return nil
+	}
+	dirPath := fmt.Sprintf("indexes/%s", name)
+	entries, err := r.store.List(dirPath)
+	if err != nil {
+		return nil
+	}
+	for _, entry := range entries {
+		filePath := fmt.Sprintf("%s/%s", dirPath, entry)
+		if err := deleter.Delete(ctx, filePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// collectKnownIndexNames extracts index names that are referenced in the manifest.
+func (r *IndexRecovery) collectKnownIndexNames(manifest *Manifest) map[string]struct{} {
+	names := make(map[string]struct{})
+
+	// Check the transaction file for CreateIndex operations.
+	if manifest != nil && manifest.TransactionFile != "" {
+		// The index name is typically the directory name under indexes/.
+		// We also consider any indexes whose section offset is set as valid.
+		if manifest.IndexSection != nil {
+			// If there's an index section, the manifest has at least one index.
+			// Without parsing the full index section, we rely on directory existence
+			// matching the manifest — conservative approach: keep all directories
+			// that have non-empty content.
+		}
+	}
+
+	// If manifest has fragments that reference index data, those are valid.
+	// For safety, also keep any indexes that have a metadata file.
+	entries, err := r.store.List("indexes")
+	if err != nil {
+		return names
+	}
+	for _, dirName := range entries {
+		metadataPath := fmt.Sprintf("indexes/%s/metadata", dirName)
+		data, err := r.store.Read(metadataPath)
+		if err == nil && len(data) > 0 {
+			names[dirName] = struct{}{}
+		}
+	}
+
+	return names
 }
 
 // IndexBuildProgress tracks progress of an index build.
@@ -686,9 +987,9 @@ func (t *IndexBuildProgressTracker) GetProgress() IndexBuildProgress {
 
 // ConcurrentIndexBuilder builds multiple indexes concurrently.
 type ConcurrentIndexBuilder struct {
-	basePath  string
-	handler   CommitHandler
-	store     ObjectStoreExt
+	basePath   string
+	handler    CommitHandler
+	store      ObjectStoreExt
 	maxWorkers int
 }
 
@@ -781,7 +1082,7 @@ type IndexBuildMetrics struct {
 type IndexBuildMetricsCollector struct {
 	mu sync.RWMutex
 
-	metrics IndexBuildMetrics
+	metrics    IndexBuildMetrics
 	buildTimes []time.Duration
 }
 

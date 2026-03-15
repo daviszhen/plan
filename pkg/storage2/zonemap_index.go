@@ -351,9 +351,19 @@ func (zmi *ZoneMapIndex) CanPrune(columnIdx int, op string, value interface{}) b
 		return zoneMapCompareValues(value, zm.MaxValue) > 0
 
 	case "between":
-		// Between is handled as range [start, end]
-		// This is a simplified check
-		return false
+		// Between is handled as range [start, end].
+		// The value must be a [2]interface{} or []interface{} with {start, end}.
+		switch v := value.(type) {
+		case [2]interface{}:
+			return zoneMapCompareValues(v[1], zm.MinValue) < 0 || zoneMapCompareValues(v[0], zm.MaxValue) > 0
+		case []interface{}:
+			if len(v) >= 2 {
+				return zoneMapCompareValues(v[1], zm.MinValue) < 0 || zoneMapCompareValues(v[0], zm.MaxValue) > 0
+			}
+			return false
+		default:
+			return false
+		}
 
 	default:
 		return false
@@ -1165,3 +1175,16 @@ func deserializeValue(data []byte, dataType common.LType) (interface{}, error) {
 
 // Ensure ZoneMapIndex implements ScalarIndexImpl
 var _ ScalarIndexImpl = (*ZoneMapIndex)(nil)
+
+// Marshal implements Serializable interface
+func (zmi *ZoneMapIndex) Marshal() ([]byte, error) {
+	return zmi.MarshalBinary()
+}
+
+// Unmarshal implements Serializable interface
+func (zmi *ZoneMapIndex) Unmarshal(data []byte) error {
+	return zmi.UnmarshalBinary(data)
+}
+
+// Ensure ZoneMapIndex implements Serializable
+var _ Serializable = (*ZoneMapIndex)(nil)

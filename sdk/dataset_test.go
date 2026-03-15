@@ -1458,3 +1458,430 @@ func TestSchemaEvolutionCombined(t *testing.T) {
 		t.Errorf("final schema should have 'id' and 'full_name', got %v", names)
 	}
 }
+
+// --- P0-1: Dataset.Update() tests ---
+
+func TestDatasetUpdate(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	handler := NewLocalRenameCommitHandler()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "value", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "int64"},
+	}
+
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	// Add data
+	c := createChunkWithRows(10, t)
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, c); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update all rows: set value = 999
+	result, err := ds.Update(ctx, "", map[string]interface{}{"value": int64(999)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsUpdated != 10 {
+		t.Errorf("want 10 rows updated, got %d", result.RowsUpdated)
+	}
+}
+
+func TestDatasetUpdateWithPredicate(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	handler := NewLocalRenameCommitHandler()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "value", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "int64"},
+	}
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	c := createChunkWithRows(10, t)
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, c); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update rows where c0 > 5: set value = 42
+	result, err := ds.Update(ctx, "c0 > 5", map[string]interface{}{"value": int64(42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rows 6,7,8,9 match "c0 > 5" = 4 rows
+	if result.RowsUpdated != 4 {
+		t.Errorf("want 4 rows updated, got %d", result.RowsUpdated)
+	}
+}
+
+func TestDatasetUpdateNoMatch(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	handler := NewLocalRenameCommitHandler()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "value", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "int64"},
+	}
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	c := createChunkWithRows(10, t)
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, c); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update rows where c0 > 100: no match
+	result, err := ds.Update(ctx, "c0 > 100", map[string]interface{}{"value": int64(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsUpdated != 0 {
+		t.Errorf("want 0 rows updated, got %d", result.RowsUpdated)
+	}
+}
+
+func TestDatasetUpdateEmptyUpdates(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+	ds, err := CreateDataset(ctx, basePath).WithCommitHandler(NewLocalRenameCommitHandler()).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	result, err := ds.Update(ctx, "", map[string]interface{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsUpdated != 0 {
+		t.Errorf("empty updates should return 0 rows, got %d", result.RowsUpdated)
+	}
+}
+
+// --- P0-2: Dataset.Merge() tests ---
+
+func TestDatasetMerge(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string"},
+	}
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Merge with a new schema (add column)
+	newSchema := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "name", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "string"},
+		{Name: "age", Type: storage2pb.Field_LEAF, Id: 2, ParentId: -1, LogicalType: "int32"},
+	}
+	if err := ds.Merge(ctx, nil, newSchema); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := ds.Schema()
+	if len(schema) != 3 {
+		t.Fatalf("want 3 fields after merge, got %d", len(schema))
+	}
+	if schema[2].Name != "age" {
+		t.Errorf("new field name want 'age', got %q", schema[2].Name)
+	}
+}
+
+func TestDatasetMergeSchemaChange(t *testing.T) {
+	basePath := t.TempDir()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+	}
+	ds := createDatasetWithSchema(t, basePath, fields)
+	defer ds.Close()
+	ctx := context.Background()
+
+	// Merge with renamed + added columns
+	newSchema := []*storage2pb.Field{
+		{Name: "identifier", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "score", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "float64"},
+	}
+	if err := ds.Merge(ctx, nil, newSchema); err != nil {
+		t.Fatal(err)
+	}
+	if len(ds.Schema()) != 2 {
+		t.Fatalf("want 2 fields, got %d", len(ds.Schema()))
+	}
+	if ds.Schema()[0].Name != "identifier" {
+		t.Errorf("want 'identifier', got %q", ds.Schema()[0].Name)
+	}
+}
+
+// --- P0-3: Dataset.Restore() / CheckoutVersion() tests ---
+
+func TestDatasetRestore(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	handler := NewLocalRenameCommitHandler()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "value", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "int64"},
+	}
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	// Append data to create version 1
+	c := createChunkWithRows(10, t)
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, c); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+	if ds.Version() != 1 {
+		t.Fatalf("want version 1, got %d", ds.Version())
+	}
+
+	// Append more data to create version 2
+	dataPath2 := filepath.Join(basePath, "data", "1.dat")
+	if err := storage2.WriteChunkToFile(dataPath2, c); err != nil {
+		t.Fatal(err)
+	}
+	df2 := NewDataFile("data/1.dat", []int32{0, 1}, 1, 0)
+	frag2 := NewDataFragmentWithRows(0, 10, []*DataFile{df2})
+	if err := ds.Append(ctx, []*DataFragment{frag2}); err != nil {
+		t.Fatal(err)
+	}
+	if ds.Version() != 2 {
+		t.Fatalf("want version 2, got %d", ds.Version())
+	}
+
+	count, _ := ds.CountRows()
+	if count != 20 {
+		t.Fatalf("want 20 rows at version 2, got %d", count)
+	}
+
+	// Restore to version 1
+	if err := ds.Restore(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Version should be 3 (restore creates a new version)
+	if ds.Version() != 3 {
+		t.Errorf("want version 3 after restore, got %d", ds.Version())
+	}
+
+	count, _ = ds.CountRows()
+	if count != 10 {
+		t.Errorf("want 10 rows after restore to v1, got %d", count)
+	}
+}
+
+func TestDatasetCheckoutVersion(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	handler := NewLocalRenameCommitHandler()
+	fields := []*storage2pb.Field{
+		{Name: "id", Type: storage2pb.Field_LEAF, Id: 0, ParentId: -1, LogicalType: "int64"},
+		{Name: "value", Type: storage2pb.Field_LEAF, Id: 1, ParentId: -1, LogicalType: "int64"},
+	}
+	manifest := storage2.NewManifest(0)
+	manifest.Fields = fields
+	manifest.Fragments = []*storage2pb.DataFragment{}
+	manifest.NextRowId = 1
+	if err := handler.Commit(ctx, basePath, 0, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	ds, err := OpenDataset(ctx, basePath).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	// Append data to create version 1
+	c := createChunkWithRows(10, t)
+	dataPath := filepath.Join(basePath, "data", "0.dat")
+	if err := storage2.WriteChunkToFile(dataPath, c); err != nil {
+		t.Fatal(err)
+	}
+	df := NewDataFile("data/0.dat", []int32{0, 1}, 1, 0)
+	frag := NewDataFragmentWithRows(0, 10, []*DataFile{df})
+	if err := ds.Append(ctx, []*DataFragment{frag}); err != nil {
+		t.Fatal(err)
+	}
+
+	// CheckoutVersion to version 0 (read-only view)
+	if err := ds.CheckoutVersion(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	if ds.Version() != 0 {
+		t.Errorf("want version 0, got %d", ds.Version())
+	}
+	count, _ := ds.CountRows()
+	if count != 0 {
+		t.Errorf("want 0 rows at version 0, got %d", count)
+	}
+
+	// Switch back to version 1
+	if err := ds.CheckoutVersion(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if ds.Version() != 1 {
+		t.Errorf("want version 1, got %d", ds.Version())
+	}
+	count, _ = ds.CountRows()
+	if count != 10 {
+		t.Errorf("want 10 rows at version 1, got %d", count)
+	}
+}
+
+// --- P0-4: Dataset Tag management tests ---
+
+func TestDatasetCreateTag(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	ds, err := CreateDataset(ctx, basePath).WithCommitHandler(NewLocalRenameCommitHandler()).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	if err := ds.CreateTag(ctx, "v0", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Creating duplicate tag should fail
+	if err := ds.CreateTag(ctx, "v0", 0); err == nil {
+		t.Fatal("expected error creating duplicate tag")
+	}
+}
+
+func TestDatasetDeleteTag(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	ds, err := CreateDataset(ctx, basePath).WithCommitHandler(NewLocalRenameCommitHandler()).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	if err := ds.CreateTag(ctx, "release", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ds.DeleteTag(ctx, "release"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete non-existent tag should fail
+	if err := ds.DeleteTag(ctx, "release"); err == nil {
+		t.Fatal("expected error deleting non-existent tag")
+	}
+}
+
+func TestDatasetListTags(t *testing.T) {
+	ctx := context.Background()
+	basePath := t.TempDir()
+
+	ds, err := CreateDataset(ctx, basePath).WithCommitHandler(NewLocalRenameCommitHandler()).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+
+	// Empty list initially
+	tags, err := ds.ListTags(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 0 {
+		t.Errorf("want 0 tags, got %d", len(tags))
+	}
+
+	// Create some tags
+	if err := ds.CreateTag(ctx, "v0", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	tags, err = ds.ListTags(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 1 {
+		t.Fatalf("want 1 tag, got %d", len(tags))
+	}
+	if v, ok := tags["v0"]; !ok || v != 0 {
+		t.Errorf("want tag 'v0' -> version 0, got %v", tags)
+	}
+}

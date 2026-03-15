@@ -781,3 +781,16 @@ func (bfi *BloomFilterIndex) updateStats() {
 
 // Ensure BloomFilterIndex implements ScalarIndexImpl
 var _ ScalarIndexImpl = (*BloomFilterIndex)(nil)
+
+// Marshal implements Serializable interface
+func (bfi *BloomFilterIndex) Marshal() ([]byte, error) {
+	return bfi.MarshalBinary()
+}
+
+// Unmarshal implements Serializable interface
+func (bfi *BloomFilterIndex) Unmarshal(data []byte) error {
+	return bfi.UnmarshalBinary(data)
+}
+
+// Ensure BloomFilterIndex implements Serializable
+var _ Serializable = (*BloomFilterIndex)(nil)

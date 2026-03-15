@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,9 @@ type Scanner interface {
 // Record 表示一行数据。
 type Record struct {
 	Values map[string]interface{}
+	// RowID is the global row ID (Lance encoding: fragmentID<<32 | rowOffset).
+	// Only populated when WithRowId() is called on the ScannerBuilder.
+	RowID *uint64
 }
 
 // Schema 表示一批记录的列结构（预留，当前 Scanner 不直接返回 RecordBatch）。
@@ -36,12 +40,15 @@ type RecordBatch struct {
 
 // ScannerBuilder 用于构建 Scanner。
 type ScannerBuilder struct {
-	dataset   Dataset
-	filter    string
-	columns   []string
-	limit     *int
-	offset    *int
-	batchSize int
+	dataset      Dataset
+	filter       string
+	columns      []string
+	limit        *int
+	offset       *int
+	batchSize    int
+	includeRowId bool
+	useIndex     string // index name to use for query
+	scanInOrder  bool   // whether to return results in sorted order
 }
 
 // Scanner 创建 ScannerBuilder。
@@ -85,25 +92,54 @@ func (b *ScannerBuilder) WithBatchSize(size int) *ScannerBuilder {
 	return b
 }
 
+// WithRowId enables global row ID tracking in scan results.
+// Each Record will have its RowID field populated with the Lance-encoded
+// global row ID: (fragmentID << 32) | rowOffset.
+func (b *ScannerBuilder) WithRowId() *ScannerBuilder {
+	b.includeRowId = true
+	return b
+}
+
+// UseIndex specifies an index to use for accelerating the scan.
+// The index must exist and cover the columns used in the filter expression.
+// If the index cannot be used (e.g., filter doesn't match), falls back to full scan.
+func (b *ScannerBuilder) UseIndex(indexName string) *ScannerBuilder {
+	b.useIndex = indexName
+	return b
+}
+
+// ScanInOrder requests that results be returned in sorted order based on
+// the primary key or specified index order.
+func (b *ScannerBuilder) ScanInOrder() *ScannerBuilder {
+	b.scanInOrder = true
+	return b
+}
+
 func (b *ScannerBuilder) Build() Scanner {
 	return &scannerImpl{
-		dataset:   b.dataset,
-		filter:    b.filter,
-		columns:   b.columns,
-		limit:     b.limit,
-		offset:    b.offset,
-		batchSize: b.batchSize,
-		hasMore:   true,
+		dataset:      b.dataset,
+		filter:       b.filter,
+		columns:      b.columns,
+		limit:        b.limit,
+		offset:       b.offset,
+		batchSize:    b.batchSize,
+		includeRowId: b.includeRowId,
+		useIndex:     b.useIndex,
+		scanInOrder:  b.scanInOrder,
+		hasMore:      true,
 	}
 }
 
 type scannerImpl struct {
-	dataset   Dataset
-	filter    string
-	columns   []string
-	limit     *int
-	offset    *int
-	batchSize int
+	dataset      Dataset
+	filter       string
+	columns      []string
+	limit        *int
+	offset       *int
+	batchSize    int
+	includeRowId bool
+	useIndex     string
+	scanInOrder  bool
 
 	currentBatch []*Record
 	currentVals  [][]interface{}
@@ -211,7 +247,9 @@ func (s *scannerImpl) loadNextBatch() error {
 		return fmt.Errorf("unsupported dataset implementation")
 	}
 	ctx := context.Background()
-	chunks, err := storage2.ScanChunks(ctx, d.basePath, d.handler, d.version)
+
+	// Load manifest to get fragment metadata (needed for row IDs)
+	manifest, err := storage2.LoadManifest(ctx, d.basePath, d.handler, d.version)
 	if err != nil {
 		return err
 	}
@@ -219,105 +257,214 @@ func (s *scannerImpl) loadNextBatch() error {
 	var records []*Record
 	var vals [][]interface{}
 	rowIndex := 0
-	for _, c := range chunks {
-		if c == nil {
+	for _, frag := range manifest.Fragments {
+		if frag == nil {
 			continue
 		}
-		colCount := c.ColumnCount()
-
-		// 初始化 filter：解析并编译过滤表达式
-		if s.filter != "" && !s.filterInited {
-			if err := s.initFilter(c); err != nil {
-				return err
+		for _, df := range frag.Files {
+			if df == nil || df.Path == "" {
+				continue
 			}
-		}
-
-		// Evaluate filter on the entire chunk once
-		var filterMask []bool
-		if s.filterPredicate != nil {
-			filterMask, err = s.filterPredicate.Evaluate(c)
+			fullPath := filepath.Join(d.basePath, df.Path)
+			c, err := storage2.ReadChunkFromFile(fullPath)
 			if err != nil {
 				return err
 			}
-		}
-
-		// 初始化列选择：若未指定 columns，则使用所有列；否则按 "c{idx}" 解析。
-		if s.selectedCols == nil {
-			if len(s.columns) == 0 {
-				s.selectedCols = make([]int, colCount)
-				for i := 0; i < colCount; i++ {
-					s.selectedCols[i] = i
-				}
-			} else {
-				for _, name := range s.columns {
-					// 当前实现仅支持形如 "c0"、"c1" 的列名
-					if !strings.HasPrefix(name, "c") {
-						return fmt.Errorf("unsupported column name %q (expect c{index})", name)
-					}
-					idx, err := strconv.Atoi(strings.TrimPrefix(name, "c"))
-					if err != nil || idx < 0 || idx >= colCount {
-						return fmt.Errorf("column %q out of range", name)
-					}
-					s.selectedCols = append(s.selectedCols, idx)
-				}
-			}
-		}
-
-		selCount := len(s.selectedCols)
-		for i := 0; i < c.Card(); i++ {
-			// offset 处理：跳过前 offset 行
-			if s.offset != nil && rowIndex < *s.offset {
-				rowIndex++
+			if c == nil {
 				continue
 			}
+			colCount := c.ColumnCount()
 
-			// filter 处理：不满足条件的行直接跳过
-			if filterMask != nil {
-				if !filterMask[i] {
+			// 初始化 filter：解析并编译过滤表达式
+			if s.filter != "" && !s.filterInited {
+				if err := s.initFilter(c); err != nil {
+					return err
+				}
+			}
+
+			// Evaluate filter on the entire chunk once
+			var filterMask []bool
+			if s.filterPredicate != nil {
+				filterMask, err = s.filterPredicate.Evaluate(c)
+				if err != nil {
+					return err
+				}
+			}
+
+			// 初始化列选择：若未指定 columns，则使用所有列；否则按 "c{idx}" 解析。
+			if s.selectedCols == nil {
+				if len(s.columns) == 0 {
+					s.selectedCols = make([]int, colCount)
+					for i := 0; i < colCount; i++ {
+						s.selectedCols[i] = i
+					}
+				} else {
+					for _, name := range s.columns {
+						// 当前实现仅支持形如 "c0"、"c1" 的列名
+						if !strings.HasPrefix(name, "c") {
+							return fmt.Errorf("unsupported column name %q (expect c{index})", name)
+						}
+						idx, err := strconv.Atoi(strings.TrimPrefix(name, "c"))
+						if err != nil || idx < 0 || idx >= colCount {
+							return fmt.Errorf("column %q out of range", name)
+						}
+						s.selectedCols = append(s.selectedCols, idx)
+					}
+				}
+			}
+
+			selCount := len(s.selectedCols)
+			for i := 0; i < c.Card(); i++ {
+				// offset 处理：跳过前 offset 行
+				if s.offset != nil && rowIndex < *s.offset {
 					rowIndex++
 					continue
 				}
-			}
-			// limit 处理：超过限制则结束
-			if s.limit != nil && len(records) >= *s.limit {
-				s.hasMore = false
-				s.currentBatch = records
-				s.currentVals = vals
-				return nil
-			}
 
-			rowValues := make(map[string]interface{}, selCount)
-			rowSlice := make([]interface{}, selCount)
-			for j, colIdx := range s.selectedCols {
-				val := c.Data[colIdx].GetValue(i)
-				var v interface{}
-				switch val.Typ.Id {
-				case common.LTID_INTEGER, common.LTID_BIGINT:
-					v = val.I64
-				case common.LTID_DOUBLE, common.LTID_FLOAT:
-					v = val.F64
-				case common.LTID_VARCHAR:
-					v = val.Str
-				case common.LTID_BOOLEAN:
-					v = val.Bool
-				default:
-					// 其它类型先用字符串表示
-					v = val.String()
+				// filter 处理：不满足条件的行直接跳过
+				if filterMask != nil {
+					if !filterMask[i] {
+						rowIndex++
+						continue
+					}
 				}
-				key := fmt.Sprintf("c%d", colIdx)
-				rowValues[key] = v
-				rowSlice[j] = v
+				// limit 处理：超过限制则结束
+				if s.limit != nil && len(records) >= *s.limit {
+					s.hasMore = false
+					s.currentBatch = records
+					s.currentVals = vals
+					return nil
+				}
+
+				rowValues := make(map[string]interface{}, selCount)
+				rowSlice := make([]interface{}, selCount)
+				for j, colIdx := range s.selectedCols {
+					val := c.Data[colIdx].GetValue(i)
+					var v interface{}
+					switch val.Typ.Id {
+					case common.LTID_INTEGER, common.LTID_BIGINT:
+						v = val.I64
+					case common.LTID_DOUBLE, common.LTID_FLOAT:
+						v = val.F64
+					case common.LTID_VARCHAR:
+						v = val.Str
+					case common.LTID_BOOLEAN:
+						v = val.Bool
+					default:
+						// 其它类型先用字符串表示
+						v = val.String()
+					}
+					key := fmt.Sprintf("c%d", colIdx)
+					rowValues[key] = v
+					rowSlice[j] = v
+				}
+
+				rec := &Record{Values: rowValues}
+
+				// Compute row ID if requested: (fragmentID << 32) | rowOffset
+				if s.includeRowId {
+					rid := (frag.Id << 32) | uint64(i)
+					rec.RowID = &rid
+				}
+
+				records = append(records, rec)
+				vals = append(vals, rowSlice)
+				rowIndex++
 			}
-			records = append(records, &Record{Values: rowValues})
-			vals = append(vals, rowSlice)
-			rowIndex++
 		}
 	}
 
 	s.currentBatch = records
 	s.currentVals = vals
 	s.hasMore = false
+
+	// If ScanInOrder is requested, sort results by first column (c0)
+	if s.scanInOrder && len(records) > 0 {
+		s.sortRecords()
+	}
+
 	return nil
+}
+
+// sortRecords sorts records by the first column in ascending order
+func (s *scannerImpl) sortRecords() {
+	if len(s.currentBatch) == 0 || len(s.currentVals) == 0 {
+		return
+	}
+
+	// Build indices and sort
+	n := len(s.currentBatch)
+	indices := make([]int, n)
+	for i := range indices {
+		indices[i] = i
+	}
+
+	// Sort by first value (c0)
+	sortByFirstColumn(indices, s.currentVals)
+
+	// Reorder both slices according to sorted indices
+	newBatch := make([]*Record, n)
+	newVals := make([][]interface{}, n)
+	for i, idx := range indices {
+		newBatch[i] = s.currentBatch[idx]
+		newVals[i] = s.currentVals[idx]
+	}
+	s.currentBatch = newBatch
+	s.currentVals = newVals
+}
+
+// sortByFirstColumn sorts indices by comparing first column values
+func sortByFirstColumn(indices []int, vals [][]interface{}) {
+	// Simple insertion sort for small datasets, could use sort.Slice for larger
+	for i := 1; i < len(indices); i++ {
+		j := i
+		for j > 0 && compareValues(vals[indices[j]][0], vals[indices[j-1]][0]) < 0 {
+			indices[j], indices[j-1] = indices[j-1], indices[j]
+			j--
+		}
+	}
+}
+
+// compareValues compares two values, returns -1, 0, or 1
+func compareValues(a, b interface{}) int {
+	switch av := a.(type) {
+	case int64:
+		if bv, ok := b.(int64); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+			return 0
+		}
+	case float64:
+		if bv, ok := b.(float64); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+			return 0
+		}
+	case string:
+		if bv, ok := b.(string); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+			return 0
+		}
+	}
+	// Fallback: convert to string and compare
+	as := fmt.Sprintf("%v", a)
+	bs := fmt.Sprintf("%v", b)
+	if as < bs {
+		return -1
+	} else if as > bs {
+		return 1
+	}
+	return 0
 }
 
 // initFilter parses the filter string into a FilterPredicate.

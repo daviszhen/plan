@@ -1055,3 +1055,157 @@ func TestEncodingTypeString(t *testing.T) {
 		}
 	}
 }
+
+// TestBitpackedRoundtrip verifies bitpacked encode -> decode roundtrip for various value ranges.
+func TestBitpackedRoundtrip(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []int64
+	}{
+		{"SmallRange", []int64{0, 1, 2, 3, 4, 5, 6, 7}},
+		{"SingleValue", []int64{42, 42, 42, 42}},
+		{"PowerOfTwo", []int64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}},
+		{"NegativeValues", []int64{-10, -5, 0, 5, 10, 15, 20}},
+		{"LargeRange", []int64{0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000}},
+		{"AllZeros", []int64{0, 0, 0, 0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewBitPackEncoder()
+			page := enc.Encode(tt.values, len(tt.values))
+			if page.Encoding != EncodingBitPacked {
+				t.Errorf("encoding: got %v want bitpacked", page.Encoding)
+			}
+			if page.NumRows != len(tt.values) {
+				t.Errorf("NumRows: got %d want %d", page.NumRows, len(tt.values))
+			}
+			decoded := DecodeBitPacked(page)
+			if len(decoded) != len(tt.values) {
+				t.Fatalf("decoded len: got %d want %d", len(decoded), len(tt.values))
+			}
+			for i := range tt.values {
+				if decoded[i] != tt.values[i] {
+					t.Errorf("row %d: got %d want %d", i, decoded[i], tt.values[i])
+				}
+			}
+		})
+	}
+}
+
+// TestDictRoundtrip verifies dictionary encode -> decode roundtrip.
+func TestDictRoundtrip(t *testing.T) {
+	tests := []struct {
+		name      string
+		values    []int64
+		byteWidth int
+	}{
+		{"FewDistinct4", []int64{10, 20, 30, 10, 20, 30, 10}, 4},
+		{"SingleDistinct4", []int64{99, 99, 99, 99, 99}, 4},
+		{"AllDistinct4", []int64{1, 2, 3, 4, 5}, 4},
+		{"NegativeValues4", []int64{-5, -3, -1, -5, -3, -1}, 4},
+		{"FewDistinct8", []int64{1000000, 2000000, 1000000, 2000000}, 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewDictEncoder(tt.byteWidth)
+			page := enc.Encode(tt.values, len(tt.values))
+			if page.Encoding != EncodingDictionary {
+				t.Errorf("encoding: got %v want dictionary", page.Encoding)
+			}
+			if page.NumRows != len(tt.values) {
+				t.Errorf("NumRows: got %d want %d", page.NumRows, len(tt.values))
+			}
+			decoded := DecodeDictionary(page, tt.byteWidth)
+			if len(decoded) != len(tt.values) {
+				t.Fatalf("decoded len: got %d want %d", len(decoded), len(tt.values))
+			}
+			for i := range tt.values {
+				if decoded[i] != tt.values[i] {
+					t.Errorf("row %d: got %d want %d", i, decoded[i], tt.values[i])
+				}
+			}
+		})
+	}
+}
+
+// TestRleRoundtrip verifies RLE encode -> decode roundtrip for various patterns.
+func TestRleRoundtrip(t *testing.T) {
+	tests := []struct {
+		name      string
+		values    []int64
+		byteWidth int
+	}{
+		{"Repeated4", []int64{5, 5, 5, 5, 5, 10, 10, 10, 20}, 4},
+		{"AllSame4", []int64{42, 42, 42, 42, 42, 42}, 4},
+		{"NoRepeats4", []int64{1, 2, 3, 4, 5}, 4},
+		{"Mixed8", []int64{100, 100, 200, 200, 200, 300, 100, 100}, 8},
+		{"SingleValue4", []int64{7}, 4},
+		{"LongRun2", []int64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2}, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewRLEEncoder(tt.byteWidth)
+			page := enc.Encode(tt.values, len(tt.values))
+			if page.Encoding != EncodingRLE {
+				t.Errorf("encoding: got %v want rle", page.Encoding)
+			}
+			if page.NumRows != len(tt.values) {
+				t.Errorf("NumRows: got %d want %d", page.NumRows, len(tt.values))
+			}
+			decoded := DecodeRLE(page)
+			if len(decoded) != len(tt.values) {
+				t.Fatalf("decoded len: got %d want %d", len(decoded), len(tt.values))
+			}
+			for i := range tt.values {
+				if decoded[i] != tt.values[i] {
+					t.Errorf("row %d: got %d want %d", i, decoded[i], tt.values[i])
+				}
+			}
+		})
+	}
+}
+
+// TestBinaryRoundtrip verifies VarBinary encode -> decode roundtrip for string data.
+func TestBinaryRoundtrip(t *testing.T) {
+	// VarBinary validity convention: true = value present, false = null
+	tests := []struct {
+		name     string
+		values   []string
+		validity []bool // true = present, false = null
+	}{
+		{"Simple", []string{"hello", "world", "test"}, []bool{true, true, true}},
+		{"WithNulls", []string{"a", "", "c", "", "e"}, []bool{true, false, true, false, true}},
+		{"Empty", []string{""}, []bool{true}},
+		{"LongStrings", []string{
+			"the quick brown fox jumps over the lazy dog",
+			"lorem ipsum dolor sit amet",
+			"abcdefghijklmnopqrstuvwxyz",
+		}, []bool{true, true, true}},
+		{"AllNulls", []string{"", "", ""}, []bool{false, false, false}},
+		{"Unicode", []string{"hello", "world", "test"}, []bool{true, true, true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewVarBinaryEncoder()
+			page := enc.EncodeStrings(tt.values, tt.validity)
+			if page.Encoding != EncodingVarBinary {
+				t.Errorf("encoding: got %v want varbinary", page.Encoding)
+			}
+			if page.NumRows != len(tt.values) {
+				t.Errorf("NumRows: got %d want %d", page.NumRows, len(tt.values))
+			}
+			decoded, decodedValidity := DecodeVarBinary(page)
+			if len(decoded) != len(tt.values) {
+				t.Fatalf("decoded len: got %d want %d", len(decoded), len(tt.values))
+			}
+			for i := range tt.values {
+				if decodedValidity[i] != tt.validity[i] {
+					t.Errorf("row %d validity: got %v want %v", i, decodedValidity[i], tt.validity[i])
+				}
+				if tt.validity[i] && decoded[i] != tt.values[i] {
+					t.Errorf("row %d: got %q want %q", i, decoded[i], tt.values[i])
+				}
+			}
+		})
+	}
+}
