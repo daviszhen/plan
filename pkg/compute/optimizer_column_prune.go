@@ -325,7 +325,7 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 	switch root.Typ {
 	case LOT_Limit:
 	case LOT_Order:
-		cp.colRefs.addExpr(root.OrderBys...)
+		cp.colRefs.addExpr(root.getOrderBys()...)
 	case LOT_Project:
 		cmap := make(ColumnBindMap)
 		newId := uint64(0)
@@ -357,22 +357,22 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		}
 		return root, err
 	case LOT_AggGroup:
-		cp.colRefs.addExpr(root.GroupBys...)
+		cp.colRefs.addExpr(root.getGroupBys()...)
 		cp.colRefs.addExpr(root.Filters...)
 		//!!!noticed that: Filters in the aggNode
 		//may refer the Column in Aggs list.
 		//root.Filters must be added into colRefs before
-		//process root.Aggs
+		//process root.getAggs()
 		cmap := make(ColumnBindMap)
 		newId := uint64(0)
 		removed := make([]int, 0)
-		for i := 0; i < len(root.Aggs); i++ {
-			bind := ColumnBind{root.Index2, uint64(i)}
+		for i := 0; i < len(root.getAggs()); i++ {
+			bind := ColumnBind{root.getAggTag(), uint64(i)}
 			if !cp.colRefs.beenReferred(bind) {
 				removed = append(removed, i)
 			} else {
-				cp.colRefs.addExpr(root.Aggs[i])
-				cmap[bind] = ColumnBind{root.Index2, newId}
+				cp.colRefs.addExpr(root.getAggs()[i])
+				cmap[bind] = ColumnBind{root.getAggTag(), newId}
 				newId++
 			}
 		}
@@ -385,31 +385,33 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 		}
 		//remove unused columns
 		for i := len(removed) - 1; i >= 0; i-- {
-			root.Aggs = util.Erase(root.Aggs, removed[i])
+			if ai, ok := root.Info.(*AggOpInfo); ok {
+				ai.Aggs = util.Erase(root.getAggs(), removed[i])
+			}
 		}
 		cp.colRefs.replaceAll(cmap)
-		if len(root.Aggs) == 0 {
+		if len(root.getAggs()) == 0 {
 			return root.Children[0], nil
 		}
 		return root, nil
 	case LOT_JOIN:
-		cp.colRefs.addExpr(root.OnConds...)
+		cp.colRefs.addExpr(root.getOnConds()...)
 	case LOT_Scan:
 		cp.colRefs.addExpr(root.Filters...)
 		var columns []string
-		switch root.ScanTyp {
+		switch root.getScanTyp() {
 		case ScanTypeTable:
 			{
-				tabEnt := storage.GCatalog.GetEntry(cp.txn, storage.CatalogTypeTable, root.Database, root.Table)
+				tabEnt := storage.GCatalog.GetEntry(cp.txn, storage.CatalogTypeTable, root.getScanDatabase(), root.getScanTable())
 				if tabEnt == nil {
-					return nil, fmt.Errorf("no table %s in schema %s", root.Database, root.Table)
+					return nil, fmt.Errorf("no table %s in schema %s", root.getScanDatabase(), root.getScanTable())
 				}
 				columns = tabEnt.GetColumnNames()
 			}
 		case ScanTypeValuesList:
-			columns = root.Names
+			columns = root.getScanInfo().Names
 		case ScanTypeCopyFrom:
-			columns = root.ScanInfo.Names
+			columns = root.getScanConfig().Names
 		}
 
 		cmap := make(ColumnBindMap)
@@ -424,7 +426,7 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 
 			}
 		}
-		root.Columns = needed
+		if si := root.getScanInfo(); si != nil { si.Columns = needed } else { if si := root.getScanInfo(); si != nil { si.Columns = needed } }
 
 		cp.colRefs.replaceAll(cmap)
 		return root, nil
@@ -523,7 +525,7 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 			return nil, err
 		}
 	case LOT_Order:
-		err = updateCounts(upCounts, root.OrderBys...)
+		err = updateCounts(upCounts, root.getOrderBys()...)
 		if err != nil {
 			return nil, err
 		}
@@ -536,10 +538,10 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 
 	case LOT_AggGroup:
 		//remove aggExprs & group by Exprs
-		colRefOnThisNode = upCounts.splitByTwoTableIdxes(root.Index, root.Index2)
+		colRefOnThisNode = upCounts.splitByTwoTableIdxes(root.Index, root.getAggTag())
 		exprs := make([]*Expr, 0)
-		exprs = append(exprs, root.GroupBys...)
-		exprs = append(exprs, root.Aggs...)
+		exprs = append(exprs, root.getGroupBys()...)
+		exprs = append(exprs, root.getAggs()...)
 		exprs = append(exprs, root.Filters...)
 		err = updateCounts(upCounts, exprs...)
 		if err != nil {
@@ -547,7 +549,7 @@ func (update *countsUpdater) generateCounts(root *LogicalOperator, upCounts Colu
 		}
 	case LOT_JOIN:
 		colRefOnThisNode = upCounts.splitByTableIdx(root.Index)
-		err = updateCounts(upCounts, root.OnConds...)
+		err = updateCounts(upCounts, root.getOnConds()...)
 		if err != nil {
 			return nil, err
 		}
@@ -686,7 +688,7 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			return nil, err
 		}
 
-		replaceColRef3(root.OrderBys, root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.getOrderBys(), root.Children[0].ColRefToPos, LeftChild)
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
@@ -776,15 +778,15 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			return nil, err
 		}
 
-		replaceColRef3(root.GroupBys, root.Children[0].ColRefToPos, LeftChild)
-		replaceColRef3(root.Aggs, root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.getGroupBys(), root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.getAggs(), root.Children[0].ColRefToPos, LeftChild)
 		replaceColRef3(root.Filters, root.Children[0].ColRefToPos, LeftChild)
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
 			colIdx := len(root.Outputs)
 			if bind.table() == root.Index {
-				groupby := root.GroupBys[bind.column()]
+				groupby := root.getGroupBys()[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
 					Typ:     ET_Column,
 					DataTyp: groupby.DataTyp,
@@ -800,10 +802,10 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 		}
 		rIdx := 0
 		for _, bind := range binds {
-			if bind.table() == root.Index2 {
-				colIdx := len(root.GroupBys) + rIdx
+			if bind.table() == root.getAggTag() {
+				colIdx := len(root.getGroupBys()) + rIdx
 				rIdx++
-				agg := root.Aggs[bind.column()]
+				agg := root.getAggs()[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
 					Typ:     ET_Column,
 					DataTyp: agg.DataTyp,
@@ -818,7 +820,7 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			}
 		}
 		for _, bind := range binds {
-			if bind.table() == root.Index || bind.table() == root.Index2 {
+			if bind.table() == root.Index || bind.table() == root.getAggTag() {
 				continue
 			}
 			//bind pos in the children
@@ -855,22 +857,22 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			return nil, err
 		}
 
-		replaceColRef3(root.OnConds, root.Children[0].ColRefToPos, LeftChild)
-		replaceColRef3(root.OnConds, root.Children[1].ColRefToPos, RightChild)
+		replaceColRef3(root.getOnConds(), root.Children[0].ColRefToPos, LeftChild)
+		replaceColRef3(root.getOnConds(), root.Children[1].ColRefToPos, RightChild)
 
 		//switch onConds left & right
-		for _, cond := range root.OnConds {
+		for _, cond := range root.getOnConds() {
 			lset := make(ColumnBindSet)
 			rset := make(ColumnBindSet)
 			switch cond.Typ {
 			case ET_Func:
-				if cond.FunImpl.IsOperator() {
-					switch GetOperatorType(cond.FunImpl._name) {
+				if cond.GetFuncInfo().FunImpl.IsOperator() {
+					switch GetOperatorType(cond.GetFuncInfo().FunImpl._name) {
 					case OpTypeCompare, OpTypeLike, OpTypeLogical:
 						collectColRefs(cond.Children[0], lset)
 						collectColRefs(cond.Children[1], rset)
 					default:
-						panic(fmt.Sprintf("usp %v", cond.FunImpl._name))
+						panic(fmt.Sprintf("usp %v", cond.GetFuncInfo().FunImpl._name))
 					}
 				}
 			default:
@@ -933,7 +935,7 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 		}
 		for _, bind := range binds {
 			if bind.table() == root.Index {
-				cond := root.OnConds[bind.column()]
+				cond := root.getOnConds()[bind.column()]
 				root.Outputs = append(root.Outputs, &Expr{
 					Typ:     ET_Column,
 					DataTyp: cond.DataTyp,
@@ -950,22 +952,22 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 	case LOT_Scan:
 		var column2Idx map[string]int
 		var columnTyps []common.LType
-		switch root.ScanTyp {
+		switch root.getScanTyp() {
 		case ScanTypeTable:
 			{
-				tabEnt := storage.GCatalog.GetEntry(update.txn, storage.CatalogTypeTable, root.Database, root.Table)
+				tabEnt := storage.GCatalog.GetEntry(update.txn, storage.CatalogTypeTable, root.getScanDatabase(), root.getScanTable())
 				if tabEnt == nil {
-					return nil, fmt.Errorf("no table %s in schema %s", root.Database, root.Table)
+					return nil, fmt.Errorf("no table %s in schema %s", root.getScanDatabase(), root.getScanTable())
 				}
 				column2Idx = tabEnt.GetColumn2Idx()
 				columnTyps = tabEnt.GetTypes()
 			}
 		case ScanTypeValuesList:
-			column2Idx = root.ColName2Idx
-			columnTyps = root.Types
+			column2Idx = root.getScanColName2Idx()
+			columnTyps = root.getScanTypes()
 		case ScanTypeCopyFrom:
-			column2Idx = root.ColName2Idx
-			columnTyps = root.ScanInfo.ReturnedTypes
+			column2Idx = root.getScanColName2Idx()
+			columnTyps = root.getScanConfig().ReturnedTypes
 		default:
 			panic("usp")
 		}
@@ -973,14 +975,14 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 		binds := root.ColRefToPos.sortByColumnBind()
 		outputs := make([]*Expr, 0)
 		for _, bind := range binds {
-			colName := root.Columns[bind.column()]
+			colName := root.getScanColumns()[bind.column()]
 			idx := column2Idx[colName]
 			e := &Expr{
 				Typ:     ET_Column,
 				DataTyp: columnTyps[idx],
 				BaseInfo: BaseInfo{
-					Database: root.Database,
-					Table:    root.Table,
+					Database: root.getScanDatabase(),
+					Table:    root.getScanTable(),
 					Name:     colName,
 					ColRef:   ColumnBind{uint64(ThisNode), uint64(bind.column())},
 				},

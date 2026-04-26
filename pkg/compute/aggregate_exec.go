@@ -53,9 +53,9 @@ func NewHashAggr(
 
 	//prepare distinct or non-distinct filter
 	for i, aggr := range ha._groupedAggrData._aggregates {
-		if aggr.FunctionInfo.FunImpl._aggrType == DISTINCT {
+		if aggr.GetFuncInfo().FunImpl._aggrType == DISTINCT {
 			ha._distinctFilter = append(ha._distinctFilter, i)
-		} else if aggr.FunctionInfo.FunImpl._aggrType == NON_DISTINCT {
+		} else if aggr.GetFuncInfo().FunImpl._aggrType == NON_DISTINCT {
 			ha._nonDistinctFilter = append(ha._nonDistinctFilter, i)
 		}
 	}

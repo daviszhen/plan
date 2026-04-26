@@ -7,6 +7,8 @@ import (
 	"github.com/petermattis/goid"
 )
 
+const noOwner int64 = -1
+
 type ReentryLock struct {
 	mu    sync.Mutex
 	cond  *sync.Cond
@@ -17,19 +19,19 @@ type ReentryLock struct {
 func NewReentryLock() *ReentryLock {
 	lock := &ReentryLock{}
 	lock.cond = sync.NewCond(&lock.mu)
+	lock.owner.Store(noOwner)
 	return lock
 }
 
 func (lock *ReentryLock) Lock() {
 	rid := goid.Get()
-	//fmt.Println("lock", rid)
 	lock.mu.Lock()
 	defer lock.mu.Unlock()
 	if lock.owner.Load() == rid {
 		lock.count.Add(1)
 		return
 	}
-	for lock.owner.Load() != 0 {
+	for lock.owner.Load() != noOwner {
 		lock.cond.Wait()
 	}
 	lock.owner.Store(rid)
@@ -38,7 +40,6 @@ func (lock *ReentryLock) Lock() {
 
 func (lock *ReentryLock) Unlock() {
 	rid := goid.Get()
-	//fmt.Println("unlock", rid)
 	yes := false
 	lock.mu.Lock()
 	defer func() {
@@ -53,7 +54,7 @@ func (lock *ReentryLock) Unlock() {
 	}
 	lock.count.Add(^uint64(0))
 	if lock.count.Load() == 0 {
-		lock.owner.Store(0)
+		lock.owner.Store(noOwner)
 		yes = true
 	}
 }

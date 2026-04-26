@@ -166,7 +166,7 @@ func (est *CardinalityEstimator) InitCardinalityEstimatorProps(nodeOps []*NodeOp
 		op := nodeOp.op
 		joinNode.setBaseCard(float64(op.EstimatedCard(est.txn)))
 		if op.Typ == LOT_JOIN {
-			if op.JoinTyp == LOT_JoinTypeLeft {
+			if op.getJoinTyp() == LOT_JoinTypeLeft {
 				panic("usp left join here")
 			}
 		}
@@ -336,7 +336,7 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 		if getUpdated {
 			{
 				if get != nil {
-					tabEnt = storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.Database, get.Table)
+					tabEnt = storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.getScanDatabase(), get.getScanTable())
 				}
 			}
 		}
@@ -380,12 +380,12 @@ func (est *CardinalityEstimator) UpdateTotalDomains(node *JoinNode, op *LogicalO
 func (est *CardinalityEstimator) AddRelationColumnMapping(
 	get *LogicalOperator,
 	relId uint64) error {
-	switch get.ScanTyp {
+	switch get.getScanTyp() {
 	case ScanTypeTable:
 		{
-			tabEnt := storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.Database, get.Table)
+			tabEnt := storage.GCatalog.GetEntry(est.txn, storage.CatalogTypeTable, get.getScanDatabase(), get.getScanTable())
 			if tabEnt == nil {
-				return fmt.Errorf("no table %s in schema %s", get.Database, get.Table)
+				return fmt.Errorf("no table %s in schema %s", get.getScanDatabase(), get.getScanTable())
 			}
 			//TODO: refine
 			for i := range tabEnt.GetColumns() {
@@ -395,13 +395,13 @@ func (est *CardinalityEstimator) AddRelationColumnMapping(
 			}
 		}
 	case ScanTypeValuesList:
-		for i := range get.Names {
+		for i := range get.getScanInfo().Names {
 			key := ColumnBind{relId, uint64(i)}
 			value := ColumnBind{get.Index, uint64(i)}
 			est.AddRelationToColumnMapping(key, value)
 		}
 	case ScanTypeCopyFrom:
-		for i := range get.ScanInfo.Names {
+		for i := range get.getScanConfig().Names {
 			key := ColumnBind{relId, uint64(i)}
 			value := ColumnBind{get.Index, uint64(i)}
 			est.AddRelationToColumnMapping(key, value)
@@ -570,8 +570,8 @@ func getLogicalGet(op *LogicalOperator, tableIndex uint64) *LogicalOperator {
 	case LOT_Project:
 		return getLogicalGet(op.Children[0], tableIndex)
 	case LOT_JOIN:
-		if op.JoinTyp == LOT_JoinTypeMARK || op.JoinTyp == LOT_JoinTypeLeft {
-			panic("usp " + op.JoinTyp.String())
+		if op.getJoinTyp() == LOT_JoinTypeMARK || op.getJoinTyp() == LOT_JoinTypeLeft {
+			panic("usp " + op.getJoinTyp().String())
 		}
 	default:
 		return nil

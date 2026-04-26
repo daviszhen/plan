@@ -7,8 +7,9 @@ import (
 )
 
 func (run *Runner) insertInit() error {
+	info := run.op.Info.(*InsertOpInfo)
 	run.state.insertChunk = &chunk.Chunk{}
-	run.state.insertChunk.Init(run.op.InsertTypes, storage.STANDARD_VECTOR_SIZE)
+	run.state.insertChunk.Init(info.ExpectedTypes, storage.STANDARD_VECTOR_SIZE)
 	return nil
 }
 
@@ -49,9 +50,10 @@ func (run *Runner) insertResolveDefaults(
 func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
 	var res OperatorResult
 	var err error
+	info := run.op.Info.(*InsertOpInfo)
 
 	lAState := &storage.LocalAppendState{}
-	table := run.op.TableEnt.GetStorage()
+	table := info.TableEnt.GetStorage()
 	table.InitLocalAppend(run.Txn, lAState)
 
 	cnt := 0
@@ -71,15 +73,12 @@ func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (Operat
 			continue
 		}
 
-		//fmt.Println("child raw chunk")
-		//childChunk.Print()
-
 		cnt += childChunk.Card()
 
 		run.insertResolveDefaults(
-			run.op.TableEnt,
+			info.TableEnt,
 			childChunk,
-			run.op.ColumnIndexMap,
+			info.ColumnIndexMap,
 			run.state.insertChunk)
 
 		err = table.LocalAppend(

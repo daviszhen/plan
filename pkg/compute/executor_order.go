@@ -12,7 +12,7 @@ func (run *Runner) orderInit() error {
 	//TODO: asc or desc
 	keyTypes := make([]common.LType, 0)
 	realOrderByExprs := make([]*Expr, 0)
-	for _, by := range run.op.OrderBys {
+	for _, by := range run.op.getOrderBys() {
 		child := by.Children[0]
 		keyTypes = append(keyTypes, child.DataTyp)
 		realOrderByExprs = append(realOrderByExprs, child)
@@ -25,7 +25,7 @@ func (run *Runner) orderInit() error {
 	}
 
 	run.state.localSort = NewLocalSort(
-		NewSortLayout(run.op.OrderBys),
+		NewSortLayout(run.op.getOrderBys()),
 		NewRowLayout(payLoadTypes, nil),
 	)
 

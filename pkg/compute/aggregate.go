@@ -22,7 +22,7 @@ import (
 func GetDistinctIndices(aggregates []*Expr) []int {
 	indices := make([]int, 0)
 	for i, aggr := range aggregates {
-		if aggr.FunctionInfo.FunImpl._aggrType == NON_DISTINCT {
+		if aggr.GetFuncInfo().FunImpl._aggrType == NON_DISTINCT {
 			continue
 		}
 		indices = append(indices, i)

@@ -1,0 +1,13 @@
+Project (Id 4) 
+  exprs:nation.n_name#[1,1], region.r_name#[2,1]
+->  Join (Id 3) 
+        type:inner
+        on:(nation.n_regionkey#[1,2] = region.r_regionkey#[2,0])
+      ->  Scan on public.nation (Id 1) 
+              table: public.nation
+              columns:n_nationkey#0, n_name#1, n_regionkey#2
+              filters:
+      ->  Scan on public.region (Id 2) 
+              table: public.region
+              columns:r_regionkey#0, r_name#1
+              filters:

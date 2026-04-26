@@ -47,19 +47,53 @@ const (
 
 type Expr struct {
 	BaseInfo
-	FunctionInfo
-	SubqueryInfo
-	JoinInfo
-	TableInfo
-	ValuesListInfo
 	ConstValue ConstValue // 常量值
-	OrderByInfo
-	CTEInfo
 
 	Typ      ET
 	DataTyp  common.LType
 	Index    uint64
 	Children []*Expr
+
+	// Info 存放类型特有数据
+	Info any
+}
+
+// GetFuncInfo 返回函数信息，Typ 必须为 ET_Func
+func (e *Expr) GetFuncInfo() *FunctionInfo {
+	return e.Info.(*FunctionInfo)
+}
+
+// GetSubqueryInfo 返回子查询信息，Typ 必须为 ET_Subquery
+func (e *Expr) GetSubqueryInfo() *SubqueryInfo {
+	return e.Info.(*SubqueryInfo)
+}
+
+// GetJoinInfo 返回连接信息，Typ 必须为 ET_Join
+func (e *Expr) GetJoinInfo() *JoinInfo {
+	return e.Info.(*JoinInfo)
+}
+
+// GetTableInfo 返回表信息，Typ 必须为 ET_TABLE
+func (e *Expr) GetTableInfo() *TableInfo {
+	if ti, ok := e.Info.(*TableInfo); ok {
+		return ti
+	}
+	return nil
+}
+
+// GetValuesListInfo 返回值列表信息，Typ 必须为 ET_ValuesList
+func (e *Expr) GetValuesListInfo() *ValuesListInfo {
+	return e.Info.(*ValuesListInfo)
+}
+
+// GetOrderByInfo 返回排序信息，Typ 必须为 ET_Orderby
+func (e *Expr) GetOrderByInfo() *OrderByInfo {
+	return e.Info.(*OrderByInfo)
+}
+
+// GetCTEInfo 返回 CTE 信息，Typ 必须为 ET_CTE
+func (e *Expr) GetCTEInfo() *CTEInfo {
+	return e.Info.(*CTEInfo)
 }
 
 // 列信息 - 用于列引用表达式
@@ -148,9 +182,10 @@ func (t *TableInfo) copy() TableInfo {
 // 值列表信息 - 用于INSERT VALUES语句
 type ValuesListInfo struct {
 	// 值列表定义
-	Types  []common.LType // 列类型
-	Names  []string       // 列名
-	Values [][]*Expr      // 值列表
+	Types       []common.LType // 列类型
+	Names       []string       // 列名
+	Values      [][]*Expr      // 值列表
+	ColName2Idx map[string]int // 列名到索引的映射（来自 TableInfo）
 }
 
 func (v *ValuesListInfo) copy() ValuesListInfo {
@@ -162,9 +197,10 @@ func (v *ValuesListInfo) copy() ValuesListInfo {
 		}
 	}
 	return ValuesListInfo{
-		Types:  v.Types,
-		Names:  v.Names,
-		Values: values,
+		Types:       v.Types,
+		Names:       v.Names,
+		Values:      values,
+		ColName2Idx: v.ColName2Idx,
 	}
 }
 
@@ -199,16 +235,6 @@ func (e *Expr) equal(o *Expr) bool {
 		if e.Typ != o.Typ {
 			return false
 		}
-		if e.Typ == ET_Func {
-			if e.FunImpl._name != o.FunImpl._name {
-				return false
-			}
-			if e.FunctionInfo.FunImpl._aggrType !=
-				o.FunctionInfo.FunImpl._aggrType {
-				return false
-			}
-		}
-
 		if e.DataTyp != o.DataTyp {
 			return false
 		}
@@ -224,6 +250,9 @@ func (e *Expr) equal(o *Expr) bool {
 		if e.Name != o.Name {
 			return false
 		}
+		if e.Alias != o.Alias {
+			return false
+		}
 		if e.ColRef != o.ColRef {
 			return false
 		}
@@ -233,23 +262,34 @@ func (e *Expr) equal(o *Expr) bool {
 		if !e.ConstValue.equal(o.ConstValue) {
 			return false
 		}
-		if e.Desc != o.Desc {
-			return false
-		}
-		if e.JoinTyp != o.JoinTyp {
-			return false
-		}
-		if e.Alias != o.Alias {
-			return false
-		}
-		if e.SubqueryTyp != o.SubqueryTyp {
-			return false
-		}
-		if e.CTEIndex != o.CTEIndex {
-			return false
-		}
-		if !e.On.equal(o.On) {
-			return false
+		// Type-specific comparisons
+		switch e.Typ {
+		case ET_Func:
+			if e.GetFuncInfo().FunImpl._name != o.GetFuncInfo().FunImpl._name {
+				return false
+			}
+			if e.GetFuncInfo().FunImpl._aggrType != o.GetFuncInfo().FunImpl._aggrType {
+				return false
+			}
+		case ET_Join:
+			if e.GetJoinInfo().JoinTyp != o.GetJoinInfo().JoinTyp {
+				return false
+			}
+			if !e.GetJoinInfo().On.equal(o.GetJoinInfo().On) {
+				return false
+			}
+		case ET_Subquery:
+			if e.GetSubqueryInfo().SubqueryTyp != o.GetSubqueryInfo().SubqueryTyp {
+				return false
+			}
+		case ET_Orderby:
+			if e.GetOrderByInfo().Desc != o.GetOrderByInfo().Desc {
+				return false
+			}
+		case ET_CTE:
+			if e.GetCTEInfo().CTEIndex != o.GetCTEInfo().CTEIndex {
+				return false
+			}
 		}
 		//children
 		if len(e.Children) != len(o.Children) {
@@ -271,23 +311,47 @@ func (e *Expr) copy() *Expr {
 		return nil
 	}
 
-	if e.Typ == ET_Func && e.FunImpl == nil {
+	if e.Typ == ET_Func && e.GetFuncInfo().FunImpl == nil {
 		panic("invalid fun in copy")
 	}
 
 	ret := &Expr{
-		BaseInfo:       e.BaseInfo.copy(),
-		FunctionInfo:   e.FunctionInfo.copy(),
-		SubqueryInfo:   e.SubqueryInfo.copy(),
-		JoinInfo:       e.JoinInfo.copy(),
-		TableInfo:      e.TableInfo.copy(),
-		ValuesListInfo: e.ValuesListInfo.copy(),
-		Typ:            e.Typ,
-		DataTyp:        e.DataTyp,
-		Index:          e.Index,
-		ConstValue:     e.ConstValue.copy(),
-		OrderByInfo:    e.OrderByInfo.copy(),
-		CTEInfo:        e.CTEInfo.copy(),
+		BaseInfo:   e.BaseInfo.copy(),
+		Typ:        e.Typ,
+		DataTyp:    e.DataTyp,
+		Index:      e.Index,
+		ConstValue: e.ConstValue.copy(),
+	}
+	// Copy type-specific Info
+	switch e.Typ {
+	case ET_Func:
+		fi := e.GetFuncInfo()
+		cp := fi.copy()
+		ret.Info = &cp
+	case ET_Subquery:
+		si := e.GetSubqueryInfo()
+		cp := si.copy()
+		ret.Info = &cp
+	case ET_Join:
+		ji := e.GetJoinInfo()
+		cp := ji.copy()
+		ret.Info = &cp
+	case ET_TABLE:
+		ti := e.GetTableInfo()
+		cp := ti.copy()
+		ret.Info = &cp
+	case ET_ValuesList:
+		vli := e.GetValuesListInfo()
+		cp := vli.copy()
+		ret.Info = &cp
+	case ET_Orderby:
+		oi := e.GetOrderByInfo()
+		cp := oi.copy()
+		ret.Info = &cp
+	case ET_CTE:
+		ci := e.GetCTEInfo()
+		cp := ci.copy()
+		ret.Info = &cp
 	}
 	for _, child := range e.Children {
 		ret.Children = append(ret.Children, child.copy())
@@ -326,11 +390,13 @@ func checkExprIsValid(root *LogicalOperator) {
 	}
 	checkExprs(root.Projects...)
 	checkExprs(root.Filters...)
-	checkExprs(root.OnConds...)
-	checkExprs(root.Aggs...)
-	checkExprs(root.GroupBys...)
-	checkExprs(root.OrderBys...)
-	checkExprs(root.Limit)
+	checkExprs(root.getOnConds()...)
+	checkExprs(root.getAggs()...)
+	checkExprs(root.getGroupBys()...)
+	checkExprs(root.getOrderBys()...)
+	if li, ok := root.Info.(*LimitOpInfo); ok {
+		checkExprs(li.Limit)
+	}
 	for _, child := range root.Children {
 		checkExprIsValid(child)
 	}
@@ -341,15 +407,15 @@ func checkExprs(e ...*Expr) {
 		if expr == nil {
 			continue
 		}
-		if expr.Typ == ET_Func && expr.FunImpl._name == "" {
+		if expr.Typ == ET_Func && expr.GetFuncInfo().FunImpl._name == "" {
 			panic("xxx")
 		}
-		if expr.Typ == ET_Func && expr.FunImpl._name == FuncBetween {
+		if expr.Typ == ET_Func && expr.GetFuncInfo().FunImpl._name == FuncBetween {
 			if len(expr.Children) != 3 {
 				panic("invalid between")
 			}
 		}
-		if expr.Typ == ET_Func && expr.FunImpl == nil {
+		if expr.Typ == ET_Func && expr.GetFuncInfo().FunImpl == nil {
 			panic("invalid function")
 		}
 		if expr.DataTyp.Id == common.LTID_INVALID {
@@ -364,7 +430,7 @@ func collectFilterExprs(root *PhysicalOperator) []*Expr {
 	}
 	ret := make([]*Expr, 0)
 	ret = append(ret, root.Filters...)
-	ret = append(ret, root.OnConds...)
+	ret = append(ret, root.getOnConds()...)
 	for _, child := range root.Children {
 		ret = append(ret, collectFilterExprs(child)...)
 	}
@@ -373,7 +439,7 @@ func collectFilterExprs(root *PhysicalOperator) []*Expr {
 
 func splitExprByAnd(expr *Expr) []*Expr {
 	if expr.Typ == ET_Func {
-		if expr.FunImpl._name == FuncAnd {
+		if expr.GetFuncInfo().FunImpl._name == FuncAnd {
 			return append(splitExprByAnd(expr.Children[0]), splitExprByAnd(expr.Children[1])...)
 		}
 	}
@@ -393,7 +459,7 @@ func splitExprsByAnd(exprs []*Expr) []*Expr {
 
 func splitExprByOr(expr *Expr) []*Expr {
 	if expr.Typ == ET_Func {
-		if expr.FunImpl._name == FuncOr {
+		if expr.GetFuncInfo().FunImpl._name == FuncOr {
 			return append(splitExprByOr(expr.Children[0]), splitExprByOr(expr.Children[1])...)
 		}
 	}
@@ -463,7 +529,7 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 		return expr, false
 
 	case ET_Func:
-		if expr.FunImpl.IsFunction() {
+		if expr.GetFuncInfo().FunImpl.IsFunction() {
 			args := make([]*Expr, 0, len(expr.Children))
 			for _, child := range expr.Children {
 				newChild, yes := deceaseDepth(child)
@@ -475,12 +541,12 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				ConstValue: NewStringConst(expr.ConstValue.String),
 				DataTyp:    expr.DataTyp,
 				Children:   args,
-				FunctionInfo: FunctionInfo{
-					FunImpl: expr.FunImpl,
+				Info: &FunctionInfo{
+					FunImpl: expr.GetFuncInfo().FunImpl,
 				},
 			}, hasCorCol
 		} else {
-			switch GetOperatorType(expr.FunImpl._name) {
+			switch GetOperatorType(expr.GetFuncInfo().FunImpl._name) {
 			case OpTypeCompare, OpTypeLike, OpTypeLogical:
 				left, leftHasCorr := deceaseDepth(expr.Children[0])
 				hasCorCol = hasCorCol || leftHasCorr
@@ -488,15 +554,15 @@ func deceaseDepth(expr *Expr) (*Expr, bool) {
 				hasCorCol = hasCorCol || rightHasCorr
 				return &Expr{
 					Typ:        expr.Typ,
-					ConstValue: NewStringConst(expr.FunImpl._name),
+					ConstValue: NewStringConst(expr.GetFuncInfo().FunImpl._name),
 					DataTyp:    expr.DataTyp,
 					Children:   []*Expr{left, right},
-					FunctionInfo: FunctionInfo{
-						FunImpl: expr.FunImpl,
+					Info: &FunctionInfo{
+						FunImpl: expr.GetFuncInfo().FunImpl,
 					},
 				}, hasCorCol
 			default:
-				panic(fmt.Sprintf("usp %v", expr.FunImpl._name))
+				panic(fmt.Sprintf("usp %v", expr.GetFuncInfo().FunImpl._name))
 			}
 		}
 	default:
@@ -518,7 +584,7 @@ func replaceColRef(e *Expr, bind, newBind ColumnBind) *Expr {
 	case ET_Func:
 	case ET_Orderby:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for i, child := range e.Children {
 		e.Children[i] = replaceColRef(child, bind, newBind)
@@ -538,7 +604,7 @@ func restoreExpr(e *Expr, index uint64, realExprs []*Expr) *Expr {
 	case ET_Const:
 	case ET_Func:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for i, child := range e.Children {
 		e.Children[i] = restoreExpr(child, index, realExprs)
@@ -557,7 +623,7 @@ func referTo(e *Expr, index uint64) bool {
 
 	case ET_Func:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for _, child := range e.Children {
 		if referTo(child, index) {
@@ -579,7 +645,7 @@ func onlyReferTo(e *Expr, index uint64) bool {
 		return true
 	case ET_Func:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for _, child := range e.Children {
 		if !onlyReferTo(child, index) {
@@ -602,7 +668,7 @@ func decideSide(e *Expr, leftTags, rightTags map[uint64]bool) int {
 	case ET_Const:
 	case ET_Func:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for _, child := range e.Children {
 		ret |= decideSide(child, leftTags, rightTags)
@@ -630,7 +696,7 @@ func replaceColRef2(e *Expr, colRefToPos ColumnBindPosMap, st SourceType) *Expr 
 	case ET_Func:
 	case ET_Orderby:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for i, child := range e.Children {
 		e.Children[i] = replaceColRef2(child, colRefToPos, st)
@@ -656,7 +722,7 @@ func collectColRefs(e *Expr, set ColumnBindSet) {
 	case ET_Const:
 	case ET_Orderby:
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for _, child := range e.Children {
 		collectColRefs(child, set)
@@ -675,14 +741,14 @@ func checkColRefPos(e *Expr, root *LogicalOperator) {
 	}
 	if e.Typ == ET_Column {
 		if root.Typ == LOT_Scan {
-			if !(e.ColRef.table() == root.Index && e.ColRef.column() < uint64(len(root.Columns))) {
+			if !(e.ColRef.table() == root.Index && e.ColRef.column() < uint64(len(root.getScanColumns()))) {
 				panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
 			}
 		} else if root.Typ == LOT_AggGroup {
 			st := SourceType(e.ColRef.table())
 			switch st {
 			case ThisNode:
-				if !(e.ColRef.table() == root.Index2 && e.ColRef.column() < uint64(len(root.Aggs))) {
+				if !(e.ColRef.table() == root.getAggTag() && e.ColRef.column() < uint64(len(root.getAggs()))) {
 					panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
 				}
 			case LeftChild:
@@ -702,7 +768,7 @@ func checkColRefPos(e *Expr, root *LogicalOperator) {
 					panic(fmt.Sprintf("no bind %v in right child", e.ColRef))
 				}
 			default:
-				if !(e.ColRef.table() == root.Index2 && e.ColRef.column() < uint64(len(root.Aggs))) {
+				if !(e.ColRef.table() == root.getAggTag() && e.ColRef.column() < uint64(len(root.getAggs()))) {
 					panic(fmt.Sprintf("no bind %v in scan %v", e.ColRef, root.Index))
 				}
 			}
@@ -749,11 +815,13 @@ func checkColRefPosInNode(root *LogicalOperator) {
 	}
 	checkColRefPosInExprs(root.Projects, root)
 	checkColRefPosInExprs(root.Filters, root)
-	checkColRefPosInExprs(root.OnConds, root)
-	checkColRefPosInExprs(root.Aggs, root)
-	checkColRefPosInExprs(root.GroupBys, root)
-	checkColRefPosInExprs(root.OrderBys, root)
-	checkColRefPosInExprs([]*Expr{root.Limit}, root)
+	checkColRefPosInExprs(root.getOnConds(), root)
+	checkColRefPosInExprs(root.getAggs(), root)
+	checkColRefPosInExprs(root.getGroupBys(), root)
+	checkColRefPosInExprs(root.getOrderBys(), root)
+	if li, ok := root.Info.(*LimitOpInfo); ok {
+		checkColRefPosInExprs([]*Expr{li.Limit}, root)
+	}
 }
 
 func collectTableRefersOfExprs(exprs []*Expr, set UnorderedSet) {
@@ -775,7 +843,7 @@ func collectTableRefers(e *Expr, set UnorderedSet) {
 	case ET_Func:
 
 	default:
-		panic("usp")
+		// unknown type, skip
 	}
 	for _, child := range e.Children {
 		collectTableRefers(child, set)

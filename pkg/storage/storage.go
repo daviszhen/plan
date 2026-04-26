@@ -21,16 +21,20 @@ var GCatalog *Catalog
 var GStorageMgr *StorageMgr
 
 func init() {
+	fmt.Println("[init] start storage init")
 	GTxnMgr = NewTxnMgr()
 	GBufferMgr = NewBufferManager(".")
 	GCatalog = NewCatalog()
 	if err := GCatalog.Init(); err != nil {
 		panic(err)
 	}
+	fmt.Println("[init] catalog initialized")
 	GStorageMgr = NewStorageMgr(defaultDbPath, false)
+	fmt.Println("[init] loading database from", defaultDbPath)
 	if err := GStorageMgr.LoadDatabase(); err != nil {
 		panic(err)
 	}
+	fmt.Println("[init] database loaded")
 }
 
 type LocalTableStorage struct {

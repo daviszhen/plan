@@ -9,8 +9,8 @@ func collectTags(root *LogicalOperator, set map[uint64]bool) {
 	if root.Index != 0 {
 		set[root.Index] = true
 	}
-	if root.Index2 != 0 {
-		set[root.Index2] = true
+	if root.getAggTag() != 0 {
+		set[root.getAggTag()] = true
 	}
 	for _, child := range root.Children {
 		collectTags(child, set)
@@ -119,38 +119,35 @@ func (b *Builder) createPhyFilter(root *LogicalOperator, children []*PhysicalOpe
 }
 
 func (b *Builder) createPhyScan(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	scanTypes := root.getScanTypes()
 	ret := &PhysicalOperator{
-		Typ:         POT_Scan,
-		Index:       root.Index,
-		Database:    root.Database,
-		Table:       root.Table,
-		Alias:       root.Alias,
-		Outputs:     root.Outputs,
-		Columns:     root.Columns,
-		Filters:     root.Filters,
-		ScanTyp:     root.ScanTyp,
-		Types:       root.Types,
-		ColName2Idx: root.ColName2Idx,
-		Children:    children}
+		Typ:     POT_Scan,
+		Index:   root.Index,
+		Outputs: root.Outputs,
+		Filters: root.Filters,
+		Info: &ScanOpInfo{
+			Database:    root.getScanDatabase(),
+			Table:       root.getScanTable(),
+			Alias:       root.getScanAlias(),
+			Columns:     root.getScanColumns(),
+			ScanTyp:     root.getScanTyp(),
+			Types:       scanTypes,
+			ColName2Idx: root.getScanColName2Idx(),
+		},
+		Children: children}
 
-	switch root.ScanTyp {
+	si := ret.Info.(*ScanOpInfo)
+	switch root.getScanTyp() {
 	case ScanTypeValuesList:
 		{
-			var valuesExec *ExprExec
-			var err error
-
-			collection := NewColumnDataCollection(root.Types)
+			collection := NewColumnDataCollection(scanTypes)
 			data := &chunk.Chunk{}
-			data.Init(root.Types, storage.STANDARD_VECTOR_SIZE)
-
+			data.Init(scanTypes, storage.STANDARD_VECTOR_SIZE)
 			tmp := &chunk.Chunk{}
 			tmp.SetCard(1)
-
-			for i := 0; i < len(root.Values); i++ {
-				valuesExec = NewExprExec(root.Values[i]...)
-				err = valuesExec.executeExprs(
-					[]*chunk.Chunk{tmp, nil, nil},
-					data)
+			for i := 0; i < len(root.getScanValues()); i++ {
+				valuesExec := NewExprExec(root.getScanValues()[i]...)
+				err := valuesExec.executeExprs([]*chunk.Chunk{tmp, nil, nil}, data)
 				if err != nil {
 					return nil, err
 				}
@@ -161,7 +158,7 @@ func (b *Builder) createPhyScan(root *LogicalOperator, children []*PhysicalOpera
 		}
 	case ScanTypeTable:
 	case ScanTypeCopyFrom:
-		ret.ScanInfo = root.ScanInfo
+		si.ScanInfo = root.getScanConfig()
 	}
 
 	return ret, nil
@@ -171,37 +168,34 @@ func (b *Builder) createPhyJoin(root *LogicalOperator, children []*PhysicalOpera
 	return &PhysicalOperator{
 		Typ:      POT_Join,
 		Index:    root.Index,
-		JoinTyp:  root.JoinTyp,
-		OnConds:  root.OnConds,
 		Outputs:  root.Outputs,
+		Info:     &JoinOpInfo{JoinTyp: root.getJoinTyp(), OnConds: root.getOnConds()},
 		Children: children}, nil
 }
 
 func (b *Builder) createPhyOrder(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
 	return &PhysicalOperator{
 		Typ:      POT_Order,
-		OrderBys: root.OrderBys,
 		Outputs:  root.Outputs,
+		Info:     &OrderOpInfo{OrderBys: root.getOrderBys()},
 		Children: children}, nil
 }
 
 func (b *Builder) createPhyAgg(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
 	return &PhysicalOperator{
-		Typ:      POT_Agg,
-		Index:    root.Index,
-		Index2:   root.Index2,
-		Filters:  root.Filters,
-		Aggs:     root.Aggs,
-		GroupBys: root.GroupBys,
-		Outputs:  root.Outputs,
+		Typ:     POT_Agg,
+		Index:   root.Index,
+		Filters: root.Filters,
+		Outputs: root.Outputs,
+		Info:    &AggOpInfo{AggTag: root.getAggTag(), Aggs: root.getAggs(), GroupBys: root.getGroupBys()},
 		Children: children}, nil
 }
 
 func (b *Builder) createPhyLimit(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	info := root.Info.(*LimitOpInfo)
 	return &PhysicalOperator{
 		Typ:      POT_Limit,
 		Outputs:  root.Outputs,
-		Limit:    root.Limit,
-		Offset:   root.Offset,
+		Info:     info,
 		Children: children}, nil
 }

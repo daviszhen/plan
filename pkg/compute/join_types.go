@@ -59,7 +59,7 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		hj._leftIndice = append(hj._leftIndice, i)
 	}
 
-	if op.JoinTyp != LOT_JoinTypeSEMI && op.JoinTyp != LOT_JoinTypeANTI {
+	if op.getJoinTyp() != LOT_JoinTypeSEMI && op.getJoinTyp() != LOT_JoinTypeANTI {
 		//right child output types
 		rightIdxOffset := len(hj._scanNextTyps)
 		for i, output := range op.Children[1].Outputs {
@@ -69,7 +69,7 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 		}
 	}
 
-	if op.JoinTyp == LOT_JoinTypeMARK || op.JoinTyp == LOT_JoinTypeAntiMARK {
+	if op.getJoinTyp() == LOT_JoinTypeMARK || op.getJoinTyp() == LOT_JoinTypeAntiMARK {
 		hj._scanNextTyps = append(hj._scanNextTyps, common.BooleanType())
 		hj._markIndex = len(hj._scanNextTyps) - 1
 	}
@@ -88,7 +88,7 @@ func NewHashJoin(op *PhysicalOperator, conds []*Expr) *HashJoin {
 	hj._joinKeys = &chunk.Chunk{}
 	hj._joinKeys.Init(hj._keyTypes, util.DefaultVectorSize)
 
-	hj._ht = NewJoinHashTable(conds, hj._buildTypes, op.JoinTyp)
+	hj._ht = NewJoinHashTable(conds, hj._buildTypes, op.getJoinTyp())
 
 	hj._probExec = &ExprExec{}
 	for _, cond := range hj._conds {

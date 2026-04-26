@@ -52,12 +52,14 @@ func (b *Builder) buildInsertInternal(
 			name, schema)
 	}
 	insert := &LogicalOperator{
-		Typ:        LOT_Insert,
-		Database:   schema,
-		Table:      name,
-		TableEnt:   tabEnt,
-		TableIndex: b.GetTag(),
+		Typ:   LOT_Insert,
+		Info: &InsertOpInfo{
+			TableEnt:   tabEnt,
+			TableIndex: b.GetTag(),
+		},
 	}
+
+	insertInfo := insert.Info.(*InsertOpInfo)
 
 	//step 1: process columns
 	//column seq no -> column idx in table
@@ -88,22 +90,22 @@ func (b *Builder) buildInsertInternal(
 				return nil, fmt.Errorf("invalid column %d", colIdx)
 			}
 			colDef := tabEnt.GetColumn(colIdx)
-			insert.ExpectedTypes = append(insert.ExpectedTypes, colDef.Type)
+			insertInfo.ExpectedTypes = append(insertInfo.ExpectedTypes, colDef.Type)
 			namedColumnMap = append(namedColumnMap, colIdx)
 		}
 		//
 		for _, colDef := range tabEnt.GetColumns() {
 			if seqNo, has := columnNameMap[colDef.Name]; !has {
-				insert.ColumnIndexMap = append(insert.ColumnIndexMap, -1)
+				insertInfo.ColumnIndexMap = append(insertInfo.ColumnIndexMap, -1)
 			} else {
-				insert.ColumnIndexMap = append(insert.ColumnIndexMap, seqNo)
+				insertInfo.ColumnIndexMap = append(insertInfo.ColumnIndexMap, seqNo)
 			}
 		}
 	} else {
 		//no specified columns
 		for i, colDef := range tabEnt.GetColumns() {
 			namedColumnMap = append(namedColumnMap, i)
-			insert.ExpectedTypes = append(insert.ExpectedTypes,
+			insertInfo.ExpectedTypes = append(insertInfo.ExpectedTypes,
 				colDef.Type)
 		}
 	}
@@ -183,7 +185,7 @@ func (b *Builder) buildInsertInternal(
 	}
 
 	//cast types
-	lp, err = b.CastLogicalOperatorToTypes(insert.ExpectedTypes, lp)
+	lp, err = b.CastLogicalOperatorToTypes(insertInfo.ExpectedTypes, lp)
 	if err != nil {
 		return nil, err
 	}
@@ -264,12 +266,10 @@ func (b *Builder) buildValuesLists(
 			Alias:     alias,
 			BelongCtx: ctx,
 		},
-		ValuesListInfo: ValuesListInfo{
-			Types:  resultTypes,
-			Names:  resultNames,
-			Values: resultValues,
-		},
-		TableInfo: TableInfo{
+		Info: &ValuesListInfo{
+			Types:       resultTypes,
+			Names:       resultNames,
+			Values:      resultValues,
 			ColName2Idx: bind.nameMap,
 		},
 	}, err
@@ -308,15 +308,16 @@ func (b *Builder) CastLogicalOperatorToTypes(
 func (b *Builder) createPhyInsert(
 	root *LogicalOperator,
 	children []*PhysicalOperator) (*PhysicalOperator, error) {
-	//list := storage.NewDependList()
-	//list.AddDepend(root.TableEnt)
+	info := root.Info.(*InsertOpInfo)
 
 	ret := &PhysicalOperator{
-		Typ:            POT_Insert,
-		TableEnt:       root.TableEnt,
-		ColumnIndexMap: root.ColumnIndexMap,
-		InsertTypes:    root.TableEnt.GetTypes(),
-		Children:       children,
+		Typ: POT_Insert,
+		Info: &InsertOpInfo{
+			TableEnt:      info.TableEnt,
+			ColumnIndexMap: info.ColumnIndexMap,
+			ExpectedTypes: info.TableEnt.GetTypes(),
+		},
+		Children: children,
 	}
 	return ret, nil
 }
@@ -359,12 +360,13 @@ func (b *Builder) buildCopyFrom(
 	if tabEnt == nil {
 		return nil, fmt.Errorf("no table %s in schema %s", name, schema)
 	}
+	insertInfo := insert.Info.(*InsertOpInfo)
 	var expectedNames []string
-	if len(insert.ColumnIndexMap) != 0 {
-		expectedNames = make([]string, len(insert.ExpectedTypes))
+	if len(insertInfo.ColumnIndexMap) != 0 {
+		expectedNames = make([]string, len(insertInfo.ExpectedTypes))
 		for i, colDef := range tabEnt.GetColumns() {
-			if insert.ColumnIndexMap[i] != -1 {
-				expectedNames[insert.ColumnIndexMap[i]] = colDef.Name
+			if insertInfo.ColumnIndexMap[i] != -1 {
+				expectedNames[insertInfo.ColumnIndexMap[i]] = colDef.Name
 			}
 		}
 	} else {
@@ -392,14 +394,14 @@ func (b *Builder) buildCopyFrom(
 	}
 
 	scanInfo := &ScanInfo{
-		ReturnedTypes: insert.ExpectedTypes,
+		ReturnedTypes: insertInfo.ExpectedTypes,
 		Names:         expectedNames,
 		FilePath:      stmt.GetFilename(),
 		Opts:          opts,
 		Format:        formatOpt.Opt,
 	}
 
-	for i := 0; i < len(insert.ExpectedTypes); i++ {
+	for i := 0; i < len(insertInfo.ExpectedTypes); i++ {
 		scanInfo.ColumnIds = append(scanInfo.ColumnIds, i)
 	}
 
@@ -409,11 +411,13 @@ func (b *Builder) buildCopyFrom(
 	}
 
 	scanOp := &LogicalOperator{
-		Typ:         LOT_Scan,
-		Index:       uint64(b.GetTag()),
-		ScanTyp:     ScanTypeCopyFrom,
-		ScanInfo:    scanInfo,
-		ColName2Idx: name2IdxMap,
+		Typ:   LOT_Scan,
+		Index: uint64(b.GetTag()),
+		Info: &ScanOpInfo{
+			ScanTyp:     ScanTypeCopyFrom,
+			ScanInfo:    scanInfo,
+			ColName2Idx: name2IdxMap,
+		},
 	}
 
 	projOp := &LogicalOperator{

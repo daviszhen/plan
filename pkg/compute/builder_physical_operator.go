@@ -43,7 +43,7 @@ func (t POT) String() string {
 	if s, has := potToStr[t]; has {
 		return s
 	}
-	panic(fmt.Sprintf("usp %d", t))
+	return fmt.Sprintf("unknown_POT(%d)", t)
 }
 
 type PhysicalOperator struct {
@@ -52,38 +52,88 @@ type PhysicalOperator struct {
 	Id  int
 
 	Index         uint64
-	Index2        uint64
-	Database      string
-	Table         string // table
-	Name          string // column
-	Alias         string // alias
-	JoinTyp       LOT_JoinType
 	Outputs       []*Expr
-	Columns       []string // name of project
 	Projects      []*Expr
 	Filters       []*Expr
-	Aggs          []*Expr
-	GroupBys      []*Expr
-	OnConds       []*Expr
-	OrderBys      []*Expr
-	Limit         *Expr
-	Offset        *Expr
 	estimatedCard uint64
-	ChunkCount    int //for stub
-	IfNotExists   bool
-	ColDefs       []*storage.ColumnDefinition //for create table
-	Constraints   []*storage.Constraint       //for create table
-	TableEnt      *storage.CatalogEntry
-	ScanTyp       ScanType
-	Types         []common.LType        //for insert ... values
-	collection    *ColumnDataCollection //for insert ... values
-	ColName2Idx   map[string]int
-	InsertTypes   []common.LType //for insert ... values
-	//column seq no in table -> column seq no in Insert
-	ColumnIndexMap []int //for insert
-	ScanInfo       *ScanInfo
-	Children       []*PhysicalOperator
-	ExecStats      ExecStats
+	ChunkCount    int                   //for stub
+	collection    *ColumnDataCollection //for values list runtime
+	Children      []*PhysicalOperator
+	ExecStats     ExecStats
+
+	// Info 存放算子类型特有数据
+	Info any
+}
+
+// PhysicalOperator accessor methods
+
+func (po *PhysicalOperator) getJoinTyp() LOT_JoinType {
+	if ji, ok := po.Info.(*JoinOpInfo); ok { return ji.JoinTyp }
+	return LOT_JoinTypeCross
+}
+func (po *PhysicalOperator) getOnConds() []*Expr {
+	if ji, ok := po.Info.(*JoinOpInfo); ok { return ji.OnConds }
+	return nil
+}
+func (po *PhysicalOperator) getAggs() []*Expr {
+	if ai, ok := po.Info.(*AggOpInfo); ok { return ai.Aggs }
+	return nil
+}
+func (po *PhysicalOperator) getGroupBys() []*Expr {
+	if ai, ok := po.Info.(*AggOpInfo); ok { return ai.GroupBys }
+	return nil
+}
+func (po *PhysicalOperator) getAggTag() uint64 {
+	if ai, ok := po.Info.(*AggOpInfo); ok { return ai.AggTag }
+	return 0
+}
+func (po *PhysicalOperator) getOrderBys() []*Expr {
+	if oi, ok := po.Info.(*OrderOpInfo); ok { return oi.OrderBys }
+	return nil
+}
+func (po *PhysicalOperator) getLimitExpr() *Expr {
+	if li, ok := po.Info.(*LimitOpInfo); ok { return li.Limit }
+	return nil
+}
+func (po *PhysicalOperator) getOffsetExpr() *Expr {
+	if li, ok := po.Info.(*LimitOpInfo); ok { return li.Offset }
+	return nil
+}
+func (po *PhysicalOperator) getScanDatabase() string {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.Database }
+	return ""
+}
+func (po *PhysicalOperator) getScanTable() string {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.Table }
+	return ""
+}
+func (po *PhysicalOperator) getScanAlias() string {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.Alias }
+	return ""
+}
+func (po *PhysicalOperator) getScanColumns() []string {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.Columns }
+	return nil
+}
+func (po *PhysicalOperator) getScanTyp() ScanType {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.ScanTyp }
+	return ScanTypeTable
+}
+func (po *PhysicalOperator) getScanColName2Idx() map[string]int {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.ColName2Idx }
+	return nil
+}
+func (po *PhysicalOperator) getScanTableEnt() *storage.CatalogEntry {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.TableEnt }
+	return nil
+}
+func (po *PhysicalOperator) getScanConfig() *ScanInfo {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.ScanInfo }
+	return nil
+}
+func (po *PhysicalOperator) getScanTypes() []common.LType {
+	if si, ok := po.Info.(*ScanOpInfo); ok { return si.Types }
+	return nil
 }
 
 func (po *PhysicalOperator) String() string {

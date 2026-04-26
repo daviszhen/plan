@@ -179,7 +179,7 @@ func (b *Builder) bindSortBy(ctx *BindContext, iwc InWhichClause, expr *pg_query
 	ret := &Expr{
 		Typ:     ET_Orderby,
 		DataTyp: child.DataTyp,
-		OrderByInfo: OrderByInfo{
+		Info: &OrderByInfo{
 			Desc: desc,
 		},
 		Children: []*Expr{child},
@@ -413,17 +413,17 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	if funcName == FuncNot {
 		switch left.Typ {
 		case ET_Func:
-			switch left.FunImpl._name {
+			switch left.GetFuncInfo().FunImpl._name {
 			case FuncIn:
 				//convert it to 'not in'
-				left.FunImpl._name = FuncNotIn
+				left.GetFuncInfo().FunImpl._name = FuncNotIn
 
 			default:
-				panic(fmt.Sprintf("usp not expr %v", left.FunImpl._name))
+				panic(fmt.Sprintf("usp not expr %v", left.GetFuncInfo().FunImpl._name))
 			}
 		case ET_Subquery:
-			if left.SubqueryTyp == ET_SubqueryTypeExists {
-				left.SubqueryTyp = ET_SubqueryTypeNotExists
+			if left.GetSubqueryInfo().SubqueryTyp == ET_SubqueryTypeExists {
+				left.GetSubqueryInfo().SubqueryTyp = ET_SubqueryTypeNotExists
 			}
 		default:
 			panic(fmt.Sprintf("usp not expr 2 %v", left.Typ))
@@ -468,7 +468,7 @@ func (b *Builder) bindFunc(name string, astStr string, args []*Expr, argsTypes [
 	if IsAgg(name) {
 		ret := funBinder.BindAggrFunc(name, args, false)
 		if distinct {
-			ret.FunctionInfo.FunImpl._aggrType = DISTINCT
+			ret.GetFuncInfo().FunImpl._aggrType = DISTINCT
 		}
 		b.aggs = append(b.aggs, ret)
 		ret = &Expr{
@@ -618,7 +618,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		subExpr := &Expr{
 			Typ:     ET_Subquery,
 			DataTyp: subBuilder.projectExprs[0].DataTyp,
-			SubqueryInfo: SubqueryInfo{
+			Info: &SubqueryInfo{
 				SubBuilder:  subBuilder,
 				SubCtx:      subBuilder.rootCtx,
 				SubqueryTyp: typ,
@@ -657,7 +657,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		retExpr = &Expr{
 			Typ:     ET_Subquery,
 			DataTyp: subBuilder.projectExprs[0].DataTyp,
-			SubqueryInfo: SubqueryInfo{
+			Info: &SubqueryInfo{
 				SubBuilder:  subBuilder,
 				SubCtx:      subBuilder.rootCtx,
 				SubqueryTyp: typ,
@@ -672,7 +672,7 @@ func (b *Builder) bindSubquery(ctx *BindContext, iwc InWhichClause, expr *pg_que
 		retExpr = &Expr{
 			Typ:     ET_Subquery,
 			DataTyp: common.BooleanType(),
-			SubqueryInfo: SubqueryInfo{
+			Info: &SubqueryInfo{
 				SubBuilder:  subBuilder,
 				SubCtx:      subBuilder.rootCtx,
 				SubqueryTyp: typ,

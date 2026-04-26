@@ -42,9 +42,11 @@ func (b *Builder) CreatePlan(ctx *BindContext, root *LogicalOperator) (*LogicalO
 	//limit
 	if b.limitCount != nil {
 		root = &LogicalOperator{
-			Typ:      LOT_Limit,
-			Limit:    b.limitCount,
-			Offset:   b.limitOffset,
+			Typ: LOT_Limit,
+			Info: &LimitOpInfo{
+				Limit:  b.limitCount,
+				Offset: b.limitOffset,
+			},
 			Children: []*LogicalOperator{root},
 		}
 	}
@@ -66,12 +68,14 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			return &LogicalOperator{
 				Typ:       LOT_Scan,
 				Index:     expr.Index,
-				Database:  expr.Database,
-				Table:     expr.Table,
-				Alias:     expr.Alias,
 				BelongCtx: expr.BelongCtx,
 				Stats:     stats,
-				TableEnt:  tabEnt,
+				Info: &ScanOpInfo{
+					Database: expr.Database,
+					Table:    expr.Table,
+					Alias:    expr.Alias,
+					TableEnt: tabEnt,
+				},
 			}, err
 		}
 	case ET_Join:
@@ -84,7 +88,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			return nil, err
 		}
 		jt := LOT_JoinTypeCross
-		switch expr.JoinTyp {
+		switch expr.GetJoinInfo().JoinTyp {
 		case ET_JoinTypeCross, ET_JoinTypeInner:
 			jt = LOT_JoinTypeInner
 		case ET_JoinTypeLeft:
@@ -93,14 +97,13 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			panic(fmt.Sprintf("usp join type %d", jt))
 		}
 
-		onExpr := expr.On.copy()
+		onExpr := expr.GetJoinInfo().On.copy()
 		onExpr = distributeExpr(onExpr)
 
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
 			Index:    uint64(b.GetTag()),
-			JoinTyp:  jt,
-			OnConds:  []*Expr{onExpr.copy()},
+			Info:     &JoinOpInfo{JoinTyp: jt, OnConds: []*Expr{onExpr.copy()}},
 			Children: []*LogicalOperator{left, right},
 		}, err
 	case ET_Subquery:
@@ -110,21 +113,22 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 		}
 		return root, err
 	case ET_ValuesList:
-		//is values list
+		vli := expr.GetValuesListInfo()
 		return &LogicalOperator{
-			Typ:         LOT_Scan,
-			Index:       expr.Index,
-			Database:    expr.Database,
-			Table:       expr.Table,
-			Alias:       expr.Alias,
-			BelongCtx:   expr.BelongCtx,
-			Stats:       &Stats{},
-			TableIndex:  int(expr.Index),
-			ScanTyp:     ScanTypeValuesList,
-			Types:       expr.Types,
-			Names:       expr.Names,
-			Values:      expr.Values,
-			ColName2Idx: expr.ColName2Idx,
+			Typ:       LOT_Scan,
+			Index:     expr.Index,
+			BelongCtx: expr.BelongCtx,
+			Stats:     &Stats{},
+			Info: &ScanOpInfo{
+				Database:    expr.Database,
+				Table:       expr.Table,
+				Alias:       expr.Alias,
+				ScanTyp:     ScanTypeValuesList,
+				Types:       vli.Types,
+				Names:       vli.Names,
+				Values:      vli.Values,
+				ColName2Idx: vli.ColName2Idx,
+			},
 		}, err
 	default:
 		panic("usp")
@@ -165,8 +169,8 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 	var subRoot *LogicalOperator
 	switch expr.Typ {
 	case ET_Subquery:
-		subBuilder := expr.SubBuilder
-		subCtx := expr.SubCtx
+		subBuilder := expr.GetSubqueryInfo().SubBuilder
+		subCtx := expr.GetSubqueryInfo().SubCtx
 		subRoot, err = subBuilder.CreatePlan(subCtx, nil)
 		if err != nil {
 			return nil, nil, err
@@ -175,7 +179,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 		return b.apply(expr, root, subRoot)
 
 	case ET_Func:
-		if expr.FunImpl.IsFunction() {
+		if expr.GetFuncInfo().FunImpl.IsFunction() {
 			var childExpr *Expr
 			args := make([]*Expr, 0)
 			for _, child := range expr.Children {
@@ -190,15 +194,15 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				ConstValue: NewStringConst(expr.ConstValue.String),
 				DataTyp:    expr.DataTyp,
 				Children:   args,
-				FunctionInfo: FunctionInfo{
-					FunImpl: expr.FunImpl,
+				Info: &FunctionInfo{
+					FunImpl: expr.GetFuncInfo().FunImpl,
 				},
 				BaseInfo: BaseInfo{
 					Alias: expr.Alias,
 				},
 			}, root, nil
 		} else {
-			switch expr.FunImpl._name {
+			switch expr.GetFuncInfo().FunImpl._name {
 			default:
 				//binary operator
 				var childExpr *Expr
@@ -212,11 +216,11 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				}
 				return &Expr{
 					Typ:        expr.Typ,
-					ConstValue: NewStringConst(expr.FunImpl._name),
+					ConstValue: NewStringConst(expr.GetFuncInfo().FunImpl._name),
 					DataTyp:    expr.DataTyp,
 					Children:   args,
-					FunctionInfo: FunctionInfo{
-						FunImpl: expr.FunImpl,
+					Info: &FunctionInfo{
+						FunImpl: expr.GetFuncInfo().FunImpl,
 					},
 					BaseInfo: BaseInfo{
 						Alias: expr.Alias,
@@ -236,14 +240,14 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				//FIXME:
 				//add join conds to 'A in subquery'
 				if root.Typ == LOT_JOIN &&
-					root.JoinTyp == LOT_JoinTypeSEMI &&
-					len(root.OnConds) == 0 {
+					root.getJoinTyp() == LOT_JoinTypeSEMI &&
+					len(root.getOnConds()) == 0 {
 					fbinder := FunctionBinder{}
 					e1 := fbinder.BindScalarFunc(
 						FuncEqual,
 						copyExprs(args...),
 						IsOperator(FuncEqual))
-					root.OnConds = append(root.OnConds, e1)
+					root.setOnConds(append(root.getOnConds(), e1))
 
 					bExpr := &Expr{
 						Typ:        ET_Const,
@@ -265,8 +269,8 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					Typ:      expr.Typ,
 					DataTyp:  expr.DataTyp,
 					Children: args,
-					FunctionInfo: FunctionInfo{
-						FunImpl: expr.FunImpl,
+					Info: &FunctionInfo{
+						FunImpl: expr.GetFuncInfo().FunImpl,
 					},
 					BaseInfo: BaseInfo{
 						Alias: expr.Alias,
@@ -286,21 +290,21 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				//FIXME:
 				//convert semi to anti
 				if root.Typ == LOT_JOIN &&
-					root.JoinTyp == LOT_JoinTypeSEMI {
-					root.JoinTyp = LOT_JoinTypeANTI
+					root.getJoinTyp() == LOT_JoinTypeSEMI {
+					if ji, ok := root.Info.(*JoinOpInfo); ok { ji.JoinTyp = LOT_JoinTypeANTI }
 				}
 
 				//FIXME:
 				//add join conds to 'A not in subquery'
 				if root.Typ == LOT_JOIN &&
-					root.JoinTyp == LOT_JoinTypeANTI &&
-					len(root.OnConds) == 0 {
+					root.getJoinTyp() == LOT_JoinTypeANTI &&
+					len(root.getOnConds()) == 0 {
 					fbinder := FunctionBinder{}
 					e1 := fbinder.BindScalarFunc(
 						FuncEqual,
 						copyExprs(args...),
 						IsOperator(FuncEqual))
-					root.OnConds = append(root.OnConds, e1)
+					root.setOnConds(append(root.getOnConds(), e1))
 
 					bExpr := &Expr{
 						Typ:        ET_Const,
@@ -323,8 +327,8 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					Typ:      expr.Typ,
 					DataTyp:  expr.DataTyp,
 					Children: args,
-					FunctionInfo: FunctionInfo{
-						FunImpl: expr.FunImpl,
+					Info: &FunctionInfo{
+						FunImpl: expr.GetFuncInfo().FunImpl,
 					},
 					BaseInfo: BaseInfo{
 						Alias: expr.Alias,
@@ -398,13 +402,12 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				IsOperator(FuncEqual))
 		}
 
-		switch expr.SubqueryTyp {
+		switch expr.GetSubqueryInfo().SubqueryTyp {
 		case ET_SubqueryTypeScalar:
 			newSub = &LogicalOperator{
 				Typ:     LOT_JOIN,
 				Index:   uint64(b.GetTag()),
-				JoinTyp: LOT_JoinTypeInner,
-				OnConds: nonCorrExprs,
+				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeInner, OnConds: nonCorrExprs},
 				Children: []*LogicalOperator{
 					root, newSub,
 				},
@@ -413,8 +416,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			newSub = &LogicalOperator{
 				Typ:     LOT_JOIN,
 				Index:   uint64(b.GetTag()),
-				JoinTyp: LOT_JoinTypeMARK,
-				OnConds: nonCorrExprs,
+				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeMARK, OnConds: nonCorrExprs},
 				Children: []*LogicalOperator{
 					root, newSub,
 				},
@@ -423,8 +425,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			newSub = &LogicalOperator{
 				Typ:     LOT_JOIN,
 				Index:   uint64(b.GetTag()),
-				JoinTyp: LOT_JoinTypeAntiMARK,
-				OnConds: nonCorrExprs,
+				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeAntiMARK, OnConds: nonCorrExprs},
 				Children: []*LogicalOperator{
 					root, newSub,
 				},
@@ -443,10 +444,10 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			}
 		}
 
-		switch expr.SubqueryTyp {
+		switch expr.GetSubqueryInfo().SubqueryTyp {
 		case ET_SubqueryTypeScalar:
 			//TODO: may have multi columns
-			subBuilder := expr.SubBuilder
+			subBuilder := expr.GetSubqueryInfo().SubBuilder
 			proj0 := subBuilder.projectExprs[0]
 			colRef := &Expr{
 				Typ:     ET_Column,
@@ -477,13 +478,12 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		if root == nil {
 			newRoot = subRoot
 		} else {
-			switch expr.SubqueryTyp {
+			switch expr.GetSubqueryInfo().SubqueryTyp {
 			case ET_SubqueryTypeScalar:
 				newRoot = &LogicalOperator{
 					Typ:     LOT_JOIN,
 					Index:   uint64(b.GetTag()),
-					JoinTyp: LOT_JoinTypeCross,
-					OnConds: nil,
+					Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeCross, OnConds: nil},
 					Children: []*LogicalOperator{
 						root, subRoot,
 					},
@@ -492,8 +492,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				newRoot = &LogicalOperator{
 					Typ:     LOT_JOIN,
 					Index:   uint64(b.GetTag()),
-					JoinTyp: LOT_JoinTypeSEMI,
-					OnConds: nil,
+					Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeSEMI, OnConds: nil},
 					Children: []*LogicalOperator{
 						root, subRoot,
 					},
@@ -502,8 +501,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				newRoot = &LogicalOperator{
 					Typ:     LOT_JOIN,
 					Index:   uint64(b.GetTag()),
-					JoinTyp: LOT_JoinTypeANTI,
-					OnConds: nil,
+					Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeANTI, OnConds: nil},
 					Children: []*LogicalOperator{
 						root, subRoot,
 					},
@@ -513,7 +511,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			}
 		}
 		// TODO: may have multi columns
-		subBuilder := expr.SubBuilder
+		subBuilder := expr.GetSubqueryInfo().SubBuilder
 		proj0 := subBuilder.projectExprs[0]
 		colRef = &Expr{
 			Typ:     ET_Column,
@@ -601,8 +599,10 @@ func (b *Builder) removeCorrFiltersInAggr(subRoot *LogicalOperator, filters []*E
 
 func (b *Builder) replaceCorrFiltersInAggr(subRoot *LogicalOperator, filter *Expr) *Expr {
 	if !hasCorrCol(filter) {
-		idx := len(subRoot.GroupBys)
-		subRoot.GroupBys = append(subRoot.GroupBys, filter)
+		idx := len(subRoot.getGroupBys())
+		if ai, ok := subRoot.Info.(*AggOpInfo); ok {
+			ai.GroupBys = append(ai.GroupBys, filter)
+		}
 		return &Expr{
 			Typ:     ET_Column,
 			DataTyp: filter.DataTyp,
@@ -620,11 +620,13 @@ func (b *Builder) replaceCorrFiltersInAggr(subRoot *LogicalOperator, filter *Exp
 
 func (b *Builder) createAggGroup(root *LogicalOperator) (*LogicalOperator, error) {
 	return &LogicalOperator{
-		Typ:      LOT_AggGroup,
-		Index:    uint64(b.groupTag),
-		Index2:   uint64(b.aggTag),
-		Aggs:     b.aggs,
-		GroupBys: b.groupbyExprs,
+		Typ:   LOT_AggGroup,
+		Index: uint64(b.groupTag),
+		Info: &AggOpInfo{
+			AggTag:   uint64(b.aggTag),
+			Aggs:     b.aggs,
+			GroupBys:  b.groupbyExprs,
+		},
 		Children: []*LogicalOperator{root},
 	}, nil
 }
@@ -650,8 +652,8 @@ func (b *Builder) createProject(root *LogicalOperator) (*LogicalOperator, error)
 
 func (b *Builder) createOrderby(root *LogicalOperator) (*LogicalOperator, error) {
 	return &LogicalOperator{
-		Typ:      LOT_Order,
-		OrderBys: b.orderbyExprs,
+		Typ:  LOT_Order,
+		Info: &OrderOpInfo{OrderBys: b.orderbyExprs},
 		Children: []*LogicalOperator{root},
 	}, nil
 }
@@ -786,12 +788,12 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		collectTags(root.Children[0], leftTags)
 		collectTags(root.Children[1], rightTags)
 
-		root.OnConds = splitExprsByAnd(root.OnConds)
-		if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeLeft {
-			for _, on := range root.OnConds {
+		root.setOnConds(splitExprsByAnd(root.getOnConds()))
+		if root.getJoinTyp() == LOT_JoinTypeInner || root.getJoinTyp() == LOT_JoinTypeLeft {
+			for _, on := range root.getOnConds() {
 				needs = append(needs, splitExprByAnd(on)...)
 			}
-			root.OnConds = nil
+			root.setOnConds(nil)
 		}
 
 		whichSides := make([]int, len(needs))
@@ -804,7 +806,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 		for i, nd := range needs {
 			switch whichSides[i] {
 			case NoneSide:
-				switch root.JoinTyp {
+				switch root.getJoinTyp() {
 				case LOT_JoinTypeInner:
 					leftNeeds = append(leftNeeds, copyExpr(nd))
 					rightNeeds = append(rightNeeds, nd)
@@ -818,10 +820,10 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case RightSide:
 				rightNeeds = append(rightNeeds, nd)
 			case BothSide:
-				if root.JoinTyp == LOT_JoinTypeInner || root.JoinTyp == LOT_JoinTypeLeft {
+				if root.getJoinTyp() == LOT_JoinTypeInner || root.getJoinTyp() == LOT_JoinTypeLeft {
 					//only equal or in can be used in On conds
-					if nd.FunImpl._name == FuncEqual || nd.FunImpl._name == FuncIn {
-						root.OnConds = append(root.OnConds, nd)
+					if nd.GetFuncInfo().FunImpl._name == FuncEqual || nd.GetFuncInfo().FunImpl._name == FuncIn {
+						root.setOnConds(append(root.getOnConds(), nd))
 						break
 					}
 				}
@@ -859,12 +861,12 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 
 	case LOT_AggGroup:
 		for _, f := range filters {
-			if referTo(f, root.Index2) {
+			if referTo(f, root.getAggTag()) {
 				//expr that refer to the agg exprs can not be pushdown.
 				root.Filters = append(root.Filters, f)
 			} else {
 				//restore the real expr for the expr that refer to the expr in the group by.
-				needs = append(needs, restoreExpr(f, root.Index, root.GroupBys))
+				needs = append(needs, restoreExpr(f, root.Index, root.getGroupBys()))
 			}
 		}
 
