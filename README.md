@@ -5,7 +5,7 @@
 
 文档：[快速实现数据库内核](book/快速实现数据库内核.md)
 
-[快速实现数据库内核.pdf](https://docs.qq.com/pdf/DVU5Xb1BHR3BUQ3FO)
+[快速实现数据库内核.pdf](https://docs.qq.com/pdf/DVWFISldUYUdQdVBU)
 
 两个bin：
 
