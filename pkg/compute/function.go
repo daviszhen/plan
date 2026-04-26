@@ -346,7 +346,7 @@ func (binder *FunctionBinder) BindScalarFunc2(
 		},
 		DataTyp:  fun._retType,
 		Children: args,
-		FunctionInfo: FunctionInfo{
+		Info: &FunctionInfo{
 			BindInfo: bindInfo,
 			FunImpl:  fun,
 		},
@@ -406,7 +406,7 @@ func (binder *FunctionBinder) BindAggrFunc2(
 		},
 		DataTyp:  fun._retType,
 		Children: args,
-		FunctionInfo: FunctionInfo{
+		Info: &FunctionInfo{
 			BindInfo: bindInfo,
 			FunImpl:  fun,
 		},

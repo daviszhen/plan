@@ -59,7 +59,7 @@ func (lt LOT) String() string {
 	case LOT_Insert:
 		return "Insert"
 	default:
-		panic(fmt.Sprintf("usp %d", lt))
+		return fmt.Sprintf("unknown_LOT(%d)", lt)
 	}
 }
 
@@ -94,7 +94,7 @@ func (lojt LOT_JoinType) String() string {
 	case LOT_JoinTypeANTI:
 		return "anti semi"
 	default:
-		panic(fmt.Sprintf("usp %d", lojt))
+		return fmt.Sprintf("unknown_JoinType(%d)", lojt)
 	}
 }
 
@@ -115,7 +115,7 @@ func (st ScanType) String() string {
 	case ScanTypeCopyFrom:
 		return "scan copy from"
 	default:
-		panic("usp")
+		return fmt.Sprintf("unknown_ScanType(%d)", st)
 	}
 }
 
@@ -137,47 +137,24 @@ type LogicalOperator struct {
 	Typ              LOT
 	Children         []*LogicalOperator
 	Projects         []*Expr
-	Index            uint64 //AggNode for groupTag. others in other Nodes
-	Index2           uint64 //AggNode for aggTag
-	Database         string
-	Table            string       // table
-	Alias            string       // alias
-	Columns          []string     //needed column name for SCAN
-	Filters          []*Expr      //for FILTER or AGG
-	BelongCtx        *BindContext //for table or join
-	JoinTyp          LOT_JoinType
-	OnConds          []*Expr //for innor join
-	Aggs             []*Expr
-	GroupBys         []*Expr
-	OrderBys         []*Expr
-	Limit            *Expr
-	Offset           *Expr
+	Index            uint64
+	Filters          []*Expr
+	BelongCtx        *BindContext
 	Stats            *Stats
 	hasEstimatedCard bool
 	estimatedCard    uint64
 	estimatedProps   *EstimatedProperties
 	Outputs          []*Expr
-	IfNotExists      bool
-	ColDefs          []*storage.ColumnDefinition //for create table
-	Constraints      []*storage.Constraint       //for create table
-	TableEnt         *storage.CatalogEntry       //for insert
-	TableIndex       int                         //for insert
-	ExpectedTypes    []common.LType              //for insert
-	IsValuesList     bool                        //for insert ... values
-	ScanTyp          ScanType
-	Types            []common.LType //for insert ... values
-	Names            []string       //for insert ... values
-	Values           [][]*Expr      //for insert ... values
-	ColName2Idx      map[string]int
-	ColumnIndexMap   []int //for insert
-	ScanInfo         *ScanInfo
 	Counts           ColumnBindCountMap `json:"-"`
 	ColRefToPos      ColumnBindPosMap   `json:"-"`
+
+	// Info 存放算子类型特有数据
+	Info any
 }
 
 func (lo *LogicalOperator) EstimatedCard(txn *storage.Txn) uint64 {
 	if lo.Typ == LOT_Scan {
-		return lo.TableEnt.GetStats2(0).Count()
+		return lo.getScanTableEnt().GetStats2(0).Count()
 	}
 	if lo.hasEstimatedCard {
 		return lo.estimatedCard
@@ -207,4 +184,157 @@ func pushFilter(node *LogicalOperator, expr *Expr) *LogicalOperator {
 	}
 	node.Filters = append(node.Filters, expr)
 	return node
+}
+
+// getScanInfo returns ScanOpInfo from Info or nil
+func (lo *LogicalOperator) getScanInfo() *ScanOpInfo {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si
+	}
+	return nil
+}
+
+// getScanDatabase returns Database from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanDatabase() string {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.Database
+	}
+	return ""
+}
+
+// getScanTable returns Table from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanTable() string {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.Table
+	}
+	return ""
+}
+
+// getScanAlias returns Alias from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanAlias() string {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.Alias
+	}
+	return ""
+}
+
+// getScanTableEnt returns TableEnt from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanTableEnt() *storage.CatalogEntry {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.TableEnt
+	}
+	return nil
+}
+
+// getScanColumns returns Columns from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanColumns() []string {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.Columns
+	}
+	return nil
+}
+
+// getScanColName2Idx returns ColName2Idx from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanColName2Idx() map[string]int {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.ColName2Idx
+	}
+	return nil
+}
+
+// getScanTyp returns ScanTyp from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanTyp() ScanType {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.ScanTyp
+	}
+	return ScanTypeTable
+}
+
+// getScanConfig returns the ScanInfo config from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanConfig() *ScanInfo {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.ScanInfo
+	}
+	return nil
+}
+
+// getScanTypes returns Types from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanTypes() []common.LType {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.Types
+	}
+	return nil
+}
+
+// getScanValues returns Values from ScanOpInfo or embedded field
+func (lo *LogicalOperator) getScanValues() [][]*Expr {
+	if si, ok := lo.Info.(*ScanOpInfo); ok {
+		return si.Values
+	}
+	return nil
+}
+
+// getOrderBys returns OrderBys from Info or embedded field
+func (lo *LogicalOperator) getOrderBys() []*Expr {
+	if si, ok := lo.Info.(*OrderOpInfo); ok {
+		return si.OrderBys
+	}
+	return nil
+}
+
+// getJoinTyp returns JoinTyp from Info or embedded field
+func (lo *LogicalOperator) getJoinTyp() LOT_JoinType {
+	if si, ok := lo.Info.(*JoinOpInfo); ok {
+		return si.JoinTyp
+	}
+	return LOT_JoinTypeCross
+}
+
+// getOnConds returns OnConds from Info or embedded field
+func (lo *LogicalOperator) getOnConds() []*Expr {
+	if si, ok := lo.Info.(*JoinOpInfo); ok {
+		return si.OnConds
+	}
+	return nil
+}
+
+// setOnConds sets OnConds on Info or embedded field
+func (lo *LogicalOperator) setOnConds(conds []*Expr) {
+	if ji, ok := lo.Info.(*JoinOpInfo); ok {
+		ji.OnConds = conds
+		return
+	}
+	
+}
+
+// getAggs returns Aggs from Info or embedded field
+func (lo *LogicalOperator) getAggs() []*Expr {
+	if si, ok := lo.Info.(*AggOpInfo); ok {
+		return si.Aggs
+	}
+	return nil
+}
+
+// getGroupBys returns GroupBys from Info or embedded field
+func (lo *LogicalOperator) getGroupBys() []*Expr {
+	if si, ok := lo.Info.(*AggOpInfo); ok {
+		return si.GroupBys
+	}
+	return nil
+}
+
+// getAggTag returns AggTag (Index2) from Info or embedded field
+func (lo *LogicalOperator) getAggTag() uint64 {
+	if si, ok := lo.Info.(*AggOpInfo); ok {
+		return si.AggTag
+	}
+	return 0
+}
+
+// getLimitInfo returns LimitOpInfo from Info
+func (lo *LogicalOperator) getLimitInfo() *LimitOpInfo {
+	if li, ok := lo.Info.(*LimitOpInfo); ok {
+		return li
+	}
+	return nil
 }

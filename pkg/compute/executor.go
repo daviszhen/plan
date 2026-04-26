@@ -73,6 +73,7 @@ func Run(cfg *util.Config) error {
 			res := make([]runResult, 0)
 			for i := 0; i < tpch1g22; i++ {
 				id := i + 1
+				fmt.Printf("[run] preparing query %d: parsing SQL\n", id)
 				stmts, err := genStmts(cfg, id)
 				if err != nil {
 					return err
@@ -82,6 +83,7 @@ func Run(cfg *util.Config) error {
 					return fmt.Errorf("invalid statements")
 				}
 
+				fmt.Printf("[run] executing query %d\n", id)
 				st := time.Now()
 				err = execQuery(cfg, id, stmts[0].GetStmt().GetSelectStmt())
 				if err != nil {
@@ -258,6 +260,7 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 			err = errors.Join(err, util.ConvertPanicError(rErr))
 		}
 	}()
+	fmt.Printf("[execQuery] q%d: begin txn\n", id)
 	txn, err := storage.GTxnMgr.NewTxn("runDDL")
 	if err != nil {
 		return err
@@ -265,12 +268,15 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 	storage.BeginQuery(txn)
 	defer func() {
 		if err != nil {
+			fmt.Printf("[execQuery] q%d: rollback\n", id)
 			storage.GTxnMgr.Rollback(txn)
 		} else {
+			fmt.Printf("[execQuery] q%d: commit\n", id)
 			err = storage.GTxnMgr.Commit(txn)
 		}
 	}()
 
+	fmt.Printf("[execQuery] q%d: generating physical plan\n", id)
 	var root *PhysicalOperator
 	root, err = genPhyPlan(txn, ast)
 	if err != nil {
@@ -371,12 +377,15 @@ func execOps(
 			state: &OperatorState{},
 			cfg:   conf,
 		}
+		fmt.Println("[execOps] runner init")
 		err = run.Init()
 		if err != nil {
 			return err
 		}
 
 		rowCnt := 0
+		batchCnt := 0
+		fmt.Println("[execOps] start execute loop")
 		for {
 			if rowCnt >= conf.Debug.MaxOutputRowCount && conf.Debug.MaxOutputRowCount != -1 {
 				break
@@ -387,7 +396,9 @@ func execOps(
 			if err != nil {
 				return err
 			}
+			batchCnt++
 			if result == Done {
+				fmt.Printf("[execOps] done after %d batches, %d rows\n", batchCnt, rowCnt)
 				break
 			}
 			if output.Card() > 0 {
@@ -657,7 +668,8 @@ func (run *Runner) Close() error {
 }
 
 func (run *Runner) stubInit() error {
-	deserial, err := util.NewFileDeserialize(run.op.Table)
+	si := run.op.Info.(*StubInfo)
+	deserial, err := util.NewFileDeserialize(si.Table)
 	if err != nil {
 		return err
 	}

@@ -483,10 +483,10 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 	for _, filterOp := range filterOps {
 		switch filterOp.Typ {
 		case LOT_JOIN:
-			if filterOp.JoinTyp != LOT_JoinTypeInner {
+			if filterOp.getJoinTyp() != LOT_JoinTypeInner {
 				panic("usp join type")
 			}
-			joinOrder.filters = append(joinOrder.filters, splitExprsByAnd(filterOp.OnConds)...)
+			joinOrder.filters = append(joinOrder.filters, splitExprsByAnd(filterOp.getOnConds())...)
 		case LOT_Filter:
 			joinOrder.filters = append(joinOrder.filters, splitExprsByAnd(filterOp.Filters)...)
 		default:
@@ -506,10 +506,10 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		//comparison operator => join predicate
 		switch filter.Typ {
 		case ET_Func:
-			if filter.FunImpl.IsOperator() {
-				switch GetOperatorType(filter.FunImpl._name) {
+			if filter.GetFuncInfo().FunImpl.IsOperator() {
+				switch GetOperatorType(filter.GetFuncInfo().FunImpl._name) {
 				case OpTypeCompare, OpTypeLike, OpTypeLogical:
-					switch filter.FunImpl._name {
+					switch filter.GetFuncInfo().FunImpl._name {
 					case FuncIn, FuncNotIn:
 						//in or not in has been splited
 						for j, child := range filter.Children {
@@ -522,7 +522,7 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 						joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
 					}
 				default:
-					panic(fmt.Sprintf("usp %v", filter.FunImpl._name))
+					panic(fmt.Sprintf("usp %v", filter.GetFuncInfo().FunImpl._name))
 				}
 			}
 
@@ -626,8 +626,8 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 		if len(node.info.filters) == 0 {
 			//cross join
 			resultOp = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				JoinTyp: LOT_JoinTypeCross,
+				Typ:  LOT_JOIN,
+				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeCross},
 				Children: []*LogicalOperator{
 					left.op,
 					right.op,
@@ -635,8 +635,8 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 			}
 		} else {
 			resultOp = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				JoinTyp: LOT_JoinTypeInner,
+				Typ:  LOT_JOIN,
+				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeInner},
 				Children: []*LogicalOperator{
 					left.op,
 					right.op,
@@ -647,10 +647,10 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					return nil, errors.New("filter is nil")
 				}
 				condition := joinOrder.filters[filter.filterIndex]
-				if !(condition.FunImpl._name == FuncEqual || condition.FunImpl._name == FuncIn) {
+				if !(condition.GetFuncInfo().FunImpl._name == FuncEqual || condition.GetFuncInfo().FunImpl._name == FuncIn) {
 					continue
 				}
-				util.AssertFunc(condition.FunImpl._name != FuncLess)
+				util.AssertFunc(condition.GetFuncInfo().FunImpl._name != FuncLess)
 				check := isSubset(left.set, filter.leftSet) && isSubset(right.set, filter.rightSet) ||
 					isSubset(left.set, filter.rightSet) && isSubset(right.set, filter.leftSet)
 				if !check {
@@ -659,15 +659,15 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				cond := &Expr{
 					Typ:     condition.Typ,
 					DataTyp: condition.DataTyp,
-					FunctionInfo: FunctionInfo{
-						FunImpl: condition.FunImpl,
+					Info: &FunctionInfo{
+						FunImpl: condition.GetFuncInfo().FunImpl,
 					},
 				}
 				invert := !isSubset(left.set, filter.leftSet)
-				if !(condition.FunImpl._name == FuncEqual || condition.FunImpl._name == FuncIn) {
+				if !(condition.GetFuncInfo().FunImpl._name == FuncEqual || condition.GetFuncInfo().FunImpl._name == FuncIn) {
 					invert = false
 				}
-				if condition.FunImpl._name == FuncIn || condition.FunImpl._name == FuncNotIn {
+				if condition.GetFuncInfo().FunImpl._name == FuncIn || condition.GetFuncInfo().FunImpl._name == FuncNotIn {
 					cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
 					//TODO: fixme
 					//if !invert {
@@ -689,14 +689,14 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				//	//TODO:
 				//}
 				checkExprs(cond)
-				resultOp.OnConds = append(resultOp.OnConds, cond.copy())
+				resultOp.setOnConds(append(resultOp.getOnConds(), cond.copy()))
 				//remove this filter
 				joinOrder.filters[filter.filterIndex] = nil
 			}
 
 			//if there is no condition for inner, convert it to cross
-			if len(resultOp.OnConds) == 0 {
-				resultOp.JoinTyp = LOT_JoinTypeCross
+			if len(resultOp.getOnConds()) == 0 {
+				if ji, ok := resultOp.Info.(*JoinOpInfo); ok { ji.JoinTyp = LOT_JoinTypeCross }
 			}
 		}
 		leftNode = left.set
@@ -725,7 +725,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 			//filter is subset of current relation
 			if info.set.count() > 0 && isSubset(resultRel, info.set) {
 				filter := joinOrder.filters[info.filterIndex]
-				if !(filter.FunImpl._name == FuncEqual || filter.FunImpl._name == FuncIn) {
+				if !(filter.GetFuncInfo().FunImpl._name == FuncEqual || filter.GetFuncInfo().FunImpl._name == FuncIn) {
 					continue
 				}
 				if leftNode == nil || info.leftSet == nil {
@@ -746,15 +746,15 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
-				if !(filter.FunImpl._name == FuncEqual || filter.FunImpl._name == FuncIn) {
+				if !(filter.GetFuncInfo().FunImpl._name == FuncEqual || filter.GetFuncInfo().FunImpl._name == FuncIn) {
 					invert = false
 				}
 				cond := &Expr{
 					Typ:      filter.Typ,
 					DataTyp:  filter.DataTyp,
 					Children: []*Expr{nil, nil},
-					FunctionInfo: FunctionInfo{
-						FunImpl: filter.FunImpl,
+					Info: &FunctionInfo{
+						FunImpl: filter.GetFuncInfo().FunImpl,
 					},
 				}
 				if !invert {
@@ -770,12 +770,11 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					cur = cur.Children[0]
 				}
 				checkExprs(cond)
-				if cur.Typ == LOT_JOIN && cur.JoinTyp == LOT_JoinTypeCross {
+				if cur.Typ == LOT_JOIN && cur.getJoinTyp() == LOT_JoinTypeCross {
 					next := &LogicalOperator{
 						Typ:      LOT_JOIN,
-						JoinTyp:  LOT_JoinTypeInner,
+						Info:     &JoinOpInfo{JoinTyp: LOT_JoinTypeInner, OnConds: []*Expr{cond.copy()}},
 						Children: cur.Children,
-						OnConds:  []*Expr{cond.copy()},
 					}
 					if cur == resultOp {
 						resultOp = next
@@ -783,8 +782,8 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 						resultOp.Children[0] = next
 					}
 				} else {
-					if cond.FunImpl._name == FuncEqual || cond.FunImpl._name == FuncIn {
-						resultOp.OnConds = append(resultOp.OnConds, cond.copy())
+					if cond.GetFuncInfo().FunImpl._name == FuncEqual || cond.GetFuncInfo().FunImpl._name == FuncIn {
+						resultOp.setOnConds(append(resultOp.getOnConds(), cond.copy()))
 					} else {
 						next := &LogicalOperator{
 							Typ:      LOT_Filter,
@@ -835,7 +834,7 @@ func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *Jo
 	}
 	op := root
 	parent := root
-	for op.Typ != LOT_JOIN && (op.JoinTyp != LOT_JoinTypeCross && op.JoinTyp != LOT_JoinTypeInner) {
+	for op.Typ != LOT_JOIN && (op.getJoinTyp() != LOT_JoinTypeCross && op.getJoinTyp() != LOT_JoinTypeInner) {
 		if len(op.Children) != 1 {
 			return nil, errors.New("multiple children")
 		}
@@ -1120,9 +1119,9 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 	}
 
 	if op.Typ == LOT_JOIN {
-		if op.JoinTyp == LOT_JoinTypeInner {
+		if op.getJoinTyp() == LOT_JoinTypeInner {
 			filterOps = append(filterOps, op)
-		} else if op.JoinTyp == LOT_JoinTypeCross {
+		} else if op.getJoinTyp() == LOT_JoinTypeCross {
 			//TODO:
 		} else {
 			//non-inner join, be not reordered
@@ -1259,24 +1258,24 @@ func getTableRefers(root *LogicalOperator, set UnorderedSet) {
 	case LOT_Limit:
 		getTableRefers(root.Children[0], set)
 	case LOT_Order:
-		collectTableRefersOfExprs(root.OrderBys, set)
+		collectTableRefersOfExprs(root.getOrderBys(), set)
 		getTableRefers(root.Children[0], set)
 	case LOT_Scan:
 		set.insert(root.Index)
 	case LOT_JOIN:
-		//if root.JoinTyp == LOT_JoinTypeMARK {
-		//	collectTableRefersOfExprs(root.OnConds, set)
+		//if root.getJoinTyp() == LOT_JoinTypeMARK {
+		//	collectTableRefersOfExprs(root.getOnConds(), set)
 		//	getTableRefers(root.Children[0], set)
 		//	break
 		//}
-		collectTableRefersOfExprs(root.OnConds, set)
+		collectTableRefersOfExprs(root.getOnConds(), set)
 		for _, child := range root.Children {
 			getTableRefers(child, set)
 		}
 	case LOT_AggGroup:
-		set.insert(root.Index, root.Index2)
-		collectTableRefersOfExprs(root.GroupBys, set)
-		collectTableRefersOfExprs(root.Aggs, set)
+		set.insert(root.Index, root.getAggTag())
+		collectTableRefersOfExprs(root.getGroupBys(), set)
+		collectTableRefersOfExprs(root.getAggs(), set)
 		for _, child := range root.Children {
 			getTableRefers(child, set)
 		}

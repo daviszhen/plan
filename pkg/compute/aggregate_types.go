@@ -267,7 +267,7 @@ func NewDistinctAggrCollectionInfo(
 	ret._tableCount = ret.CreateTableIndexMap()
 
 	for _, aggr := range aggregates {
-		if aggr.FunctionInfo.FunImpl._aggrType == NON_DISTINCT {
+		if aggr.GetFuncInfo().FunImpl._aggrType == NON_DISTINCT {
 			continue
 		}
 		ret._totalChildCount += len(aggr.Children)
@@ -293,13 +293,13 @@ type AggrObject struct {
 }
 
 func NewAggrObject(aggr *Expr) *AggrObject {
-	util.AssertFunc(aggr.FunImpl.IsFunction())
+	util.AssertFunc(aggr.GetFuncInfo().FunImpl.IsFunction())
 	ret := new(AggrObject)
 	ret._childCount = len(aggr.Children)
-	ret._aggrType = aggr.FunctionInfo.FunImpl._aggrType
+	ret._aggrType = aggr.GetFuncInfo().FunImpl._aggrType
 	ret._retType = aggr.DataTyp.GetInternalType()
 	ret._name = aggr.ConstValue.String
-	ret._func = aggr.FunImpl
+	ret._func = aggr.GetFuncInfo().FunImpl
 	ret._payloadSize = ret._func._stateSize()
 	return ret
 }

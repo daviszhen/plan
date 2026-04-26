@@ -57,14 +57,13 @@ func (run *Runner) createTableInit() error {
 }
 
 func (run *Runner) createTableExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	//step 1 : check schema
-	schema := run.op.Database
+	ctInfo := run.op.Info.(*CreateTableOpInfo)
+	schema := ctInfo.Database
 	if len(schema) == 0 {
 		schema = "public"
 	}
-	table := run.op.Table
-	ifNotExists := run.op.IfNotExists
-	//////////////////////////////////////
+	table := ctInfo.Table
+	ifNotExists := ctInfo.IfNotExists
 	tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, schema, table)
 	if tabEnt != nil {
 		if ifNotExists {
@@ -73,7 +72,7 @@ func (run *Runner) createTableExec(output *chunk.Chunk, state *OperatorState) (O
 			return InvalidOpResult, fmt.Errorf("table %s already exits", table)
 		}
 	}
-	info := storage.NewDataTableInfo3(schema, table, run.op.ColDefs, run.op.Constraints)
+	info := storage.NewDataTableInfo3(schema, table, ctInfo.ColDefs, ctInfo.Constraints)
 	_, err := storage.GCatalog.CreateTable(run.Txn, info)
 	if err != nil {
 		return 0, err
@@ -90,8 +89,9 @@ func (run *Runner) createSchemaInit() error {
 }
 
 func (run *Runner) createSchemaExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	name := run.op.Database
-	ifNotExists := run.op.IfNotExists
+	csInfo := run.op.Info.(*CreateSchemaOpInfo)
+	name := csInfo.Database
+	ifNotExists := csInfo.IfNotExists
 	schEnt := storage.GCatalog.GetSchema(run.Txn, name)
 	if schEnt != nil {
 		if ifNotExists {

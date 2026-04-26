@@ -16,7 +16,7 @@ func (run *Runner) limitInit() error {
 		childTypes = append(childTypes, outputExpr.DataTyp)
 	}
 
-	run.state.limit = NewLimit(childTypes, run.op.Limit, run.op.Offset)
+	run.state.limit = NewLimit(childTypes, run.op.getLimitExpr(), run.op.getOffsetExpr())
 
 	run.state.outputExec = NewExprExec(run.op.Outputs...)
 

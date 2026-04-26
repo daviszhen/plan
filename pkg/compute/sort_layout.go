@@ -37,7 +37,7 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 	for i := 0; i < ret._columnCount; i++ {
 		order := orders[i]
 		realOrder := order.Children[0]
-		if order.Desc {
+		if order.GetOrderByInfo().Desc {
 			ret._orderTypes = append(ret._orderTypes, OT_DESC)
 		} else {
 			ret._orderTypes = append(ret._orderTypes, OT_ASC)

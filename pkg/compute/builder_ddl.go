@@ -11,22 +11,19 @@ import (
 )
 
 func (b *Builder) createPhyCreateSchema(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	info := root.Info.(*CreateSchemaOpInfo)
 	return &PhysicalOperator{
-		Typ:         POT_CreateSchema,
-		Database:    root.Database,
-		IfNotExists: root.IfNotExists,
-		Children:    children}, nil
+		Typ:      POT_CreateSchema,
+		Info:     info,
+		Children: children}, nil
 }
 
 func (b *Builder) createPhyCreateTable(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
+	info := root.Info.(*CreateTableOpInfo)
 	return &PhysicalOperator{
-		Typ:         POT_CreateTable,
-		Database:    root.Database,
-		Table:       root.Table,
-		IfNotExists: root.IfNotExists,
-		ColDefs:     root.ColDefs,
-		Constraints: root.Constraints,
-		Children:    children,
+		Typ:      POT_CreateTable,
+		Info:     info,
+		Children: children,
 	}, nil
 }
 
@@ -84,9 +81,11 @@ func (b *Builder) buildCreateSchema(
 	depth int) (*LogicalOperator, error) {
 	name := stmt.Schemaname
 	return &LogicalOperator{
-		Typ:         LOT_CreateSchema,
-		Database:    name,
-		IfNotExists: stmt.IfNotExists,
+		Typ: LOT_CreateSchema,
+		Info: &CreateSchemaOpInfo{
+			Database:    name,
+			IfNotExists: stmt.IfNotExists,
+		},
 	}, nil
 }
 
@@ -99,11 +98,14 @@ func (b *Builder) buildCreateTable(
 	schema := stmt.GetRelation().GetSchemaname()
 	name := stmt.GetRelation().GetRelname()
 
-	ret := &LogicalOperator{
-		Typ:         LOT_CreateTable,
+	ctInfo := &CreateTableOpInfo{
 		Database:    schema,
 		Table:       name,
 		IfNotExists: stmt.GetIfNotExists(),
+	}
+	ret := &LogicalOperator{
+		Typ:  LOT_CreateTable,
+		Info: ctInfo,
 	}
 
 	colDefs := make([]*storage.ColumnDefinition, 0)
@@ -180,8 +182,8 @@ func (b *Builder) buildCreateTable(
 			panic("usp")
 		}
 	}
-	ret.ColDefs = colDefs
-	ret.Constraints = tableCons
+	ctInfo.ColDefs = colDefs
+	ctInfo.Constraints = tableCons
 
 	return ret, nil
 }

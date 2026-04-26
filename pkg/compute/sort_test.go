@@ -454,7 +454,7 @@ func Test_localsort(t *testing.T) {
 	stubOp := &PhysicalOperator{
 		Typ:        POT_Stub,
 		Outputs:    ops[0].Children[0].Outputs,
-		Table:      "./test/project_out",
+		Info:       &StubInfo{Table: "./test/project_out"},
 		ChunkCount: 30, //23
 	}
 	ops[0].Children[0] = stubOp

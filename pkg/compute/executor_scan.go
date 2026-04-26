@@ -20,46 +20,46 @@ import (
 
 func (run *Runner) scanInit() error {
 	var err error
-	switch run.op.ScanTyp {
+	switch run.op.getScanTyp() {
 	case ScanTypeTable:
 
 		{
-			tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, run.op.Database, run.op.Table)
+			tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, run.op.getScanDatabase(), run.op.getScanTable())
 			if tabEnt == nil {
-				return fmt.Errorf("no table %s in schema %s", run.op.Database, run.op.Table)
+				return fmt.Errorf("no table %s in schema %s", run.op.getScanDatabase(), run.op.getScanTable())
 			}
 			run.state.tabEnt = tabEnt
 			col2Idx := tabEnt.GetColumn2Idx()
 			typs := tabEnt.GetTypes()
 			run.state.colIndice = make([]int, 0)
-			for _, col := range run.op.Columns {
+			for _, col := range run.op.getScanColumns() {
 				if idx, has := col2Idx[col]; has {
 					run.state.colIndice = append(run.state.colIndice, idx)
 					run.state.readedColTyps = append(run.state.readedColTyps, typs[idx])
 				} else {
-					return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
+					return fmt.Errorf("no such column %s in %s.%s", col, run.op.getScanDatabase(), run.op.getScanTable())
 				}
 			}
 		}
 
 	case ScanTypeValuesList:
 		run.state.colIndice = make([]int, 0)
-		for _, col := range run.op.Columns {
-			if idx, has := run.op.ColName2Idx[col]; has {
+		for _, col := range run.op.getScanColumns() {
+			if idx, has := run.op.getScanColName2Idx()[col]; has {
 				run.state.colIndice = append(run.state.colIndice, idx)
-				run.state.readedColTyps = append(run.state.readedColTyps, run.op.Types[idx])
+				run.state.readedColTyps = append(run.state.readedColTyps, run.op.getScanTypes()[idx])
 			} else {
-				return fmt.Errorf("no such column %s in %s.%s", col, run.op.Database, run.op.Table)
+				return fmt.Errorf("no such column %s in %s.%s", col, run.op.getScanDatabase(), run.op.getScanTable())
 			}
 		}
-		run.state.readedColTyps = run.op.Types
+		run.state.readedColTyps = run.op.getScanTypes()
 	case ScanTypeCopyFrom:
-		run.state.colIndice = run.op.ScanInfo.ColumnIds
-		run.state.readedColTyps = run.op.ScanInfo.ReturnedTypes
+		run.state.colIndice = run.op.getScanConfig().ColumnIds
+		run.state.readedColTyps = run.op.getScanConfig().ReturnedTypes
 		//open data file
-		switch run.op.ScanInfo.Format {
+		switch run.op.getScanConfig().Format {
 		case "parquet":
-			run.state.pqFile, err = pqLocal.NewLocalFileReader(run.op.ScanInfo.FilePath)
+			run.state.pqFile, err = pqLocal.NewLocalFileReader(run.op.getScanConfig().FilePath)
 			if err != nil {
 				return err
 			}
@@ -69,14 +69,14 @@ func (run *Runner) scanInit() error {
 				return err
 			}
 		case "csv":
-			run.state.tablePath = run.op.ScanInfo.FilePath
+			run.state.tablePath = run.op.getScanConfig().FilePath
 			run.state.dataFile, err = os.OpenFile(run.state.tablePath, os.O_RDONLY, 0755)
 			if err != nil {
 				return err
 			}
 
 			comma := ','
-			if commaOpt := getFormatFun("delimiter", run.op.ScanInfo.Opts); commaOpt != nil {
+			if commaOpt := getFormatFun("delimiter", run.op.getScanConfig().Opts); commaOpt != nil {
 				comma = int32(commaOpt.Opt[0])
 			}
 
@@ -130,7 +130,7 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 	readed.Init(run.state.readedColTyps, maxCnt)
 	var err error
 
-	switch run.op.ScanTyp {
+	switch run.op.getScanTyp() {
 	case ScanTypeTable:
 		{
 			if run.state.tableScanState == nil {
@@ -170,7 +170,7 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 		}
 	case ScanTypeCopyFrom:
 		//read table
-		switch run.op.ScanInfo.Format {
+		switch run.op.getScanConfig().Format {
 		case "parquet":
 			err = run.readParquetTable(readed, state, maxCnt)
 			if err != nil {
@@ -204,7 +204,7 @@ func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt in
 }
 
 func (run *Runner) scanClose() error {
-	switch run.op.ScanTyp {
+	switch run.op.getScanTyp() {
 	case ScanTypeTable:
 		{
 
@@ -225,7 +225,7 @@ func (run *Runner) scanClose() error {
 	case ScanTypeValuesList:
 		return nil
 	case ScanTypeCopyFrom:
-		switch run.op.ScanInfo.Format {
+		switch run.op.getScanConfig().Format {
 		case "csv":
 			run.state.reader = nil
 			return run.state.dataFile.Close()

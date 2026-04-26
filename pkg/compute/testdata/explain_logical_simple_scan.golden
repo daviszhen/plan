@@ -1,0 +1,10 @@
+Project (Id 3) 
+  outputs:nation.n_name#[1,1]
+  exprs:nation.n_name#[1,1]
+->  Filter (Id 2) 
+        exprs:(nation.n_regionkey#[1,2] = 1)
+      ->  Scan on public.nation (Id 1) 
+              outputs:nation.n_nationkey#[1,0], nation.n_name#[1,1], nation.n_regionkey#[1,2]
+              table: public.nation
+              columns:n_nationkey#0, n_name#1, n_regionkey#2
+              filters:

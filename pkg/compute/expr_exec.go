@@ -130,7 +130,7 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *chunk.SelectVe
 	case ET_Column:
 		return exec.executeColumnRef(expr, eState, sel, count, result)
 	case ET_Func:
-		if expr.FunImpl._name == FuncCase {
+		if expr.GetFuncInfo().FunImpl._name == FuncCase {
 			return exec.executeCase(expr, eState, sel, count, result)
 		} else {
 			return exec.executeFunc(expr, eState, sel, count, result)
@@ -329,11 +329,11 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *chunk.Sele
 		}
 	}
 	eState._interChunk.SetCard(count)
-	if expr.FunImpl._boundCastInfo != nil {
+	if expr.GetFuncInfo().FunImpl._boundCastInfo != nil {
 		params := &CastParams{}
-		expr.FunImpl._boundCastInfo._fun(eState._interChunk.Data[0], result, count, params)
+		expr.GetFuncInfo().FunImpl._boundCastInfo._fun(eState._interChunk.Data[0], result, count, params)
 	} else {
-		expr.FunImpl._scalar(eState._interChunk, eState, result)
+		expr.GetFuncInfo().FunImpl._scalar(eState._interChunk, eState, result)
 	}
 
 	return nil
@@ -369,12 +369,12 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *chunk.S
 	}
 	switch expr.Typ {
 	case ET_Func:
-		switch GetOperatorType(expr.FunImpl._name) {
+		switch GetOperatorType(expr.GetFuncInfo().FunImpl._name) {
 		case OpTypeCompare,
 			OpTypeLike:
 			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
 		case OpTypeLogical:
-			switch expr.FunImpl._name {
+			switch expr.GetFuncInfo().FunImpl._name {
 			case FuncAnd:
 				return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
 			case FuncOr:
@@ -407,7 +407,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 
 	switch expr.Typ {
 	case ET_Func:
-		switch GetOperatorType(expr.FunImpl._name) {
+		switch GetOperatorType(expr.GetFuncInfo().FunImpl._name) {
 		case OpTypeCompare, OpTypeLike:
 			return selectOperation(
 				eState._interChunk.Data[0],
@@ -416,7 +416,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 				count,
 				trueSel,
 				falseSel,
-				expr.FunImpl._name,
+				expr.GetFuncInfo().FunImpl._name,
 			), nil
 		default:
 			panic("usp")
@@ -525,7 +525,7 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 		for _, child := range expr.Children {
 			ret.addChild(child)
 		}
-		if expr.FunImpl._name == FuncCase {
+		if expr.GetFuncInfo().FunImpl._name == FuncCase {
 			ret._trueSel = chunk.NewSelectVector(util.DefaultVectorSize)
 			ret._falseSel = chunk.NewSelectVector(util.DefaultVectorSize)
 		}

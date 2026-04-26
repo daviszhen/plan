@@ -10,10 +10,10 @@ import (
 )
 
 func (run *Runner) aggrInit() error {
-	//if len(run.op.GroupBys) == 0 /*&& groupingSet*/ {
+	//if len(run.op.getGroupBys()) == 0 /*&& groupingSet*/ {
 	//	run.hAggr = NewHashAggr(
 	//		run.outputTypes,
-	//		run.op.Aggs,
+	//		run.op.getAggs(),
 	//		nil,
 	//		nil,
 	//		nil,
@@ -21,14 +21,18 @@ func (run *Runner) aggrInit() error {
 	//} else
 	{
 
-		if len(run.op.GroupBys) == 0 {
+		if len(run.op.getGroupBys()) == 0 {
 			//group by 1
 			constExpr := &Expr{
 				Typ:        ET_Const,
 				DataTyp:    common.IntegerType(),
 				ConstValue: NewIntegerConst(1),
 			}
-			run.op.GroupBys = append(run.op.GroupBys, constExpr)
+			if ai, ok := run.op.Info.(*AggOpInfo); ok {
+				ai.GroupBys = append(ai.GroupBys, constExpr)
+			} else {
+				
+			}
 
 			run.state.constGroupby = true
 		}
@@ -51,8 +55,8 @@ func (run *Runner) aggrInit() error {
 
 		run.state.hAggr = NewHashAggr(
 			run.state.outputTypes,
-			run.op.Aggs,
-			run.op.GroupBys,
+			run.op.getAggs(),
+			run.op.getGroupBys(),
 			nil,
 			nil,
 			refChildrenOutput,

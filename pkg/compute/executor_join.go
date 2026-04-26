@@ -11,8 +11,8 @@ import (
 func (run *Runner) joinInit() error {
 	run.state.outputExec = NewExprExec(run.op.Outputs...)
 
-	if len(run.op.OnConds) != 0 {
-		run.state.hjoin = NewHashJoin(run.op, run.op.OnConds)
+	if len(run.op.getOnConds()) != 0 {
+		run.state.hjoin = NewHashJoin(run.op, run.op.getOnConds())
 	} else {
 		types := make([]common.LType, len(run.op.Children[1].Outputs))
 		for i, e := range run.op.Children[1].Outputs {
@@ -218,7 +218,7 @@ func (run *Runner) evalJoinOutput(nextChunk, output *chunk.Chunk) (err error) {
 	rightChunk.ReferenceIndice(nextChunk, run.state.hjoin._rightIndice)
 
 	var thisChunk *chunk.Chunk
-	if run.op.JoinTyp == LOT_JoinTypeMARK || run.op.JoinTyp == LOT_JoinTypeAntiMARK {
+	if run.op.getJoinTyp() == LOT_JoinTypeMARK || run.op.getJoinTyp() == LOT_JoinTypeAntiMARK {
 		thisChunk = &chunk.Chunk{}
 		markTyp := []common.LType{util.Back(run.state.hjoin._scanNextTyps)}
 		thisChunk.Init(markTyp, util.DefaultVectorSize)

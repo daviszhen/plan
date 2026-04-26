@@ -495,7 +495,7 @@ func AddCastToType(expr *Expr, dstTyp common.LType, tryCast bool) (*Expr, error)
 		ConstValue: NewStringConst(FuncCast),
 		DataTyp:    dstTyp,
 		Children:   args,
-		FunctionInfo: FunctionInfo{
+		Info: &FunctionInfo{
 			BindInfo: nil,
 			FunImpl: &Function{
 				_name:          FuncCast,

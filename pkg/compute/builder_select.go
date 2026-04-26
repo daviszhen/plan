@@ -315,7 +315,7 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 					Alias:     alias,
 					BelongCtx: ctx,
 				},
-				TableInfo: TableInfo{
+				Info: &TableInfo{
 					TabEnt: tabEnt,
 				},
 			}, err
@@ -378,7 +378,7 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 				Table:     bind.alias,
 				BelongCtx: ctx,
 			},
-			SubqueryInfo: SubqueryInfo{
+			Info: &SubqueryInfo{
 				SubBuilder: subBuilder,
 				SubCtx:     subBuilder.rootCtx,
 			},
@@ -471,7 +471,7 @@ func (b *Builder) mergeTwoTable(
 		BaseInfo: BaseInfo{
 			BelongCtx: ctx,
 		},
-		JoinInfo: JoinInfo{
+		Info: &JoinInfo{
 			JoinTyp: jt,
 		},
 	}
@@ -530,7 +530,7 @@ func (b *Builder) buildJoinTable(join *pg_query.JoinExpr, ctx *BindContext, dept
 		BaseInfo: BaseInfo{
 			BelongCtx: ctx,
 		},
-		JoinInfo: JoinInfo{
+		Info: &JoinInfo{
 			JoinTyp: jt,
 			On:      onExpr,
 		},
