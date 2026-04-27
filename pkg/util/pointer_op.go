@@ -86,17 +86,36 @@ func PointerValid(ptr unsafe.Pointer) bool {
 }
 
 func PointerMemcmp(lAddr, rAddr unsafe.Pointer, len int) int {
-	lSlice := PointerToSlice[byte](lAddr, len)
-	rSlice := PointerToSlice[byte](rAddr, len)
-	ret := bytes.Compare(lSlice, rSlice)
-	return ret
+	if len == 0 {
+		return 0
+	}
+	return bytes.Compare(
+		unsafe.Slice((*byte)(lAddr), len),
+		unsafe.Slice((*byte)(rAddr), len),
+	)
 }
 
 func PointerMemcmp2(lAddr, rAddr unsafe.Pointer, len1, len2 int) int {
-	lSlice := PointerToSlice[byte](lAddr, len1)
-	rSlice := PointerToSlice[byte](rAddr, len2)
-	ret := bytes.Compare(lSlice, rSlice)
-	return ret
+	minLen := len1
+	if len2 < minLen {
+		minLen = len2
+	}
+	if minLen > 0 {
+		cmp := bytes.Compare(
+			unsafe.Slice((*byte)(lAddr), minLen),
+			unsafe.Slice((*byte)(rAddr), minLen),
+		)
+		if cmp != 0 {
+			return cmp
+		}
+	}
+	if len1 < len2 {
+		return -1
+	}
+	if len1 > len2 {
+		return 1
+	}
+	return 0
 }
 
 func InvertBits(base unsafe.Pointer, offset int) {

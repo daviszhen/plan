@@ -6,6 +6,7 @@ import (
 
 //#include <stdio.h>
 //#include <stdlib.h>
+//#include <string.h>
 import "C"
 
 func CMalloc(sz int) unsafe.Pointer {
@@ -36,3 +37,8 @@ func (alloc *DefaultAllocator) Free(bytes []byte) {
 }
 
 var GAlloc BytesAllocator = &DefaultAllocator{}
+
+// CMemcmp calls libc memcmp directly on raw pointers. No slice header overhead.
+func CMemcmp(a, b unsafe.Pointer, n int) int {
+	return int(C.memcmp(a, b, C.size_t(n)))
+}
