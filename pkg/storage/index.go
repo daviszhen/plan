@@ -803,12 +803,23 @@ func (idx *Index) Deserialize() error {
 		if err != nil {
 			return err
 		}
-		//read data
-		item._data, item._len, err = util.ReadPtrBytes(reader)
+		//read key length
+		var l uint32
+		err = util.Read[uint32](&l, reader)
 		if err != nil {
 			return err
 		}
-		_, has := idx._btree.Set(item)
+		//read key data into Go-allocated memory (avoids per-key CGO CMalloc call)
+		if l > 0 {
+			buf := make([]byte, l)
+			err = reader.ReadData(buf, int(l))
+			if err != nil {
+				return err
+			}
+			item._data = unsafe.Pointer(&buf[0])
+			item._len = l
+		}
+		_, has := idx._btree.Load(item)
 		if has {
 			return fmt.Errorf("duplicate key after deserialized")
 		}
