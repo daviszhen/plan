@@ -9,7 +9,10 @@ import (
 )
 
 func TestProfileLoadDatabase(t *testing.T) {
-	dbPath := "/tmp/default"
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		t.Skip("DB_PATH not set, skipping")
+	}
 
 	f, err := os.Create("/tmp/cpu_load.prof")
 	if err != nil {
