@@ -1,6 +1,7 @@
 package util
 
 import (
+	"math"
 	"testing"
 	"unsafe"
 )
@@ -78,5 +79,96 @@ func TestPointerMemcmp2_Correctness(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("PointerMemcmp2(%v, %v) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
+	}
+}
+
+func TestMemset(t *testing.T) {
+	buf := make([]byte, 1024)
+	Memset(unsafe.Pointer(&buf[0]), 0xAB, len(buf))
+	for i, b := range buf {
+		if b != 0xAB {
+			t.Fatalf("Memset: buf[%d] = %x, want 0xAB", i, b)
+		}
+	}
+	// size=0 should not panic
+	Memset(unsafe.Pointer(&buf[0]), 0, 0)
+	// size=1
+	Memset(unsafe.Pointer(&buf[0]), 0xFF, 1)
+	if buf[0] != 0xFF {
+		t.Fatalf("Memset size=1 failed")
+	}
+}
+
+func BenchmarkMemset_256(b *testing.B) {
+	buf := make([]byte, 256)
+	ptr := unsafe.Pointer(&buf[0])
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Memset(ptr, 0, 256)
+	}
+}
+
+func BenchmarkMemset_4096(b *testing.B) {
+	buf := make([]byte, 4096)
+	ptr := unsafe.Pointer(&buf[0])
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Memset(ptr, 0, 4096)
+	}
+}
+
+func TestFill(t *testing.T) {
+	data := make([]uint64, 2048)
+	Fill[uint64](data, 2048, 42)
+	for i, v := range data {
+		if v != 42 {
+			t.Fatalf("Fill: data[%d] = %d, want 42", i, v)
+		}
+	}
+	// count=0 should not panic
+	Fill[uint64](data, 0, 0)
+}
+
+func BenchmarkFill_2048(b *testing.B) {
+	data := make([]uint64, 2048)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Fill[uint64](data, 2048, 0)
+	}
+}
+
+func TestInvertBits(t *testing.T) {
+	buf := []byte{0x00, 0xFF, 0xA5}
+	InvertBits(unsafe.Pointer(&buf[0]), 0)
+	if buf[0] != 0xFF {
+		t.Fatalf("InvertBits: got %x, want 0xFF", buf[0])
+	}
+	InvertBits(unsafe.Pointer(&buf[0]), 1)
+	if buf[1] != 0x00 {
+		t.Fatalf("InvertBits: got %x, want 0x00", buf[1])
+	}
+	InvertBits(unsafe.Pointer(&buf[0]), 2)
+	if buf[2] != 0x5A {
+		t.Fatalf("InvertBits: got %x, want 0x5A", buf[2])
+	}
+}
+
+func TestPointerSub(t *testing.T) {
+	buf := make([]byte, 100)
+	base := unsafe.Pointer(&buf[0])
+	end := unsafe.Pointer(&buf[99])
+	if PointerSub(end, base) != 99 {
+		t.Fatalf("PointerSub forward: got %d, want 99", PointerSub(end, base))
+	}
+	// When lhs < rhs, original semantics: negate the int64 of (lhs-rhs)
+	// For nearby pointers this gives the positive absolute distance
+	if PointerSub(base, end) != 99 {
+		t.Fatalf("PointerSub backward: got %d, want 99", PointerSub(base, end))
+	}
+	// Edge case: MaxUint64 pointer (used in sort_test.go)
+	p := unsafe.Pointer(&buf[0])
+	maxPtr := unsafe.Pointer(uintptr(math.MaxUint64))
+	if PointerSub(p, maxPtr) >= 0 {
+		t.Fatalf("PointerSub with MaxUint64: expected negative, got %d", PointerSub(p, maxPtr))
 	}
 }

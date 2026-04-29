@@ -410,7 +410,7 @@ func TupleDataTemplatedScatter[T any](
 			} else {
 				TupleDataValueStore[T](nVal.NullValue(), targetLocs[i], offsetInRow, &targetHeapLocs[i], nVal)
 				bSlice := util.PointerToSlice[uint8](targetLocs[i], layout._rowWidth)
-				tempMask := util.Bitmap{Bits: bSlice}
+				tempMask := util.BitmapFromBytes(bSlice)
 				tempMask.SetInvalidUnsafe(uint64(colIdx))
 			}
 		}
@@ -516,7 +516,7 @@ func TupleDataTemplatedGather[T any](
 		base := srcLocs[scanSel.GetIndex(i)]
 		srcRow := util.PointerToSlice[byte](base, layout._rowWidth)
 		targetIdx := targetSel.GetIndex(i)
-		rowMask := util.Bitmap{Bits: srcRow}
+		rowMask := util.BitmapFromBytes(srcRow)
 		if util.RowIsValidInEntry(
 			rowMask.GetEntry(entryIdx),
 			idxInEntry) {

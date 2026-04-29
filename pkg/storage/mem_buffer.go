@@ -24,10 +24,6 @@ import (
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-//#include <stdio.h>
-//#include <stdlib.h>
-import "C"
-
 type AllocateData struct {
 	alloc *Allocator
 	ptr   unsafe.Pointer
@@ -42,7 +38,7 @@ func NewAllocator() *Allocator {
 }
 
 func (alloc *Allocator) AllocateData(sz uint64) unsafe.Pointer {
-	ptr := C.malloc(C.size_t(sz))
+	ptr := util.CMalloc(int(sz))
 	if ptr == nil {
 		panic(fmt.Sprintf("allocate %d bytes failed.", sz))
 	}
@@ -50,11 +46,11 @@ func (alloc *Allocator) AllocateData(sz uint64) unsafe.Pointer {
 }
 
 func (alloc *Allocator) FreeData(ptr unsafe.Pointer, sz uint64) {
-	C.free(ptr)
+	util.CFree(ptr)
 }
 
 func (alloc *Allocator) ReallocateData(ptr unsafe.Pointer, oldSz, sz uint64) unsafe.Pointer {
-	ptr2 := C.realloc(ptr, C.size_t(sz))
+	ptr2 := util.CRealloc(ptr, int(sz))
 	if ptr2 == nil {
 		panic(fmt.Sprintf("realloc %d bytes failed.", sz))
 	}

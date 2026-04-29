@@ -22,14 +22,23 @@ func Store2[T any](val T, ptr unsafe.Pointer, offset int) {
 }
 
 func Memset(ptr unsafe.Pointer, val byte, size int) {
-	for i := 0; i < size; i++ {
-		Store[byte](val, PointerAdd(ptr, i))
+	if size <= 0 {
+		return
+	}
+	s := unsafe.Slice((*byte)(ptr), size)
+	s[0] = val
+	for filled := 1; filled < size; filled *= 2 {
+		copy(s[filled:], s[:filled])
 	}
 }
 
 func Fill[T any](data []T, count int, val T) {
-	for i := 0; i < count; i++ {
-		data[i] = val
+	if count <= 0 {
+		return
+	}
+	data[0] = val
+	for filled := 1; filled < count; filled *= 2 {
+		copy(data[filled:], data[:filled])
 	}
 }
 
@@ -55,11 +64,9 @@ func PointerLessEqual(lhs, rhs unsafe.Pointer) bool {
 }
 
 func PointerSub(lhs, rhs unsafe.Pointer) int64 {
-	a := uint64(uintptr(lhs))
-	b := uint64(uintptr(rhs))
-	//uint64
-	ret0 := a - b
-	ret := int64(ret0)
+	a := uintptr(lhs)
+	b := uintptr(rhs)
+	ret := int64(a - b)
 	if a < b {
 		ret = -ret
 	}
@@ -119,8 +126,6 @@ func PointerMemcmp2(lAddr, rAddr unsafe.Pointer, len1, len2 int) int {
 }
 
 func InvertBits(base unsafe.Pointer, offset int) {
-	ptr := PointerAdd(base, offset)
-	b := Load[byte](ptr)
-	b = ^b
-	Store[byte](b, ptr)
+	p := (*byte)(unsafe.Add(base, offset))
+	*p = ^*p
 }

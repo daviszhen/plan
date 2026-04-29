@@ -276,7 +276,6 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 		}
 	}()
 
-	fmt.Printf("[execQuery] q%d: generating physical plan\n", id)
 	var root *PhysicalOperator
 	root, err = genPhyPlan(txn, ast)
 	if err != nil {
@@ -337,13 +336,6 @@ func genPhyPlan(txn *storage.Txn, ast *pg_query.SelectStmt) (*PhysicalOperator, 
 		return nil, errors.New("nil plan")
 	}
 	checkExprIsValid(lp)
-	if true {
-		planStr, err := ExplainLogicalPlan(lp)
-		if err != nil {
-			return nil, err
-		}
-		fmt.Println("Logical Plan:\n" + planStr)
-	}
 	pp, err := builder.CreatePhyPlan(lp)
 	if err != nil {
 		return nil, err

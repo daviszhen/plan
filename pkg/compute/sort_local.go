@@ -61,6 +61,28 @@ func NewLocalSort(slayout *SortLayout, playout *RowLayout) *LocalSort {
 	return ret
 }
 
+// Close releases all C memory held by this LocalSort.
+func (ls *LocalSort) Close() {
+	if ls._radixSortingData != nil {
+		ls._radixSortingData.Close()
+	}
+	if ls._blobSortingData != nil {
+		ls._blobSortingData.Close()
+	}
+	if ls._blobSortingHeap != nil {
+		ls._blobSortingHeap.Close()
+	}
+	if ls._payloadData != nil {
+		ls._payloadData.Close()
+	}
+	if ls._payloadHeap != nil {
+		ls._payloadHeap.Close()
+	}
+	if ls._addresses != nil {
+		ls._addresses.Destroy()
+	}
+}
+
 func (ls *LocalSort) SinkChunk(sort, payload *chunk.Chunk) {
 	util.AssertFunc(sort.Card() == payload.Card())
 	dataPtrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](ls._addresses)
@@ -155,7 +177,7 @@ func (ls *LocalSort) SortInMemory() {
 	lastBlock := util.Back(lastSBk._radixSortingData)
 	count := lastBlock._count
 	//sort addr of row in the sort block
-	dataPtr := lastBlock._ptr
+	dataPtr := lastBlock.Ptr()
 	//locate to the addr of the row index
 	idxPtr := util.PointerAdd(dataPtr, ls._sortLayout._comparisonSize)
 	//for every row
@@ -251,7 +273,7 @@ func (ls *LocalSort) ReOrder(reorderHeap bool) {
 	sb := util.Back(ls._sortedBlocks)
 	lastSBlock := util.Back(sb._radixSortingData)
 	sortingPtr := util.PointerAdd(
-		lastSBlock._ptr,
+		lastSBlock.Ptr(),
 		ls._sortLayout._comparisonSize,
 	)
 	if !ls._sortLayout._allConstant {
@@ -277,14 +299,14 @@ func (ls *LocalSort) ReOrder2(
 ) {
 	unorderedDBlock := util.Back(sd._dataBlocks)
 	count := unorderedDBlock._count
-	unorderedDataPtr := unorderedDBlock._ptr
+	unorderedDataPtr := unorderedDBlock.Ptr()
 	orderedDBlock := NewRowDataBlock(
 		unorderedDBlock._capacity,
 		unorderedDBlock._entrySize,
 	)
 
 	orderedDBlock._count = count
-	orderedDataPtr := orderedDBlock._ptr
+	orderedDataPtr := orderedDBlock.Ptr()
 
 	//reorder fix row
 	rowWidth := sd._layout.rowWidth()
@@ -316,9 +338,9 @@ func (ls *LocalSort) ReOrder2(
 		orderedHeapBlock := NewRowDataBlock(heapBlockSize, 1)
 		orderedHeapBlock._count = count
 		orderedHeapBlock._byteOffset = totalByteOffset
-		orderedHeapPtr := orderedHeapBlock._ptr
+		orderedHeapPtr := orderedHeapBlock.Ptr()
 		//fill heap
-		orderedDataPtr = orderedDBlock._ptr
+		orderedDataPtr = orderedDBlock.Ptr()
 		heapPointerOffset := sd._layout.GetHeapOffset()
 		for i := 0; i < count; i++ {
 			heapRowPtr := util.Load[unsafe.Pointer](
@@ -349,12 +371,12 @@ func (ls *LocalSort) ConcatenateBlocks(rowData *RowDataCollection) *RowDataBlock
 	capacity := max(a, b)
 	newBlock := NewRowDataBlock(capacity, rowData._entrySize)
 	newBlock._count = rowData._count
-	newBlockPtr := newBlock._ptr
+	newBlockPtr := newBlock.Ptr()
 	//copy data in blocks into block
 	for i := 0; i < len(rowData._blocks); i++ {
 		block := rowData._blocks[i]
 		cLen := block._count * rowData._entrySize
-		util.PointerCopy(newBlockPtr, block._ptr, cLen)
+		util.PointerCopy(newBlockPtr, block.Ptr(), cLen)
 		newBlockPtr = util.PointerAdd(newBlockPtr, cLen)
 	}
 	rowData.Close()

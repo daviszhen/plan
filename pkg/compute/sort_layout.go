@@ -173,7 +173,7 @@ func (lay *RowLayout) GetHeapOffset() int {
 }
 
 type RowDataBlock struct {
-	_ptr       unsafe.Pointer
+	_mem       util.CPtr
 	_capacity  int
 	_entrySize int
 	_count     int
@@ -181,27 +181,36 @@ type RowDataBlock struct {
 	_byteOffset int
 }
 
+// Ptr returns the raw pointer to the block data.
+func (block *RowDataBlock) Ptr() unsafe.Pointer {
+	return block._mem.Ptr()
+}
+
+// Realloc resizes the block's memory.
+func (block *RowDataBlock) Realloc(newSize int) {
+	block._mem.Realloc(newSize)
+}
+
 func (block *RowDataBlock) Close() {
-	util.CFree(block._ptr)
-	block._ptr = unsafe.Pointer(nil)
+	block._mem.Destroy()
 	block._count = 0
 }
 
 func (block *RowDataBlock) Copy() *RowDataBlock {
-	ret := &RowDataBlock{_entrySize: block._entrySize}
-	ret._ptr = block._ptr
-	ret._capacity = block._capacity
-	ret._count = block._count
-	ret._byteOffset = block._byteOffset
-	return ret
+	return &RowDataBlock{
+		_mem:        block._mem.Borrow(),
+		_capacity:   block._capacity,
+		_entrySize:  block._entrySize,
+		_count:      block._count,
+		_byteOffset: block._byteOffset,
+	}
 }
 
 func NewRowDataBlock(capacity int, entrySize int) *RowDataBlock {
-	ret := &RowDataBlock{
+	sz := max(BLOCK_SIZE, capacity*entrySize)
+	return &RowDataBlock{
+		_mem:       util.NewCPtr(sz),
 		_capacity:  capacity,
 		_entrySize: entrySize,
 	}
-	sz := max(BLOCK_SIZE, capacity*entrySize)
-	ret._ptr = util.CMalloc(sz)
-	return ret
 }

@@ -252,6 +252,15 @@ func NewColumnDataCollection(typs []common.LType) *ColumnDataCollection {
 	}
 }
 
+// Destroy releases all C memory held by chunks in this collection. Idempotent.
+func (cdc *ColumnDataCollection) Destroy() {
+	for _, c := range cdc._chunks {
+		c.Destroy()
+	}
+	cdc._chunks = nil
+	cdc._count = 0
+}
+
 func (cdc *ColumnDataCollection) Append(input *chunk.Chunk) {
 	vecData := make([]chunk.UnifiedFormat, len(cdc._types))
 	for i := 0; i < len(cdc._types); i++ {

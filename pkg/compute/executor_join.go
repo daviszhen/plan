@@ -273,7 +273,10 @@ func (run *Runner) joinBuildHashTable(state *OperatorState) (OperatorResult, err
 }
 
 func (run *Runner) joinClose() error {
+	if run.state.cross != nil {
+		run.state.cross._dataCollect.Destroy()
+		run.state.cross = nil
+	}
 	run.state.hjoin = nil
-	run.state.cross = nil
 	return nil
 }

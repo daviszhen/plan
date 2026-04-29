@@ -128,15 +128,15 @@ func (cdc *RowDataCollection) AppendToBlock(
 	var dataPtr unsafe.Pointer
 	if entrySizes != nil {
 		util.AssertFunc(cdc._entrySize == 1)
-		dataPtr = util.PointerAdd(block._ptr, block._byteOffset)
+		dataPtr = util.PointerAdd(block.Ptr(), block._byteOffset)
 		for i := 0; i < remaining; i++ {
 			if block._byteOffset+entrySizes[i] > block._capacity {
 				if block._count == 0 &&
 					appendCnt == 0 &&
 					entrySizes[i] > block._capacity {
 					block._capacity = entrySizes[i]
-					block._ptr = util.CRealloc(block._ptr, block._capacity)
-					dataPtr = block._ptr
+					block.Realloc(block._capacity)
+					dataPtr = block.Ptr()
 					appendCnt++
 					block._byteOffset += entrySizes[i]
 				}
@@ -147,7 +147,7 @@ func (cdc *RowDataCollection) AppendToBlock(
 		}
 	} else {
 		appendCnt = min(remaining, block._capacity-block._count)
-		dataPtr = util.PointerAdd(block._ptr, block._count*block._entrySize)
+		dataPtr = util.PointerAdd(block.Ptr(), block._count*block._entrySize)
 	}
 	*appendEntries = append(*appendEntries, BlockAppendEntry{
 		_basePtr: dataPtr,

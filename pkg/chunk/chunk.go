@@ -47,8 +47,20 @@ func (c *Chunk) SetCap(cap int) {
 }
 
 func (c *Chunk) SetCard(count int) {
-	util.AssertFunc(c.Count <= c._Cap)
+	util.AssertFunc(count <= c._Cap)
 	c.Count = count
+	for _, vec := range c.Data {
+		vec.SetCount(count)
+	}
+}
+
+// Destroy releases all C memory owned by this Chunk. Idempotent.
+func (c *Chunk) Destroy() {
+	for _, vec := range c.Data {
+		vec.Destroy()
+	}
+	c.Data = nil
+	c.Count = 0
 }
 
 func (c *Chunk) Card() int {

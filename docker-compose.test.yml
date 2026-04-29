@@ -1,0 +1,17 @@
+services:
+  tester:
+    build:
+      context: .
+      dockerfile: Dockerfile.tester
+    mem_limit: 10g
+    memswap_limit: 10g
+    environment:
+      - MALLOC_CONF=prof:true,prof_leak:true,prof_final:true
+      - DB_PATH=/data/default
+    volumes:
+      - ./default:/data/default
+      - ./default.wal:/data/default.wal
+      - ./output:/output
+      - ./cases:/app/cases
+    working_dir: /app
+    command: ["./tester", "tpch1g" ,"--query_id","0"]
