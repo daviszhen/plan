@@ -1,0 +1,17 @@
+FROM golang:1.24-bookworm AS builder
+
+RUN apt-get update && apt-get install -y libjemalloc-dev && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOPROXY=https://goproxy.cn go build -o /tester ./cmd/tester
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y libjemalloc2 && rm -rf /var/lib/apt/lists/*
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+WORKDIR /app
+COPY --from=builder /tester .
+COPY etc/tpch/1g/tester-docker.toml /app/tester.toml
+COPY cases/ /app/cases/

@@ -13,10 +13,6 @@ import (
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-const (
-	defaultDbPath = "/tmp/default"
-)
-
 var GCatalog *Catalog
 var GStorageMgr *StorageMgr
 
@@ -29,12 +25,15 @@ func init() {
 		panic(err)
 	}
 	fmt.Println("[init] catalog initialized")
-	GStorageMgr = NewStorageMgr(defaultDbPath, false)
-	fmt.Println("[init] loading database from", defaultDbPath)
-	if err := GStorageMgr.LoadDatabase(); err != nil {
-		panic(err)
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath != "" {
+		GStorageMgr = NewStorageMgr(dbPath, false)
+		fmt.Println("[init] loading database from", dbPath)
+		if err := GStorageMgr.LoadDatabase(); err != nil {
+			panic(err)
+		}
+		fmt.Println("[init] database loaded")
 	}
-	fmt.Println("[init] database loaded")
 }
 
 type LocalTableStorage struct {
