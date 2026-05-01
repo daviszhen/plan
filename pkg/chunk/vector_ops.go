@@ -20,7 +20,6 @@ func NewVector(lTyp common.LType, initData bool, cap int) *Vector {
 		_PhyFormat: PF_FLAT,
 		_Typ:       lTyp,
 		Mask:       &util.Bitmap{},
-		_owns:      true,
 	}
 	if initData {
 		vec.Init(cap)

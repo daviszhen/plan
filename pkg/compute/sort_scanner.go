@@ -38,7 +38,7 @@ func (scan *RowDataCollectionScanner) Scan(output *chunk.Chunk) {
 	dataPtrs := chunk.GetSliceInPhyFormatFlat[unsafe.Pointer](scan._addresses)
 	for scanned < count {
 		dataBlock := scan._rows._blocks[scan._readState._blockIdx]
-		scan._readState._ptr = dataBlock.Ptr()
+		scan._readState._ptr = dataBlock._ptr
 		next := min(
 			dataBlock._count-scan._readState._entryIdx,
 			count-scanned,
@@ -79,10 +79,10 @@ func (scan *RowDataCollectionScanner) Scan(output *chunk.Chunk) {
 	if scan._flush {
 		for i := 0; i < scan._readState._blockIdx; i++ {
 			if scan._rows._blocks != nil {
-				scan._rows._blocks[i].Close()
+				scan._rows._blocks[i]._ptr = nil
 			}
 			if scan._heap._blocks != nil {
-				scan._heap._blocks[i].Close()
+				scan._heap._blocks[i]._ptr = nil
 			}
 		}
 	}
@@ -313,7 +313,9 @@ func TemplatedGatherLoop[T any](
 		row := ptrs[rowIdx]
 		colIdx := colSel.GetIndex(i)
 		dataSlice[colIdx] = util.Load[T](util.PointerAdd(row, colOffset))
-		rowMask := util.BitmapFromBytes(util.PointerToSlice[byte](row, layout._flagWidth))
+		rowMask := util.Bitmap{
+			Bits: util.PointerToSlice[byte](row, layout._flagWidth),
+		}
 		if !util.RowIsValidInEntry(
 			rowMask.GetEntry(entryIdx),
 			idxInEntry) {
@@ -350,7 +352,9 @@ func GatherVarchar(
 		colIdx := colSel.GetIndex(i)
 		colPtr := util.PointerAdd(row, colOffset)
 		dataSlice[colIdx] = util.Load[common.String](colPtr)
-		rowMask := util.BitmapFromBytes(util.PointerToSlice[byte](row, layout._flagWidth))
+		rowMask := util.Bitmap{
+			Bits: util.PointerToSlice[byte](row, layout._flagWidth),
+		}
 		if !util.RowIsValidInEntry(
 			rowMask.GetEntry(entryIdx),
 			idxInEntry,

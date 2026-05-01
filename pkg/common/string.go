@@ -44,15 +44,6 @@ func (s *String) Length() int {
 	return s.Len
 }
 
-// Free releases the C-allocated Data. Idempotent.
-func (s *String) Free() {
-	if s.Data != nil {
-		util.CFree(s.Data)
-		s.Data = nil
-		s.Len = 0
-	}
-}
-
 func (s String) NullLen() int {
 	return 0
 }

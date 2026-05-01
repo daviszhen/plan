@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"unsafe"
 
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 	"github.com/tidwall/btree"
@@ -63,40 +64,38 @@ type Index struct {
 }
 
 type IndexKey struct {
-	_data util.CPtr
+	_data unsafe.Pointer
+	_len  uint32
 	_val  uint64
 }
 
 func (k *IndexKey) Empty() bool {
-	return k._data.Len() == 0
-}
-
-// Destroy releases the C memory held by this key. Idempotent.
-func (k *IndexKey) Destroy() {
-	k._data.Destroy()
+	return k._len == 0
 }
 
 func (k *IndexKey) ConcatenateKey(okey *IndexKey) {
-	old := k._data.Transfer()
-	k._data = util.NewCPtr(old.Len() + okey._data.Len())
-	util.PointerCopy(k._data.Ptr(), old.Ptr(), old.Len())
+	oldData := k._data
+	tData := util.CMalloc(int(k._len + okey._len))
+	defer util.CFree(oldData)
+	util.PointerCopy(tData, k._data, int(k._len))
 	util.PointerCopy(
-		util.PointerAdd(k._data.Ptr(), old.Len()),
-		okey._data.Ptr(),
-		okey._data.Len(),
+		util.PointerAdd(tData, int(k._len)),
+		okey._data,
+		int(okey._len),
 	)
-	old.Destroy()
+	k._len += okey._len
+	k._data = tData
 }
 
 func IndexKeyLess(a, b *IndexKey) bool {
-	if a._data.Len() == 0 && b._data.Len() == 0 {
+	if a._len == 0 && b._len == 0 {
 		return false
-	} else if a._data.Len() == 0 {
+	} else if a._len == 0 {
 		return false
-	} else if b._data.Len() == 0 {
+	} else if b._len == 0 {
 		return true
 	}
-	return util.PointerMemcmp2(a._data.Ptr(), b._data.Ptr(), a._data.Len(), b._data.Len()) < 0
+	return util.PointerMemcmp2(a._data, b._data, int(a._len), int(b._len)) < 0
 }
 
 func NewIndex(
@@ -438,11 +437,10 @@ func CreateStringIndexKey(
 	value *common.String,
 ) {
 	l := value.Length() + 1
-	key._data = util.NewCPtr(l)
-	dst := key._data.Ptr()
+	dst := util.CMalloc(l)
 	util.PointerCopy(dst, value.DataPtr(), l-1)
 
-	data := key._data.Bytes()
+	data := util.PointerToSlice[byte](dst, l)
 	if typ.Id == common.LTID_VARCHAR {
 		for i := 0; i < l-1; i++ {
 			if data[i] == 0 {
@@ -452,6 +450,8 @@ func CreateStringIndexKey(
 	}
 
 	data[l-1] = 0
+	key._data = dst
+	key._len = uint32(l)
 }
 
 func CreateIndexKey[T any](
@@ -461,6 +461,7 @@ func CreateIndexKey[T any](
 	enc util.Encoder[T],
 ) {
 	key._data = CreateData[T](typ, val, enc)
+	key._len = uint32(typ.GetInternalType().Size())
 }
 
 func CreateIndexKey2[T any](
@@ -470,6 +471,7 @@ func CreateIndexKey2[T any](
 ) *IndexKey {
 	key := &IndexKey{}
 	key._data = CreateData[T](typ, val, enc)
+	key._len = uint32(typ.GetInternalType().Size())
 	return key
 }
 
@@ -477,11 +479,11 @@ func CreateData[T any](
 	typ common.LType,
 	val *T,
 	enc util.Encoder[T],
-) util.CPtr {
+) unsafe.Pointer {
 	pSize := typ.GetInternalType().Size()
-	cp := util.NewCPtr(pSize)
-	enc.EncodeData(cp.Ptr(), val)
-	return cp
+	data := util.CMalloc(pSize)
+	enc.EncodeData(data, val)
+	return data
 }
 
 func ConcatenateKeys[T any](
@@ -769,7 +771,7 @@ func (idx *Index) Serialize(writer *MetaBlockWriter) (BlockPointer, error) {
 			return false
 		}
 		//write data
-		err = util.WritePtrBytes(item._data.Ptr(), uint32(item._data.Len()), writer)
+		err = util.WritePtrBytes(item._data, item._len, writer)
 		if err != nil {
 			return false
 		}
@@ -807,13 +809,15 @@ func (idx *Index) Deserialize() error {
 		if err != nil {
 			return err
 		}
-		//read key data
+		//read key data into Go-allocated memory (avoids per-key CGO CMalloc call)
 		if l > 0 {
-			item._data = util.NewCPtr(int(l))
-			err = reader.ReadData(item._data.Bytes(), int(l))
+			buf := make([]byte, l)
+			err = reader.ReadData(buf, int(l))
 			if err != nil {
 				return err
 			}
+			item._data = unsafe.Pointer(&buf[0])
+			item._len = l
 		}
 		_, has := idx._btree.Load(item)
 		if has {

@@ -250,7 +250,7 @@ func TemplatedMatchType[T any](
 		for i := 0; i < *cnt; i++ {
 			idx := sel.GetIndex(i)
 			row := util.PointerToSlice[uint8](ptrs[idx], rowWidth)
-			mask := util.BitmapFromBytes(row)
+			mask := util.Bitmap{Bits: row}
 			isNull := !util.RowIsValidInEntry(mask.GetEntry(entryIdx), idxInEntry)
 
 			colIdx := col.Sel.GetIndex(idx)
@@ -282,7 +282,7 @@ func TemplatedMatchType[T any](
 		for i := 0; i < *cnt; i++ {
 			idx := sel.GetIndex(i)
 			row := util.PointerToSlice[uint8](ptrs[idx], rowWidth)
-			mask := util.BitmapFromBytes(row)
+			mask := util.Bitmap{Bits: row}
 			isNull := !util.RowIsValidInEntry(mask.GetEntry(entryIdx), idxInEntry)
 			colIdx := col.Sel.GetIndex(idx)
 			val := util.Load[T](util.PointerAdd(ptrs[idx], colOffset))

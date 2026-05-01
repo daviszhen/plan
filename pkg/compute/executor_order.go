@@ -125,9 +125,6 @@ func (run *Runner) orderExec(output *chunk.Chunk, state *OperatorState) (Operato
 }
 
 func (run *Runner) orderClose() error {
-	if run.state.localSort != nil {
-		run.state.localSort.Close()
-		run.state.localSort = nil
-	}
+	run.state.localSort = nil
 	return nil
 }

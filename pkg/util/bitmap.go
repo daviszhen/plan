@@ -1,11 +1,11 @@
 package util
 
 type Bitmap struct {
-	bits CPtr
+	Bits []uint8
 }
 
 func (bm *Bitmap) Data() []uint8 {
-	return bm.bits.Bytes()
+	return bm.Bits
 }
 
 func (bm *Bitmap) Bytes(count int) int {
@@ -14,30 +14,25 @@ func (bm *Bitmap) Bytes(count int) int {
 
 func (bm *Bitmap) Init(count int) {
 	cnt := EntryCount(count)
-	bm.bits = NewCPtr(cnt)
-	b := bm.bits.Bytes()
-	for i := range b {
-		b[i] = 0xFF
+	bm.Bits = GAlloc.Alloc(cnt)
+	for i := range bm.Bits {
+		bm.Bits[i] = 0xFF
 	}
 }
 
-func (bm *Bitmap) Destroy() {
-	bm.bits.Destroy()
-}
-
 func (bm *Bitmap) ShareWith(other *Bitmap) {
-	bm.bits = other.bits.Borrow()
+	bm.Bits = other.Bits
 }
 
 func (bm *Bitmap) Invalid() bool {
-	return bm.bits.IsNil()
+	return len(bm.Bits) == 0
 }
 
 func (bm *Bitmap) GetEntry(eIdx uint64) uint8 {
 	if bm.Invalid() {
 		return 0xFF
 	}
-	return bm.bits.Bytes()[eIdx]
+	return bm.Bits[eIdx]
 }
 
 func GetEntryIndex(idx uint64) (uint64, uint64) {
@@ -53,21 +48,15 @@ func (bm *Bitmap) Combine(other *Bitmap, count int) {
 		return
 	}
 	if bm.AllValid() {
-		eCnt := EntryCount(count)
-		bm.bits = NewCPtr(eCnt)
-		copy(bm.bits.Bytes(), other.bits.Bytes()[:eCnt])
+		bm.ShareWith(other)
 		return
 	}
-	old := bm.bits.Transfer()
+	oldData := bm.Bits
 	bm.Init(count)
 	eCnt := EntryCount(count)
-	b := bm.bits.Bytes()
-	ob := old.Bytes()
-	otherB := other.bits.Bytes()
 	for i := 0; i < eCnt; i++ {
-		b[i] = ob[i] & otherB[i]
+		bm.Bits[i] = oldData[i] & other.Bits[i]
 	}
-	old.Destroy()
 }
 
 func RowIsValidInEntry(e uint8, pos uint64) bool {
@@ -104,7 +93,7 @@ func (bm *Bitmap) Set(ridx uint64, valid bool) {
 
 func (bm *Bitmap) SetValidUnsafe(ridx uint64) {
 	eIdx, pos := GetEntryIndex(ridx)
-	bm.bits.Bytes()[eIdx] |= 1 << pos
+	bm.Bits[eIdx] |= 1 << pos
 }
 
 func (bm *Bitmap) SetInvalid(ridx uint64) {
@@ -116,15 +105,11 @@ func (bm *Bitmap) SetInvalid(ridx uint64) {
 
 func (bm *Bitmap) SetInvalidUnsafe(ridx uint64) {
 	eIdx, pos := GetEntryIndex(ridx)
-	bm.bits.Bytes()[eIdx] &= ^(1 << pos)
+	bm.Bits[eIdx] &= ^(1 << pos)
 }
 
 func (bm *Bitmap) Reset() {
-	if bm.bits.IsOwner() {
-		bm.bits.Destroy()
-	} else {
-		bm.bits = CPtr{}
-	}
+	bm.Bits = nil
 }
 
 func EntryCount(cnt int) int {
@@ -139,17 +124,15 @@ func (bm *Bitmap) Resize(old int, new int) {
 	if new <= old {
 		return
 	}
-	if !bm.Invalid() {
+	if bm.Bits != nil {
 		ncnt := EntryCount(new)
 		ocnt := EntryCount(old)
-		oldBits := bm.bits.Transfer()
-		bm.bits = NewCPtr(ncnt)
-		b := bm.bits.Bytes()
-		copy(b, oldBits.Bytes()[:ocnt])
+		newData := GAlloc.Alloc(ncnt)
+		copy(newData, bm.Bits)
 		for i := ocnt; i < ncnt; i++ {
-			b[i] = 0xFF
+			newData[i] = 0xFF
 		}
-		oldBits.Destroy()
+		bm.Bits = newData
 	} else {
 		bm.Init(new)
 	}
@@ -166,19 +149,17 @@ func (bm *Bitmap) SetAllInvalid(cnt int) {
 	if cnt == 0 {
 		return
 	}
-	b := bm.bits.Bytes()
 	lastEidx := EntryCount(int(cnt)) - 1
 	for i := 0; i < lastEidx; i++ {
-		b[i] = 0
+		bm.Bits[i] = 0
 	}
 	lastBits := cnt % 8
 	if lastBits == 0 {
-		b[lastEidx] = 0
+		bm.Bits[lastEidx] = 0
 	} else {
-		b[lastEidx] = 0xFF << lastBits
+		bm.Bits[lastEidx] = 0xFF << lastBits
 	}
 }
-
 func NoneValidInEntry(entry uint8) bool {
 	return entry == 0
 }
@@ -193,12 +174,12 @@ func (bm *Bitmap) AllValid() bool {
 
 func (bm *Bitmap) CopyFrom(other *Bitmap, count int) {
 	if other.AllValid() {
-		bm.bits.Destroy()
-		return
+		bm.Bits = nil
+	} else {
+		eCnt := EntryCount(count)
+		bm.Bits = make([]uint8, eCnt)
+		copy(bm.Bits, other.Bits[:eCnt])
 	}
-	eCnt := EntryCount(count)
-	bm.bits = NewCPtr(eCnt)
-	copy(bm.bits.Bytes(), other.bits.Bytes()[:eCnt])
 }
 
 func (bm *Bitmap) SetAllValid(cnt int) {
@@ -206,21 +187,20 @@ func (bm *Bitmap) SetAllValid(cnt int) {
 	if cnt == 0 {
 		return
 	}
-	b := bm.bits.Bytes()
 	lastEidx := EntryCount(int(cnt)) - 1
 	for i := 0; i < lastEidx; i++ {
-		b[i] = 0xFF
+		bm.Bits[i] = 0xFF
 	}
 	lastBits := cnt % 8
 	if lastBits == 0 {
-		b[lastEidx] = 0xFF
+		bm.Bits[lastEidx] = 0xFF
 	} else {
-		b[lastEidx] = ^(0xFF << lastBits)
+		bm.Bits[lastEidx] = ^(0xFF << lastBits)
 	}
 }
 
 func (bm *Bitmap) IsMaskSet() bool {
-	return !bm.bits.IsNil()
+	return bm.Bits != nil
 }
 
 func (bm *Bitmap) Slice(
@@ -228,29 +208,22 @@ func (bm *Bitmap) Slice(
 	sourceOffset uint64,
 	count uint64) {
 	if other.AllValid() {
-		bm.bits.Destroy()
+		bm.Bits = nil
 		return
 	}
 	if sourceOffset == 0 {
-		bm.bits = other.bits.Borrow()
+		bm.Init2(other)
 		return
 	}
 
-	bm.Init(int(count))
-	bm.SliceInPlace(other, 0, sourceOffset, count)
+	newBm := &Bitmap{}
+	newBm.Init(int(count))
+	newBm.SliceInPlace(other, 0, sourceOffset, count)
+	bm.Init2(newBm)
 }
 
 func (bm *Bitmap) Init2(other *Bitmap) {
-	bm.bits = other.bits.Borrow()
-}
-
-// BitmapFromBytes creates a Bitmap that borrows the given byte slice (non-owning).
-// The caller must ensure the slice outlives the Bitmap.
-func BitmapFromBytes(data []byte) Bitmap {
-	if len(data) == 0 {
-		return Bitmap{}
-	}
-	return Bitmap{bits: CPtr{ptr: BytesSliceToPointer(data), len: len(data), owns: false}}
+	bm.Bits = other.Bits
 }
 
 func (bm *Bitmap) SliceInPlace(

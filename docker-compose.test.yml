@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.tester
-    mem_limit: 10g
-    memswap_limit: 10g
+    mem_limit: 16g
+    memswap_limit: 16g
     environment:
       - MALLOC_CONF=prof:true,prof_leak:true,prof_final:true
       - DB_PATH=/data/default

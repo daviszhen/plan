@@ -19,41 +19,11 @@ type Vector struct {
 	Mask       *util.Bitmap
 	Buf        *VecBuffer
 	Aux        *VecBuffer
-	_owns      bool // true = this Vector owns Buf/Aux/Mask memory
-	_count     int  // valid element count (for VARCHAR cleanup)
-}
-
-// Destroy releases all C memory owned by this Vector. Idempotent.
-func (vec *Vector) Destroy() {
-	if vec == nil || !vec._owns {
-		return
-	}
-	pTyp := vec._Typ.GetInternalType()
-	if vec.Buf != nil {
-		vec.Buf.Destroy(pTyp, vec._count)
-		vec.Buf = nil
-	}
-	if vec.Aux != nil {
-		vec.Aux.Destroy(common.INVALID, 0)
-		vec.Aux = nil
-	}
-	if vec.Mask != nil {
-		vec.Mask.Destroy()
-	}
-	vec.Data = nil
-	vec._owns = false
-}
-
-// SetCount updates the valid element count.
-func (vec *Vector) SetCount(n int) {
-	vec._count = n
 }
 
 func (vec *Vector) Init(cap int) {
 	vec.Aux = nil
 	vec.Mask.Reset()
-	vec._owns = true
-	vec._count = 0
 	sz := vec.Typ().GetInternalType().Size()
 	if sz > 0 {
 		vec.Buf = NewStandardBuffer(vec.Typ(), cap)
@@ -84,7 +54,6 @@ func (vec *Vector) SetPhyFormat(pf PhyFormat) {
 func (vec *Vector) Reference(other *Vector) {
 	util.AssertFunc(vec.Typ().Equal(other.Typ()))
 	vec.Reinterpret(other)
-	vec._owns = false
 }
 
 func (vec *Vector) ReferenceValue(val *Value) {
@@ -92,7 +61,6 @@ func (vec *Vector) ReferenceValue(val *Value) {
 	vec.SetPhyFormat(PF_CONST)
 	vec.Buf = NewConstBuffer(val.Typ)
 	vec.Aux = nil
-	vec._owns = true
 	vec.Data = GetDataInPhyFormatConst(vec)
 	vec.SetValue(0, val)
 }
@@ -312,9 +280,7 @@ func (vec *Vector) SetValue(idx int, val *Value) {
 
 func (vec *Vector) Reset() {
 	vec._PhyFormat = PF_FLAT
-	if vec.Mask != nil {
-		vec.Mask.Reset()
-	}
+	vec.Mask.Reset()
 }
 
 func (vec *Vector) Print(rowCount int) {
@@ -343,7 +309,6 @@ func (vec *Vector) Sequence(start uint64, incr uint64, count uint64) {
 	dataSlice[2] = int64(count)
 	vec.Mask = nil
 	vec.Aux = nil
-	vec._owns = true
 }
 
 // sequence vector

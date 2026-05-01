@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime/debug"
-	"runtime/pprof"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -31,7 +29,6 @@ import (
 )
 
 func init() {
-	debug.SetGCPercent(500)
 	cobra.OnInitialize(loadConfig)
 	initTpch1gCmd()
 }
@@ -152,15 +149,6 @@ func loadConfig() {
 }
 
 func main() {
-	if cpuProf := os.Getenv("CPU_PROFILE"); cpuProf != "" {
-		f, err := os.Create(cpuProf)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "cpu profile:", err)
-			os.Exit(1)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
 	if err := RootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

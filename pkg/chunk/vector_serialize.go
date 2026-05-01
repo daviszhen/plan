@@ -29,8 +29,8 @@ func (vec *Vector) Serialize(count int, serial util.Serialize) error {
 	typ := vec.Typ()
 	if typ.GetInternalType().IsConstant() {
 		writeSize := typ.GetInternalType().Size() * count
-		buff := util.CAlloc(writeSize)
-		defer util.CFreeBytes(buff)
+		buff := util.GAlloc.Alloc(writeSize)
+		defer util.GAlloc.Free(buff)
 		WriteToStorage(vec, count, util.BytesSliceToPointer(buff))
 		err = serial.WriteData(buff, writeSize)
 		if err != nil {
@@ -90,8 +90,8 @@ func (vec *Vector) Deserialize(count int, deserial util.Deserialize) error {
 	typ := vec.Typ()
 	if typ.GetInternalType().IsConstant() {
 		readSize := typ.GetInternalType().Size() * count
-		buf := util.CAlloc(readSize)
-		defer util.CFreeBytes(buf)
+		buf := util.GAlloc.Alloc(readSize)
+		defer util.GAlloc.Free(buf)
 		err = deserial.ReadData(buf, readSize)
 		if err != nil {
 			return err

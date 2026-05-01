@@ -85,9 +85,6 @@ func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (Operato
 }
 
 func (run *Runner) limitClose() error {
-	if run.state.limit != nil && run.state.limit._data != nil {
-		run.state.limit._data.Destroy()
-	}
 	run.state.limit = nil
 	return nil
 }

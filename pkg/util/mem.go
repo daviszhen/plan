@@ -7,7 +7,6 @@ import (
 //#include <stdio.h>
 //#include <stdlib.h>
 //#include <string.h>
-//#cgo LDFLAGS: -ljemalloc
 import "C"
 
 func CMalloc(sz int) unsafe.Pointer {
@@ -22,22 +21,22 @@ func CRealloc(ptr unsafe.Pointer, sz int) unsafe.Pointer {
 	return C.realloc(ptr, C.size_t(sz))
 }
 
-func CAlloc(sz int) []byte {
-	if sz == 0 {
-		return nil
-	}
-	ptr := CMalloc(sz)
-	s := PointerToSlice[byte](ptr, sz)
-	Memset(ptr, 0, sz)
-	return s
+type BytesAllocator interface {
+	Alloc(sz int) []byte
+	Free([]byte)
 }
 
-func CFreeBytes(data []byte) {
-	if len(data) == 0 {
-		return
-	}
-	CFree(BytesSliceToPointer(data))
+type DefaultAllocator struct {
 }
+
+func (alloc *DefaultAllocator) Alloc(sz int) []byte {
+	return make([]byte, sz)
+}
+
+func (alloc *DefaultAllocator) Free(bytes []byte) {
+}
+
+var GAlloc BytesAllocator = &DefaultAllocator{}
 
 // CMemcmp calls libc memcmp directly on raw pointers. No slice header overhead.
 func CMemcmp(a, b unsafe.Pointer, n int) int {

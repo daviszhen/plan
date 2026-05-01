@@ -122,7 +122,7 @@ func SortTiedBlobs(
 	layout *SortLayout) {
 	util.AssertFunc(!ties[count-1])
 	block := util.Back(sb._blobSortingData._dataBlocks)
-	blobPtr := block.Ptr()
+	blobPtr := block._ptr
 	for i := 0; i < count; i++ {
 		if !ties[i] {
 			continue
@@ -558,7 +558,7 @@ func Scatter(
 		ridx := sel.GetIndex(i)
 		rowPtr := ptrs[ridx]
 		bSlice := util.PointerToSlice[uint8](rowPtr, layout.CoumnCount())
-		tempMask := util.BitmapFromBytes(bSlice)
+		tempMask := util.Bitmap{Bits: bSlice}
 		tempMask.SetAllValid(layout.CoumnCount())
 	}
 
@@ -702,7 +702,9 @@ func ScatterStringVector(
 		colIdx := col.Sel.GetIndex(idx)
 		rowPtr := ptrSlice[idx]
 		if !col.Mask.RowIsValid(uint64(colIdx)) {
-			colMask := util.BitmapFromBytes(util.PointerToSlice[byte](rowPtr, layout._flagWidth))
+			colMask := util.Bitmap{
+				Bits: util.PointerToSlice[byte](rowPtr, layout._flagWidth),
+			}
 			colMask.SetInvalidUnsafe(uint64(colNo))
 			util.Store[common.String](nullStr, util.PointerAdd(rowPtr, colOffset))
 		} else {
@@ -848,7 +850,9 @@ func TemplatedScatter[T any](
 
 			util.Store[T](val, util.PointerAdd(rowPtr, colOffset))
 			if isNull {
-				mask := util.BitmapFromBytes(util.PointerToSlice[uint8](ptrs[idx], layout.rowWidth()))
+				mask := util.Bitmap{
+					Bits: util.PointerToSlice[uint8](ptrs[idx], layout.rowWidth()),
+				}
 				mask.SetInvalidUnsafe(uint64(colNo))
 			}
 		}
@@ -868,7 +872,9 @@ func TieIsBreakable(
 	layout *SortLayout,
 ) bool {
 	colIdx := layout._sortingToBlobCol[tieCol]
-	rowMask := util.BitmapFromBytes(util.PointerToSlice[byte](rowPtr, layout._blobLayout._flagWidth))
+	rowMask := util.Bitmap{
+		Bits: util.PointerToSlice[byte](rowPtr, layout._blobLayout._flagWidth),
+	}
 	entryIdx, idxInEntry := util.GetEntryIndex(uint64(colIdx))
 	if !util.RowIsValidInEntry(
 		rowMask.GetEntry(entryIdx),
