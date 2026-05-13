@@ -69,13 +69,17 @@ func runOps(
 			fmt.Println(planStr)
 		}
 
+		opExec, err := buildOperatorExec(op, conf, txn)
+		assert.NoError(t, err)
+		require.NotNil(t, opExec)
+
 		run := &Runner{
-			op:    op,
-			state: &OperatorState{},
-			cfg:   conf,
-			Txn:   txn,
+			op:   op,
+			root: opExec,
+			cfg:  conf,
+			Txn:  txn,
 		}
-		err := run.Init()
+		err = run.Init()
 		assert.NoError(t, err)
 
 		rowCnt := 0
@@ -85,7 +89,7 @@ func runOps(
 			}
 			output := &chunk.Chunk{}
 			output.SetCap(util.DefaultVectorSize)
-			result, err := run.Execute(nil, output, run.state)
+			result, err := run.Execute(output)
 			assert.NoError(t, err)
 
 			if err != nil {

@@ -101,7 +101,7 @@ func (column *ColumnData) AppendTransientSegment(lock sync.Locker, start IdxType
 	if start == IdxType(MAX_ROW_ID) {
 		segSize = uint64(STANDARD_VECTOR_SIZE * column._typ.GetInternalType().Size())
 	}
-	seg := NewColumnTransientSegment(column._typ, start, IdxType(segSize))
+	seg := NewColumnSegment(column._typ, start, IdxType(segSize))
 	column._data.AppendSegment(lock, seg)
 }
 
@@ -683,8 +683,41 @@ func MergeUpdateLoopInternal[T any](
 		STANDARD_VECTOR_SIZE)
 
 	//step 1: prepare old values
-	resultValues := make([]T, STANDARD_VECTOR_SIZE)
-	resultIds := make([]int, STANDARD_VECTOR_SIZE)
+	resultValues, resultIds := mergeUpdatePrepareOldValues(
+		baseInfo, baseTableSlice, baseInfoData,
+		updateInfo, updateInfoData,
+		ids, count, sel, baseId)
+
+	// move resultValues (old values) to updateInfo (new version old values)
+	updateInfo._N = len(resultIds)
+	copy(updateInfoData, resultValues[:len(resultIds)])
+	copy(updateInfo._tuples, resultIds)
+
+	//step 2: prepare new values
+	resultOffset := mergeUpdatePrepareNewValues(
+		baseInfo, baseInfoData,
+		updateVectorSlice,
+		ids, count, sel, baseId,
+		resultValues, resultIds)
+
+	baseInfo._N = resultOffset
+	copy(baseInfoData, resultValues[:resultOffset])
+	copy(baseInfo._tuples, resultIds[:resultOffset])
+}
+
+func mergeUpdatePrepareOldValues[T any](
+	baseInfo *UpdateInfo,
+	baseTableSlice []T,
+	baseInfoData []T,
+	updateInfo *UpdateInfo,
+	updateInfoData []T,
+	ids []RowType,
+	count IdxType,
+	sel *chunk.SelectVector,
+	baseId IdxType,
+) (resultValues []T, resultIds []int) {
+	resultValues = make([]T, STANDARD_VECTOR_SIZE)
+	resultIds = make([]int, STANDARD_VECTOR_SIZE)
 
 	baseInfoOffset := 0
 	updateInfoOffset := 0
@@ -693,7 +726,7 @@ func MergeUpdateLoopInternal[T any](
 		idx := sel.GetIndex(int(i))
 		updateId := IdxType(ids[idx]) - baseId
 
-		//id that is old values (in last update) before updateId saved to resultValues
+		// id that is old values (in last update) before updateId saved to resultValues
 		for updateInfoOffset < updateInfo._N &&
 			updateInfo._tuples[updateInfoOffset] < int(updateId) {
 			resultValues[resultOffset] = updateInfoData[updateInfoOffset]
@@ -702,7 +735,7 @@ func MergeUpdateLoopInternal[T any](
 			updateInfoOffset++
 		}
 
-		//save updateId that is old values (txn update already) to resultValues
+		// save updateId that is old values (txn update already) to resultValues
 		if updateInfoOffset < updateInfo._N &&
 			updateInfo._tuples[updateInfoOffset] == int(updateId) {
 			resultValues[resultOffset] = updateInfoData[updateInfoOffset]
@@ -720,17 +753,17 @@ func MergeUpdateLoopInternal[T any](
 
 		if baseInfoOffset < baseInfo._N &&
 			baseInfo._tuples[baseInfoOffset] == int(updateId) {
-			//move old value in baseInfo (lastes version) to update info
+			// move old value in baseInfo (latest version) to update info
 			resultValues[resultOffset] = baseInfoData[baseInfoOffset]
 		} else {
-			//move old value in base table data to update info
+			// move old value in base table data to update info
 			resultValues[resultOffset] = baseTableSlice[updateId]
 		}
 		resultIds[resultOffset] = int(updateId)
 		resultOffset++
 	}
 
-	//move remaining old values (in update info) to resultValues
+	// move remaining old values (in update info) to resultValues
 	for updateInfoOffset < updateInfo._N {
 		resultValues[resultOffset] = updateInfoData[updateInfoOffset]
 		resultIds[resultOffset] = updateInfo._tuples[updateInfoOffset]
@@ -738,23 +771,28 @@ func MergeUpdateLoopInternal[T any](
 		updateInfoOffset++
 	}
 
-	// move resultValues (old values) to updateInfo (new version old values)
-	// and move resultIds to updateInfo._tuples
-	updateInfo._N = resultOffset
-	copy(updateInfoData, resultValues[:resultOffset])
-	copy(updateInfo._tuples, resultIds[:resultOffset])
+	return resultValues[:resultOffset], resultIds[:resultOffset]
+}
 
-	//step 2: prepare new values
-	resultOffset = 0
+func mergeUpdatePrepareNewValues[T any](
+	baseInfo *UpdateInfo,
+	baseInfoData []T,
+	updateVectorSlice []T,
+	ids []RowType,
+	count IdxType,
+	sel *chunk.SelectVector,
+	baseId IdxType,
+	resultValues []T,
+	resultIds []int,
+) int {
+	resultOffset := 0
 
-	//pick new value from new updates (txn will do this time)
 	pickNew := func(id, aidx, count IdxType) {
 		resultValues[resultOffset] = updateVectorSlice[aidx]
 		resultIds[resultOffset] = int(id)
 		resultOffset++
 	}
 
-	//pick new value from baseInfo (latest version)
 	pickOld := func(id, bidx, count IdxType) {
 		resultValues[resultOffset] = baseInfoData[bidx]
 		resultIds[resultOffset] = int(id)
@@ -776,9 +814,7 @@ func MergeUpdateLoopInternal[T any](
 		pickOld,
 		sel)
 
-	baseInfo._N = resultOffset
-	copy(baseInfoData, resultValues[:resultOffset])
-	copy(baseInfo._tuples, resultIds[:resultOffset])
+	return resultOffset
 }
 
 func MergeLoop(
@@ -1107,88 +1143,113 @@ func (seg *UpdateSegment) Update(
 	util.AssertFunc(IdxType(firstId) >= seg._colData._start)
 	util.AssertFunc(vectorIdx < ROW_GROUP_VECTOR_COUNT)
 
-	//var node *UpdateInfo
 	if seg._root._info[vectorIdx] != nil {
-		baseInfo := seg._root._info[vectorIdx]._info
-		var cNode *UpdateInfo
-		//check conflicts
-		CheckForConflicts(
-			baseInfo._next,
-			txn,
-			rowIds,
-			sel,
-			count,
-			vectorOffset,
-			&cNode,
-		)
-		//TODO:
-		//find update this thread already done
-		nodeX := baseInfo._next
-		for nodeX != nil {
-			if nodeX._versionNumber.Load() == uint64(txn._id) {
-				break
-			}
-			nodeX = nodeX._next
-		}
-		//var updateInfoData []byte
-		if nodeX == nil {
-			//no updates
-			nodeX = txn.CreateUpdateInfo(seg._typeSize, count)
-			nodeX._segment = seg
-			nodeX._vectorIndex = vectorIdx
-			nodeX._N = 0
-			nodeX._columnIndex = colIdx
-
-			//base info --pointer--> nodeX
-			nodeX._next = baseInfo._next
-			if nodeX._next != nil {
-				nodeX._next._prev = nodeX
-			}
-			nodeX._prev = baseInfo
-			baseInfo._next = nodeX
-		}
-		//merge the update
-		seg._mergeUpdate(baseInfo, baseData, nodeX, update, rowIds, count, sel)
+		seg.updateExisting(txn, colIdx, update, rowIds, count, sel, vectorIdx, vectorOffset, baseData)
 	} else {
-		result := &UpdateNodeData{}
-
-		//update info (new value)
-		result._info = &UpdateInfo{}
-		result._tuples = make([]int, STANDARD_VECTOR_SIZE)
-		result._tupleData = util.CMalloc(int(STANDARD_VECTOR_SIZE * seg._typeSize))
-		result._info._tuples = result._tuples
-		result._info._tupleData = result._tupleData
-		result._info._versionNumber.Store(TRANSACTION_ID_START - 1)
-		result._info._columnIndex = colIdx
-		seg.InitUpdateInfo(
-			result._info,
-			rowIds,
-			sel,
-			count,
-			vectorIdx,
-			vectorOffset,
-		)
-		//base info (init value)
-		txnNode := txn.CreateUpdateInfo(seg._typeSize, count)
-		seg.InitUpdateInfo(
-			txnNode,
-			rowIds,
-			sel,
-			count,
-			vectorIdx,
-			vectorOffset,
-		)
-		//base data -> base info (txnNode)
-		//update data -> update info (result._info)
-		seg._initUpdate(txnNode, baseData, result._info, update, sel)
-		//update info (result._info) --pointer--> base info (txnNode)
-		result._info._next = txnNode
-		result._info._prev = nil
-		txnNode._next = nil
-		txnNode._prev = result._info
-		txnNode._columnIndex = colIdx
-		seg._root._info[vectorIdx] = result
+		seg.updateFirstTime(txn, colIdx, update, rowIds, count, sel, vectorIdx, vectorOffset, baseData)
 	}
+}
+
+func (seg *UpdateSegment) updateExisting(
+	txn *Txn,
+	colIdx IdxType,
+	update *chunk.Vector,
+	rowIds []RowType,
+	count IdxType,
+	sel *chunk.SelectVector,
+	vectorIdx IdxType,
+	vectorOffset IdxType,
+	baseData *chunk.Vector,
+) {
+	baseInfo := seg._root._info[vectorIdx]._info
+	var cNode *UpdateInfo
+	// check conflicts
+	CheckForConflicts(
+		baseInfo._next,
+		txn,
+		rowIds,
+		sel,
+		count,
+		vectorOffset,
+		&cNode,
+	)
+	// find update this thread already done
+	nodeX := baseInfo._next
+	for nodeX != nil {
+		if nodeX._versionNumber.Load() == uint64(txn._id) {
+			break
+		}
+		nodeX = nodeX._next
+	}
+	if nodeX == nil {
+		// no updates
+		nodeX = txn.CreateUpdateInfo(seg._typeSize, count)
+		nodeX._segment = seg
+		nodeX._vectorIndex = vectorIdx
+		nodeX._N = 0
+		nodeX._columnIndex = colIdx
+
+		// base info --pointer--> nodeX
+		nodeX._next = baseInfo._next
+		if nodeX._next != nil {
+			nodeX._next._prev = nodeX
+		}
+		nodeX._prev = baseInfo
+		baseInfo._next = nodeX
+	}
+	// merge the update
+	seg._mergeUpdate(baseInfo, baseData, nodeX, update, rowIds, count, sel)
+}
+
+func (seg *UpdateSegment) updateFirstTime(
+	txn *Txn,
+	colIdx IdxType,
+	update *chunk.Vector,
+	rowIds []RowType,
+	count IdxType,
+	sel *chunk.SelectVector,
+	vectorIdx IdxType,
+	vectorOffset IdxType,
+	baseData *chunk.Vector,
+) {
+	result := &UpdateNodeData{}
+
+	// update info (new value)
+	result._info = &UpdateInfo{}
+	result._tuples = make([]int, STANDARD_VECTOR_SIZE)
+	result._tupleData = util.CMalloc(int(STANDARD_VECTOR_SIZE * seg._typeSize))
+	result._info._tuples = result._tuples
+	result._info._tupleData = result._tupleData
+	result._info._versionNumber.Store(TRANSACTION_ID_START - 1)
+	result._info._columnIndex = colIdx
+	seg.InitUpdateInfo(
+		result._info,
+		rowIds,
+		sel,
+		count,
+		vectorIdx,
+		vectorOffset,
+	)
+	// base info (init value)
+	txnNode := txn.CreateUpdateInfo(seg._typeSize, count)
+	seg.InitUpdateInfo(
+		txnNode,
+		rowIds,
+		sel,
+		count,
+		vectorIdx,
+		vectorOffset,
+	)
+	// base data -> base info (txnNode)
+	// update data -> update info (result._info)
+	seg._initUpdate(txnNode, baseData, result._info, update, sel)
+	// update info (result._info) --pointer--> base info (txnNode)
+	result._info._next = txnNode
+	result._info._prev = nil
+	txnNode._next = nil
+	txnNode._prev = result._info
+	txnNode._columnIndex = colIdx
+	seg._root._info[vectorIdx] = result
 }
 
 func CheckForConflicts(
@@ -1409,39 +1470,6 @@ type ColumnSegment struct {
 }
 
 func NewColumnSegment(typ common.LType, start IdxType, size IdxType) *ColumnSegment {
-	fun := GetUncompressedCompressFunction(typ.GetInternalType())
-	var block *BlockHandle
-	if size < IdxType(BLOCK_SIZE) {
-		block = GBufferMgr.RegisterSmallMemory(uint64(size))
-	} else {
-		GBufferMgr.Allocate(uint64(size), false, &block)
-	}
-	colSeg := &ColumnSegment{
-		SegmentBase: &SegmentBaseImpl[ColumnSegment]{
-			_start: start,
-		},
-		_type:        typ,
-		_typeSize:    IdxType(typ.GetInternalType().Size()),
-		_segType:     SegmentTypeTransient,
-		_function:    fun,
-		_block:       block,
-		_blockId:     -1,
-		_offset:      0,
-		_segmentSize: size,
-		_stats:       NewSegmentStats(typ),
-	}
-	colSeg.SetCount(uint64(0))
-	colSeg.SetValid(true)
-	if fun._initSegment != nil {
-		colSeg._segmentState = fun._initSegment(colSeg, -1)
-	}
-	return colSeg
-}
-
-func NewColumnTransientSegment(
-	typ common.LType,
-	start IdxType,
-	size IdxType) *ColumnSegment {
 	fun := GetUncompressedCompressFunction(typ.GetInternalType())
 	var block *BlockHandle
 	if size < IdxType(BLOCK_SIZE) {

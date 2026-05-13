@@ -198,6 +198,36 @@ type DataTable struct {
 	_rowGroups  *RowGroupCollection
 }
 
+func extractColumnTypes(colDefs []*ColumnDefinition) []common.LType {
+	types := make([]common.LType, 0, len(colDefs))
+	for _, colDef := range colDefs {
+		types = append(types, colDef.Type)
+	}
+	return types
+}
+
+func initRowGroups(
+	info *DataTableInfo,
+	types []common.LType,
+	data *PersistentTableData,
+) (*RowGroupCollection, error) {
+	rgs := NewRowGroupCollection(
+		info,
+		GStorageMgr._blockMgr,
+		types,
+		0,
+		0,
+	)
+	if data != nil && data._rowGroupCount > 0 {
+		if err := rgs.InitWithData(data); err != nil {
+			return nil, err
+		}
+	} else {
+		rgs.InitializeEmpty()
+	}
+	return rgs, nil
+}
+
 func NewDataTable(
 	schema, table string,
 	colDefs []*ColumnDefinition) *DataTable {
@@ -208,18 +238,8 @@ func NewDataTable(
 		_colDefs: colDefs,
 	}
 
-	types := make([]common.LType, 0)
-	for _, colDef := range colDefs {
-		types = append(types, colDef.Type)
-	}
-	dTable._rowGroups = NewRowGroupCollection(
-		info,
-		GStorageMgr._blockMgr,
-		types,
-		0,
-		0,
-	)
-	dTable._rowGroups.InitializeEmpty()
+	types := extractColumnTypes(colDefs)
+	dTable._rowGroups, _ = initRowGroups(info, types, nil)
 
 	return dTable
 }
@@ -232,48 +252,25 @@ func NewDataTable2(
 		_colDefs: info._colDefs,
 	}
 
-	types := make([]common.LType, 0)
-	for _, colDef := range info._colDefs {
-		types = append(types, colDef.Type)
+	types := extractColumnTypes(info._colDefs)
+	rgs, err := initRowGroups(info, types, info._data)
+	if err != nil {
+		return nil, err
 	}
-	dTable._rowGroups = NewRowGroupCollection(
-		info,
-		GStorageMgr._blockMgr,
-		types,
-		0,
-		0,
-	)
-	if info._data != nil && info._data._rowGroupCount > 0 {
-		err := dTable._rowGroups.InitWithData(info._data)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		dTable._rowGroups.InitializeEmpty()
-	}
+	dTable._rowGroups = rgs
 
 	return dTable, nil
 }
 
 func (table *DataTable) InitWithData() error {
-	types := make([]common.LType, 0)
-	for _, colDef := range table._colDefs {
-		types = append(types, colDef.Type)
-	}
+	types := extractColumnTypes(table._colDefs)
 	info := table._info
-	table._rowGroups = NewRowGroupCollection(
-		info,
-		GStorageMgr._blockMgr,
-		types,
-		0,
-		0,
-	)
-	if info._data != nil && info._data._rowGroupCount > 0 {
-		err := table._rowGroups.InitWithData(info._data)
-		if err != nil {
-			return err
-		}
+	rgs, err := initRowGroups(info, types, info._data)
+	if err != nil {
+		return err
 	}
+	table._rowGroups = rgs
+
 	//init indexes
 	indexesIds := 0
 	for _, cons := range info._constraints {

@@ -424,7 +424,9 @@ func (rpht *RadixPartitionedHashTable) GetData(state *TupleDataScanState, output
 func (rpht *RadixPartitionedHashTable) Finalize() {
 	util.AssertFunc(!rpht._finalized)
 	rpht._finalized = true
-	rpht._finalizedHT.Finalize()
+	if rpht._finalizedHT != nil {
+		rpht._finalizedHT.Finalize()
+	}
 }
 
 func InitStates(

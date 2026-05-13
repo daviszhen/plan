@@ -213,85 +213,109 @@ func (rg *RowGroup) TemplatedScan(txn *Txn, state *CollectionScanState, result *
 			count = maxCount
 		}
 		if count == maxCount {
-			for i, idx := range colIds {
-				if idx == COLUMN_IDENTIFIER_ROW_ID {
-					//row id
-					util.AssertFunc(result.Data[i].Typ().GetInternalType() == common.INT64)
-					result.Data[i].Sequence(uint64(rg.Start()+currentRow), 1, uint64(count))
-				} else {
-					col := rg.GetColumn(int(idx))
-					if scanTyp != TableScanTypeRegular {
-						col.ScanCommitted(
-							txn,
-							state._vectorIdx,
-							state._columnScans[i],
-							result.Data[i],
-							allowUpdates,
-						)
-					} else {
-						col.Scan(
-							txn,
-							state._vectorIdx,
-							state._columnScans[i],
-							result.Data[i])
-					}
-				}
-			}
+			rg.scanFullVector(txn, state, result, colIds, currentRow, count, scanTyp, allowUpdates)
 		} else {
-			approvedTupleCount := count
-			sel := chunk.NewSelectVector(STANDARD_VECTOR_SIZE)
-			if count != maxCount {
-				sel.Init2(validSel)
-			} else {
-				sel.Init2(nil)
-			}
-			if approvedTupleCount == 0 {
-				result.Reset()
-				//for i := 0; i < len(colIds); i++ {
-				//	colIdx := colIds[i]
-				//	if colIdx == IdxType(-1) {
-				//		continue
-				//	}
-				//}
+			count = rg.scanFilteredVector(txn, state, result, colIds, currentRow, maxCount, count, validSel, scanTyp, allowUpdates)
+			if count == 0 {
 				state._vectorIdx++
 				continue
 			}
-			for i, idx := range colIds {
-				if idx == COLUMN_IDENTIFIER_ROW_ID {
-					util.AssertFunc(result.Data[i].Typ().GetInternalType() == common.INT64)
-					result.Data[i].SetPhyFormat(chunk.PF_FLAT)
-					resultSlice := chunk.GetSliceInPhyFormatFlat[int64](result.Data[i])
-					for selIdx := IdxType(0); selIdx < approvedTupleCount; selIdx++ {
-						resultSlice[selIdx] = int64(rg.Start() +
-							currentRow +
-							IdxType(sel.GetIndex(int(selIdx))))
-					}
-				} else {
-					colData := rg.GetColumn(int(idx))
-					if scanTyp == TableScanTypeRegular {
-						colData.FilterScan(
-							txn,
-							state._vectorIdx,
-							state._columnScans[i],
-							result.Data[i],
-							sel, approvedTupleCount)
-					} else {
-						colData.FilterScanCommitted(
-							txn,
-							state._vectorIdx,
-							state._columnScans[i],
-							result.Data[i],
-							sel, approvedTupleCount,
-							allowUpdates)
-					}
-				}
-			}
-			count = approvedTupleCount
 		}
 		result.SetCard(int(count))
 		state._vectorIdx++
 		break
 	}
+}
+
+func (rg *RowGroup) scanFullVector(
+	txn *Txn,
+	state *CollectionScanState,
+	result *chunk.Chunk,
+	colIds []IdxType,
+	currentRow IdxType,
+	count IdxType,
+	scanTyp TableScanType,
+	allowUpdates bool,
+) {
+	for i, idx := range colIds {
+		if idx == COLUMN_IDENTIFIER_ROW_ID {
+			util.AssertFunc(result.Data[i].Typ().GetInternalType() == common.INT64)
+			result.Data[i].Sequence(uint64(rg.Start()+currentRow), 1, uint64(count))
+		} else {
+			col := rg.GetColumn(int(idx))
+			if scanTyp != TableScanTypeRegular {
+				col.ScanCommitted(
+					txn,
+					state._vectorIdx,
+					state._columnScans[i],
+					result.Data[i],
+					allowUpdates,
+				)
+			} else {
+				col.Scan(
+					txn,
+					state._vectorIdx,
+					state._columnScans[i],
+					result.Data[i])
+			}
+		}
+	}
+}
+
+func (rg *RowGroup) scanFilteredVector(
+	txn *Txn,
+	state *CollectionScanState,
+	result *chunk.Chunk,
+	colIds []IdxType,
+	currentRow IdxType,
+	maxCount IdxType,
+	count IdxType,
+	validSel *chunk.SelectVector,
+	scanTyp TableScanType,
+	allowUpdates bool,
+) IdxType {
+	approvedTupleCount := count
+	sel := chunk.NewSelectVector(STANDARD_VECTOR_SIZE)
+	if count != maxCount {
+		sel.Init2(validSel)
+	} else {
+		sel.Init2(nil)
+	}
+	if approvedTupleCount == 0 {
+		result.Reset()
+		return 0
+	}
+	for i, idx := range colIds {
+		if idx == COLUMN_IDENTIFIER_ROW_ID {
+			util.AssertFunc(result.Data[i].Typ().GetInternalType() == common.INT64)
+			result.Data[i].SetPhyFormat(chunk.PF_FLAT)
+			resultSlice := chunk.GetSliceInPhyFormatFlat[int64](result.Data[i])
+			for selIdx := IdxType(0); selIdx < approvedTupleCount; selIdx++ {
+				resultSlice[selIdx] = int64(rg.Start() +
+					currentRow +
+					IdxType(sel.GetIndex(int(selIdx))))
+			}
+		} else {
+			colData := rg.GetColumn(int(idx))
+			if scanTyp == TableScanTypeRegular {
+				colData.FilterScan(
+					txn,
+					state._vectorIdx,
+					state._columnScans[i],
+					result.Data[i],
+					sel, approvedTupleCount)
+			} else {
+				colData.FilterScanCommitted(
+					txn,
+					state._vectorIdx,
+					state._columnScans[i],
+					result.Data[i],
+					sel, approvedTupleCount,
+					allowUpdates)
+			}
+		}
+	}
+	return approvedTupleCount
 }
 
 func (rg *RowGroup) GetSelVector(
