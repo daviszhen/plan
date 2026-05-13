@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -60,6 +61,10 @@ func loadConfig() {
 }
 
 func main() {
+	if err := storage.InitializeStorage(os.Getenv("DB_PATH")); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	wire.ListenAndServe("127.0.0.1:5432", handler)
 }
 

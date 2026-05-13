@@ -25,6 +25,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/daviszhen/plan/pkg/compute"
+	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
@@ -149,6 +150,10 @@ func loadConfig() {
 }
 
 func main() {
+	if err := storage.InitializeStorage(os.Getenv("DB_PATH")); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	if err := RootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

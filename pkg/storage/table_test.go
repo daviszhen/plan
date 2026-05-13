@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -16,6 +17,21 @@ import (
 	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/util"
 )
+
+func TestMain(m *testing.M) {
+	tmpDir, err := os.MkdirTemp("", "plan-storage-test-*")
+	if err != nil {
+		fmt.Println("failed to create temp dir:", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(tmpDir)
+	dbPath := tmpDir + "/test.db"
+	if err := InitializeStorage(dbPath); err != nil {
+		fmt.Println("failed to initialize storage:", err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 const (
 	testVectorSize = 8

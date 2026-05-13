@@ -31,97 +31,47 @@ type BlockMgr interface {
 	BufferMgr() *BufferManager
 }
 
-type MemoryBlockMgr struct {
+type baseBlockMgr struct {
 	_bufferMgr  *BufferManager
 	_blocksLock sync.Mutex
 	_blocks     map[BlockID]*BlockHandle
 	_metaBlocks map[BlockID]*BlockHandle
 }
 
-func NewMemoryBlockMgr(bufMgr *BufferManager) *MemoryBlockMgr {
-	return &MemoryBlockMgr{
+func newBaseBlockMgr(bufMgr *BufferManager) baseBlockMgr {
+	return baseBlockMgr{
 		_bufferMgr:  bufMgr,
 		_blocks:     make(map[BlockID]*BlockHandle),
 		_metaBlocks: make(map[BlockID]*BlockHandle),
 	}
 }
 
-func (impl *MemoryBlockMgr) BufferMgr() *BufferManager {
-	return impl._bufferMgr
+func (b *baseBlockMgr) BufferMgr() *BufferManager {
+	return b._bufferMgr
 }
 
-func (impl *MemoryBlockMgr) Unpin(handle *BlockHandle) {
-	impl._bufferMgr.Unpin(handle)
+func (b *baseBlockMgr) Unpin(handle *BlockHandle) {
+	b._bufferMgr.Unpin(handle)
 }
 
-func (impl *MemoryBlockMgr) ConvertBlock(id BlockID, srcBuffer *FileBuffer) *Block {
-	//TODO implement me
-	panic("implement me")
+func (b *baseBlockMgr) ClearMetaBlockHandles() {
+	b._metaBlocks = make(map[BlockID]*BlockHandle)
 }
 
-func (impl *MemoryBlockMgr) CreateBlock(id BlockID, srcBuffer *FileBuffer) *Block {
-	//TODO implement me
-	panic("implement me")
+func (b *baseBlockMgr) UnregisterBlock(id BlockID, canDestroy bool) {
+	b._blocksLock.Lock()
+	defer b._blocksLock.Unlock()
+	delete(b._blocks, id)
 }
 
-func (impl *MemoryBlockMgr) GetFreeBlockId() BlockID {
-	//TODO implement me
-	panic("implement me")
+type MemoryBlockMgr struct {
+	baseBlockMgr
 }
 
-func (impl *MemoryBlockMgr) IsRootBlock(id BlockID) bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) MarkBlockAsFree(id BlockID) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) MarkBlockAsModified(id BlockID) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) IncreaseBlockReferenceCount(id BlockID) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) GetMetaBlock() BlockID {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) Read(block *Block) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) Write2(buffer *FileBuffer, id BlockID) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) Write(block *Block) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) WriteHeader(header *DatabaseHeader) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) TotalBlocks() uint64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (impl *MemoryBlockMgr) FreeBlocks() uint64 {
-	//TODO implement me
-	panic("implement me")
+func NewMemoryBlockMgr(bufMgr *BufferManager) *MemoryBlockMgr {
+	return &MemoryBlockMgr{
+		baseBlockMgr: newBaseBlockMgr(bufMgr),
+	}
 }
 
 func (impl *MemoryBlockMgr) RegisterBlock(
@@ -141,9 +91,74 @@ func (impl *MemoryBlockMgr) RegisterBlock(
 	return handle
 }
 
-func (impl *MemoryBlockMgr) ClearMetaBlockHandles() {
-	//FIXME: free handle
-	impl._metaBlocks = make(map[BlockID]*BlockHandle)
+func (impl *MemoryBlockMgr) ConvertBlock(id BlockID, srcBuffer *FileBuffer) *Block {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) CreateBlock(id BlockID, srcBuffer *FileBuffer) *Block {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) GetFreeBlockId() BlockID {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) IsRootBlock(id BlockID) bool {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) MarkBlockAsFree(id BlockID) {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) MarkBlockAsModified(id BlockID) {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) IncreaseBlockReferenceCount(id BlockID) {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) GetMetaBlock() BlockID {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) Read(block *Block) error {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) Write2(buffer *FileBuffer, id BlockID) error {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) Write(block *Block) error {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) WriteHeader(header *DatabaseHeader) error {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) TotalBlocks() uint64 {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
+}
+
+func (impl *MemoryBlockMgr) FreeBlocks() uint64 {
+	//TODO implement me
+	panic("MemoryBlockMgr: operation not supported for in-memory block manager")
 }
 
 func (impl *MemoryBlockMgr) ConvertToPersistent(
@@ -182,10 +197,7 @@ func (impl *MemoryBlockMgr) UnregisterBlock(id BlockID, canDestroy bool) {
 }
 
 type FileBlockMgr struct {
-	_bufferMgr  *BufferManager
-	_blocksLock sync.Mutex
-	_blocks     map[BlockID]*BlockHandle
-	_metaBlocks map[BlockID]*BlockHandle
+	baseBlockMgr
 	//
 	_activeHeader   uint8
 	_path           string
@@ -207,9 +219,7 @@ func NewFileBlockMgr(
 	path string,
 	readOnly bool) *FileBlockMgr {
 	ret := &FileBlockMgr{
-		_bufferMgr:      bufferMgr,
-		_blocks:         make(map[BlockID]*BlockHandle),
-		_metaBlocks:     make(map[BlockID]*BlockHandle),
+		baseBlockMgr:    newBaseBlockMgr(bufferMgr),
 		_path:           path,
 		_freeList:       make(map[BlockID]bool),
 		_multiUseBlocks: make(map[BlockID]uint32),
@@ -222,14 +232,6 @@ func NewFileBlockMgr(
 	ret._iterationCount = 0
 	ret._readOnly = readOnly
 	return ret
-}
-
-func (mgr *FileBlockMgr) BufferMgr() *BufferManager {
-	return mgr._bufferMgr
-}
-
-func (mgr *FileBlockMgr) Unpin(handle *BlockHandle) {
-	mgr._bufferMgr.Unpin(handle)
 }
 
 func (mgr *FileBlockMgr) ConvertBlock(id BlockID, srcBuffer *FileBuffer) *Block {
@@ -267,11 +269,6 @@ func (mgr *FileBlockMgr) RegisterBlock(
 	return handle
 }
 
-func (mgr *FileBlockMgr) ClearMetaBlockHandles() {
-	//FIXME: free handle
-	mgr._metaBlocks = make(map[BlockID]*BlockHandle)
-}
-
 func (mgr *FileBlockMgr) ConvertToPersistent(
 	id BlockID, oldBlock *BlockHandle) *BlockHandle {
 	mgr._bufferMgr.Pin(oldBlock)
@@ -301,12 +298,6 @@ func (mgr *FileBlockMgr) ConvertToPersistent(
 		panic(err)
 	}
 	return newBlock
-}
-
-func (mgr *FileBlockMgr) UnregisterBlock(id BlockID, canDestroy bool) {
-	mgr._blocksLock.Lock()
-	defer mgr._blocksLock.Unlock()
-	delete(mgr._blocks, id)
 }
 
 func (mgr *FileBlockMgr) GetFileFlags(createNew bool) int {

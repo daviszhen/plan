@@ -16,24 +16,37 @@ import (
 var GCatalog *Catalog
 var GStorageMgr *StorageMgr
 
+var _storageInitOnce sync.Once
+var _storageInitErr error
+
 func init() {
-	fmt.Println("[init] start storage init")
 	GTxnMgr = NewTxnMgr()
 	GBufferMgr = NewBufferManager(".")
 	GCatalog = NewCatalog()
-	if err := GCatalog.Init(); err != nil {
-		panic(err)
-	}
-	fmt.Println("[init] catalog initialized")
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath != "" {
-		GStorageMgr = NewStorageMgr(dbPath, false)
-		fmt.Println("[init] loading database from", dbPath)
-		if err := GStorageMgr.LoadDatabase(); err != nil {
-			panic(err)
+}
+
+// InitializeStorage initializes the catalog and optionally loads a database.
+// It replaces the previous init()-time I/O and returns errors instead of panicking.
+// It is safe to call multiple times; subsequent calls return the result of the first call.
+func InitializeStorage(dbPath string) error {
+	_storageInitOnce.Do(func() {
+		fmt.Println("[init] start storage init")
+		if err := GCatalog.Init(); err != nil {
+			_storageInitErr = fmt.Errorf("catalog init failed: %w", err)
+			return
 		}
-		fmt.Println("[init] database loaded")
-	}
+		fmt.Println("[init] catalog initialized")
+		if dbPath != "" {
+			GStorageMgr = NewStorageMgr(dbPath, false)
+			fmt.Println("[init] loading database from", dbPath)
+			if err := GStorageMgr.LoadDatabase(); err != nil {
+				_storageInitErr = fmt.Errorf("load database from %s failed: %w", dbPath, err)
+				return
+			}
+			fmt.Println("[init] database loaded")
+		}
+	})
+	return _storageInitErr
 }
 
 type LocalTableStorage struct {

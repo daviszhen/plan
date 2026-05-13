@@ -77,19 +77,7 @@ func (txnMgr *TxnMgr) NewTxn(name string) (*Txn, error) {
 		txnMgr._lowestActiveId = txnId
 		txnMgr._lowestActiveStart = startTime
 	}
-	txn := &Txn{
-		_txnMgr:     txnMgr,
-		_name:       name,
-		_startTime:  startTime,
-		_id:         txnId,
-		_commitId:   0,
-		_undoBuffer: UndoBuffer{},
-		_storage:    nil,
-	}
-	txn._activeQuery.Store(MAXIMUM_QUERY_ID)
-	txn._storage = NewLocalStorage(txn)
-	txnMgr._activeTxns = append(txnMgr._activeTxns, txn)
-	return txn, nil
+	return txnMgr.newTxnInternal(name, txnId, startTime), nil
 }
 
 func (txnMgr *TxnMgr) NewTxn2(name string, id, start TxnType) (*Txn, error) {
@@ -98,6 +86,10 @@ func (txnMgr *TxnMgr) NewTxn2(name string, id, start TxnType) (*Txn, error) {
 	if txnMgr._curStartTs >= TxnIdStart {
 		return nil, fmt.Errorf("invalid txn id")
 	}
+	return txnMgr.newTxnInternal(name, id, start), nil
+}
+
+func (txnMgr *TxnMgr) newTxnInternal(name string, id, start TxnType) *Txn {
 	txn := &Txn{
 		_txnMgr:     txnMgr,
 		_name:       name,
@@ -110,7 +102,7 @@ func (txnMgr *TxnMgr) NewTxn2(name string, id, start TxnType) (*Txn, error) {
 	txn._activeQuery.Store(MAXIMUM_QUERY_ID)
 	txn._storage = NewLocalStorage(txn)
 	txnMgr._activeTxns = append(txnMgr._activeTxns, txn)
-	return txn, nil
+	return txn
 }
 
 func (txnMgr *TxnMgr) Checkpoint(txn *Txn, force bool) error {
