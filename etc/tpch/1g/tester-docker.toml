@@ -1,0 +1,17 @@
+[tpch1g.query]
+path = "/app/cases/tpch/query"
+
+[tpch1g.data]
+path = "/data/default"
+format = "parquet"
+
+[tpch1g.result]
+path = "/app/cases/tpch/1g/plan"
+needHeadline = true
+
+[debug]
+showRaw = false
+maxScanRows = 0
+maxOutputRowCount = -1
+printPlan = false
+printResult = false

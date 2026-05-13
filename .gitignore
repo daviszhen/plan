@@ -32,3 +32,6 @@ plandb
 
 # Kiro
 .kiro/
+
+default
+default.wal
