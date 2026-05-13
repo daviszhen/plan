@@ -11,6 +11,7 @@ import (
 
 	pqLocal "github.com/xitongsys/parquet-go-source/local"
 	pqReader "github.com/xitongsys/parquet-go/reader"
+	"github.com/xitongsys/parquet-go/source"
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
@@ -18,94 +19,132 @@ import (
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-func (run *Runner) scanInit() error {
-	var err error
-	switch run.op.getScanTyp() {
-	case ScanTypeTable:
+type scanExecutor struct {
+	op            *PhysicalOperator
+	txn           *storage.Txn
+	cfg           *util.Config
+	children      []OperatorExec
 
-		{
-			tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, run.op.getScanDatabase(), run.op.getScanTable())
-			if tabEnt == nil {
-				return fmt.Errorf("no table %s in schema %s", run.op.getScanDatabase(), run.op.getScanTable())
-			}
-			run.state.tabEnt = tabEnt
-			col2Idx := tabEnt.GetColumn2Idx()
-			typs := tabEnt.GetTypes()
-			run.state.colIndice = make([]int, 0)
-			for _, col := range run.op.getScanColumns() {
-				if idx, has := col2Idx[col]; has {
-					run.state.colIndice = append(run.state.colIndice, idx)
-					run.state.readedColTyps = append(run.state.readedColTyps, typs[idx])
-				} else {
-					return fmt.Errorf("no such column %s in %s.%s", col, run.op.getScanDatabase(), run.op.getScanTable())
-				}
+	// 列信息
+	colIndice     []int
+	readedColTyps []common.LType
+	tabEnt        *storage.CatalogEntry
+	outputIndice  []int
+
+	// 文件相关
+	pqFile        source.ParquetFile
+	pqReader      *pqReader.ParquetReader
+	dataFile      *os.File
+	reader        *csv.Reader
+	tablePath     string
+
+	// 扫描状态
+	tableScanState *storage.TableScanState
+	colScanState   *ColumnDataScanState
+	maxRows        int
+	showRaw        bool
+
+	// filter
+	filterExec     *ExprExec
+	filterSel      *chunk.SelectVector
+}
+
+func newScanExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*scanExecutor, error) {
+	return &scanExecutor{
+		op:       op,
+		cfg:      cfg,
+		txn:      txn,
+		children: children,
+	}, nil
+}
+
+func (e *scanExecutor) Init() error {
+	var err error
+	switch e.op.getScanTyp() {
+	case ScanTypeTable:
+		tabEnt := storage.GCatalog.GetEntry(e.txn, storage.CatalogTypeTable, e.op.getScanDatabase(), e.op.getScanTable())
+		if tabEnt == nil {
+			return fmt.Errorf("no table %s in schema %s", e.op.getScanDatabase(), e.op.getScanTable())
+		}
+		e.tabEnt = tabEnt
+		col2Idx := tabEnt.GetColumn2Idx()
+		typs := tabEnt.GetTypes()
+		e.colIndice = make([]int, 0)
+		for _, col := range e.op.getScanColumns() {
+			if idx, has := col2Idx[col]; has {
+				e.colIndice = append(e.colIndice, idx)
+				e.readedColTyps = append(e.readedColTyps, typs[idx])
+			} else {
+				return fmt.Errorf("no such column %s in %s.%s", col, e.op.getScanDatabase(), e.op.getScanTable())
 			}
 		}
 
 	case ScanTypeValuesList:
-		run.state.colIndice = make([]int, 0)
-		for _, col := range run.op.getScanColumns() {
-			if idx, has := run.op.getScanColName2Idx()[col]; has {
-				run.state.colIndice = append(run.state.colIndice, idx)
-				run.state.readedColTyps = append(run.state.readedColTyps, run.op.getScanTypes()[idx])
+		e.colIndice = make([]int, 0)
+		for _, col := range e.op.getScanColumns() {
+			if idx, has := e.op.getScanColName2Idx()[col]; has {
+				e.colIndice = append(e.colIndice, idx)
+				e.readedColTyps = append(e.readedColTyps, e.op.getScanTypes()[idx])
 			} else {
-				return fmt.Errorf("no such column %s in %s.%s", col, run.op.getScanDatabase(), run.op.getScanTable())
+				return fmt.Errorf("no such column %s in %s.%s", col, e.op.getScanDatabase(), e.op.getScanTable())
 			}
 		}
-		run.state.readedColTyps = run.op.getScanTypes()
+		e.readedColTyps = e.op.getScanTypes()
 	case ScanTypeCopyFrom:
-		run.state.colIndice = run.op.getScanConfig().ColumnIds
-		run.state.readedColTyps = run.op.getScanConfig().ReturnedTypes
-		//open data file
-		switch run.op.getScanConfig().Format {
+		e.colIndice = e.op.getScanConfig().ColumnIds
+		e.readedColTyps = e.op.getScanConfig().ReturnedTypes
+		switch e.op.getScanConfig().Format {
 		case "parquet":
-			run.state.pqFile, err = pqLocal.NewLocalFileReader(run.op.getScanConfig().FilePath)
+			e.pqFile, err = pqLocal.NewLocalFileReader(e.op.getScanConfig().FilePath)
 			if err != nil {
 				return err
 			}
 
-			run.state.pqReader, err = pqReader.NewParquetColumnReader(run.state.pqFile, 1)
+			e.pqReader, err = pqReader.NewParquetColumnReader(e.pqFile, 1)
 			if err != nil {
 				return err
 			}
 		case "csv":
-			run.state.tablePath = run.op.getScanConfig().FilePath
-			run.state.dataFile, err = os.OpenFile(run.state.tablePath, os.O_RDONLY, 0755)
+			e.tablePath = e.op.getScanConfig().FilePath
+			e.dataFile, err = os.OpenFile(e.tablePath, os.O_RDONLY, 0755)
 			if err != nil {
 				return err
 			}
 
 			comma := ','
-			if commaOpt := getFormatFun("delimiter", run.op.getScanConfig().Opts); commaOpt != nil {
+			if commaOpt := getFormatFun("delimiter", e.op.getScanConfig().Opts); commaOpt != nil {
 				comma = int32(commaOpt.Opt[0])
 			}
 
-			//init csv reader
-			run.state.reader = csv.NewReader(run.state.dataFile)
-			run.state.reader.Comma = comma
+			e.reader = csv.NewReader(e.dataFile)
+			e.reader.Comma = comma
 		default:
-			panic("usp format")
+			return fmt.Errorf("unsupported scan format: %s", e.op.getScanConfig().Format)
 		}
 	default:
-		panic("usp")
+		return fmt.Errorf("unsupported scan type: %v", e.op.getScanTyp())
 	}
 	var filterExec *ExprExec
-	filterExec, err = initFilterExec(run.op.Filters)
+	filterExec, err = initFilterExec(e.op.Filters)
 	if err != nil {
 		return err
 	}
 
-	run.state.filterExec = filterExec
-	run.state.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
-	run.state.showRaw = run.cfg.Debug.ShowRaw
+	e.filterExec = filterExec
+	e.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
+	e.showRaw = e.cfg.Debug.ShowRaw
+
+	for _, output := range e.op.Outputs {
+		e.outputIndice = append(e.outputIndice, int(output.ColRef.column()))
+	}
 
 	return nil
 }
 
-func (run *Runner) scanExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-
+func (e *scanExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
+	ensureOutputChunk(e.op, output)
 	for output.Card() == 0 {
-		res, err := run.scanRows(output, state, util.DefaultVectorSize)
+		res, err := e.scanRows(output, util.DefaultVectorSize)
 		if err != nil {
 			return InvalidOpResult, err
 		}
@@ -116,140 +155,128 @@ func (run *Runner) scanExec(output *chunk.Chunk, state *OperatorState) (Operator
 	return haveMoreOutput, nil
 }
 
-func (run *Runner) scanRows(output *chunk.Chunk, state *OperatorState, maxCnt int) (bool, error) {
+func (e *scanExecutor) scanRows(output *chunk.Chunk, maxCnt int) (bool, error) {
 	if maxCnt == 0 {
 		return false, nil
 	}
-	if run.cfg.Debug.EnableMaxScanRows {
-		if run.state.maxRows > run.cfg.Debug.MaxScanRows {
+	if e.cfg.Debug.EnableMaxScanRows {
+		if e.maxRows > e.cfg.Debug.MaxScanRows {
 			return true, nil
 		}
 	}
 
 	readed := &chunk.Chunk{}
-	readed.Init(run.state.readedColTyps, maxCnt)
+	readed.Init(e.readedColTyps, maxCnt)
 	var err error
 
-	switch run.op.getScanTyp() {
+	switch e.op.getScanTyp() {
 	case ScanTypeTable:
-		{
-			if run.state.tableScanState == nil {
-				run.state.tableScanState = storage.NewTableScanState()
-				colIds := make([]storage.IdxType, 0)
-				for _, colId := range run.state.colIndice {
-					colIds = append(colIds, storage.IdxType(colId))
-				}
-				run.state.tabEnt.GetStorage().InitScan(
-					run.Txn,
-					run.state.tableScanState,
-					colIds)
+		if e.tableScanState == nil {
+			e.tableScanState = storage.NewTableScanState()
+			colIds := make([]storage.IdxType, 0)
+			for _, colId := range e.colIndice {
+				colIds = append(colIds, storage.IdxType(colId))
 			}
-			run.state.tabEnt.GetStorage().Scan(run.Txn, readed, run.state.tableScanState)
+			e.tabEnt.GetStorage().InitScan(
+				e.txn,
+				e.tableScanState,
+				colIds)
 		}
-		{
-			//read table
-			//switch run.cfg.Tpch1g.Data.Format {
-			//case "parquet":
-			//	err = run.readParquetTable(readed, state, maxCnt)
-			//	if err != nil {
-			//		return false, err
-			//	}
-			//case "csv":
-			//	err = run.readCsvTable(readed, state, maxCnt)
-			//	if err != nil {
-			//		return false, err
-			//	}
-			//default:
-			//	panic("usp format")
-			//}
-		}
+		e.tabEnt.GetStorage().Scan(e.txn, readed, e.tableScanState)
 	case ScanTypeValuesList:
-		err = run.readValues(readed, state, maxCnt)
+		err = e.readValues(readed, maxCnt)
 		if err != nil {
 			return false, err
 		}
 	case ScanTypeCopyFrom:
-		//read table
-		switch run.op.getScanConfig().Format {
+		switch e.op.getScanConfig().Format {
 		case "parquet":
-			err = run.readParquetTable(readed, state, maxCnt)
+			err = e.readParquetTable(readed, maxCnt)
 			if err != nil {
 				return false, err
 			}
 		case "csv":
-			err = run.readCsvTable(readed, state, maxCnt)
+			err = e.readCsvTable(readed, maxCnt)
 			if err != nil {
 				return false, err
 			}
 		default:
-			panic("usp format")
+			return false, fmt.Errorf("unsupported scan format: %s", e.op.getScanConfig().Format)
 		}
 	default:
-		panic("usp")
+		return false, fmt.Errorf("unsupported scan type: %v", e.op.getScanTyp())
 	}
 
 	if readed.Card() == 0 {
 		return true, nil
 	}
 
-	if run.cfg.Debug.EnableMaxScanRows {
-		run.state.maxRows += readed.Card()
+	if e.cfg.Debug.EnableMaxScanRows {
+		e.maxRows += readed.Card()
 	}
 
-	err = run.runFilterExec(readed, output, true)
+	err = e.runFilterExec(readed, output)
 	if err != nil {
 		return false, err
 	}
 	return false, nil
 }
 
-func (run *Runner) scanClose() error {
-	switch run.op.getScanTyp() {
-	case ScanTypeTable:
-		{
-
-		}
-		{
-			//switch run.cfg.Tpch1g.Data.Format {
-			//case "csv":
-			//	run.reader = nil
-			//	return run.dataFile.Close()
-			//case "parquet":
-			//	run.pqReader.ReadStop()
-			//	return run.pqFile.Close()
-			//default:
-			//	panic("usp format")
-			//}
-		}
-
-	case ScanTypeValuesList:
+func (e *scanExecutor) runFilterExec(input *chunk.Chunk, output *chunk.Chunk) error {
+	if e.filterExec == nil {
+		output.ReferenceIndice(input, e.outputIndice)
 		return nil
-	case ScanTypeCopyFrom:
-		switch run.op.getScanConfig().Format {
-		case "csv":
-			run.state.reader = nil
-			return run.state.dataFile.Close()
-		case "parquet":
-			run.state.pqReader.ReadStop()
-			return run.state.pqFile.Close()
-		default:
-			panic("usp format")
-		}
-	default:
-		panic("usp")
+	}
+	count, err := e.filterExec.executeSelect([]*chunk.Chunk{nil, nil, input}, e.filterSel)
+	if err != nil {
+		return err
+	}
+
+	if count == input.Card() {
+		output.ReferenceIndice(input, e.outputIndice)
+	} else {
+		output.SliceIndice(input, e.filterSel, count, 0, e.outputIndice)
 	}
 	return nil
 }
-func (run *Runner) readParquetTable(output *chunk.Chunk, state *OperatorState, maxCnt int) error {
+
+func (e *scanExecutor) Close() error {
+	switch e.op.getScanTyp() {
+	case ScanTypeTable:
+		// nothing to close
+	case ScanTypeValuesList:
+		return nil
+	case ScanTypeCopyFrom:
+		switch e.op.getScanConfig().Format {
+		case "csv":
+			e.reader = nil
+			if e.dataFile != nil {
+				return e.dataFile.Close()
+			}
+		case "parquet":
+			if e.pqReader != nil {
+				e.pqReader.ReadStop()
+			}
+			if e.pqFile != nil {
+				return e.pqFile.Close()
+			}
+		default:
+			return fmt.Errorf("unsupported scan format: %s", e.op.getScanConfig().Format)
+		}
+	default:
+		return fmt.Errorf("unsupported scan type: %v", e.op.getScanTyp())
+	}
+	return nil
+}
+
+func (e *scanExecutor) readParquetTable(output *chunk.Chunk, maxCnt int) error {
 	rowCont := -1
 	var err error
 	var values []interface{}
 
-	//fill field into vector
-	for j, idx := range run.state.colIndice {
-		values, _, _, err = run.state.pqReader.ReadColumnByIndex(int64(idx), int64(maxCnt))
+	for j, idx := range e.colIndice {
+		values, _, _, err = e.pqReader.ReadColumnByIndex(int64(idx), int64(maxCnt))
 		if err != nil {
-			//EOF
 			if errors.Is(err, io.EOF) {
 				break
 			}
@@ -264,17 +291,16 @@ func (run *Runner) readParquetTable(output *chunk.Chunk, state *OperatorState, m
 
 		vec := output.Data[j]
 		for i := 0; i < len(values); i++ {
-			//[row i, col j]
 			val, err := parquetColToValue(values[i], vec.Typ())
 			if err != nil {
 				return err
 			}
 			vec.SetValue(i, val)
-			if state.showRaw {
+			if e.showRaw {
 				fmt.Print(values[i], " ")
 			}
 		}
-		if state.showRaw {
+		if e.showRaw {
 			fmt.Println()
 		}
 	}
@@ -282,36 +308,32 @@ func (run *Runner) readParquetTable(output *chunk.Chunk, state *OperatorState, m
 	return nil
 }
 
-func (run *Runner) readCsvTable(output *chunk.Chunk, state *OperatorState, maxCnt int) error {
+func (e *scanExecutor) readCsvTable(output *chunk.Chunk, maxCnt int) error {
 	rowCont := 0
 	for i := 0; i < maxCnt; i++ {
-		//read line
-		line, err := run.state.reader.Read()
+		line, err := e.reader.Read()
 		if err != nil {
-			//EOF
 			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err
 		}
-		//fill field into vector
-		for j, idx := range run.state.colIndice {
+		for j, idx := range e.colIndice {
 			if idx >= len(line) {
 				return errors.New("no enough fields in the line")
 			}
 			field := line[idx]
-			//[row i, col j] = field
 			vec := output.Data[j]
 			val, err := fieldToValue(field, vec.Typ())
 			if err != nil {
 				return err
 			}
 			vec.SetValue(i, val)
-			if state.showRaw {
+			if e.showRaw {
 				fmt.Print(field, " ")
 			}
 		}
-		if state.showRaw {
+		if e.showRaw {
 			fmt.Println()
 		}
 		rowCont++
@@ -321,19 +343,19 @@ func (run *Runner) readCsvTable(output *chunk.Chunk, state *OperatorState, maxCn
 	return nil
 }
 
-func (run *Runner) readValues(output *chunk.Chunk, state *OperatorState, maxCnt int) error {
-	if run.op.collection.Count() == 0 {
+func (e *scanExecutor) readValues(output *chunk.Chunk, maxCnt int) error {
+	if e.op.collection.Count() == 0 {
 		output.SetCap(0)
 		return nil
 	}
 
-	if run.state.colScanState == nil {
-		run.state.colScanState = &ColumnDataScanState{}
-		run.op.collection.initScan(run.state.colScanState)
+	if e.colScanState == nil {
+		e.colScanState = &ColumnDataScanState{}
+		e.op.collection.initScan(e.colScanState)
 	}
 
-	run.op.collection.Scan(run.state.colScanState, output)
-	if state.showRaw {
+	e.op.collection.Scan(e.colScanState, output)
+	if e.showRaw {
 		output.Print()
 	}
 	return nil
@@ -361,7 +383,7 @@ func fieldToValue(field string, lTyp common.LType) (*chunk.Value, error) {
 	case common.LTID_VARCHAR:
 		val.Str = field
 	default:
-		panic("usp")
+		return nil, fmt.Errorf("unsupported field type: %v", lTyp.Id)
 	}
 	return val, nil
 }
@@ -373,7 +395,7 @@ func parquetColToValue(field any, lTyp common.LType) (*chunk.Value, error) {
 	switch lTyp.Id {
 	case common.LTID_DATE:
 		if _, ok := field.(int32); !ok {
-			panic("usp")
+			return nil, fmt.Errorf("expected int32 for DATE, got %T", field)
 		}
 
 		d := time.Date(1970, 1, int(1+field.(int32)), 0, 0, 0, 0, time.UTC)
@@ -387,7 +409,7 @@ func parquetColToValue(field any, lTyp common.LType) (*chunk.Value, error) {
 		case int64:
 			val.I64 = fVal
 		default:
-			panic("usp")
+			return nil, fmt.Errorf("expected int32/int64 for INTEGER, got %T", field)
 		}
 	case common.LTID_BIGINT:
 		switch fVal := field.(type) {
@@ -396,13 +418,12 @@ func parquetColToValue(field any, lTyp common.LType) (*chunk.Value, error) {
 		case int64:
 			val.I64 = fVal
 		default:
-			panic("usp")
+			return nil, fmt.Errorf("expected int32/int64 for BIGINT, got %T", field)
 		}
 	case common.LTID_VARCHAR:
 		if _, ok := field.(string); !ok {
-			panic("usp")
+			return nil, fmt.Errorf("expected string for VARCHAR, got %T", field)
 		}
-
 		val.Str = field.(string)
 	case common.LTID_DECIMAL:
 		p10 := int64(1)
@@ -415,13 +436,12 @@ func parquetColToValue(field any, lTyp common.LType) (*chunk.Value, error) {
 			val.I64_1 = int64(v) % p10
 		case int64:
 			val.I64 = v / p10
-			val.I64_1 = int64(v) % p10
+			val.I64_1 = v % p10
 		default:
-			panic("usp")
+			return nil, fmt.Errorf("expected int32/int64 for DECIMAL, got %T", field)
 		}
-
 	default:
-		panic("usp")
+		return nil, fmt.Errorf("unsupported parquet type: %v", lTyp.Id)
 	}
 	return val, nil
 }

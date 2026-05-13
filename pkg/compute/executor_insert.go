@@ -1,35 +1,51 @@
 package compute
 
 import (
+	"fmt"
+
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-func (run *Runner) insertInit() error {
-	info := run.op.Info.(*InsertOpInfo)
-	run.state.insertChunk = &chunk.Chunk{}
-	run.state.insertChunk.Init(info.ExpectedTypes, storage.STANDARD_VECTOR_SIZE)
+type insertExecutor struct {
+	op          *PhysicalOperator
+	txn         *storage.Txn
+	insertChunk *chunk.Chunk
+	children    []OperatorExec
+}
+
+func newInsertExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*insertExecutor, error) {
+	return &insertExecutor{
+		op:       op,
+		txn:      txn,
+		children: children,
+	}, nil
+}
+
+func (e *insertExecutor) Init() error {
+	info := e.op.Info.(*InsertOpInfo)
+	e.insertChunk = &chunk.Chunk{}
+	e.insertChunk.Init(info.ExpectedTypes, storage.STANDARD_VECTOR_SIZE)
 	return nil
 }
 
-func (run *Runner) insertResolveDefaults(
+func (e *insertExecutor) insertResolveDefaults(
 	table *storage.CatalogEntry,
 	data *chunk.Chunk,
 	columnIndexMap []int,
 	result *chunk.Chunk,
-) {
+) error {
 	data.Flatten()
 
 	result.Reset()
 	result.SetCard(data.Card())
 
 	if len(columnIndexMap) != 0 {
-		//columns specified
 		for colIdx := range table.GetColumns() {
 			mappedIdx := columnIndexMap[colIdx]
 			if mappedIdx == -1 {
-				panic("usp default value")
+				return fmt.Errorf("default value not supported yet")
 			} else {
 				util.AssertFunc(mappedIdx < data.ColumnCount())
 				util.AssertFunc(result.Data[colIdx].Typ().Id ==
@@ -38,30 +54,29 @@ func (run *Runner) insertResolveDefaults(
 			}
 		}
 	} else {
-		//no columns specified
 		for i := 0; i < result.ColumnCount(); i++ {
 			util.AssertFunc(result.Data[i].Typ().Id ==
 				data.Data[i].Typ().Id)
 			result.Data[i].Reference(data.Data[i])
 		}
 	}
+	return nil
 }
 
-func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+func (e *insertExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
 	var res OperatorResult
 	var err error
-	info := run.op.Info.(*InsertOpInfo)
+	info := e.op.Info.(*InsertOpInfo)
 
 	lAState := &storage.LocalAppendState{}
 	table := info.TableEnt.GetStorage()
-	table.InitLocalAppend(run.Txn, lAState)
+	table.InitLocalAppend(e.txn, lAState)
 
-	cnt := 0
 	for {
 		childChunk := &chunk.Chunk{}
-		res, err = run.execChild(run.children[0], childChunk, state)
+		res, err = e.children[0].Execute(nil, childChunk)
 		if err != nil {
-			return 0, err
+			return InvalidOpResult, err
 		}
 		if res == InvalidOpResult {
 			return InvalidOpResult, nil
@@ -73,27 +88,25 @@ func (run *Runner) insertExec(output *chunk.Chunk, state *OperatorState) (Operat
 			continue
 		}
 
-		cnt += childChunk.Card()
-
-		run.insertResolveDefaults(
+		e.insertResolveDefaults(
 			info.TableEnt,
 			childChunk,
 			info.ColumnIndexMap,
-			run.state.insertChunk)
+			e.insertChunk)
 
 		err = table.LocalAppend(
-			run.Txn,
+			e.txn,
 			lAState,
-			run.state.insertChunk,
+			e.insertChunk,
 			false)
 		if err != nil {
 			return InvalidOpResult, err
 		}
 	}
-	table.FinalizeLocalAppend(run.Txn, lAState)
+	table.FinalizeLocalAppend(e.txn, lAState)
 	return Done, nil
 }
 
-func (run *Runner) insertClose() error {
+func (e *insertExecutor) Close() error {
 	return nil
 }

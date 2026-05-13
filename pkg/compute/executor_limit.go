@@ -1,38 +1,50 @@
 package compute
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-func (run *Runner) limitInit() error {
-	//collect children output types
+type limitExecutor struct {
+	op         *PhysicalOperator
+	limit      *Limit
+	outputExec *ExprExec
+	children   []OperatorExec
+}
+
+func newLimitExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*limitExecutor, error) {
+	return &limitExecutor{
+		op:       op,
+		children: children,
+	}, nil
+}
+
+func (e *limitExecutor) Init() error {
 	childTypes := make([]common.LType, 0)
-	for _, outputExpr := range run.op.Children[0].Outputs {
+	for _, outputExpr := range e.op.Children[0].Outputs {
 		childTypes = append(childTypes, outputExpr.DataTyp)
 	}
 
-	run.state.limit = NewLimit(childTypes, run.op.getLimitExpr(), run.op.getOffsetExpr())
-
-	run.state.outputExec = NewExprExec(run.op.Outputs...)
+	e.limit = NewLimit(childTypes, e.op.getLimitExpr(), e.op.getOffsetExpr())
+	e.outputExec = NewExprExec(e.op.Outputs...)
 
 	return nil
 }
 
-func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+func (e *limitExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
+	ensureOutputChunk(e.op, output)
 	var err error
 	var res OperatorResult
-	if run.state.limit._state == LIMIT_INIT {
-		cnt := 0
+	if e.limit._state == LIMIT_INIT {
 		for {
 			childChunk := &chunk.Chunk{}
-			res, err = run.execChild(run.children[0], childChunk, state)
+			res, err = e.children[0].Execute(nil, childChunk)
 			if err != nil {
-				return 0, err
+				return InvalidOpResult, err
 			}
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil
@@ -44,29 +56,24 @@ func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (Operato
 				continue
 			}
 
-			//childChunk.print()
-
-			ret := run.state.limit.Sink(childChunk)
+			ret := e.limit.Sink(childChunk)
 			if ret == SinkResDone {
 				break
 			}
 		}
-		fmt.Println("limit total children count", cnt)
-		run.state.limit._state = LIMIT_SCAN
+		e.limit._state = LIMIT_SCAN
 	}
 
-	if run.state.limit._state == LIMIT_SCAN {
-		//get data from collection
+	if e.limit._state == LIMIT_SCAN {
 		for {
 			read := &chunk.Chunk{}
-			read.Init(run.state.limit._childTypes, util.DefaultVectorSize)
-			getRet := run.state.limit.GetData(read)
+			read.Init(e.limit._childTypes, util.DefaultVectorSize)
+			getRet := e.limit.GetData(read)
 			if getRet == SrcResDone {
 				break
 			}
 
-			//evaluate output
-			err = run.state.outputExec.executeExprs([]*chunk.Chunk{read, nil, nil}, output)
+			err = e.outputExec.executeExprs([]*chunk.Chunk{read, nil, nil}, output)
 			if err != nil {
 				return InvalidOpResult, err
 			}
@@ -75,7 +82,6 @@ func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (Operato
 				return haveMoreOutput, nil
 			}
 		}
-
 	}
 
 	if output.Card() == 0 {
@@ -84,8 +90,8 @@ func (run *Runner) limitExec(output *chunk.Chunk, state *OperatorState) (Operato
 	return haveMoreOutput, nil
 }
 
-func (run *Runner) limitClose() error {
-	run.state.limit = nil
+func (e *limitExecutor) Close() error {
+	e.limit = nil
 	return nil
 }
 
@@ -118,7 +124,6 @@ func (limit *Limit) Sink(chunk *chunk.Chunk) SinkResult {
 	}
 
 	maxCard := maxElement - limit._currentOffset
-	//drop rest part
 	if maxCard < uint64(chunk.Card()) {
 		chunk.SetCard(int(maxCard))
 	}
@@ -134,15 +139,16 @@ func (limit *Limit) Sink(chunk *chunk.Chunk) SinkResult {
 func (limit *Limit) ComputeOffset(
 	chunk *chunk.Chunk,
 	maxElement *uint64) bool {
-	if limit._limit != math.MaxUint64 {
-		*maxElement = limit._limit + limit._offset
-		if limit._limit == 0 ||
-			limit._currentOffset >= *maxElement {
-			return false
-		}
+	if limit._limit == math.MaxUint64 {
+		*maxElement = math.MaxUint64
 		return true
 	}
-	panic("usp")
+	*maxElement = limit._limit + limit._offset
+	if limit._limit == 0 ||
+		limit._currentOffset >= *maxElement {
+		return false
+	}
+	return true
 }
 
 func (limit *Limit) GetData(read *chunk.Chunk) SourceResult {

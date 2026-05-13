@@ -5,30 +5,45 @@ import (
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/common"
+	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-func (run *Runner) filterInit() error {
+type filterExecutor struct {
+	op           *PhysicalOperator
+	filterExec   *ExprExec
+	filterSel    *chunk.SelectVector
+	outputIndice []int
+	children     []OperatorExec
+}
+
+func newFilterExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*filterExecutor, error) {
+	return &filterExecutor{
+		op:       op,
+		children: children,
+	}, nil
+}
+
+func (e *filterExecutor) Init() error {
 	var err error
 	var filterExec *ExprExec
-	filterExec, err = initFilterExec(run.op.Filters)
+	filterExec, err = initFilterExec(e.op.Filters)
 	if err != nil {
 		return err
 	}
 
-	run.state.filterExec = filterExec
-	run.state.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
+	e.filterExec = filterExec
+	e.filterSel = chunk.NewSelectVector(util.DefaultVectorSize)
+	for _, output := range e.op.Outputs {
+		e.outputIndice = append(e.outputIndice, int(output.ColRef.column()))
+	}
 
 	return nil
 }
 
 func initFilterExec(filters []*Expr) (*ExprExec, error) {
-	//init filter
-	//convert filters into "... AND ..."
-	//var err error
 	var andFilter *Expr
 	if len(filters) > 0 {
-		//var impl *Impl
 		andFilter = filters[0]
 		for i, filter := range filters {
 			if i > 0 {
@@ -51,70 +66,53 @@ func initFilterExec(filters []*Expr) (*ExprExec, error) {
 	return NewExprExec(andFilter), nil
 }
 
-func (run *Runner) runFilterExec(input *chunk.Chunk, output *chunk.Chunk, filterOnLocal bool) error {
-	//filter
-	var err error
-	var count int
-	//if !filterOnLocal {
-	//	//fmt.Println("filter read child 4", input.card())
-	//}
-	if filterOnLocal {
-		count, err = run.state.filterExec.executeSelect([]*chunk.Chunk{nil, nil, input}, run.state.filterSel)
-		if err != nil {
-			return err
-		}
-	} else {
-		count, err = run.state.filterExec.executeSelect([]*chunk.Chunk{input, nil, nil}, run.state.filterSel)
-		if err != nil {
-			return err
-		}
+func (e *filterExecutor) runFilterExec(input *chunk.Chunk, output *chunk.Chunk) error {
+	count, err := e.filterExec.executeSelect([]*chunk.Chunk{input, nil, nil}, e.filterSel)
+	if err != nil {
+		return err
 	}
 
 	if count == input.Card() {
-		//reference
-		output.ReferenceIndice(input, run.state.outputIndice)
+		output.ReferenceIndice(input, e.outputIndice)
 	} else {
-		//slice
-		output.SliceIndice(input, run.state.filterSel, count, 0, run.state.outputIndice)
+		output.SliceIndice(input, e.filterSel, count, 0, e.outputIndice)
 	}
-	//if !filterOnLocal {
-	//	//fmt.Println("filter read child 5", output.card())
-	//}
 	return nil
 }
 
-func (run *Runner) filterExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
+func (e *filterExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
+	ensureOutputChunk(e.op, output)
 	childChunk := &chunk.Chunk{}
 	var res OperatorResult
 	var err error
-	if len(run.children) != 0 {
+	if len(e.children) != 0 {
 		for {
-			//fmt.Println("filter read child 1")
-			res, err = run.execChild(run.children[0], childChunk, state)
+			res, err = e.children[0].Execute(nil, childChunk)
 			if err != nil {
-				return 0, err
+				return InvalidOpResult, err
 			}
 			if res == InvalidOpResult {
 				return InvalidOpResult, nil
 			}
 			if res == Done {
-				return res, nil
+				return Done, nil
 			}
 			if childChunk.Card() > 0 {
-				//fmt.Println("filter read child 2", childChunk.card())
 				break
 			}
 		}
 	}
 
-	err = run.runFilterExec(childChunk, output, false)
+	err = e.runFilterExec(childChunk, output)
 	if err != nil {
-		return 0, err
+		return InvalidOpResult, err
 	}
-	//fmt.Println("filter read child 3", childChunk.card())
+	if output.Card() == 0 {
+		return haveMoreOutput, nil
+	}
 	return haveMoreOutput, nil
 }
 
-func (run *Runner) filterClose() error {
+func (e *filterExecutor) Close() error {
 	return nil
 }

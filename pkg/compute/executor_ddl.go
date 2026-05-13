@@ -52,61 +52,77 @@ func genDDLPhyPlan(txn *storage.Txn, ddl *pg_query.RawStmt) (*PhysicalOperator, 
 	return pp, nil
 }
 
-func (run *Runner) createTableInit() error {
+type createTableExecutor struct {
+	op  *PhysicalOperator
+	txn *storage.Txn
+}
+
+func newCreateTableExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*createTableExecutor, error) {
+	return &createTableExecutor{op: op, txn: txn}, nil
+}
+
+func (e *createTableExecutor) Init() error {
 	return nil
 }
 
-func (run *Runner) createTableExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	ctInfo := run.op.Info.(*CreateTableOpInfo)
+func (e *createTableExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
+	ctInfo := e.op.Info.(*CreateTableOpInfo)
 	schema := ctInfo.Database
 	if len(schema) == 0 {
 		schema = "public"
 	}
 	table := ctInfo.Table
 	ifNotExists := ctInfo.IfNotExists
-	tabEnt := storage.GCatalog.GetEntry(run.Txn, storage.CatalogTypeTable, schema, table)
+	tabEnt := storage.GCatalog.GetEntry(e.txn, storage.CatalogTypeTable, schema, table)
 	if tabEnt != nil {
 		if ifNotExists {
 			return Done, nil
-		} else {
-			return InvalidOpResult, fmt.Errorf("table %s already exits", table)
 		}
+		return InvalidOpResult, fmt.Errorf("table %s already exits", table)
 	}
 	info := storage.NewDataTableInfo3(schema, table, ctInfo.ColDefs, ctInfo.Constraints)
-	_, err := storage.GCatalog.CreateTable(run.Txn, info)
+	_, err := storage.GCatalog.CreateTable(e.txn, info)
 	if err != nil {
-		return 0, err
+		return InvalidOpResult, err
 	}
 	return Done, nil
 }
 
-func (run *Runner) createTableClose() error {
+func (e *createTableExecutor) Close() error {
 	return nil
 }
 
-func (run *Runner) createSchemaInit() error {
+type createSchemaExecutor struct {
+	op  *PhysicalOperator
+	txn *storage.Txn
+}
+
+func newCreateSchemaExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*createSchemaExecutor, error) {
+	return &createSchemaExecutor{op: op, txn: txn}, nil
+}
+
+func (e *createSchemaExecutor) Init() error {
 	return nil
 }
 
-func (run *Runner) createSchemaExec(output *chunk.Chunk, state *OperatorState) (OperatorResult, error) {
-	csInfo := run.op.Info.(*CreateSchemaOpInfo)
+func (e *createSchemaExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, error) {
+	csInfo := e.op.Info.(*CreateSchemaOpInfo)
 	name := csInfo.Database
 	ifNotExists := csInfo.IfNotExists
-	schEnt := storage.GCatalog.GetSchema(run.Txn, name)
+	schEnt := storage.GCatalog.GetSchema(e.txn, name)
 	if schEnt != nil {
 		if ifNotExists {
 			return Done, nil
-		} else {
-			return InvalidOpResult, fmt.Errorf("schema %s already exists", name)
 		}
+		return InvalidOpResult, fmt.Errorf("schema %s already exists", name)
 	}
-	_, err := storage.GCatalog.CreateSchema(run.Txn, name)
+	_, err := storage.GCatalog.CreateSchema(e.txn, name)
 	if err != nil {
-		return 0, err
+		return InvalidOpResult, err
 	}
 	return Done, nil
 }
 
-func (run *Runner) createSchemaClose() error {
+func (e *createSchemaExecutor) Close() error {
 	return nil
 }
