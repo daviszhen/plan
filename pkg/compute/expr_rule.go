@@ -47,7 +47,7 @@ func distributeExpr(expr *Expr) *Expr {
 		var retElems []*Expr
 		for _, cand := range candidates {
 			retElems = util.RemoveIf(elems, func(t *Expr) bool {
-				return t == nil || cand.equal(t)
+				return t == nil || cand.Equal(t)
 			})
 		}
 		if len(retElems) > 0 {
@@ -74,7 +74,7 @@ func distributeExpr(expr *Expr) *Expr {
 
 func hasExpr(expr *Expr, exprList []*Expr) bool {
 	for _, e := range exprList {
-		if expr.equal(e) {
+		if expr.Equal(e) {
 			return true
 		}
 	}

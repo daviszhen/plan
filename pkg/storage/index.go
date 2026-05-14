@@ -247,6 +247,9 @@ func CreateKey(
 	case common.INT32:
 		val32 := int32(value.I64)
 		return CreateIndexKey2[int32](value.Typ, &val32, util.Int32Encoder{})
+	case common.INT64:
+		val64 := value.I64
+		return CreateIndexKey2[int64](value.Typ, &val64, util.Int64Encoder{})
 	default:
 		panic("usp")
 	}
@@ -597,6 +600,14 @@ func (idx *Index) IsPrimary() bool {
 
 func (idx *Index) IsForeign() bool {
 	return idx._constraintType == IndexConstraintTypeForeign
+}
+
+func (idx *Index) ColumnIds() []IdxType {
+	return idx._columnIds
+}
+
+func (idx *Index) Types() []common.PhyType {
+	return idx._types
 }
 
 func (idx *Index) SearchEqual(

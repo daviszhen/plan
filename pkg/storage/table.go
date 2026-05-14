@@ -133,6 +133,12 @@ func (list *TableIndexList) Count() int {
 	return len(list._indexes)
 }
 
+func (list *TableIndexList) GetIndexes() []*Index {
+	list._indexesLock.Lock()
+	defer list._indexesLock.Unlock()
+	return list._indexes
+}
+
 func (list *TableIndexList) GetRequiredColumns() []IdxType {
 	list._indexesLock.Lock()
 	defer list._indexesLock.Unlock()

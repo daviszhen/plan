@@ -502,6 +502,7 @@ func AddCastToType(expr *Expr, dstTyp common.LType, tryCast bool) (*Expr, error)
 				_args:          []common.LType{expr.DataTyp, dstTyp},
 				_retType:       dstTyp,
 				_funcTyp:       ScalarFuncType,
+				_errorMode:     CanThrowRuntimeError,
 				_boundCastInfo: castInfo,
 			},
 		},

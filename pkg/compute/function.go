@@ -53,6 +53,31 @@ const (
 	HasSideEffects FuncSideEffects = 1
 )
 
+// FunctionStability indicates whether a function returns the same result for the same inputs.
+type FunctionStability int
+
+const (
+	// ConsistentFunction: always returns the same result for the same inputs (e.g. +, sin(), upper()).
+	// Safe to fold and cache. This is the default (zero value).
+	ConsistentFunction FunctionStability = iota
+	// StableFunction: returns the same result within a single query (e.g. current_database()).
+	// Can be folded at query level but not cached across queries.
+	StableFunction
+	// VolatileFunction: may return different results on each call (e.g. random(), now()).
+	// Cannot be folded or cached.
+	VolatileFunction
+)
+
+// FunctionErrorMode indicates whether a function can throw runtime errors.
+type FunctionErrorMode int
+
+const (
+	// NoRuntimeError: function never throws runtime errors (e.g. +, -).
+	NoRuntimeError FunctionErrorMode = iota
+	// CanThrowRuntimeError: function may throw errors for certain inputs (e.g. cast(), divide by zero).
+	CanThrowRuntimeError
+)
+
 type FuncType int
 
 const (
@@ -203,6 +228,9 @@ type Function struct {
 	_nullHandling FuncNullHandling
 	_aggrType     AggrType
 
+	_stability   FunctionStability // 默认 ConsistentFunction
+	_errorMode   FunctionErrorMode // 默认 NoRuntimeError
+
 	_scalar        ScalarFunc
 	_bind          bindScalarFunc
 	_boundCastInfo *BoundCastInfo
@@ -225,6 +253,94 @@ func (fun *Function) IsFunction() bool {
 	return !fun.IsOperator()
 }
 
+// Name returns the function name.
+func (fun *Function) Name() string {
+	if fun == nil {
+		return ""
+	}
+	return fun._name
+}
+
+// FuncType returns the function type category.
+func (fun *Function) FuncType() FuncType {
+	if fun == nil {
+		return ScalarFuncType
+	}
+	return fun._funcTyp
+}
+
+// IsAggregateType returns true if this function is an aggregate function.
+func (fun *Function) IsAggregateType() bool {
+	return fun.FuncType() == AggregateFuncType
+}
+
+// HasSpecialNullHandling returns true if this function has special NULL handling.
+func (fun *Function) HasSpecialNullHandling() bool {
+	if fun == nil {
+		return false
+	}
+	return fun._nullHandling == SpecialHandling
+}
+
+// AggrType returns the aggregate type (DISTINCT or NON_DISTINCT).
+func (fun *Function) AggrType() AggrType {
+	if fun == nil {
+		return NON_DISTINCT
+	}
+	return fun._aggrType
+}
+
+// IsDistinct returns true if this aggregate function uses DISTINCT.
+func (fun *Function) IsDistinct() bool {
+	return fun.AggrType() == DISTINCT
+}
+
+// GetScalarFunc returns the scalar execution function.
+func (fun *Function) GetScalarFunc() ScalarFunc {
+	if fun == nil {
+		return nil
+	}
+	return fun._scalar
+}
+
+// GetBoundCastInfo returns the bound cast info, if any.
+func (fun *Function) GetBoundCastInfo() *BoundCastInfo {
+	if fun == nil {
+		return nil
+	}
+	return fun._boundCastInfo
+}
+
+// ReturnType returns the return type of this function.
+func (fun *Function) ReturnType() common.LType {
+	if fun == nil {
+		return common.LType{}
+	}
+	return fun._retType
+}
+
+func (fun *Function) GetStability() FunctionStability {
+	if fun == nil {
+		return ConsistentFunction
+	}
+	return fun._stability
+}
+
+func (fun *Function) GetErrorMode() FunctionErrorMode {
+	if fun == nil {
+		return NoRuntimeError
+	}
+	return fun._errorMode
+}
+
+func (fun *Function) IsVolatile() bool {
+	return fun.GetStability() == VolatileFunction
+}
+
+func (fun *Function) CanThrow() bool {
+	return fun.GetErrorMode() == CanThrowRuntimeError
+}
+
 func (fun *Function) Copy() *Function {
 	ret := &Function{
 		_name:         fun._name,
@@ -233,6 +349,8 @@ func (fun *Function) Copy() *Function {
 		_funcTyp:      fun._funcTyp,
 		_sideEffects:  fun._sideEffects,
 		_nullHandling: fun._nullHandling,
+		_stability:    fun._stability,
+		_errorMode:    fun._errorMode,
 		_scalar:       fun._scalar,
 		_bind:         fun._bind,
 		_stateSize:    fun._stateSize,

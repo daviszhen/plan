@@ -130,7 +130,7 @@ func (exec *ExprExec) execute(expr *Expr, eState *ExprState, sel *chunk.SelectVe
 	case ET_Column:
 		return exec.executeColumnRef(expr, eState, sel, count, result)
 	case ET_Func:
-		if expr.GetFuncInfo().FunImpl._name == FuncCase {
+		if expr.IsCaseExpr() {
 			return exec.executeCase(expr, eState, sel, count, result)
 		} else {
 			return exec.executeFunc(expr, eState, sel, count, result)
@@ -329,11 +329,11 @@ func (exec *ExprExec) executeFunc(expr *Expr, eState *ExprState, sel *chunk.Sele
 		}
 	}
 	eState._interChunk.SetCard(count)
-	if expr.GetFuncInfo().FunImpl._boundCastInfo != nil {
+	if expr.GetFuncInfo().FunImpl.GetBoundCastInfo() != nil {
 		params := &CastParams{}
-		expr.GetFuncInfo().FunImpl._boundCastInfo._fun(eState._interChunk.Data[0], result, count, params)
+		expr.GetFuncInfo().FunImpl.GetBoundCastInfo()._fun(eState._interChunk.Data[0], result, count, params)
 	} else {
-		expr.GetFuncInfo().FunImpl._scalar(eState._interChunk, eState, result)
+		expr.GetFuncInfo().FunImpl.GetScalarFunc()(eState._interChunk, eState, result)
 	}
 
 	return nil
@@ -368,23 +368,39 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *chunk.S
 		return 0, nil
 	}
 	switch expr.Typ {
-	case ET_Func:
-		switch GetOperatorType(expr.GetFuncInfo().FunImpl._name) {
-		case OpTypeCompare,
-			OpTypeLike:
-			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
-		case OpTypeLogical:
-			switch expr.GetFuncInfo().FunImpl._name {
-			case FuncAnd:
-				return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
-			case FuncOr:
-				return exec.execSelectOr(expr, eState, sel, count, trueSel, falseSel)
-			default:
-				return 0, fmt.Errorf("unsupported logical func %s", expr.GetFuncInfo().FunImpl._name)
+	case ET_Const:
+		// Constant boolean in filter position.
+		// TRUE → select all; FALSE/NULL → select none.
+		if expr.ConstValue.Type == ConstTypeBoolean && expr.ConstValue.Boolean {
+			if sel != nil {
+				if trueSel != nil {
+					for i := 0; i < count; i++ {
+						trueSel.SetIndex(i, sel.GetIndex(i))
+					}
+				}
+				return count, nil
 			}
-		default:
-			return 0, fmt.Errorf("unsupported operator type %v", GetOperatorType(expr.GetFuncInfo().FunImpl._name))
+			if trueSel != nil {
+				for i := 0; i < count; i++ {
+					trueSel.SetIndex(i, i)
+				}
+			}
+			return count, nil
 		}
+		// FALSE or NULL: select none.
+		return 0, nil
+	case ET_Func:
+		if expr.IsComparison() || expr.IsLikeExpr() {
+			return exec.execSelectCompare(expr, eState, sel, count, trueSel, falseSel)
+		} else if expr.IsLogicalOp() {
+			if expr.IsConjunction() {
+				return exec.execSelectAnd(expr, eState, sel, count, trueSel, falseSel)
+			} else if expr.IsDisjunction() {
+				return exec.execSelectOr(expr, eState, sel, count, trueSel, falseSel)
+			}
+			return 0, fmt.Errorf("unsupported logical func %s", expr.FuncName())
+		}
+		return 0, fmt.Errorf("unsupported operator type %v", GetOperatorType(expr.FuncName()))
 
 	default:
 		return 0, fmt.Errorf("unsupported expr type %v", expr.Typ)
@@ -407,8 +423,7 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 
 	switch expr.Typ {
 	case ET_Func:
-		switch GetOperatorType(expr.GetFuncInfo().FunImpl._name) {
-		case OpTypeCompare, OpTypeLike:
+		if expr.IsComparison() || expr.IsLikeExpr() {
 			return selectOperation(
 				eState._interChunk.Data[0],
 				eState._interChunk.Data[1],
@@ -416,13 +431,12 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 				count,
 				trueSel,
 				falseSel,
-				expr.GetFuncInfo().FunImpl._name,
+				expr.FuncName(),
 			), nil
-		default:
-			return 0, fmt.Errorf("unsupported compare func %s", expr.GetFuncInfo().FunImpl._name)
 		}
+		return 0, fmt.Errorf("unsupported compare func %s", expr.FuncName())
 	default:
-		return 0, fmt.Errorf("unsupported operator type %v", GetOperatorType(expr.GetFuncInfo().FunImpl._name))
+		return 0, fmt.Errorf("unsupported operator type %v", GetOperatorType(expr.FuncName()))
 	}
 
 }
@@ -525,7 +539,7 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 		for _, child := range expr.Children {
 			ret.addChild(child)
 		}
-		if expr.GetFuncInfo().FunImpl._name == FuncCase {
+		if expr.IsCaseExpr() {
 			ret._trueSel = chunk.NewSelectVector(util.DefaultVectorSize)
 			ret._falseSel = chunk.NewSelectVector(util.DefaultVectorSize)
 		}

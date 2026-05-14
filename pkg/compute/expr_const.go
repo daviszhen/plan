@@ -3,6 +3,8 @@ package compute
 
 import (
 	"fmt"
+	"hash/fnv"
+	"unsafe"
 )
 
 // ConstType represents the type of a constant value
@@ -166,7 +168,7 @@ func (c ConstValue) IsNull() bool {
 }
 
 // equal compares two constant values for equality
-func (c ConstValue) equal(o ConstValue) bool {
+func (c ConstValue) Equal(o ConstValue) bool {
 	if c.Type != o.Type {
 		return false
 	}
@@ -193,6 +195,46 @@ func (c ConstValue) equal(o ConstValue) bool {
 }
 
 // copy returns a copy of the constant value
-func (c ConstValue) copy() ConstValue {
+func (c ConstValue) Copy() ConstValue {
 	return c // 由于是值类型，直接返回即可
+}
+
+// Hash returns a 64-bit hash of the constant value.
+func (c ConstValue) Hash() uint64 {
+	h := fnv.New64a()
+	h.Write([]byte{byte(c.Type)})
+	switch c.Type {
+	case ConstTypeInteger:
+		var b [8]byte
+		for i := 0; i < 8; i++ {
+			b[i] = byte(c.Integer >> (i * 8))
+		}
+		h.Write(b[:])
+	case ConstTypeDecimal:
+		h.Write([]byte(c.Decimal))
+	case ConstTypeString:
+		h.Write([]byte(c.String))
+	case ConstTypeFloat:
+		var b [8]byte
+		for i := 0; i < 8; i++ {
+			b[i] = byte(*(*uint64)(unsafe.Pointer(&c.Float)) >> (i * 8))
+		}
+		h.Write(b[:])
+	case ConstTypeDate:
+		h.Write([]byte(c.Date))
+	case ConstTypeInterval:
+		var b [8]byte
+		for i := 0; i < 8; i++ {
+			b[i] = byte(c.Interval.Value >> (i * 8))
+		}
+		h.Write(b[:])
+		h.Write([]byte(c.Interval.Unit))
+	case ConstTypeBoolean:
+		if c.Boolean {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
+	}
+	return h.Sum64()
 }

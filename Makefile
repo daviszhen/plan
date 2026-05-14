@@ -10,6 +10,9 @@ tester:
 config:
 	$(info [go tidy])
 	@go mod tidy
+.PHONY: clean-data
+clean-data:
+	rm tpch.db tpch.db.wal
 
 ############# code clean
 

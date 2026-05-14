@@ -411,22 +411,15 @@ func (b *Builder) bindBoolExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	//special :
 	// not in
 	if funcName == FuncNot {
-		switch left.Typ {
-		case ET_Func:
-			switch left.GetFuncInfo().FunImpl._name {
-			case FuncIn:
-				//convert it to 'not in'
-				left.GetFuncInfo().FunImpl._name = FuncNotIn
-
-			default:
-				panic(fmt.Sprintf("usp not expr %v", left.GetFuncInfo().FunImpl._name))
-			}
-		case ET_Subquery:
+		if left.isFunc() && left.FuncName() == FuncIn {
+			//convert it to 'not in'
+			left.GetFuncInfo().FunImpl._name = FuncNotIn
+		} else if left.Typ == ET_Subquery {
 			if left.GetSubqueryInfo().SubqueryTyp == ET_SubqueryTypeExists {
 				left.GetSubqueryInfo().SubqueryTyp = ET_SubqueryTypeNotExists
 			}
-		default:
-			panic(fmt.Sprintf("usp not expr 2 %v", left.Typ))
+		} else {
+			panic(fmt.Sprintf("usp not expr %v", left.Typ))
 		}
 		return left, nil
 	}

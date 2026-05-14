@@ -121,12 +121,13 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *Function {
 			}
 		} else if lTyp.IsIntegral() && lTyp.Id != common.LTID_HUGEINT {
 			return &Function{
-				_name:    "+",
-				_args:    []common.LType{lTyp, rTyp},
-				_retType: lTyp,
-				_funcTyp: ScalarFuncType,
-				_scalar:  GetScalarIntegerFunction(lTyp.GetInternalType(), "+", true),
-				_bind:    nil,
+				_name:      "+",
+				_args:      []common.LType{lTyp, rTyp},
+				_retType:   lTyp,
+				_funcTyp:   ScalarFuncType,
+				_scalar:    GetScalarIntegerFunction(lTyp.GetInternalType(), "+", true),
+				_errorMode: CanThrowRuntimeError,
+				_bind:      nil,
 			}
 		} else {
 			return &Function{
@@ -290,12 +291,13 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *Function {
 			}
 		} else if lTyp.IsIntegral() && lTyp.Id != common.LTID_HUGEINT {
 			return &Function{
-				_name:    "-",
-				_args:    []common.LType{lTyp, rTyp},
-				_retType: lTyp,
-				_funcTyp: ScalarFuncType,
-				_scalar:  GetScalarIntegerFunction(lTyp.GetInternalType(), "-", true),
-				_bind:    nil,
+				_name:      "-",
+				_args:      []common.LType{lTyp, rTyp},
+				_retType:   lTyp,
+				_funcTyp:   ScalarFuncType,
+				_scalar:    GetScalarIntegerFunction(lTyp.GetInternalType(), "-", true),
+				_errorMode: CanThrowRuntimeError,
+				_bind:      nil,
 			}
 		} else {
 			return &Function{
@@ -390,21 +392,23 @@ func (MultiplyFunc) Register(funcList FunctionList) {
 	for _, typ := range common.Numeric() {
 		if typ.Id == common.LTID_DECIMAL {
 			fun := &Function{
-				_name:    "*",
-				_args:    []common.LType{typ, typ},
-				_retType: typ,
-				_funcTyp: ScalarFuncType,
-				_scalar:  nil,
-				_bind:    BindDecimalMultiply,
+				_name:      "*",
+				_args:      []common.LType{typ, typ},
+				_retType:   typ,
+				_funcTyp:   ScalarFuncType,
+				_scalar:    nil,
+				_errorMode: CanThrowRuntimeError,
+				_bind:      BindDecimalMultiply,
 			}
 			set.Add(fun)
 		} else if typ.IsIntegral() && typ.Id != common.LTID_HUGEINT {
 			fun := &Function{
-				_name:    "*",
-				_args:    []common.LType{typ, typ},
-				_retType: typ,
-				_funcTyp: ScalarFuncType,
-				_scalar:  GetScalarIntegerFunction(typ.GetInternalType(), "*", true),
+				_name:      "*",
+				_args:      []common.LType{typ, typ},
+				_retType:   typ,
+				_funcTyp:   ScalarFuncType,
+				_scalar:    GetScalarIntegerFunction(typ.GetInternalType(), "*", true),
+				_errorMode: CanThrowRuntimeError,
 			}
 			set.Add(fun)
 		} else {
@@ -477,16 +481,18 @@ func (DevideFunc) Register(funcList FunctionList) {
 	set := NewFunctionSet(FuncDivide, ScalarFuncType)
 
 	divFloat := &Function{
-		_name:    FuncDivide,
-		_args:    []common.LType{common.FloatType(), common.FloatType()},
-		_retType: common.FloatType(),
-		_funcTyp: ScalarFuncType,
-		_scalar:  BinaryFunction[float32, float32, float32](binFloat32DivOp),
+		_name:      FuncDivide,
+		_args:      []common.LType{common.FloatType(), common.FloatType()},
+		_retType:   common.FloatType(),
+		_funcTyp:   ScalarFuncType,
+		_errorMode: CanThrowRuntimeError,
+		_scalar:    BinaryFunction[float32, float32, float32](binFloat32DivOp),
 	}
 
 	divDec := &Function{
-		_name:    FuncDivide,
-		_args:    []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0), common.DecimalType(common.DecimalMaxWidthInt64, 0)},
+		_name:      FuncDivide,
+		_args:      []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0), common.DecimalType(common.DecimalMaxWidthInt64, 0)},
+		_errorMode: CanThrowRuntimeError,
 		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
 		_funcTyp: ScalarFuncType,
 		_bind:    BindDecimalDivide,
@@ -1261,7 +1267,7 @@ func (BoolFunc) Register(funcList FunctionList) {
 
 	set3 := NewFunctionSet(FuncNot, ScalarFuncType)
 	notFunc := &Function{
-		_name:    FuncAnd,
+		_name:    FuncNot,
 		_args:    []common.LType{common.BooleanType(), common.BooleanType()},
 		_retType: common.BooleanType(),
 		_funcTyp: ScalarFuncType,
@@ -1481,10 +1487,11 @@ func (CaseFunc) Register(funcList FunctionList) {
 	}
 
 	divInt := &Function{
-		_name:    FuncCase,
-		_args:    []common.LType{common.IntegerType(), common.BooleanType(), common.IntegerType()},
-		_retType: common.IntegerType(),
-		_funcTyp: ScalarFuncType,
+		_name:      FuncCase,
+		_args:      []common.LType{common.IntegerType(), common.BooleanType(), common.IntegerType()},
+		_retType:   common.IntegerType(),
+		_funcTyp:   ScalarFuncType,
+		_errorMode: CanThrowRuntimeError,
 	}
 
 	set.Add(caseDec)

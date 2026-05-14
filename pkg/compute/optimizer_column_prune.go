@@ -804,19 +804,13 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 		for _, cond := range root.getOnConds() {
 			lset := make(ColumnBindSet)
 			rset := make(ColumnBindSet)
-			switch cond.Typ {
-			case ET_Func:
-				if cond.GetFuncInfo().FunImpl.IsOperator() {
-					switch GetOperatorType(cond.GetFuncInfo().FunImpl._name) {
-					case OpTypeCompare, OpTypeLike, OpTypeLogical:
-						collectColRefs(cond.Children[0], lset)
-						collectColRefs(cond.Children[1], rset)
-					default:
-						panic(fmt.Sprintf("usp %v", cond.GetFuncInfo().FunImpl._name))
-					}
+			if cond.isFunc() && cond.GetFuncInfo().FunImpl.IsOperator() {
+				if cond.IsComparison() || cond.IsLogicalOp() {
+					collectColRefs(cond.Children[0], lset)
+					collectColRefs(cond.Children[1], rset)
+				} else {
+					panic(fmt.Sprintf("usp %v", cond.FuncName()))
 				}
-			default:
-				panic(fmt.Sprintf("usp operator type %d", cond.Typ))
 			}
 
 			lLeftYes := lset.hasTableId(LeftChild)

@@ -189,17 +189,17 @@ func explainExpr(e *Expr, options *ExplainOptions, buf *bytes.Buffer) {
 	case ET_Func:
 		if e.GetFuncInfo().FunImpl.IsFunction() {
 			dist := ""
-			if e.GetFuncInfo().FunImpl._aggrType == DISTINCT {
+			if e.GetFuncInfo().FunImpl.IsDistinct() {
 				dist = " distinct "
 			}
-			buf.WriteString(e.GetFuncInfo().FunImpl._name)
+			buf.WriteString(e.FuncName())
 			buf.WriteString("(")
 			if dist != "" {
 				buf.WriteString(dist)
 				buf.WriteString(" ")
 			}
 
-			if e.GetFuncInfo().FunImpl._name == FuncCast {
+			if e.IsCastExpr() {
 				explainExpr(e.Children[0], options, buf)
 				buf.WriteString(" as ")
 				buf.WriteString(e.DataTyp.String())
@@ -214,17 +214,16 @@ func explainExpr(e *Expr, options *ExplainOptions, buf *bytes.Buffer) {
 
 			buf.WriteString(")")
 		} else {
-			switch e.GetFuncInfo().FunImpl._name {
-			case FuncBetween:
+			if e.IsBetween() {
 				explainExpr(e.Children[0], options, buf)
 				buf.WriteString(" ")
-				buf.WriteString(e.GetFuncInfo().FunImpl._name)
+				buf.WriteString(e.FuncName())
 				buf.WriteString(" ")
 				explainExpr(e.Children[1], options, buf)
 				buf.WriteString(" and ")
 				explainExpr(e.Children[2], options, buf)
-			case FuncCase:
-				buf.WriteString(e.GetFuncInfo().FunImpl._name)
+			} else if e.IsCaseExpr() {
+				buf.WriteString(e.FuncName())
 				if e.Children[0] != nil {
 					explainExpr(e.Children[0], options, buf)
 				}
@@ -239,10 +238,10 @@ func explainExpr(e *Expr, options *ExplainOptions, buf *bytes.Buffer) {
 					explainExpr(e.Children[len(e.Children)-1], options, buf)
 				}
 				buf.WriteString(" end")
-			case FuncIn, FuncNotIn:
+			} else if e.IsInOrNotIn() {
 				explainExpr(e.Children[0], options, buf)
 				buf.WriteString(" ")
-				buf.WriteString(e.GetFuncInfo().FunImpl._name)
+				buf.WriteString(e.FuncName())
 				buf.WriteString(" (")
 				for j, child := range e.Children {
 					if j == 0 {
@@ -254,17 +253,17 @@ func explainExpr(e *Expr, options *ExplainOptions, buf *bytes.Buffer) {
 					explainExpr(child, options, buf)
 				}
 				buf.WriteString(")")
-			case FuncExists:
-				buf.WriteString(e.GetFuncInfo().FunImpl._name)
+			} else if e.IsExistsExpr() {
+				buf.WriteString(e.FuncName())
 				buf.WriteString("(")
 				explainExpr(e.Children[0], options, buf)
 				buf.WriteString(")")
-			default:
+			} else {
 				//binary operator
 				buf.WriteString("(")
 				explainExpr(e.Children[0], options, buf)
 				buf.WriteString(" ")
-				buf.WriteString(e.GetFuncInfo().FunImpl._name)
+				buf.WriteString(e.FuncName())
 				buf.WriteString(" ")
 				explainExpr(e.Children[1], options, buf)
 				buf.WriteString(")")
