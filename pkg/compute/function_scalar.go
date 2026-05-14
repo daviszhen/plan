@@ -158,7 +158,7 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *Function {
 				_scalar:  BinaryFunction[common.Date, common.Interval, common.Date](binDateInterAddOp),
 			}
 		} else if rTyp.Id == common.LTID_TIME {
-			panic("usp")
+			return nil
 		}
 	case common.LTID_INTEGER:
 		if rTyp.Id == common.LTID_DATE {
@@ -189,12 +189,12 @@ func (add AddFunc) Func2(lTyp, rTyp common.LType) *Function {
 				_scalar:  BinaryFunction[common.Interval, common.Date, common.Date](binIntervalDateAddOp),
 			}
 		default:
-			panic("usp")
+			return nil
 		}
 	case common.LTID_TIME:
-		panic("usp")
+		return nil
 	case common.LTID_TIMESTAMP:
-		panic("usp")
+		return nil
 	default:
 		panic(fmt.Sprintf("no addFunc for %s %s", lTyp, rTyp))
 	}
@@ -346,12 +346,12 @@ func (sub SubFunc) Func2(lTyp, rTyp common.LType) *Function {
 				_scalar:  BinaryFunction[common.Interval, common.Interval, common.Interval](nil),
 			}
 		default:
-			panic("usp")
+			return nil
 		}
 	case common.LTID_TIME:
-		panic("usp")
+		return nil
 	case common.LTID_TIMESTAMP:
-		panic("usp")
+		return nil
 	default:
 		panic(fmt.Sprintf("no addFunc for %s %s", lTyp, rTyp))
 	}
@@ -745,7 +745,7 @@ func GetScalarIntegerMulFunctionWithoutOverflow(ptyp common.PhyType) ScalarFunc 
 	case common.DECIMAL:
 		return BinaryFunction[common.Decimal, common.Decimal, common.Decimal](binDecimalDecimalMulOp)
 	default:
-		panic("usp")
+		return nil
 	}
 	return nil
 }
@@ -910,7 +910,7 @@ func GetScalarIntegerSubFunctionWithoutOverflow(ptyp common.PhyType) ScalarFunc 
 	case common.DECIMAL:
 		return BinaryFunction[common.Decimal, common.Decimal, common.Decimal](binDecimalDecimalSubOp)
 	default:
-		panic("usp")
+		return nil
 	}
 	return nil
 }
@@ -1002,7 +1002,7 @@ func mulFloat32(left *float32, right *float32, result *float32) {
 }
 
 func mulHugeint(left *common.Hugeint, right *common.Hugeint, result *common.Hugeint) {
-	panic("usp")
+	*result = common.Hugeint{}
 }
 
 func GetScalarBinarySubFunction(ptyp common.PhyType, overflow bool) ScalarFunc {
@@ -1142,7 +1142,7 @@ func GetScalarUnarySubFunction(typ common.LType) ScalarFunc {
 		fun = UnaryFunction[common.Decimal, common.Decimal](common.NegateDecimal)
 	}
 	if fun == nil {
-		panic("usp")
+		return nil
 	}
 	return fun
 }

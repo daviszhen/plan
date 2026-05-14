@@ -62,13 +62,13 @@ func DefaultCastFunc(
 		common.LTID_FLOAT, common.LTID_DOUBLE:
 		return NumericCastSwitch(input, src, dst)
 	case common.LTID_POINTER:
-		panic("usp")
+		return nil
 	case common.LTID_UUID:
-		panic("usp")
+		return nil
 	case common.LTID_DECIMAL:
 		return DecimalCastToSwitch(input, src, dst)
 	case common.LTID_DATE:
-		panic("usp")
+		return nil
 	case common.LTID_TIME,
 		common.LTID_TIME_TZ,
 		common.LTID_TIMESTAMP,
@@ -76,31 +76,31 @@ func DefaultCastFunc(
 		common.LTID_TIMESTAMP_NS,
 		common.LTID_TIMESTAMP_MS,
 		common.LTID_TIMESTAMP_SEC:
-		panic("usp")
+		return nil
 	case common.LTID_INTERVAL:
-		panic("usp")
+		return nil
 	case common.LTID_VARCHAR:
 		return StringCastToSwitch(input, src, dst)
 	case common.LTID_BLOB:
-		panic("usp")
+		return nil
 	case common.LTID_BIT:
-		panic("usp")
+		return nil
 	case common.LTID_NULL:
-		panic("usp")
+		return nil
 	case common.LTID_MAP:
-		panic("usp")
+		return nil
 	case common.LTID_STRUCT:
-		panic("usp")
+		return nil
 	case common.LTID_LIST:
-		panic("usp")
+		return nil
 	case common.LTID_UNION:
-		panic("usp")
+		return nil
 	case common.LTID_ENUM:
-		panic("usp")
+		return nil
 	case common.LTID_AGGREGATE_STATE:
-		panic("usp")
+		return nil
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -127,10 +127,10 @@ func NumericCastSwitch(
 		ret = FloatCastToSwitch(input, src, dst)
 	case common.LTID_DOUBLE:
 	default:
-		panic("usp")
+		return nil
 	}
 	if ret == nil || ret._fun == nil {
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -154,7 +154,7 @@ func BoolCastToSwitch(
 	case common.LTID_FLOAT:
 	case common.LTID_DOUBLE:
 	default:
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -188,7 +188,7 @@ func IntegerCastToSwitch(
 		}
 		ret._fun = MakeCastFunc[int32, common.Decimal](decCast)
 	default:
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -216,7 +216,7 @@ func FloatCastToSwitch(
 	case common.LTID_DECIMAL:
 		ret._fun = MakeCastFunc[float32, common.Decimal](tryCastFloat32ToDecimal)
 	default:
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -244,7 +244,7 @@ func HugeintCastToSwitch(
 	case common.LTID_DECIMAL:
 		ret._fun = MakeCastFunc[common.Hugeint, common.Decimal](tryCastBigintToDecimal)
 	default:
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -274,7 +274,7 @@ func DecimalCastToSwitch(
 		}
 		ret._fun = MakeCastFunc[common.Decimal, common.Decimal](decCast)
 	default:
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -290,7 +290,7 @@ func StringCastToSwitch(
 	case common.LTID_INTERVAL:
 		ret._fun = MakeCastFunc[common.String, common.Interval](tryCastVarcharToInterval)
 	default:
-		panic("usp")
+		return nil
 	}
 	return ret
 }
@@ -374,7 +374,7 @@ func tryCastBigintToFloat32(input *common.Hugeint, result *float32, _ bool) bool
 }
 
 func tryCastBigintToDecimal(input *common.Hugeint, result *common.Decimal, _ bool) bool {
-	panic("usp")
+	return false
 }
 
 func tryCastDecimalToDecimal(input *common.Decimal, result *common.Decimal, srcScale, dstScale int, _ bool) bool {
@@ -517,7 +517,7 @@ type NumericTryCast[T any, R any] struct {
 
 func (cast NumericTryCast[T, R]) operation(input *T, result *R, strict bool) bool {
 	if cast.op == nil {
-		panic("usp")
+		return false
 	}
 	//FIXME: add overflow check
 	return cast.op(input, result, strict)
@@ -561,7 +561,7 @@ func (castSet *CastFunctionSet) GetCastFunc(src, dst common.LType) *BoundCastInf
 			return ret
 		}
 	}
-	panic("usp")
+	return nil
 }
 
 func NewCastFunctionSet() *CastFunctionSet {

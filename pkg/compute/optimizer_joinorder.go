@@ -1219,7 +1219,7 @@ func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]boo
 	case ET_Const:
 	case ET_Func:
 	default:
-		panic("usp")
+		return
 	}
 	for _, child := range e.Children {
 		joinOrder.collectRelation(child, set)
@@ -1243,7 +1243,7 @@ func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
 	case ET_Const:
 	case ET_Func:
 	default:
-		panic("usp")
+		return
 	}
 	for _, child := range e.Children {
 		joinOrder.getColumnBind(child, cb)
@@ -1287,7 +1287,7 @@ func getTableRefers(root *LogicalOperator, set UnorderedSet) {
 		collectTableRefersOfExprs(root.Filters, set)
 		getTableRefers(root.Children[0], set)
 	default:
-		panic("usp")
+		return
 	}
 
 }

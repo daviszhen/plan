@@ -201,7 +201,7 @@ func TemplatedMatchOp(
 				equalHugeintOp{},
 			)
 		default:
-			panic("usp")
+			return
 		}
 	case FuncNotEqual:
 		pTyp := layout.types()[colNo].GetInternalType()
@@ -221,10 +221,10 @@ func TemplatedMatchOp(
 				notEqualOp[int32]{},
 			)
 		default:
-			panic("usp")
+			return
 		}
 	default:
-		panic("usp")
+		return
 	}
 
 }

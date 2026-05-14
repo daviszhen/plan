@@ -131,7 +131,7 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			},
 		}, err
 	default:
-		panic("usp")
+		return nil, fmt.Errorf("unsupported from expr type %v", expr.Typ)
 	}
 }
 
@@ -431,7 +431,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 				},
 			}
 		default:
-			panic("usp")
+			return nil, nil, fmt.Errorf("unsupported subquery type %v", expr.GetSubqueryInfo().SubqueryTyp)
 		}
 
 		rootIndex := newSub.Index
@@ -469,7 +469,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			colRef := makeMarkCondFunc(rootIndex, false)
 			return colRef, newSub, nil
 		default:
-			panic("usp")
+			return nil, nil, fmt.Errorf("unsupported subquery type %v", expr.GetSubqueryInfo().SubqueryTyp)
 		}
 
 	} else {
@@ -507,7 +507,7 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 					},
 				}
 			default:
-				panic("usp")
+				return nil, nil, fmt.Errorf("unsupported subquery type %v", expr.GetSubqueryInfo().SubqueryTyp)
 			}
 		}
 		// TODO: may have multi columns

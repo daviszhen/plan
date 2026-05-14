@@ -245,7 +245,7 @@ func GetSumAggr(pTyp common.PhyType) *Function {
 		)
 		return fun
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -266,7 +266,7 @@ func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function 
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	case common.DOUBLE:
 		switch retPhyTyp {
@@ -283,7 +283,7 @@ func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function 
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	case common.DECIMAL:
 		switch retPhyTyp {
@@ -299,10 +299,10 @@ func GetAvgAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function 
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -322,7 +322,7 @@ func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Functio
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	case common.INT64:
 		switch retPhyTyp {
@@ -338,7 +338,7 @@ func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Functio
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	case common.VARCHAR:
 		switch retPhyTyp {
@@ -354,10 +354,10 @@ func GetCountAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Functio
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -377,10 +377,10 @@ func GetMaxAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function 
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -400,10 +400,10 @@ func GetMinAggr(retPhyTyp common.PhyType, inputPhyTyp common.PhyType) *Function 
 			)
 			return fun
 		default:
-			panic("usp")
+			return nil
 		}
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -433,7 +433,7 @@ func (state *State[T]) Init() {
 	case STATE_MAX, STATE_MIN:
 		state._isset = false
 	default:
-		panic("usp")
+		return
 	}
 
 }
@@ -449,11 +449,11 @@ func (state *State[T]) Combine(other *State[T], add TypeOp[T]) {
 	case STATE_COUNT:
 		state._count += other._count
 	case STATE_MAX:
-		panic("usp")
+		return
 	case STATE_MIN:
-		panic("usp")
+		return
 	default:
-		panic("usp")
+		return
 	}
 
 }
@@ -643,11 +643,11 @@ func (hadd *HugeintAdd) AddNumber(state *State[common.Hugeint], input *int32, to
 
 func (*HugeintAdd) AddConstant(*State[common.Hugeint], *int32, int, TypeOp[common.Hugeint]) {
 	//TODO:
-	panic("usp")
+	return
 }
 
-func (*HugeintAdd) Assign(*State[common.Hugeint], *int32)                          { panic("usp") }
-func (*HugeintAdd) Execute(*State[common.Hugeint], *int32, TypeOp[common.Hugeint]) { panic("usp") }
+func (*HugeintAdd) Assign(*State[common.Hugeint], *int32)                          { return }
+func (*HugeintAdd) Execute(*State[common.Hugeint], *int32, TypeOp[common.Hugeint]) { return }
 
 type HugeintAddInt64 struct {
 }
@@ -675,11 +675,11 @@ func (hadd *HugeintAddInt64) AddNumber(state *State[common.Hugeint], input *int6
 
 func (*HugeintAddInt64) AddConstant(*State[common.Hugeint], *int64, int, TypeOp[common.Hugeint]) {
 	//TODO:
-	panic("usp")
+	return
 }
 
-func (*HugeintAddInt64) Assign(*State[common.Hugeint], *int64)                          { panic("usp") }
-func (*HugeintAddInt64) Execute(*State[common.Hugeint], *int64, TypeOp[common.Hugeint]) { panic("usp") }
+func (*HugeintAddInt64) Assign(*State[common.Hugeint], *int64)                          { return }
+func (*HugeintAddInt64) Execute(*State[common.Hugeint], *int64, TypeOp[common.Hugeint]) { return }
 
 type DecimalAdd struct {
 }
@@ -704,7 +704,7 @@ func (*DecimalAdd) Execute(s *State[common.Decimal], input *common.Decimal, top 
 			s._value = *input
 		}
 	} else {
-		panic("usp")
+		return
 	}
 }
 
@@ -725,8 +725,8 @@ func (DoubleAdd) AddConstant(
 	panic("usp doubleAdd addconstant")
 }
 
-func (*DoubleAdd) Assign(*State[float64], *float64)                   { panic("usp") }
-func (*DoubleAdd) Execute(*State[float64], *float64, TypeOp[float64]) { panic("usp") }
+func (*DoubleAdd) Assign(*State[float64], *float64)                   { return }
+func (*DoubleAdd) Execute(*State[float64], *float64, TypeOp[float64]) { return }
 
 type DoubleInt32Add struct{}
 
@@ -745,8 +745,8 @@ func (DoubleInt32Add) AddConstant(
 	panic("usp doubleAdd addconstant")
 }
 
-func (*DoubleInt32Add) Assign(*State[float64], *int32)                   { panic("usp") }
-func (*DoubleInt32Add) Execute(*State[float64], *int32, TypeOp[float64]) { panic("usp") }
+func (*DoubleInt32Add) Assign(*State[float64], *int32)                   { return }
+func (*DoubleInt32Add) Execute(*State[float64], *int32, TypeOp[float64]) { return }
 
 type Double float64
 

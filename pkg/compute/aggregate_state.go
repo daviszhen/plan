@@ -116,6 +116,6 @@ func (data *AggrFinalizeData) ReturnNull() {
 	case chunk.PF_CONST:
 		chunk.SetNullInPhyFormatConst(data._result, true)
 	default:
-		panic("usp")
+		return
 	}
 }

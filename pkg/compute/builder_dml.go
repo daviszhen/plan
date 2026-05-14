@@ -74,7 +74,7 @@ func (b *Builder) buildInsertInternal(
 			if str != nil {
 				return str.GetSval()
 			}
-			panic("usp")
+			return ""
 		}
 		//insert into specified columns
 		//column name in stmt -> column seq no in stmt
@@ -237,7 +237,7 @@ func (b *Builder) buildValuesLists(
 	}
 
 	if len(resultTypes) == 0 && len(lists) != 0 {
-		panic("usp")
+		return nil, fmt.Errorf("empty result types with non-empty values lists")
 	}
 
 	alias := "valueslist"
@@ -300,7 +300,7 @@ func (b *Builder) CastLogicalOperatorToTypes(
 		return root, nil
 	} else {
 		//add cast project
-		panic("usp")
+		return nil, fmt.Errorf("unsupported root type %v for cast project", root.Typ)
 	}
 	return root, nil
 }

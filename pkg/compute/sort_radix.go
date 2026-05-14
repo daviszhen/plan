@@ -317,7 +317,7 @@ func RadixScatter(
 			hugeEncoder{},
 		)
 	default:
-		panic("usp")
+		return
 	}
 }
 
@@ -678,7 +678,7 @@ func Scatter(
 				chunk.HugeintScatterOp{},
 			)
 		default:
-			panic("usp")
+			return
 		}
 	}
 }
@@ -908,7 +908,7 @@ func CompareVal(
 			binStringLessOp,
 		)
 	default:
-		panic("usp")
+		return 0
 	}
 }
 

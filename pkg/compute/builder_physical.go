@@ -1,6 +1,8 @@
 package compute
 
 import (
+	"fmt"
+
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/storage"
 )
@@ -95,7 +97,7 @@ func (b *Builder) CreatePhyPlan(root *LogicalOperator) (*PhysicalOperator, error
 			return nil, err
 		}
 	default:
-		panic("usp")
+		return nil, fmt.Errorf("unsupported logical operator type %v", root.Typ)
 	}
 	if proot != nil {
 		proot.estimatedCard = root.estimatedCard

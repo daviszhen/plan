@@ -1,6 +1,8 @@
 package compute
 
 import (
+	"fmt"
+
 	"github.com/daviszhen/plan/pkg/common"
 	"github.com/daviszhen/plan/pkg/util"
 	pg_query "github.com/pganalyze/pg_query_go/v5"
@@ -33,7 +35,7 @@ func (b *Builder) bindCaseExpr(ctx *BindContext, iwc InWhichClause, expr *pg_que
 	if expr.Arg != nil {
 		//rewrite it to CASE WHEN kase = compare value ...
 
-		panic("usp")
+		return nil, fmt.Errorf("unsupported case expression with Arg")
 
 		//astWhen = make([]*Ast, len(expr.Expr.When))
 		//for i := 0; i < len(expr.Expr.When); i += 2 {

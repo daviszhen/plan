@@ -177,18 +177,18 @@ func (alloc *TupleDataAllocator) InitChunkStateInternal(
 
 		if part._totalHeapSize == 0 {
 			if initHeapSizes {
-				panic("usp")
+				return
 			}
 			offset += uint64(next)
 			continue
 		}
 
 		if recompute {
-			panic("usp")
+			return
 		}
 
 		if initHeapSizes {
-			panic("usp")
+			return
 		}
 
 		if initHeapPointers {
@@ -416,7 +416,7 @@ func (alloc *TupleDataAllocator) ReleaseOrStoreHandles2(
 				}
 				fun()
 			default:
-				panic("usp")
+				return
 			}
 			removed = append(removed, id)
 			found = true
