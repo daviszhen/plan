@@ -468,6 +468,13 @@ func (ent *CatalogEntry) GetStorage() *DataTable {
 	return ent._storage
 }
 
+func (ent *CatalogEntry) GetIndexes() *TableIndexList {
+	if ent._storage == nil || ent._storage._info == nil {
+		return nil
+	}
+	return ent._storage._info._indexes
+}
+
 func (ent *CatalogEntry) SetAsRoot() {
 }
 

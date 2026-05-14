@@ -97,13 +97,13 @@ func (b *Builder) createFrom(expr *Expr, root *LogicalOperator) (*LogicalOperato
 			panic(fmt.Sprintf("usp join type %d", jt))
 		}
 
-		onExpr := expr.GetJoinInfo().On.copy()
+		onExpr := expr.GetJoinInfo().On.Copy()
 		onExpr = distributeExpr(onExpr)
 
 		return &LogicalOperator{
 			Typ:      LOT_JOIN,
 			Index:    uint64(b.GetTag()),
-			Info:     &JoinOpInfo{JoinTyp: jt, OnConds: []*Expr{onExpr.copy()}},
+			Info:     &JoinOpInfo{JoinTyp: jt, OnConds: []*Expr{onExpr.Copy()}},
 			Children: []*LogicalOperator{left, right},
 		}, err
 	case ET_Subquery:
@@ -164,6 +164,21 @@ func (b *Builder) createWhere(expr *Expr, root *LogicalOperator) (*LogicalOperat
 
 // if the expr find subquery, it flattens the subquery and replaces
 // the expr.
+// recurseSubqueryChildren recursively processes all children of an expression
+// through createSubquery and returns the resulting argument expressions.
+func (b *Builder) recurseSubqueryChildren(expr *Expr, root **LogicalOperator) ([]*Expr, error) {
+	args := make([]*Expr, 0, len(expr.Children))
+	for _, child := range expr.Children {
+		childExpr, newRoot, err := b.createSubquery(child, *root)
+		if err != nil {
+			return nil, err
+		}
+		*root = newRoot
+		args = append(args, childExpr)
+	}
+	return args, nil
+}
+
 func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *LogicalOperator, error) {
 	var err error
 	var subRoot *LogicalOperator
@@ -180,14 +195,9 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 
 	case ET_Func:
 		if expr.GetFuncInfo().FunImpl.IsFunction() {
-			var childExpr *Expr
-			args := make([]*Expr, 0)
-			for _, child := range expr.Children {
-				childExpr, root, err = b.createSubquery(child, root)
-				if err != nil {
-					return nil, nil, err
-				}
-				args = append(args, childExpr)
+			args, err := b.recurseSubqueryChildren(expr, &root)
+			if err != nil {
+				return nil, nil, err
 			}
 			return &Expr{
 				Typ:        expr.Typ,
@@ -205,14 +215,9 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 			switch expr.GetFuncInfo().FunImpl._name {
 			default:
 				//binary operator
-				var childExpr *Expr
-				args := make([]*Expr, 0)
-				for _, child := range expr.Children {
-					childExpr, root, err = b.createSubquery(child, root)
-					if err != nil {
-						return nil, nil, err
-					}
-					args = append(args, childExpr)
+				args, err := b.recurseSubqueryChildren(expr, &root)
+				if err != nil {
+					return nil, nil, err
 				}
 				return &Expr{
 					Typ:        expr.Typ,
@@ -227,14 +232,9 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					},
 				}, root, nil
 			case FuncIn:
-				var childExpr *Expr
-				args := make([]*Expr, 0)
-				for _, child := range expr.Children {
-					childExpr, root, err = b.createSubquery(child, root)
-					if err != nil {
-						return nil, nil, err
-					}
-					args = append(args, childExpr)
+				args, err := b.recurseSubqueryChildren(expr, &root)
+				if err != nil {
+					return nil, nil, err
 				}
 
 				//FIXME:
@@ -258,7 +258,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					retExpr := fbinder.BindScalarFunc(FuncEqual,
 						[]*Expr{
 							bExpr,
-							copyExpr(bExpr),
+							bExpr.Copy(),
 						},
 						IsOperator(FuncEqual),
 					)
@@ -277,14 +277,9 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 					},
 				}, root, nil
 			case FuncNotIn:
-				var childExpr *Expr
-				args := make([]*Expr, 0)
-				for _, child := range expr.Children {
-					childExpr, root, err = b.createSubquery(child, root)
-					if err != nil {
-						return nil, nil, err
-					}
-					args = append(args, childExpr)
+				args, err := b.recurseSubqueryChildren(expr, &root)
+				if err != nil {
+					return nil, nil, err
 				}
 
 				//FIXME:
@@ -316,7 +311,7 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 						FuncEqual,
 						[]*Expr{
 							bExpr,
-							copyExpr(bExpr),
+							bExpr.Copy(),
 						},
 						IsOperator(FuncEqual))
 
@@ -699,11 +694,95 @@ func hasCorrCol(expr *Expr) bool {
 // ==============
 // Optimize plan
 // ==============
+// rewriteExpressions applies expression rewriting (constant folding, arithmetic
+// simplification, boolean simplification) to all expressions in the logical plan tree.
+func (b *Builder) rewriteExpressions(root *LogicalOperator) {
+	defer func() {
+		// Recover from any panics during rewriting — rewriting is an optimization,
+		// not a correctness requirement.
+		if r := recover(); r != nil {
+			// Silently continue — the plan is valid without rewriting.
+		}
+	}()
+
+	if root == nil {
+		return
+	}
+
+	rewriter := NewExpressionRewriter([]RewriteRule{
+		&DistributivityRule{},
+		&ConstantFoldingRule{},
+		&MoveConstantsRule{},
+		&ArithmeticSimplificationRule{},
+		&BooleanSimplificationRule{},
+		&ComparisonSimplificationRule{},
+	})
+
+	rewriteExprList := func(exprs []*Expr) []*Expr {
+		if len(exprs) == 0 {
+			return exprs
+		}
+		result := make([]*Expr, len(exprs))
+		for i, e := range exprs {
+			if e != nil {
+				result[i] = rewriter.Rewrite(e)
+			}
+		}
+		return result
+	}
+
+	// rewriteFilters rewrites filter expressions and ensures they remain boolean-typed.
+	// Bare ET_Column in filter position is wrapped as implicit equality with TRUE.
+	rewriteFilters := func(filters []*Expr) []*Expr {
+		filters = rewriteExprList(filters)
+		for i, f := range filters {
+			if f != nil && f.Typ == ET_Column {
+				binder := FunctionBinder{}
+				trueConst := &Expr{
+					Typ:        ET_Const,
+					DataTyp:    common.BooleanType(),
+					ConstValue: NewBooleanConst(true),
+				}
+				filters[i] = binder.BindScalarFunc(FuncEqual,
+					[]*Expr{f.Copy(), trueConst}, IsOperator(FuncEqual))
+			}
+		}
+		return filters
+	}
+
+	root.Filters = rewriteFilters(root.Filters)
+	root.Projects = rewriteExprList(root.Projects)
+
+	// OnConds
+	if ji, ok := root.Info.(*JoinOpInfo); ok && len(ji.OnConds) > 0 {
+		ji.OnConds = rewriteExprList(ji.OnConds)
+	}
+
+	// Aggs + GroupBys
+	if ai, ok := root.Info.(*AggOpInfo); ok {
+		ai.Aggs = rewriteExprList(ai.Aggs)
+		ai.GroupBys = rewriteExprList(ai.GroupBys)
+	}
+
+	// OrderBys
+	if oi, ok := root.Info.(*OrderOpInfo); ok {
+		oi.OrderBys = rewriteExprList(oi.OrderBys)
+	}
+
+	// Recurse into children.
+	for _, child := range root.Children {
+		b.rewriteExpressions(child)
+	}
+}
+
 func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOperator, error) {
 	var err error
 	var left []*Expr
 
 	//fmt.Println("before optimize", root.String())
+
+	//0. rewrite expressions (constant folding, arithmetic simplification)
+	b.rewriteExpressions(root)
 
 	//1. pushdown filter
 	root, left, err = b.pushdownFilters(root, nil)
@@ -727,6 +806,9 @@ func (b *Builder) Optimize(ctx *BindContext, root *LogicalOperator) (*LogicalOpe
 	}
 
 	//fmt.Println("after join order", root.String())
+
+	//2.5 rewrite expressions again (join reordering may introduce new foldable patterns)
+	b.rewriteExpressions(root)
 
 	//3. pushdown filter again
 	root, left, err = b.pushdownFilters(root, nil)
@@ -808,7 +890,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case NoneSide:
 				switch root.getJoinTyp() {
 				case LOT_JoinTypeInner:
-					leftNeeds = append(leftNeeds, copyExpr(nd))
+					leftNeeds = append(leftNeeds, nd.Copy())
 					rightNeeds = append(rightNeeds, nd)
 				case LOT_JoinTypeLeft:
 					leftNeeds = append(leftNeeds, nd)
@@ -822,7 +904,7 @@ func (b *Builder) pushdownFilters(root *LogicalOperator, filters []*Expr) (*Logi
 			case BothSide:
 				if root.getJoinTyp() == LOT_JoinTypeInner || root.getJoinTyp() == LOT_JoinTypeLeft {
 					//only equal or in can be used in On conds
-					if nd.GetFuncInfo().FunImpl._name == FuncEqual || nd.GetFuncInfo().FunImpl._name == FuncIn {
+					if nd.IsEqualOrIn() {
 						root.setOnConds(append(root.getOnConds(), nd))
 						break
 					}

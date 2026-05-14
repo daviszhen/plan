@@ -504,30 +504,22 @@ func (joinOrder *JoinOrderOptimizer) Optimize(root *LogicalOperator) (*LogicalOp
 		}
 		joinOrder.filterInfos = append(joinOrder.filterInfos, info)
 		//comparison operator => join predicate
-		switch filter.Typ {
-		case ET_Func:
-			if filter.GetFuncInfo().FunImpl.IsOperator() {
-				switch GetOperatorType(filter.GetFuncInfo().FunImpl._name) {
-				case OpTypeCompare, OpTypeLike, OpTypeLogical:
-					switch filter.GetFuncInfo().FunImpl._name {
-					case FuncIn, FuncNotIn:
-						//in or not in has been splited
-						for j, child := range filter.Children {
-							if j == 0 {
-								continue
-							}
-							joinOrder.createEdge(filter.Children[0], child, info)
+		if filter.isFunc() && filter.GetFuncInfo().FunImpl.IsOperator() {
+			if filter.IsComparison() || filter.IsLogicalOp() {
+				if filter.IsInOrNotIn() {
+					//in or not in has been splited
+					for j, child := range filter.Children {
+						if j == 0 {
+							continue
 						}
-					default:
-						joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
+						joinOrder.createEdge(filter.Children[0], child, info)
 					}
-				default:
-					panic(fmt.Sprintf("usp %v", filter.GetFuncInfo().FunImpl._name))
+				} else {
+					joinOrder.createEdge(filter.Children[0], filter.Children[1], info)
 				}
+			} else {
+				panic(fmt.Sprintf("usp %v", filter.FuncName()))
 			}
-
-		default:
-			panic(fmt.Sprintf("usp operator type %d", filter.Typ))
 		}
 	}
 
@@ -647,7 +639,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					return nil, errors.New("filter is nil")
 				}
 				condition := joinOrder.filters[filter.filterIndex]
-				if !(condition.GetFuncInfo().FunImpl._name == FuncEqual || condition.GetFuncInfo().FunImpl._name == FuncIn) {
+				if !condition.IsEqualOrIn() {
 					continue
 				}
 				util.AssertFunc(condition.GetFuncInfo().FunImpl._name != FuncLess)
@@ -664,10 +656,10 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					},
 				}
 				invert := !isSubset(left.set, filter.leftSet)
-				if !(condition.GetFuncInfo().FunImpl._name == FuncEqual || condition.GetFuncInfo().FunImpl._name == FuncIn) {
+				if !condition.IsEqualOrIn() {
 					invert = false
 				}
-				if condition.GetFuncInfo().FunImpl._name == FuncIn || condition.GetFuncInfo().FunImpl._name == FuncNotIn {
+				if condition.IsInOrNotIn() {
 					cond.Children = []*Expr{condition.Children[0], condition.Children[1]}
 					//TODO: fixme
 					//if !invert {
@@ -689,7 +681,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				//	//TODO:
 				//}
 				checkExprs(cond)
-				resultOp.setOnConds(append(resultOp.getOnConds(), cond.copy()))
+				resultOp.setOnConds(append(resultOp.getOnConds(), cond.Copy()))
 				//remove this filter
 				joinOrder.filters[filter.filterIndex] = nil
 			}
@@ -725,11 +717,11 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 			//filter is subset of current relation
 			if info.set.count() > 0 && isSubset(resultRel, info.set) {
 				filter := joinOrder.filters[info.filterIndex]
-				if !(filter.GetFuncInfo().FunImpl._name == FuncEqual || filter.GetFuncInfo().FunImpl._name == FuncIn) {
+				if !filter.IsEqualOrIn() {
 					continue
 				}
 				if leftNode == nil || info.leftSet == nil {
-					resultOp = pushFilter(resultOp, filter.copy())
+					resultOp = pushFilter(resultOp, filter.Copy())
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
@@ -742,11 +734,11 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 					foundSubset = true
 				}
 				if !foundSubset {
-					resultOp = pushFilter(resultOp, filter.copy())
+					resultOp = pushFilter(resultOp, filter.Copy())
 					joinOrder.filters[info.filterIndex] = nil
 					continue
 				}
-				if !(filter.GetFuncInfo().FunImpl._name == FuncEqual || filter.GetFuncInfo().FunImpl._name == FuncIn) {
+				if !filter.IsEqualOrIn() {
 					invert = false
 				}
 				cond := &Expr{
@@ -773,7 +765,7 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 				if cur.Typ == LOT_JOIN && cur.getJoinTyp() == LOT_JoinTypeCross {
 					next := &LogicalOperator{
 						Typ:      LOT_JOIN,
-						Info:     &JoinOpInfo{JoinTyp: LOT_JoinTypeInner, OnConds: []*Expr{cond.copy()}},
+						Info:     &JoinOpInfo{JoinTyp: LOT_JoinTypeInner, OnConds: []*Expr{cond.Copy()}},
 						Children: cur.Children,
 					}
 					if cur == resultOp {
@@ -782,12 +774,12 @@ func (joinOrder *JoinOrderOptimizer) generateJoins(extractedRels []*LogicalOpera
 						resultOp.Children[0] = next
 					}
 				} else {
-					if cond.GetFuncInfo().FunImpl._name == FuncEqual || cond.GetFuncInfo().FunImpl._name == FuncIn {
-						resultOp.setOnConds(append(resultOp.getOnConds(), cond.copy()))
+					if cond.IsEqualOrIn() {
+						resultOp.setOnConds(append(resultOp.getOnConds(), cond.Copy()))
 					} else {
 						next := &LogicalOperator{
 							Typ:      LOT_Filter,
-							Filters:  []*Expr{cond.copy()},
+							Filters:  []*Expr{cond.Copy()},
 							Children: []*LogicalOperator{resultOp},
 						}
 						resultOp = next
@@ -822,7 +814,7 @@ func (joinOrder *JoinOrderOptimizer) rewritePlan(root *LogicalOperator, node *Jo
 	//pushdown remaining filters
 	for _, filter := range joinOrder.filters {
 		if filter != nil {
-			joinTree.op = pushFilter(joinTree.op, filter.copy())
+			joinTree.op = pushFilter(joinTree.op, filter.Copy())
 		}
 	}
 	checkExprIsValid(joinTree.op)
@@ -1204,50 +1196,33 @@ func (joinOrder *JoinOrderOptimizer) extractJoinRelations(root, parent *LogicalO
 }
 
 func (joinOrder *JoinOrderOptimizer) collectRelation(e *Expr, set map[uint64]bool) {
-	switch e.Typ {
-	case ET_Column:
-		index := e.ColRef[0]
+	ExprEnumerateNodes(e, func(node *Expr) {
+		if node.Typ != ET_Column {
+			return
+		}
+		index := node.ColRef[0]
 		if relId, has := joinOrder.relationMapping[index]; !has {
 			panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
 		} else {
-			joinOrder.estimator.AddColumnToRelationMap(relId, e.ColRef[1])
+			joinOrder.estimator.AddColumnToRelationMap(relId, node.ColRef[1])
 			set[relId] = true
-			//if joinOrder.relations[relId].op.Index != index {
-			//	panic("no such relation")
-			//}
 		}
-	case ET_Const:
-	case ET_Func:
-	default:
-		return
-	}
-	for _, child := range e.Children {
-		joinOrder.collectRelation(child, set)
-	}
+	})
 }
 
 func (joinOrder *JoinOrderOptimizer) getColumnBind(e *Expr, cb *ColumnBind) {
-	if e == nil {
-		return
-	}
-	switch e.Typ {
-	case ET_Column:
-		index := e.ColRef[0]
+	ExprEnumerateNodes(e, func(node *Expr) {
+		if node.Typ != ET_Column {
+			return
+		}
+		index := node.ColRef[0]
 		if relId, has := joinOrder.relationMapping[index]; !has {
 			panic(fmt.Sprintf("there is no table index %d in relation mapping", index))
 		} else {
 			cb[0] = relId
-			cb[1] = e.ColRef[1]
+			cb[1] = node.ColRef[1]
 		}
-
-	case ET_Const:
-	case ET_Func:
-	default:
-		return
-	}
-	for _, child := range e.Children {
-		joinOrder.getColumnBind(child, cb)
-	}
+	})
 }
 
 func getTableRefers(root *LogicalOperator, set UnorderedSet) {

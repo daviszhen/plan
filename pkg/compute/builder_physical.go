@@ -135,6 +135,7 @@ func (b *Builder) createPhyScan(root *LogicalOperator, children []*PhysicalOpera
 			ScanTyp:     root.getScanTyp(),
 			Types:       scanTypes,
 			ColName2Idx: root.getScanColName2Idx(),
+			TableEnt:    root.getScanTableEnt(),
 		},
 		Children: children}
 

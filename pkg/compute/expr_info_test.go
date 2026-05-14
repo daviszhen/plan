@@ -76,8 +76,8 @@ func TestExpr_Copy_ByType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cp := tt.expr.copy()
-			assert.True(t, tt.expr.equal(cp), "copy should be equal to original")
+			cp := tt.expr.Copy()
+			assert.True(t, tt.expr.Equal(cp), "copy should be equal to original")
 			// Modify copy should not affect original
 			origTyp := tt.expr.DataTyp
 			cp.DataTyp = common.DoubleType()
@@ -89,21 +89,44 @@ func TestExpr_Copy_ByType(t *testing.T) {
 func TestExpr_Equal_DifferentTypes(t *testing.T) {
 	a := intConst(1)
 	b := colExpr("t", "c", 1, 0, common.IntegerType())
-	assert.False(t, a.equal(b))
+	assert.False(t, a.Equal(b))
 }
 
 func TestExpr_Equal_SameTypeDifferentValue(t *testing.T) {
 	a := intConst(1)
 	b := intConst(2)
-	assert.False(t, a.equal(b))
+	assert.False(t, a.Equal(b))
 }
 
 func TestConstValue_Copy(t *testing.T) {
 	c := NewIntervalConst(10, "day")
-	cp := c.copy()
-	assert.True(t, c.equal(cp))
+	cp := c.Copy()
+	assert.True(t, c.Equal(cp))
 	cp.Interval.Value = 20
-	assert.False(t, c.equal(cp), "copy should be independent")
+	assert.False(t, c.Equal(cp), "copy should be independent")
+}
+
+func TestExpr_Hash_Consistency(t *testing.T) {
+	// Equal expressions must have equal hashes
+	a := intConst(42)
+	b := intConst(42)
+	assert.True(t, a.Equal(b), "equal constants should be equal")
+	assert.Equal(t, a.Hash(), b.Hash(), "equal expressions must have equal hash")
+
+	// Different expressions should (with high probability) have different hashes
+	c := intConst(43)
+	assert.NotEqual(t, a.Hash(), c.Hash(), "different values should have different hashes")
+
+	// Copy preserves hash
+	cp := a.Copy()
+	assert.Equal(t, a.Hash(), cp.Hash(), "copy should preserve hash")
+}
+
+func TestExpr_Hash_Structure(t *testing.T) {
+	// structurally different expressions should have different hashes
+	add1 := cmpExpr("=", intConst(1), intConst(2))
+	add2 := cmpExpr("=", intConst(1), intConst(3))
+	assert.NotEqual(t, add1.Hash(), add2.Hash(), "different structure => different hash")
 }
 
 func TestConstValue_Equal_AllTypes(t *testing.T) {
@@ -131,7 +154,7 @@ func TestConstValue_Equal_AllTypes(t *testing.T) {
 	}
 	for _, p := range pairs {
 		t.Run(p.name, func(t *testing.T) {
-			assert.Equal(t, p.equal, p.a.equal(p.b))
+			assert.Equal(t, p.equal, p.a.Equal(p.b))
 		})
 	}
 }

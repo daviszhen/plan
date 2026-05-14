@@ -80,10 +80,10 @@ func (gad *GroupedAggrData) InitGroupby(
 	for _, aggr := range exprs {
 		gad._bindings = append(gad._bindings, aggr)
 		gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp)
-		for _, child := range aggr.Children {
+		ExprEnumerateChildren(aggr, func(child *Expr) {
 			gad._payloadTypes = append(gad._payloadTypes, child.DataTyp)
 			gad._paramExprs = append(gad._paramExprs, child)
-		}
+		})
 		gad._aggregates = append(gad._aggregates, aggr)
 	}
 }
@@ -95,11 +95,11 @@ func (gad *GroupedAggrData) InitDistinct(
 ) {
 	gad.InitDistinctGroups(groups)
 	gad._aggrReturnTypes = append(gad._aggrReturnTypes, aggr.DataTyp)
-	for _, child := range aggr.Children {
+	ExprEnumerateChildren(aggr, func(child *Expr) {
 		gad._groupTypes = append(gad._groupTypes, child.DataTyp)
-		gad._groups = append(gad._groups, child.copy())
+		gad._groups = append(gad._groups, child.Copy())
 		gad._payloadTypes = append(gad._payloadTypes, child.DataTyp)
-	}
+	})
 	gad._childrenOutputTypes = rawInputTypes
 }
 
@@ -112,7 +112,7 @@ func (gad *GroupedAggrData) InitDistinctGroups(
 
 	for _, group := range groups {
 		gad._groupTypes = append(gad._groupTypes, group.DataTyp)
-		gad._groups = append(gad._groups, group.copy())
+		gad._groups = append(gad._groups, group.Copy())
 	}
 }
 
@@ -267,7 +267,7 @@ func NewDistinctAggrCollectionInfo(
 	ret._tableCount = ret.CreateTableIndexMap()
 
 	for _, aggr := range aggregates {
-		if aggr.GetFuncInfo().FunImpl._aggrType == NON_DISTINCT {
+		if aggr.GetFuncInfo().FunImpl.AggrType() == NON_DISTINCT {
 			continue
 		}
 		ret._totalChildCount += len(aggr.Children)
@@ -296,7 +296,7 @@ func NewAggrObject(aggr *Expr) *AggrObject {
 	util.AssertFunc(aggr.GetFuncInfo().FunImpl.IsFunction())
 	ret := new(AggrObject)
 	ret._childCount = len(aggr.Children)
-	ret._aggrType = aggr.GetFuncInfo().FunImpl._aggrType
+	ret._aggrType = aggr.GetFuncInfo().FunImpl.AggrType()
 	ret._retType = aggr.DataTyp.GetInternalType()
 	ret._name = aggr.ConstValue.String
 	ret._func = aggr.GetFuncInfo().FunImpl
