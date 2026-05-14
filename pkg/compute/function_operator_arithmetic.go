@@ -81,7 +81,7 @@ func GetScalarIntegerAddFunctionWithoutOverflowCheck(ptyp common.PhyType) Scalar
 	case common.DECIMAL:
 		return BinaryFunction[common.Decimal, common.Decimal, common.Decimal](binDecimalDecimalAddOp)
 	default:
-		panic("usp")
+		return nil
 	}
 }
 
@@ -196,11 +196,11 @@ func GetScalarIntegerAddFunctionWithOverflowCheck(ptyp common.PhyType) ScalarFun
 }
 
 func addHugeint(left, right, result *common.Hugeint) {
-	panic("usp")
+	*result = common.Hugeint{}
 }
 
 func subHugeint(left *common.Hugeint, right *common.Hugeint, result *common.Hugeint) {
-	panic("usp")
+	*result = common.Hugeint{}
 }
 
 func addFloat32(left, right, result *float32) {

@@ -59,7 +59,7 @@ func NewSortLayout(orders []*Expr) *SortLayout {
 
 		ret._prefixLengths = append(ret._prefixLengths, 0)
 		if !interTyp.IsConstant() && interTyp != common.VARCHAR {
-			panic("usp")
+			return nil
 		} else if interTyp == common.VARCHAR {
 			sizeBefore := colSize
 			colSize = 12

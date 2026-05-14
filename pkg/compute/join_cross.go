@@ -15,6 +15,7 @@
 package compute
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/daviszhen/plan/pkg/chunk"
@@ -163,7 +164,7 @@ func (cross *CrossProductExec) Execute(input, output *chunk.Chunk) (OperatorResu
 					scanChunk.Card(),
 				)
 			} else {
-				panic("usp")
+				return InvalidOpResult, fmt.Errorf("unsupported output mapping: unexpected table index %d in cross product", tblIdx)
 			}
 		} else {
 			if tblIdx == -1 {
@@ -176,7 +177,7 @@ func (cross *CrossProductExec) Execute(input, output *chunk.Chunk) (OperatorResu
 					scanChunk.Card(),
 				)
 			} else {
-				panic("usp")
+				return InvalidOpResult, fmt.Errorf("unsupported output mapping: unexpected table index %d in cross product", tblIdx)
 			}
 		}
 	}
@@ -594,7 +595,7 @@ func ColumnDataCopySwitch(
 			&hugeintValueCopy{},
 		)
 	default:
-		panic("usp")
+		return
 	}
 }
 
@@ -629,7 +630,7 @@ func TemplatedColumnDataCopy[T any](
 		offset += appendCount
 		remaining -= appendCount
 		if remaining > 0 {
-			panic("usp")
+			util.AssertFunc(remaining <= 0)
 		}
 	}
 }

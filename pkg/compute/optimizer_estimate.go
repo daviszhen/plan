@@ -407,7 +407,7 @@ func (est *CardinalityEstimator) AddRelationColumnMapping(
 			est.AddRelationToColumnMapping(key, value)
 		}
 	default:
-		panic("usp")
+		return fmt.Errorf("unsupported scan type %v", get.getScanTyp())
 	}
 
 	return nil

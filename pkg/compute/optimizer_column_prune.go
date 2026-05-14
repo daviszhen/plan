@@ -655,32 +655,12 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
-			//bind pos in the children
-			st := LeftChild
-			has, childPos := root.Children[0].ColRefToPos.pos(bind)
-			if !has {
-				if len(root.Children) > 1 {
-					has, childPos = root.Children[1].ColRefToPos.pos(bind)
-					if !has {
-						panic(fmt.Sprintf("no such %v in children", bind))
-					}
-					st = RightChild
-				} else {
-					panic(fmt.Sprintf("no such %v in children", bind))
-				}
+			st, childPos, err := findChildPos(root, bind)
+			if err != nil {
+				return nil, err
 			}
-
 			childExpr := root.Children[0].Outputs[childPos]
-			root.Outputs = append(root.Outputs, &Expr{
-				Typ:     ET_Column,
-				DataTyp: childExpr.DataTyp,
-				BaseInfo: BaseInfo{
-					Database: childExpr.Database,
-					Table:    childExpr.Table,
-					Name:     childExpr.Name,
-					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
-				},
-			})
+			appendChildOutput(root, childExpr, ColumnBind{uint64(st), uint64(childPos)})
 		}
 	case LOT_Order:
 		err = genChildren()
@@ -692,32 +672,12 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
-			//bind pos in the children
-			st := LeftChild
-			has, childPos := root.Children[0].ColRefToPos.pos(bind)
-			if !has {
-				if len(root.Children) > 1 {
-					has, childPos = root.Children[1].ColRefToPos.pos(bind)
-					if !has {
-						panic(fmt.Sprintf("no such %v in children", bind))
-					}
-					st = RightChild
-				} else {
-					panic(fmt.Sprintf("no such %v in children", bind))
-				}
+			st, childPos, err := findChildPos(root, bind)
+			if err != nil {
+				return nil, err
 			}
-
 			childExpr := root.Children[0].Outputs[childPos]
-			root.Outputs = append(root.Outputs, &Expr{
-				Typ:     ET_Column,
-				DataTyp: childExpr.DataTyp,
-				BaseInfo: BaseInfo{
-					Database: childExpr.Database,
-					Table:    childExpr.Table,
-					Name:     childExpr.Name,
-					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
-				},
-			})
+			appendChildOutput(root, childExpr, ColumnBind{uint64(st), uint64(childPos)})
 		}
 
 	case LOT_Project:
@@ -744,32 +704,12 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 				})
 				continue
 			}
-			//bind pos in the children
-			st := LeftChild
-			has, childPos := root.Children[0].ColRefToPos.pos(bind)
-			if !has {
-				if len(root.Children) > 1 {
-					has, childPos = root.Children[1].ColRefToPos.pos(bind)
-					if !has {
-						panic(fmt.Sprintf("no such %v in children", bind))
-					}
-					st = RightChild
-				} else {
-					panic(fmt.Sprintf("no such %v in children", bind))
-				}
+			st, childPos, err := findChildPos(root, bind)
+			if err != nil {
+				return nil, err
 			}
-
 			childExpr := root.Children[0].Outputs[childPos]
-			root.Outputs = append(root.Outputs, &Expr{
-				Typ:     ET_Column,
-				DataTyp: childExpr.DataTyp,
-				BaseInfo: BaseInfo{
-					Database: childExpr.Database,
-					Table:    childExpr.Table,
-					Name:     childExpr.Name,
-					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
-				},
-			})
+			appendChildOutput(root, childExpr, ColumnBind{uint64(st), uint64(childPos)})
 		}
 
 	case LOT_AggGroup:
@@ -900,38 +840,17 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			if bind.table() == root.Index {
 				continue
 			}
-			//bind pos in the children
-			st := LeftChild
-			has, childPos := root.Children[0].ColRefToPos.pos(bind)
-			if !has {
-				if len(root.Children) > 1 {
-					has, childPos = root.Children[1].ColRefToPos.pos(bind)
-					if !has {
-						panic(fmt.Sprintf("no such %v in children", bind))
-					}
-					st = RightChild
-				} else {
-					panic(fmt.Sprintf("no such %v in children", bind))
-				}
+			st, childPos, err := findChildPos(root, bind)
+			if err != nil {
+				return nil, err
 			}
-
 			var childExpr *Expr
 			if st == LeftChild {
 				childExpr = root.Children[0].Outputs[childPos]
 			} else {
 				childExpr = root.Children[1].Outputs[childPos]
 			}
-
-			root.Outputs = append(root.Outputs, &Expr{
-				Typ:     ET_Column,
-				DataTyp: childExpr.DataTyp,
-				BaseInfo: BaseInfo{
-					Database: childExpr.Database,
-					Table:    childExpr.Table,
-					Name:     childExpr.Name,
-					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
-				},
-			})
+			appendChildOutput(root, childExpr, ColumnBind{uint64(st), uint64(childPos)})
 		}
 		for _, bind := range binds {
 			if bind.table() == root.Index {
@@ -969,7 +888,7 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 			column2Idx = root.getScanColName2Idx()
 			columnTyps = root.getScanConfig().ReturnedTypes
 		default:
-			panic("usp")
+			return nil, fmt.Errorf("unsupported scan type %v", root.getScanTyp())
 		}
 
 		binds := root.ColRefToPos.sortByColumnBind()
@@ -1001,36 +920,46 @@ func (update *outputsUpdater) generateOutputs(root *LogicalOperator) (*LogicalOp
 
 		binds := root.ColRefToPos.sortByColumnBind()
 		for _, bind := range binds {
-			//bind pos in the children
-			st := LeftChild
-			has, childPos := root.Children[0].ColRefToPos.pos(bind)
-			if !has {
-				if len(root.Children) > 1 {
-					has, childPos = root.Children[1].ColRefToPos.pos(bind)
-					if !has {
-						panic(fmt.Sprintf("no such %v in children", bind))
-					}
-					st = RightChild
-				} else {
-					panic(fmt.Sprintf("no such %v in children", bind))
-				}
+			st, childPos, err := findChildPos(root, bind)
+			if err != nil {
+				return nil, err
 			}
-
 			childExpr := root.Children[0].Outputs[childPos]
-			root.Outputs = append(root.Outputs, &Expr{
-				Typ:     ET_Column,
-				DataTyp: childExpr.DataTyp,
-				BaseInfo: BaseInfo{
-					Database: childExpr.Database,
-					Table:    childExpr.Table,
-					Name:     childExpr.Name,
-					ColRef:   ColumnBind{uint64(st), uint64(childPos)},
-				},
-			})
+			appendChildOutput(root, childExpr, ColumnBind{uint64(st), uint64(childPos)})
 		}
 	default:
 		panic(fmt.Sprintf("usp op type %v", root.Typ))
 	}
 	checkColRefPosInNode(root)
 	return root, nil
+}
+
+func findChildPos(root *LogicalOperator, bind ColumnBind) (SourceType, int, error) {
+	st := LeftChild
+	has, childPos := root.Children[0].ColRefToPos.pos(bind)
+	if !has {
+		if len(root.Children) > 1 {
+			has, childPos = root.Children[1].ColRefToPos.pos(bind)
+			if !has {
+				return 0, 0, fmt.Errorf("no such %v in children", bind)
+			}
+			st = RightChild
+		} else {
+			return 0, 0, fmt.Errorf("no such %v in children", bind)
+		}
+	}
+	return st, childPos, nil
+}
+
+func appendChildOutput(root *LogicalOperator, childExpr *Expr, colRef ColumnBind) {
+	root.Outputs = append(root.Outputs, &Expr{
+		Typ:     ET_Column,
+		DataTyp: childExpr.DataTyp,
+		BaseInfo: BaseInfo{
+			Database: childExpr.Database,
+			Table:    childExpr.Table,
+			Name:     childExpr.Name,
+			ColRef:   colRef,
+		},
+	})
 }

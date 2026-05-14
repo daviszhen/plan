@@ -307,10 +307,10 @@ func (exec *ExprExec) executeConst(expr *Expr, state *ExprState, sel *chunk.Sele
 			}
 			result.ReferenceValue(val)
 		default:
-			panic("usp")
+			return fmt.Errorf("unsupported const type %v", expr.ConstValue.Type)
 		}
 	default:
-		panic("usp")
+		return fmt.Errorf("unsupported expr type %v", expr.Typ)
 	}
 	return nil
 }
@@ -380,14 +380,14 @@ func (exec *ExprExec) execSelectExpr(expr *Expr, eState *ExprState, sel *chunk.S
 			case FuncOr:
 				return exec.execSelectOr(expr, eState, sel, count, trueSel, falseSel)
 			default:
-				panic("usp")
+				return 0, fmt.Errorf("unsupported logical func %s", expr.GetFuncInfo().FunImpl._name)
 			}
 		default:
-			panic("usp")
+			return 0, fmt.Errorf("unsupported operator type %v", GetOperatorType(expr.GetFuncInfo().FunImpl._name))
 		}
 
 	default:
-		panic("usp")
+		return 0, fmt.Errorf("unsupported expr type %v", expr.Typ)
 	}
 }
 
@@ -419,10 +419,10 @@ func (exec *ExprExec) execSelectCompare(expr *Expr, eState *ExprState, sel *chun
 				expr.GetFuncInfo().FunImpl._name,
 			), nil
 		default:
-			panic("usp")
+			return 0, fmt.Errorf("unsupported compare func %s", expr.GetFuncInfo().FunImpl._name)
 		}
 	default:
-		panic("usp")
+		return 0, fmt.Errorf("unsupported operator type %v", GetOperatorType(expr.GetFuncInfo().FunImpl._name))
 	}
 
 }
@@ -536,7 +536,7 @@ func initExprState(expr *Expr, eeState *ExprExecState) (ret *ExprState) {
 		ret = NewExprState(expr, eeState)
 		ret.addChild(expr.Children[0])
 	default:
-		panic("usp")
+		return nil
 	}
 	ret.finalize()
 	return
@@ -554,7 +554,7 @@ func FillSwitch(
 	case common.DECIMAL:
 		TemplatedFillLoop[common.Decimal](vec, res, sel, count)
 	default:
-		panic("usp")
+		return
 	}
 }
 

@@ -126,7 +126,7 @@ func (b *Builder) buildCreateTable(
 			case 1:
 				typName = colDef.TypeName.Names[0].GetString_().GetSval()
 			default:
-				panic("usp")
+				return nil, fmt.Errorf("unsupported type name count %d", len(colDef.TypeName.Names))
 			}
 			switch strings.ToLower(typName) {
 			case "int4":
@@ -175,11 +175,11 @@ func (b *Builder) buildCreateTable(
 					pkNames = append(pkNames, kname)
 				}
 			default:
-				panic("usp")
+				return nil, fmt.Errorf("unsupported constraint type %v", cons.GetContype())
 			}
 			tableCons = append(tableCons, storage.NewUniqueIndexConstraint2(pkNames, true))
 		default:
-			panic("usp")
+			return nil, fmt.Errorf("unsupported node type %T", nodeImpl)
 		}
 	}
 	ctInfo.ColDefs = colDefs

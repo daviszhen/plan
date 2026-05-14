@@ -41,7 +41,7 @@ func (b *Builder) bindExpr(
 	//var child *Expr
 	switch realExpr := expr.GetNode().(type) {
 	case *pg_query.Node_ResTarget:
-		panic("usp")
+		return nil, fmt.Errorf("unsupported expression: ResTarget in clause %v", iwc)
 	case *pg_query.Node_ColumnRef:
 		tableName, colName := getTableColumn(realExpr.ColumnRef)
 		switch iwc {
@@ -512,7 +512,7 @@ func decideResultType(left common.LType, right common.LType) common.LType {
 		if left.IsNumeric() || left.Id == common.LTID_BOOLEAN {
 			return left
 		} else if right.IsNumeric() || right.Id == common.LTID_BOOLEAN {
-			panic("usp")
+			return resultTyp
 		}
 		return resultTyp
 	default:

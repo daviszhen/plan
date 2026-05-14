@@ -107,22 +107,22 @@ func binDateInterAddOp(left *common.Date, right *common.Interval, result *common
 
 //lint:ignore U1000
 func binDateInt32AddOp(left *common.Date, right *int32, result *common.Date) {
-	panic("usp")
+	return
 }
 
 //lint:ignore U1000
 func binInt32DateAddOp(left *int32, right *common.Date, result *common.Date) {
-	panic("usp")
+	return
 }
 
 //lint:ignore U1000
 func binIntervalIntervalAddOp(left *common.Interval, right *common.Interval, result *common.Interval) {
-	panic("usp")
+	return
 }
 
 //lint:ignore U1000
 func binIntervalDateAddOp(left *common.Interval, right *common.Date, result *common.Date) {
-	panic("usp")
+	return
 }
 
 //lint:ignore U1000
@@ -260,7 +260,7 @@ func binStringInt32ExtractOp(left *common.String, right *common.Date, result *in
 	if left.String() == "year" {
 		*result = right.Year
 	} else {
-		panic("usp")
+		return
 	}
 }
 

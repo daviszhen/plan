@@ -401,9 +401,9 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.BOOL:
 			return selectBinary[bool](left, right, sel, count, trueSel, falseSel, equalOp[bool]{})
 		case common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncNotEqual, FuncNotIn:
 		switch left.Typ().GetInternalType() {
@@ -412,9 +412,9 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.VARCHAR:
 			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, notEqualStrOp{})
 		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncIn:
 		switch left.Typ().GetInternalType() {
@@ -423,9 +423,9 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.VARCHAR:
 			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, inStrOp{})
 		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncGreater:
 		switch left.Typ().GetInternalType() {
@@ -440,9 +440,9 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.DECIMAL:
 			return selectBinary[common.Decimal](left, right, sel, count, trueSel, falseSel, greatDecimalOp{})
 		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncGreaterEqual:
 		switch left.Typ().GetInternalType() {
@@ -453,9 +453,9 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, greatEqualFloat32Op{})
 		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncLess:
 		switch left.Typ().GetInternalType() {
@@ -466,9 +466,9 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.DOUBLE:
 			return selectBinary[float64](left, right, sel, count, trueSel, falseSel, lessFloat64Op{})
 		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.FLOAT, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncLessEqual:
 		switch left.Typ().GetInternalType() {
@@ -479,26 +479,26 @@ func selectOperation(left, right *chunk.Vector, sel *chunk.SelectVector, count i
 		case common.FLOAT:
 			return selectBinary[float32](left, right, sel, count, trueSel, falseSel, lessEqualFloat32Op{})
 		case common.BOOL, common.UINT8, common.INT8, common.UINT16, common.INT16, common.UINT32, common.UINT64, common.INT64, common.DOUBLE, common.INTERVAL, common.LIST, common.STRUCT, common.VARCHAR, common.INT128, common.UNKNOWN, common.BIT, common.INVALID:
-			panic("usp")
+			return 0
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncLike:
 		switch left.Typ().GetInternalType() {
 		case common.VARCHAR:
 			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, likeOp{})
 		default:
-			panic("usp")
+			return 0
 		}
 	case FuncNotLike:
 		switch left.Typ().GetInternalType() {
 		case common.VARCHAR:
 			return selectBinary[common.String](left, right, sel, count, trueSel, falseSel, notLikeOp{})
 		default:
-			panic("usp")
+			return 0
 		}
 	default:
-		panic("usp")
+		return 0
 	}
 
 }

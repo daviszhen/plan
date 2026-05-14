@@ -246,7 +246,7 @@ func (b *Builder) buildTable(table *pg_query.Node, ctx *BindContext, depth int) 
 			//find cte binding
 			cteBind := ctx.GetCteBinding(tableName)
 			if cteBind != nil {
-				panic("usp")
+				return nil, fmt.Errorf("unsupported cte binding")
 				//index := b.GetTag()
 				//alias := tableName
 				//if len(table.Expr.Alias.alias) != 0 {
