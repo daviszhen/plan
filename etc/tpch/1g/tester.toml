@@ -1,5 +1,7 @@
 [tpch1g.query]
 path ="/home/pengzhen/Documents/plan/cases/tpch/query"
+filePattern = "q%d.sql"
+maxQueryId = 22
 
 [tpch1g.data]
 path = "/home/pengzhen/Documents/tpch-parquet/"

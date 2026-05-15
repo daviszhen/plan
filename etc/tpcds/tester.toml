@@ -1,0 +1,22 @@
+[tpch1g.query]
+path = "/home/pengzhen/Documents/plan/cases/tpcds/query"
+filePattern = "query%d.sql"
+maxQueryId = 99
+
+[tpch1g.data]
+path = "/tmp/nonexistent"
+format = "parquet"
+
+[tpch1g.result]
+path = "/tmp/tpcds_result"
+needHeadline = false
+
+[tpch1g.ddl]
+path = "/home/pengzhen/Documents/plan/cases/tpcds/tpcds.sql"
+
+[debug]
+showRaw = false
+maxScanRows = 10
+maxOutputRowCount = -1
+printPlan = false
+printResult = false
