@@ -200,10 +200,10 @@ func TestFuncExprMatcher_WithDataTypeMatcher(t *testing.T) {
 	// mkFunc returns an expression bound with actual types; for simple arithmetic
 	// the binder may resolve to a non-integer type. Construct manually instead.
 	expr := &Expr{
-		Typ:     ET_Func,
-		DataTyp: common.IntegerType(),
+		Typ:      ET_Func,
+		DataTyp:  common.IntegerType(),
 		Children: []*Expr{mkConst(1), mkConst(2)},
-		Info:    &FunctionInfo{FunImpl: &Function{_name: FuncAdd}},
+		Info:     &FunctionInfo{FunImpl: &Function{_name: FuncAdd}},
 	}
 	ok, bindings := m.Match(expr, nil)
 	assert.True(t, ok)
@@ -366,8 +366,8 @@ func TestAggregateExprMatcher(t *testing.T) {
 	}
 	// Build a sum aggregate expression manually since mkFunc binds scalar funcs.
 	expr := &Expr{
-		Typ:     ET_Func,
-		DataTyp: common.IntegerType(),
+		Typ:      ET_Func,
+		DataTyp:  common.IntegerType(),
 		Children: []*Expr{mkCol("t", "a", 1, 0)},
 		Info: &FunctionInfo{
 			FunImpl: &Function{_name: "sum", _funcTyp: AggregateFuncType},
@@ -379,8 +379,8 @@ func TestAggregateExprMatcher(t *testing.T) {
 
 	// Non-aggregate should not match
 	expr2 := &Expr{
-		Typ:     ET_Func,
-		DataTyp: common.IntegerType(),
+		Typ:      ET_Func,
+		DataTyp:  common.IntegerType(),
 		Children: []*Expr{mkCol("t", "a", 1, 0)},
 		Info: &FunctionInfo{
 			FunImpl: &Function{_name: "sum", _funcTyp: ScalarFuncType},
@@ -656,7 +656,6 @@ func TestMatcher_SetMatch_EmptyEntries(t *testing.T) {
 	assert.False(t, ok)
 	assert.Empty(t, bindings)
 }
-
 
 // ============================================================
 // Stage 9: DuckDB-inspired integration patterns
@@ -974,7 +973,8 @@ func TestSetMatch_Unordered_BacktrackingHard(t *testing.T) {
 
 // TestArithmeticSimplificationPattern_DuckDB replicates DuckDB's
 // ArithmeticSimplificationRule matcher pattern:
-//   arithmetic_func(const, any) with SOME policy and integer type.
+//
+//	arithmetic_func(const, any) with SOME policy and integer type.
 func TestArithmeticSimplificationPattern_DuckDB(t *testing.T) {
 	// Pattern: +, -, *, / with (const_integer, any_integer) using SOME
 	m := &FuncExprMatcher{
@@ -1016,7 +1016,8 @@ func TestArithmeticSimplificationPattern_DuckDB(t *testing.T) {
 
 // TestMoveConstantsPattern_DuckDB replicates DuckDB's MoveConstantsRule
 // matcher pattern:
-//   comparison( const, arithmetic(const, expr) ) with UNORDERED/SOME.
+//
+//	comparison( const, arithmetic(const, expr) ) with UNORDERED/SOME.
 func TestMoveConstantsPattern_DuckDB(t *testing.T) {
 	// Outer comparison: (const, arithmetic) with UNORDERED
 	outer := &ComparisonExprMatcher{
@@ -1335,7 +1336,7 @@ func TestLogicalOpWithChildMatcher_OutOfBounds(t *testing.T) {
 // TestLogicalOpWithChildMatcher_Nested verifies nested logical operator matching.
 func TestLogicalOpWithChildMatcher_Nested(t *testing.T) {
 	m := &LogicalOpWithChildMatcher{
-		OpMatcher:    &SpecificLogicalOpMatcher{Typ: LOT_Project},
+		OpMatcher: &SpecificLogicalOpMatcher{Typ: LOT_Project},
 		ChildMatcher: &LogicalOpWithChildMatcher{
 			OpMatcher:    &SpecificLogicalOpMatcher{Typ: LOT_Filter},
 			ChildMatcher: &SpecificLogicalOpMatcher{Typ: LOT_Scan},

@@ -493,9 +493,9 @@ func (DevideFunc) Register(funcList FunctionList) {
 		_name:      FuncDivide,
 		_args:      []common.LType{common.DecimalType(common.DecimalMaxWidthInt64, 0), common.DecimalType(common.DecimalMaxWidthInt64, 0)},
 		_errorMode: CanThrowRuntimeError,
-		_retType: common.DecimalType(common.DecimalMaxWidthInt64, 0),
-		_funcTyp: ScalarFuncType,
-		_bind:    BindDecimalDivide,
+		_retType:   common.DecimalType(common.DecimalMaxWidthInt64, 0),
+		_funcTyp:   ScalarFuncType,
+		_bind:      BindDecimalDivide,
 	}
 
 	set.Add(divFloat)

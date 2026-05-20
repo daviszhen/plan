@@ -40,14 +40,14 @@ func TestCompactionPlanner_BinPackingStrategy(t *testing.T) {
 
 	// Create fragments with varied sizes to test bin packing
 	fragments := []*DataFragment{
-		createTestFragment(1, 500, 100, false),   // 500 bytes, 100 rows
-		createTestFragment(2, 300, 60, false),    // 300 bytes, 60 rows
-		createTestFragment(3, 400, 80, false),    // 400 bytes, 80 rows
-		createTestFragment(4, 200, 40, false),    // 200 bytes, 40 rows
-		createTestFragment(5, 600, 120, false),   // 600 bytes, 120 rows
-		createTestFragment(6, 150, 30, false),    // 150 bytes, 30 rows
-		createTestFragment(7, 250, 50, false),    // 250 bytes, 50 rows
-		createTestFragment(8, 450, 90, false),    // 450 bytes, 90 rows
+		createTestFragment(1, 500, 100, false), // 500 bytes, 100 rows
+		createTestFragment(2, 300, 60, false),  // 300 bytes, 60 rows
+		createTestFragment(3, 400, 80, false),  // 400 bytes, 80 rows
+		createTestFragment(4, 200, 40, false),  // 200 bytes, 40 rows
+		createTestFragment(5, 600, 120, false), // 600 bytes, 120 rows
+		createTestFragment(6, 150, 30, false),  // 150 bytes, 30 rows
+		createTestFragment(7, 250, 50, false),  // 250 bytes, 50 rows
+		createTestFragment(8, 450, 90, false),  // 450 bytes, 90 rows
 	}
 
 	plan := planner.Plan(fragments)
@@ -452,7 +452,7 @@ func TestCompactionPlanner_EstimateTaskDuration(t *testing.T) {
 
 	// Create test task
 	task := &CompactionTask{
-		ID:          1,
+		ID: 1,
 		Fragments: []*DataFragment{
 			createTestFragment(1, 500, 100, false),
 			createTestFragment(2, 300, 60, false),

@@ -228,8 +228,8 @@ type Function struct {
 	_nullHandling FuncNullHandling
 	_aggrType     AggrType
 
-	_stability   FunctionStability // 默认 ConsistentFunction
-	_errorMode   FunctionErrorMode // 默认 NoRuntimeError
+	_stability FunctionStability // 默认 ConsistentFunction
+	_errorMode FunctionErrorMode // 默认 NoRuntimeError
 
 	_scalar        ScalarFunc
 	_bind          bindScalarFunc

@@ -31,10 +31,6 @@ import (
 	"github.com/daviszhen/plan/pkg/util"
 )
 
-const (
-	tpch1g22 = 22
-)
-
 type runResult struct {
 	id   int
 	dur  time.Duration
@@ -63,9 +59,13 @@ func Run(cfg *util.Config) error {
 		repeat = cfg.Debug.Count
 	}
 	if cfg.Tpch1g.Query.QueryId == 0 {
+		maxQueryId := cfg.Tpch1g.Query.MaxQueryId
+		if maxQueryId <= 0 {
+			maxQueryId = 22 // default: all TPC-H queries
+		}
 		for r := 0; r < repeat; r++ {
 			res := make([]runResult, 0)
-			for i := 0; i < tpch1g22; i++ {
+			for i := 0; i < maxQueryId; i++ {
 				id := i + 1
 				fmt.Printf("[run] preparing query %d: parsing SQL\n", id)
 				stmts, err := genStmts(cfg, id)
@@ -103,8 +103,12 @@ func Run(cfg *util.Config) error {
 		}
 	} else {
 		id := cfg.Tpch1g.Query.QueryId
-		if id <= 0 || id > tpch1g22 {
-			return fmt.Errorf("invalid query Id:%d", id)
+		maxQueryId := cfg.Tpch1g.Query.MaxQueryId
+		if maxQueryId <= 0 {
+			maxQueryId = 22
+		}
+		if id <= 0 || id > uint(maxQueryId) {
+			return fmt.Errorf("invalid query Id:%d (max=%d)", id, maxQueryId)
 		}
 		re := runResult{
 			id: int(id),
@@ -238,7 +242,11 @@ func execQuery(cfg *util.Config, id int, ast *pg_query.SelectStmt) (err error) {
 }
 
 func genStmts(cfg *util.Config, id int) ([]*pg_query.RawStmt, error) {
-	sqlPath := path.Join(cfg.Tpch1g.Query.Path, fmt.Sprintf("q%d.sql", id))
+	pattern := cfg.Tpch1g.Query.FilePattern
+	if pattern == "" {
+		pattern = "q%d.sql"
+	}
+	sqlPath := path.Join(cfg.Tpch1g.Query.Path, fmt.Sprintf(pattern, id))
 	sqlBytes, err := os.ReadFile(sqlPath)
 	if err != nil {
 		return nil, err

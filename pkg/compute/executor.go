@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 
-	wire "github.com/jeroenrinzema/psql-wire"
 	"github.com/daviszhen/plan/pkg/common"
+	wire "github.com/jeroenrinzema/psql-wire"
 	"github.com/lib/pq/oid"
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 

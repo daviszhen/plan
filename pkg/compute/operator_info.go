@@ -43,11 +43,16 @@ type LimitOpInfo struct {
 }
 
 type InsertOpInfo struct {
-	TableEnt      *storage.CatalogEntry
-	TableIndex    int
-	ExpectedTypes []common.LType
+	TableEnt       *storage.CatalogEntry
+	TableIndex     int
+	ExpectedTypes  []common.LType
 	ColumnIndexMap []int
-	IsValuesList  bool
+	IsValuesList   bool
+	// For COPY FROM logging
+	TableName  string
+	SchemaName string
+	FilePath   string
+	Format     string
 }
 
 type CreateTableOpInfo struct {

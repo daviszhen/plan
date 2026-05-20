@@ -10,9 +10,9 @@ import (
 )
 
 type orderExecutor struct {
-	op         *PhysicalOperator
-	localSort  *LocalSort
-	keyTypes   []common.LType
+	op           *PhysicalOperator
+	localSort    *LocalSort
+	keyTypes     []common.LType
 	payloadTypes []common.LType
 	orderKeyExec *ExprExec
 	outputExec   *ExprExec

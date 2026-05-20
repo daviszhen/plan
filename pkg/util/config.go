@@ -15,8 +15,10 @@
 package util
 
 type Tpch1gQuery struct {
-	Path    string `tag:"path"`
-	QueryId uint   `tag:"queryId"`
+	Path        string `tag:"path"`
+	QueryId     uint   `tag:"queryId"`
+	FilePattern string `tag:"filePattern"`
+	MaxQueryId  int    `tag:"maxQueryId"`
 }
 
 type Tpch1gData struct {

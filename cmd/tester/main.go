@@ -76,6 +76,8 @@ func initTpch1gCfg() {
 	initDebugOptions()
 	testerCfg.Tpch1g.Query.QueryId = viper.GetUint("tpch1g.query.queryId")
 	testerCfg.Tpch1g.Query.Path = viper.GetString("tpch1g.query.path")
+	testerCfg.Tpch1g.Query.FilePattern = viper.GetString("tpch1g.query.filePattern")
+	testerCfg.Tpch1g.Query.MaxQueryId = viper.GetInt("tpch1g.query.maxQueryId")
 	testerCfg.Tpch1g.Data.Path = viper.GetString("tpch1g.data.path")
 	testerCfg.Tpch1g.Data.Format = viper.GetString("tpch1g.data.format")
 	testerCfg.Tpch1g.Result.Path = viper.GetString("tpch1g.result.path")
@@ -103,21 +105,25 @@ func initTpch1gDDLCfg() {
 
 func initTpch1gCmd() {
 	RootCmd.AddCommand(tpch1gCmd)
-	tpch1gCmd.Flags().UintVar(&testerCfg.Tpch1g.Query.QueryId, "query_id", 0, "query id")
+	tpch1gCmd.Flags().UintVar(&testerCfg.Tpch1g.Query.QueryId, "query_id", 0, "query id (0 = all)")
+	tpch1gCmd.Flags().IntVar(&testerCfg.Tpch1g.Query.MaxQueryId, "max_query_id", 0, "max query id for all mode")
+	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Query.FilePattern, "file_pattern", "", "query file pattern (e.g. 'query%d.sql')")
 	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Data.Path, "data_path", "", "tpch 1g data path")
 	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Data.Format, "data_format", "", "tpch 1g data format. csv, parquet")
 	tpch1gCmd.Flags().StringVar(&testerCfg.Tpch1g.Result.Path, "result_path", "", "query result path")
 	tpch1gCmd.Flags().BoolVar(&testerCfg.Tpch1g.Result.NeedHeadLine, "need_headline", true, "output headline in query result")
 
 	viper.BindPFlag("tpch1g.query.queryId", tpch1gCmd.Flags().Lookup("query_id"))
+	viper.BindPFlag("tpch1g.query.maxQueryId", tpch1gCmd.Flags().Lookup("max_query_id"))
+	viper.BindPFlag("tpch1g.query.filePattern", tpch1gCmd.Flags().Lookup("file_pattern"))
 	viper.BindPFlag("tpch1g.data.path", tpch1gCmd.Flags().Lookup("data_path"))
 	viper.BindPFlag("tpch1g.data.format", tpch1gCmd.Flags().Lookup("data_format"))
 	viper.BindPFlag("tpch1g.result.path", tpch1gCmd.Flags().Lookup("result_path"))
 	viper.BindPFlag("tpch1g.result.needHeadline", tpch1gCmd.Flags().Lookup("need_headline"))
 
 	RootCmd.AddCommand(tpch1gDDLCmd)
-	tpch1gDDLCmd.Flags().StringVar(&testerCfg.Tpch1g.DDL.Path, "path", "", "ddl path")
-	tpch1gDDLCmd.Flags().StringVar(&testerCfg.Tpch1g.DDL.DDL, "ddl", "", "ddl")
+	tpch1gDDLCmd.Flags().StringVar(&testerCfg.Tpch1g.DDL.Path, "path", "", "ddl file path")
+	tpch1gDDLCmd.Flags().StringVar(&testerCfg.Tpch1g.DDL.DDL, "ddl", "", "ddl sql text")
 
 	viper.BindPFlag("tpch1g.ddl.path", tpch1gDDLCmd.Flags().Lookup("path"))
 	viper.BindPFlag("tpch1g.ddl.ddl", tpch1gDDLCmd.Flags().Lookup("ddl"))
@@ -127,6 +133,17 @@ var defCfgFilePaths = []string{".", "etc/tpch/1g"}
 var cfgFileName = "tester.toml"
 
 func loadConfig() {
+	// Use TESTER_CONFIG_PATH env var if set.
+	if envPath := os.Getenv("TESTER_CONFIG_PATH"); envPath != "" {
+		viper.SetConfigFile(envPath)
+		if err := viper.ReadInConfig(); err != nil {
+			util.Error("viper load config file failed",
+				zap.String("fpath", envPath),
+				zap.Error(err))
+			os.Exit(1)
+		}
+		return
+	}
 	has := false
 	for _, dirPath := range defCfgFilePaths {
 		fpath := filepath.Join(dirPath, cfgFileName)
@@ -144,7 +161,7 @@ func loadConfig() {
 		}
 	}
 	if !has {
-		util.Error("tester.toml does not exist")
+		util.Error("tester.toml does not exist. Set TESTER_CONFIG_PATH env var or place tester.toml in etc/tpch/1g/")
 		os.Exit(1)
 	}
 }

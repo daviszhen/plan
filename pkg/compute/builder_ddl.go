@@ -129,21 +129,32 @@ func (b *Builder) buildCreateTable(
 				return nil, fmt.Errorf("unsupported type name count %d", len(colDef.TypeName.Names))
 			}
 			switch strings.ToLower(typName) {
-			case "int4":
+			case "int4", "integer", "int":
 				colDefExpr.Type = common.IntegerType()
-			case "int8":
+			case "int8", "bigint":
 				colDefExpr.Type = common.BigintType()
-			case "varchar":
+			case "varchar", "char", "character", "character varying", "bpchar":
 				colDefExpr.Type = common.VarcharType()
-			case "numeric":
+			case "numeric", "decimal":
 				typMods := colDef.TypeName.GetTypmods()
-				width := typMods[0].GetAConst().GetIval().GetIval()
-				pres := typMods[1].GetAConst().GetIval().GetIval()
-				colDefExpr.Type = common.DecimalType(int(width), int(pres))
+				if len(typMods) >= 2 {
+					width := typMods[0].GetAConst().GetIval().GetIval()
+					pres := typMods[1].GetAConst().GetIval().GetIval()
+					colDefExpr.Type = common.DecimalType(int(width), int(pres))
+				} else if len(typMods) == 1 {
+					width := typMods[0].GetAConst().GetIval().GetIval()
+					colDefExpr.Type = common.DecimalType(int(width), 0)
+				} else {
+					colDefExpr.Type = common.DecimalType(18, 2) // default
+				}
 			case "date":
 				colDefExpr.Type = common.DateType()
+			case "time", "timetz", "timestamp", "timestamptz":
+				// Temporarily map time types to varchar for DDL to succeed.
+				// Full time/timestamp support requires new LType.
+				colDefExpr.Type = common.VarcharType()
 			default:
-				panic("")
+				return nil, fmt.Errorf("unsupported column type %q for column %q", typName, colDefExpr.Name)
 			}
 
 			//column constraint

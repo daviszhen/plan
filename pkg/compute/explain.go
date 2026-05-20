@@ -37,8 +37,8 @@ func (w *ExplainWriter) Detail(format string, args ...any) {
 	w.buf.WriteByte('\n')
 }
 
-func (w *ExplainWriter) Indent()  { w.level++ }
-func (w *ExplainWriter) Dedent()  { w.level-- }
+func (w *ExplainWriter) Indent()        { w.level++ }
+func (w *ExplainWriter) Dedent()        { w.level-- }
 func (w *ExplainWriter) String() string { return strings.TrimRight(w.buf.String(), "\n") }
 
 func (w *ExplainWriter) detailIndent() int {

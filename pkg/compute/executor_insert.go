@@ -2,10 +2,12 @@ package compute
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/daviszhen/plan/pkg/chunk"
 	"github.com/daviszhen/plan/pkg/storage"
 	"github.com/daviszhen/plan/pkg/util"
+	"go.uber.org/zap"
 )
 
 type insertExecutor struct {
@@ -68,10 +70,21 @@ func (e *insertExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, er
 	var err error
 	info := e.op.Info.(*InsertOpInfo)
 
+	// Log COPY FROM start
+	if info.FilePath != "" {
+		util.Info("COPY FROM start",
+			zap.String("table", fmt.Sprintf("%s.%s", info.SchemaName, info.TableName)),
+			zap.String("file", info.FilePath),
+			zap.String("format", info.Format),
+		)
+	}
+	startTime := time.Now()
+
 	lAState := &storage.LocalAppendState{}
 	table := info.TableEnt.GetStorage()
 	table.InitLocalAppend(e.txn, lAState)
 
+	var totalRows int
 	for {
 		childChunk := &chunk.Chunk{}
 		res, err = e.children[0].Execute(nil, childChunk)
@@ -102,8 +115,22 @@ func (e *insertExecutor) Execute(input, output *chunk.Chunk) (OperatorResult, er
 		if err != nil {
 			return InvalidOpResult, err
 		}
+		totalRows += childChunk.Card()
 	}
 	table.FinalizeLocalAppend(e.txn, lAState)
+
+	// Log COPY FROM end
+	if info.FilePath != "" {
+		elapsed := time.Since(startTime)
+		util.Info("COPY FROM end",
+			zap.String("table", fmt.Sprintf("%s.%s", info.SchemaName, info.TableName)),
+			zap.String("file", info.FilePath),
+			zap.String("format", info.Format),
+			zap.Int("rows", totalRows),
+			zap.Duration("elapsed", elapsed),
+		)
+	}
+
 	return Done, nil
 }
 
