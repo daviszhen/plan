@@ -20,10 +20,10 @@ import (
 )
 
 type scanExecutor struct {
-	op            *PhysicalOperator
-	txn           *storage.Txn
-	cfg           *util.Config
-	children      []OperatorExec
+	op       *PhysicalOperator
+	txn      *storage.Txn
+	cfg      *util.Config
+	children []OperatorExec
 
 	// 列信息
 	colIndice     []int
@@ -32,11 +32,11 @@ type scanExecutor struct {
 	outputIndice  []int
 
 	// 文件相关
-	pqFile        source.ParquetFile
-	pqReader      *pqReader.ParquetReader
-	dataFile      *os.File
-	reader        *csv.Reader
-	tablePath     string
+	pqFile    source.ParquetFile
+	pqReader  *pqReader.ParquetReader
+	dataFile  *os.File
+	reader    *csv.Reader
+	tablePath string
 
 	// 扫描状态
 	tableScanState *storage.TableScanState
@@ -45,8 +45,8 @@ type scanExecutor struct {
 	showRaw        bool
 
 	// filter
-	filterExec     *ExprExec
-	filterSel      *chunk.SelectVector
+	filterExec *ExprExec
+	filterSel  *chunk.SelectVector
 }
 
 func newScanExecutor(op *PhysicalOperator, cfg *util.Config, txn *storage.Txn, children []OperatorExec) (*scanExecutor, error) {
@@ -368,18 +368,37 @@ func fieldToValue(field string, lTyp common.LType) (*chunk.Value, error) {
 	}
 	switch lTyp.Id {
 	case common.LTID_DATE:
-		d, err := time.Parse(time.DateOnly, field)
-		if err != nil {
-			return nil, err
+		if field == "" {
+			val.IsNull = true
+		} else {
+			d, err := time.Parse(time.DateOnly, field)
+			if err != nil {
+				return nil, err
+			}
+			val.I64 = int64(d.Year())
+			val.I64_1 = int64(d.Month())
+			val.I64_2 = int64(d.Day())
 		}
-		val.I64 = int64(d.Year())
-		val.I64_1 = int64(d.Month())
-		val.I64_2 = int64(d.Day())
 	case common.LTID_INTEGER:
-		val.I64, err = strconv.ParseInt(field, 10, 64)
-		if err != nil {
-			return nil, err
+		if field == "" {
+			val.IsNull = true
+		} else {
+			val.I64, err = strconv.ParseInt(field, 10, 64)
+			if err != nil {
+				return nil, err
+			}
 		}
+	case common.LTID_BIGINT:
+		if field == "" {
+			val.IsNull = true
+		} else {
+			val.I64, err = strconv.ParseInt(field, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+	case common.LTID_DECIMAL:
+		val.Str = field
 	case common.LTID_VARCHAR:
 		val.Str = field
 	default:

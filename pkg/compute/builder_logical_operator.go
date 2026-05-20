@@ -304,7 +304,7 @@ func (lo *LogicalOperator) setOnConds(conds []*Expr) {
 		ji.OnConds = conds
 		return
 	}
-	
+
 }
 
 // getAggs returns Aggs from Info or embedded field

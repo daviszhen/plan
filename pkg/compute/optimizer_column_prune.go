@@ -426,7 +426,13 @@ func (cp *ColumnPrune) prune(root *LogicalOperator) (*LogicalOperator, error) {
 
 			}
 		}
-		if si := root.getScanInfo(); si != nil { si.Columns = needed } else { if si := root.getScanInfo(); si != nil { si.Columns = needed } }
+		if si := root.getScanInfo(); si != nil {
+			si.Columns = needed
+		} else {
+			if si := root.getScanInfo(); si != nil {
+				si.Columns = needed
+			}
+		}
 
 		cp.colRefs.replaceAll(cmap)
 		return root, nil

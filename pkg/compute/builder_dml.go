@@ -52,7 +52,7 @@ func (b *Builder) buildInsertInternal(
 			name, schema)
 	}
 	insert := &LogicalOperator{
-		Typ:   LOT_Insert,
+		Typ: LOT_Insert,
 		Info: &InsertOpInfo{
 			TableEnt:   tabEnt,
 			TableIndex: b.GetTag(),
@@ -313,9 +313,9 @@ func (b *Builder) createPhyInsert(
 	ret := &PhysicalOperator{
 		Typ: POT_Insert,
 		Info: &InsertOpInfo{
-			TableEnt:      info.TableEnt,
+			TableEnt:       info.TableEnt,
 			ColumnIndexMap: info.ColumnIndexMap,
-			ExpectedTypes: info.TableEnt.GetTypes(),
+			ExpectedTypes:  info.TableEnt.GetTypes(),
 		},
 		Children: children,
 	}
@@ -392,6 +392,12 @@ func (b *Builder) buildCopyFrom(
 	if formatOpt == nil {
 		return nil, fmt.Errorf("no format option in copy from")
 	}
+
+	// Record COPY metadata on InsertOpInfo for execution-time logging
+	insertInfo.TableName = name
+	insertInfo.SchemaName = schema
+	insertInfo.FilePath = stmt.GetFilename()
+	insertInfo.Format = formatOpt.Opt
 
 	scanInfo := &ScanInfo{
 		ReturnedTypes: insertInfo.ExpectedTypes,

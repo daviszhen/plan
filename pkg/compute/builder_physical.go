@@ -186,11 +186,11 @@ func (b *Builder) createPhyOrder(root *LogicalOperator, children []*PhysicalOper
 
 func (b *Builder) createPhyAgg(root *LogicalOperator, children []*PhysicalOperator) (*PhysicalOperator, error) {
 	return &PhysicalOperator{
-		Typ:     POT_Agg,
-		Index:   root.Index,
-		Filters: root.Filters,
-		Outputs: root.Outputs,
-		Info:    &AggOpInfo{AggTag: root.getAggTag(), Aggs: root.getAggs(), GroupBys: root.getGroupBys()},
+		Typ:      POT_Agg,
+		Index:    root.Index,
+		Filters:  root.Filters,
+		Outputs:  root.Outputs,
+		Info:     &AggOpInfo{AggTag: root.getAggTag(), Aggs: root.getAggs(), GroupBys: root.getGroupBys()},
 		Children: children}, nil
 }
 

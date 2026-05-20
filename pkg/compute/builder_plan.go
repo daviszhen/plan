@@ -286,7 +286,9 @@ func (b *Builder) createSubquery(expr *Expr, root *LogicalOperator) (*Expr, *Log
 				//convert semi to anti
 				if root.Typ == LOT_JOIN &&
 					root.getJoinTyp() == LOT_JoinTypeSEMI {
-					if ji, ok := root.Info.(*JoinOpInfo); ok { ji.JoinTyp = LOT_JoinTypeANTI }
+					if ji, ok := root.Info.(*JoinOpInfo); ok {
+						ji.JoinTyp = LOT_JoinTypeANTI
+					}
 				}
 
 				//FIXME:
@@ -400,27 +402,27 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 		switch expr.GetSubqueryInfo().SubqueryTyp {
 		case ET_SubqueryTypeScalar:
 			newSub = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				Index:   uint64(b.GetTag()),
-				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeInner, OnConds: nonCorrExprs},
+				Typ:   LOT_JOIN,
+				Index: uint64(b.GetTag()),
+				Info:  &JoinOpInfo{JoinTyp: LOT_JoinTypeInner, OnConds: nonCorrExprs},
 				Children: []*LogicalOperator{
 					root, newSub,
 				},
 			}
 		case ET_SubqueryTypeExists:
 			newSub = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				Index:   uint64(b.GetTag()),
-				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeMARK, OnConds: nonCorrExprs},
+				Typ:   LOT_JOIN,
+				Index: uint64(b.GetTag()),
+				Info:  &JoinOpInfo{JoinTyp: LOT_JoinTypeMARK, OnConds: nonCorrExprs},
 				Children: []*LogicalOperator{
 					root, newSub,
 				},
 			}
 		case ET_SubqueryTypeNotExists:
 			newSub = &LogicalOperator{
-				Typ:     LOT_JOIN,
-				Index:   uint64(b.GetTag()),
-				Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeAntiMARK, OnConds: nonCorrExprs},
+				Typ:   LOT_JOIN,
+				Index: uint64(b.GetTag()),
+				Info:  &JoinOpInfo{JoinTyp: LOT_JoinTypeAntiMARK, OnConds: nonCorrExprs},
 				Children: []*LogicalOperator{
 					root, newSub,
 				},
@@ -476,27 +478,27 @@ func (b *Builder) apply(expr *Expr, root, subRoot *LogicalOperator) (*Expr, *Log
 			switch expr.GetSubqueryInfo().SubqueryTyp {
 			case ET_SubqueryTypeScalar:
 				newRoot = &LogicalOperator{
-					Typ:     LOT_JOIN,
-					Index:   uint64(b.GetTag()),
-					Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeCross, OnConds: nil},
+					Typ:   LOT_JOIN,
+					Index: uint64(b.GetTag()),
+					Info:  &JoinOpInfo{JoinTyp: LOT_JoinTypeCross, OnConds: nil},
 					Children: []*LogicalOperator{
 						root, subRoot,
 					},
 				}
 			case ET_SubqueryTypeIn:
 				newRoot = &LogicalOperator{
-					Typ:     LOT_JOIN,
-					Index:   uint64(b.GetTag()),
-					Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeSEMI, OnConds: nil},
+					Typ:   LOT_JOIN,
+					Index: uint64(b.GetTag()),
+					Info:  &JoinOpInfo{JoinTyp: LOT_JoinTypeSEMI, OnConds: nil},
 					Children: []*LogicalOperator{
 						root, subRoot,
 					},
 				}
 			case ET_SubqueryTypeNotIn:
 				newRoot = &LogicalOperator{
-					Typ:     LOT_JOIN,
-					Index:   uint64(b.GetTag()),
-					Info: &JoinOpInfo{JoinTyp: LOT_JoinTypeANTI, OnConds: nil},
+					Typ:   LOT_JOIN,
+					Index: uint64(b.GetTag()),
+					Info:  &JoinOpInfo{JoinTyp: LOT_JoinTypeANTI, OnConds: nil},
 					Children: []*LogicalOperator{
 						root, subRoot,
 					},
@@ -620,7 +622,7 @@ func (b *Builder) createAggGroup(root *LogicalOperator) (*LogicalOperator, error
 		Info: &AggOpInfo{
 			AggTag:   uint64(b.aggTag),
 			Aggs:     b.aggs,
-			GroupBys:  b.groupbyExprs,
+			GroupBys: b.groupbyExprs,
 		},
 		Children: []*LogicalOperator{root},
 	}, nil
@@ -647,8 +649,8 @@ func (b *Builder) createProject(root *LogicalOperator) (*LogicalOperator, error)
 
 func (b *Builder) createOrderby(root *LogicalOperator) (*LogicalOperator, error) {
 	return &LogicalOperator{
-		Typ:  LOT_Order,
-		Info: &OrderOpInfo{OrderBys: b.orderbyExprs},
+		Typ:      LOT_Order,
+		Info:     &OrderOpInfo{OrderBys: b.orderbyExprs},
 		Children: []*LogicalOperator{root},
 	}, nil
 }
@@ -696,6 +698,8 @@ func hasCorrCol(expr *Expr) bool {
 // ==============
 // rewriteExpressions applies expression rewriting (constant folding, arithmetic
 // simplification, boolean simplification) to all expressions in the logical plan tree.
+// It uses the ExpressionRewriter as a LogicalOperatorVisitor to traverse the plan
+// and rewrite expressions in-place.
 func (b *Builder) rewriteExpressions(root *LogicalOperator) {
 	defer func() {
 		// Recover from any panics during rewriting — rewriting is an optimization,
@@ -717,61 +721,34 @@ func (b *Builder) rewriteExpressions(root *LogicalOperator) {
 		&BooleanSimplificationRule{},
 		&ComparisonSimplificationRule{},
 	})
+	rewriter.Self = rewriter
+	rewriter.VisitOperator(root)
 
-	rewriteExprList := func(exprs []*Expr) []*Expr {
-		if len(exprs) == 0 {
-			return exprs
-		}
-		result := make([]*Expr, len(exprs))
-		for i, e := range exprs {
-			if e != nil {
-				result[i] = rewriter.Rewrite(e)
-			}
-		}
-		return result
-	}
-
-	// rewriteFilters rewrites filter expressions and ensures they remain boolean-typed.
+	// Post-pass: ensure filter expressions remain boolean-typed.
 	// Bare ET_Column in filter position is wrapped as implicit equality with TRUE.
-	rewriteFilters := func(filters []*Expr) []*Expr {
-		filters = rewriteExprList(filters)
-		for i, f := range filters {
-			if f != nil && f.Typ == ET_Column {
-				binder := FunctionBinder{}
-				trueConst := &Expr{
-					Typ:        ET_Const,
-					DataTyp:    common.BooleanType(),
-					ConstValue: NewBooleanConst(true),
-				}
-				filters[i] = binder.BindScalarFunc(FuncEqual,
-					[]*Expr{f.Copy(), trueConst}, IsOperator(FuncEqual))
+	b.coerceFilterBooleans(root)
+}
+
+// coerceFilterBooleans walks the plan tree and wraps any bare ET_Column
+// expressions in filter position with (= col TRUE).
+func (b *Builder) coerceFilterBooleans(root *LogicalOperator) {
+	if root == nil {
+		return
+	}
+	for i, f := range root.Filters {
+		if f != nil && f.Typ == ET_Column {
+			binder := FunctionBinder{}
+			trueConst := &Expr{
+				Typ:        ET_Const,
+				DataTyp:    common.BooleanType(),
+				ConstValue: NewBooleanConst(true),
 			}
+			root.Filters[i] = binder.BindScalarFunc(FuncEqual,
+				[]*Expr{f.Copy(), trueConst}, IsOperator(FuncEqual))
 		}
-		return filters
 	}
-
-	root.Filters = rewriteFilters(root.Filters)
-	root.Projects = rewriteExprList(root.Projects)
-
-	// OnConds
-	if ji, ok := root.Info.(*JoinOpInfo); ok && len(ji.OnConds) > 0 {
-		ji.OnConds = rewriteExprList(ji.OnConds)
-	}
-
-	// Aggs + GroupBys
-	if ai, ok := root.Info.(*AggOpInfo); ok {
-		ai.Aggs = rewriteExprList(ai.Aggs)
-		ai.GroupBys = rewriteExprList(ai.GroupBys)
-	}
-
-	// OrderBys
-	if oi, ok := root.Info.(*OrderOpInfo); ok {
-		oi.OrderBys = rewriteExprList(oi.OrderBys)
-	}
-
-	// Recurse into children.
 	for _, child := range root.Children {
-		b.rewriteExpressions(child)
+		b.coerceFilterBooleans(child)
 	}
 }
 

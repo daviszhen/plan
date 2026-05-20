@@ -332,9 +332,9 @@ func TestMemoryCommitHandler_VersionTracking(t *testing.T) {
 
 	// Commit version 1 (version param is the version to write)
 	manifest1 := &Manifest{
-		Version:    1,
-		Fields:     []*storage2pb.Field{{Name: "col1", Id: 0}},
-		Fragments:  []*DataFragment{},
+		Version:   1,
+		Fields:    []*storage2pb.Field{{Name: "col1", Id: 0}},
+		Fragments: []*DataFragment{},
 	}
 	err := handler.Commit(ctx, "mem://test/dataset", 1, manifest1)
 	if err != nil {
@@ -352,9 +352,9 @@ func TestMemoryCommitHandler_VersionTracking(t *testing.T) {
 
 	// Commit version 2
 	manifest2 := &Manifest{
-		Version:    2,
-		Fields:     []*storage2pb.Field{{Name: "col1", Id: 0}, {Name: "col2", Id: 1}},
-		Fragments:  []*DataFragment{},
+		Version:   2,
+		Fields:    []*storage2pb.Field{{Name: "col1", Id: 0}, {Name: "col2", Id: 1}},
+		Fragments: []*DataFragment{},
 	}
 	err = handler.Commit(ctx, "mem://test/dataset", 2, manifest2)
 	if err != nil {
@@ -372,9 +372,9 @@ func TestMemoryCommitHandler_VersionTracking(t *testing.T) {
 
 	// Commit version 3
 	manifest3 := &Manifest{
-		Version:    3,
-		Fields:     manifest2.Fields,
-		Fragments:  []*DataFragment{},
+		Version:   3,
+		Fields:    manifest2.Fields,
+		Fragments: []*DataFragment{},
 	}
 	err = handler.Commit(ctx, "mem://test/dataset", 3, manifest3)
 	if err != nil {
@@ -417,9 +417,9 @@ func TestMemoryCommitHandler_ConflictDetection(t *testing.T) {
 
 	// Commit version 1
 	manifest1 := &Manifest{
-		Version:    1,
-		Fields:     []*storage2pb.Field{{Name: "col1", Id: 0}},
-		Fragments:  []*DataFragment{},
+		Version:   1,
+		Fields:    []*storage2pb.Field{{Name: "col1", Id: 0}},
+		Fragments: []*DataFragment{},
 	}
 	err := handler.Commit(ctx, "mem://test/dataset", 1, manifest1)
 	if err != nil {
@@ -437,9 +437,9 @@ func TestMemoryCommitHandler_ConflictDetection(t *testing.T) {
 
 	// Overwrite version 1 (MemoryCommitHandler allows this)
 	manifest1Alt := &Manifest{
-		Version:    1,
-		Fields:     []*storage2pb.Field{{Name: "col1_alt", Id: 0}},
-		Fragments:  []*DataFragment{},
+		Version:   1,
+		Fields:    []*storage2pb.Field{{Name: "col1_alt", Id: 0}},
+		Fragments: []*DataFragment{},
 	}
 	err = handler.Commit(ctx, "mem://test/dataset", 1, manifest1Alt)
 	if err != nil {
@@ -457,9 +457,9 @@ func TestMemoryCommitHandler_ConflictDetection(t *testing.T) {
 
 	// Commit version 2
 	manifest2 := &Manifest{
-		Version:    2,
-		Fields:     manifest1.Fields,
-		Fragments:  []*DataFragment{},
+		Version:   2,
+		Fields:    manifest1.Fields,
+		Fragments: []*DataFragment{},
 	}
 	err = handler.Commit(ctx, "mem://test/dataset", 2, manifest2)
 	if err != nil {
@@ -511,9 +511,9 @@ func TestStoreFactory_CommitHandlerForMem(t *testing.T) {
 	handlerWithStore := NewMemoryCommitHandlerWithStore(store)
 
 	manifest := &Manifest{
-		Version:    1,
-		Fields:     []*storage2pb.Field{{Name: "col1", Id: 0}},
-		Fragments:  []*DataFragment{},
+		Version:   1,
+		Fields:    []*storage2pb.Field{{Name: "col1", Id: 0}},
+		Fragments: []*DataFragment{},
 	}
 
 	err = handlerWithStore.Commit(ctx, "mem://test/dataset", 1, manifest)

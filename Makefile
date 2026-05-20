@@ -14,6 +14,7 @@ help: ## Show this help
 	@echo "  make test-tpch-bench                  Full TPC-H benchmark: init + run all"
 	@echo "  make test-tpch-q Q=4                  Run TPC-H query 4 only"
 	@echo "  make test-tpch TPCH_DB=/path/to/db    Override DB path"
+	@echo "  make test-tpcds-init                  Init TPC-DS: create tables + load data"
 	@echo "  make test-tpcds-q Q=1                 Run TPC-DS query 1 only"
 	@echo ""
 
@@ -84,6 +85,7 @@ test-tpch-ddl: tester ## Create TPC-H tables (DDL only, no data)
 
 TPCDS_DB ?= $(CURDIR)/tpcds.db
 TPCDS_CONFIG ?= $(CURDIR)/etc/tpcds/tester.toml
+TPCDS_DATA_DIR ?= /home/pengzhen/Documents/tpcds/1G_clean
 
 .PHONY: test-tpcds
 test-tpcds: tester ## Run all 99 TPC-DS queries
@@ -94,9 +96,49 @@ test-tpcds-q: tester ## Run single TPC-DS query (make test-tpcds-q Q=1)
 	@if [ -n "$(Q)" ]; then TESTER_CONFIG_PATH=$(TPCDS_CONFIG) DB_PATH=$(TPCDS_DB) ./tester tpch1g --query_id $(Q) --need_headline false; else echo "Usage: make test-tpcds-q Q=<id>"; fi
 
 .PHONY: test-tpcds-ddl
-test-tpcds-ddl: tester ## Load TPC-DS DDL into database
-	@echo "Loading TPC-DS DDL..."
-	@TESTER_CONFIG_PATH=$(TPCDS_CONFIG) DB_PATH=$(TPCDS_DB) ./tester tpch1gddl --path $(CURDIR)/cases/tpcds/tpcds.sql
+test-tpcds-ddl: tester ## Create TPC-DS tables (DDL only, no data)
+	@echo "Creating TPC-DS tables..."
+	@DB_PATH=$(TPCDS_DB) ./tester tpch1gddl --path $(CURDIR)/cases/tpcds/tpcds.sql
+
+.PHONY: test-tpcds-load
+test-tpcds-load: tester ## Load TPC-DS data from .dat files (TPCDS_DATA_DIR)
+	@echo "Loading TPC-DS data from $(TPCDS_DATA_DIR)..."
+	@DB_PATH=$(TPCDS_DB) ./tester tpch1gddl --ddl "\
+	copy dbgen_version           from '$(TPCDS_DATA_DIR)/dbgen_version.dat'           with (FORMAT 'csv', DELIMITER '|'); \
+	copy customer_address        from '$(TPCDS_DATA_DIR)/customer_address.dat'        with (FORMAT 'csv', DELIMITER '|'); \
+	copy customer_demographics   from '$(TPCDS_DATA_DIR)/customer_demographics.dat'   with (FORMAT 'csv', DELIMITER '|'); \
+	copy date_dim                from '$(TPCDS_DATA_DIR)/date_dim.dat'                with (FORMAT 'csv', DELIMITER '|'); \
+	copy warehouse               from '$(TPCDS_DATA_DIR)/warehouse.dat'               with (FORMAT 'csv', DELIMITER '|'); \
+	copy ship_mode               from '$(TPCDS_DATA_DIR)/ship_mode.dat'               with (FORMAT 'csv', DELIMITER '|'); \
+	copy time_dim                from '$(TPCDS_DATA_DIR)/time_dim.dat'                with (FORMAT 'csv', DELIMITER '|'); \
+	copy reason                  from '$(TPCDS_DATA_DIR)/reason.dat'                  with (FORMAT 'csv', DELIMITER '|'); \
+	copy income_band             from '$(TPCDS_DATA_DIR)/income_band.dat'             with (FORMAT 'csv', DELIMITER '|'); \
+	copy item                    from '$(TPCDS_DATA_DIR)/item.dat'                    with (FORMAT 'csv', DELIMITER '|'); \
+	copy store                   from '$(TPCDS_DATA_DIR)/store.dat'                   with (FORMAT 'csv', DELIMITER '|'); \
+	copy call_center             from '$(TPCDS_DATA_DIR)/call_center.dat'             with (FORMAT 'csv', DELIMITER '|'); \
+	copy customer                from '$(TPCDS_DATA_DIR)/customer.dat'                with (FORMAT 'csv', DELIMITER '|'); \
+	copy web_site                from '$(TPCDS_DATA_DIR)/web_site.dat'                with (FORMAT 'csv', DELIMITER '|'); \
+	copy store_returns           from '$(TPCDS_DATA_DIR)/store_returns.dat'           with (FORMAT 'csv', DELIMITER '|'); \
+	copy household_demographics  from '$(TPCDS_DATA_DIR)/household_demographics.dat'  with (FORMAT 'csv', DELIMITER '|'); \
+	copy web_page                from '$(TPCDS_DATA_DIR)/web_page.dat'                with (FORMAT 'csv', DELIMITER '|'); \
+	copy promotion               from '$(TPCDS_DATA_DIR)/promotion.dat'               with (FORMAT 'csv', DELIMITER '|'); \
+	copy catalog_page            from '$(TPCDS_DATA_DIR)/catalog_page.dat'            with (FORMAT 'csv', DELIMITER '|'); \
+	copy inventory               from '$(TPCDS_DATA_DIR)/inventory.dat'               with (FORMAT 'csv', DELIMITER '|'); \
+	copy catalog_returns         from '$(TPCDS_DATA_DIR)/catalog_returns.dat'         with (FORMAT 'csv', DELIMITER '|'); \
+	copy web_returns             from '$(TPCDS_DATA_DIR)/web_returns.dat'             with (FORMAT 'csv', DELIMITER '|'); \
+	copy web_sales               from '$(TPCDS_DATA_DIR)/web_sales.dat'               with (FORMAT 'csv', DELIMITER '|'); \
+	copy catalog_sales           from '$(TPCDS_DATA_DIR)/catalog_sales.dat'           with (FORMAT 'csv', DELIMITER '|'); \
+	copy store_sales             from '$(TPCDS_DATA_DIR)/store_sales.dat'             with (FORMAT 'csv', DELIMITER '|');"
+
+.PHONY: test-tpcds-init
+test-tpcds-init: clean-data tester ## Init TPC-DS: drop old DB + create tables + load data
+	@echo "Creating TPC-DS database at $(TPCDS_DB)..."
+	@DB_PATH=$(TPCDS_DB) ./tester tpch1gddl --path $(CURDIR)/cases/tpcds/tpcds.sql
+	@$(MAKE) test-tpcds-load TPCDS_DB=$(TPCDS_DB) TPCDS_DATA_DIR=$(TPCDS_DATA_DIR)
+
+.PHONY: test-tpcds-bench
+test-tpcds-bench: test-tpcds-init ## Full TPC-DS benchmark: init + run all 99 queries
+	@$(MAKE) test-tpcds TPCDS_DB=$(TPCDS_DB)
 
 ############# Code Quality
 

@@ -18,12 +18,20 @@ package compute
 // Expression Rewriter Framework
 // Mirrors DuckDB ExpressionRewriter + Rule.
 //
-// Usage:
-//   rewriter := NewExpressionRewriter([]RewriteRule{
-//       &ArithmeticSimplificationRule{},
-//       &ConstantFoldingRule{},
-//   })
-//   rewritten := rewriter.Rewrite(expr)
+// ExpressionRewriter implements LogicalOperatorVisitor so it can
+// traverse a LogicalOperator tree and rewrite all expressions
+// within the visitor framework.
+//
+// Usage (standalone expression):
+//
+//	rewriter := NewExpressionRewriter([]RewriteRule{...})
+//	rewritten := rewriter.Rewrite(expr)
+//
+// Usage (whole plan via visitor):
+//
+//	rewriter := NewExpressionRewriter([]RewriteRule{...})
+//	rewriter.Self = rewriter
+//	rewriter.VisitOperator(root)
 // ============================================================
 
 // RewriteRule represents a single expression rewrite rule.
@@ -41,14 +49,48 @@ type RewriteRule interface {
 
 // ExpressionRewriter applies a set of rewrite rules to an expression tree
 // until a fixed point is reached (no more changes).
+// It also implements LogicalOperatorVisitor so it can traverse a plan tree
+// and rewrite all expressions in-place, mirroring DuckDB's approach.
 type ExpressionRewriter struct {
+	BaseVisitor
 	rules []RewriteRule
 }
 
 // NewExpressionRewriter creates a rewriter with the given rules.
+// Callers must set Self before using the visitor methods:
+//
+//	rw := NewExpressionRewriter(rules)
+//	rw.Self = rw
+//	rw.VisitOperator(root)
 func NewExpressionRewriter(rules []RewriteRule) *ExpressionRewriter {
 	return &ExpressionRewriter{rules: rules}
 }
+
+// --- LogicalOperatorVisitor implementation ---
+
+// VisitOperator overrides BaseVisitor.VisitOperator.
+// It first visits children (bottom-up), then visits all expressions
+// on the current operator. Mirrors DuckDB ExpressionRewriter::VisitOperator.
+func (rw *ExpressionRewriter) VisitOperator(op *LogicalOperator) {
+	rw.VisitOperatorChildren(op)
+	rw.VisitOperatorExpressions(op)
+}
+
+// VisitExpression overrides BaseVisitor.VisitExpression.
+// It applies all rewrite rules to the expression until a fixed point
+// is reached (no more changes). Mirrors DuckDB ExpressionRewriter::VisitExpression.
+func (rw *ExpressionRewriter) VisitExpression(expr **Expr) {
+	if expr == nil || *expr == nil || len(rw.rules) == 0 {
+		return
+	}
+	changed := true
+	for changed {
+		changed = false
+		*expr = rw.rewriteNode(*expr, &changed)
+	}
+}
+
+// --- Expression-level rewrite API ---
 
 // Rewrite applies all rules to the expression tree until no rule fires.
 // Rules are applied in a bottom-up order (children first, then parent).
