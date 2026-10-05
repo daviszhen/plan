@@ -177,16 +177,33 @@ public:
     return static_cast<T *>(sl._prev);
   }
 
+  // lookup a given element in the list
+  OPT_RESULT
+  Find(T *elem) const {
+    assert(NULL != elem);
+
+    // iterate until found
+    T *t = First();
+    while (t) {
+      if (elem == t) {
+        return OPT_OK;
+      }
+      t = Next(t);
+    }
+    return OPT_NOT_FOUND;
+  }
+
   uint32_t Size() const { return _size; }
 
   bool IsEmpty() const { return nullptr == First(); }
 };
 
-//not thread safe
+// not thread safe
+// stack
 template <typename T> class SyncList {
 private:
   List<T> _list;
-  SyncList(const SyncList &)=delete;
+  SyncList(const SyncList &) = delete;
 
 public:
   SyncList() {}
@@ -227,7 +244,7 @@ public:
       T *new_head = static_cast<T *>(link._next);
 
       assert(_list._head == old_head);
-      //reset head to next elem
+      // reset head to next elem
       _list._head = new_head;
       // reset link
       link._next = nullptr;
@@ -250,7 +267,6 @@ public:
 
   // check if list is empty
   bool IsEmpty() const { return nullptr == _list.First(); }
-
 };
 } // namespace opt
 

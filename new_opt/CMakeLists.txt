@@ -14,8 +14,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(NEW_OPT_BUILD_TESTS "Build the new_opt tests" ON)
 option(NEW_OPT_ENABLE_WARNINGS "Enable compiler warnings for new_opt targets" ON)
 
-# The implementation is currently header-only. Keeping an interface target
-# gives future .cpp files and downstream experiments one stable dependency.
+# Keep an interface target for headers and downstream experiments. The
+# scheduler implementation is linked directly into its unit-test executable.
 add_library(new_opt_headers INTERFACE)
 add_library(new_opt::headers ALIAS new_opt_headers)
 target_include_directories(new_opt_headers
@@ -37,8 +37,25 @@ if(NEW_OPT_BUILD_TESTS)
     )
     target_link_libraries(new_opt_list_tests PRIVATE new_opt::headers)
 
+    add_executable(new_opt_hashtable_tests
+        test/hashtable_test.cpp
+    )
+    target_link_libraries(new_opt_hashtable_tests PRIVATE new_opt::headers)
+
+    add_executable(new_opt_array_hashmap_tests
+        test/array_hashmap_test.cpp
+    )
+    target_link_libraries(new_opt_array_hashmap_tests PRIVATE new_opt::headers)
+
+    add_executable(new_opt_scheduler_tests
+        test/scheduler_test.cpp
+        src/job.cpp
+        src/scheduler.cpp
+    )
+    target_link_libraries(new_opt_scheduler_tests PRIVATE new_opt::headers)
+
     if(NEW_OPT_ENABLE_WARNINGS)
-        foreach(test_target IN ITEMS new_opt_smoke new_opt_list_tests)
+        foreach(test_target IN ITEMS new_opt_smoke new_opt_list_tests new_opt_hashtable_tests new_opt_array_hashmap_tests new_opt_scheduler_tests)
             if(MSVC)
                 target_compile_options(${test_target} PRIVATE /W4)
             else()
@@ -49,6 +66,9 @@ if(NEW_OPT_BUILD_TESTS)
 
     add_test(NAME new_opt_smoke COMMAND new_opt_smoke)
     add_test(NAME new_opt_list_tests COMMAND new_opt_list_tests)
+    add_test(NAME new_opt_hashtable_tests COMMAND new_opt_hashtable_tests)
+    add_test(NAME new_opt_array_hashmap_tests COMMAND new_opt_array_hashmap_tests)
+    add_test(NAME new_opt_scheduler_tests COMMAND new_opt_scheduler_tests)
 endif()
 
 include(GNUInstallDirs)

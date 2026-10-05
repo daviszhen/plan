@@ -20,7 +20,7 @@
 int main() {
     opt::SLink link;
     const bool link_is_empty = link._next == nullptr && link._prev == nullptr;
-    const auto runnable = opt::Scheduler::JobResultP::JobResult_Runnable;
+    const auto runnable = opt::Scheduler::EjrRunnable;
     const bool enum_is_stable = static_cast<std::uint32_t>(runnable) == 0;
     return link_is_empty && enum_is_stable ? 0 : 1;
 }
