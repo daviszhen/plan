@@ -1,3 +1,4 @@
+> Notes and experiments: [digitalitem.online](https://digitalitem.online)
 # plan
 单机事务数据库内核。
 
